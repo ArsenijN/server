@@ -1,0 +1,19 @@
+.backup/
+src/src.zip
+
+# Ignore secrets directory (contains keys, DBs, audit logs)
+src/secrets/real
+
+# Editor and system files
+.DS_Store
+Thumbs.db
+*.pyc
+__pycache__/
+
+# Env files
+.env
+
+# To avoid possible data leakage for now:
+scripts/
+.cache/
+services/

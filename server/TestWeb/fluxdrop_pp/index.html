@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FluxDrop</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/svg" sizes="32x32" href="icon.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f0f9ff; }
+        .card { background-color: white; border-radius: 1.5rem; box-shadow: 0 10px_20px_rgba(0,0,0,0.1); padding: 2rem; }
+        .btn { background-color: #3b82f6; color: white; padding: 0.75rem 1.5rem; border-radius: 0.75rem; font-weight: 600; transition: background-color 0.3s ease; cursor: pointer; border: none; }
+        .btn:hover { background-color: #2563eb; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background-color: white; border-radius: 1rem; padding: 2rem; width: 90%; max-width: 500px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Header -->
+    <header class="w-full max-w-5xl mb-4 flex justify-between items-center">
+        <h1 class="text-3xl font-bold text-blue-800 flex items-center">
+            <img src="icon.svg" class="h-8 w-8 mr-2 inline" alt="FluxDrop logo">
+            FluxDrop
+        </h1>
+        <div id="auth-controls">
+            <!-- Populated by JS -->
+        </div>
+    </header>
+
+    <main id="app-root" class="w-full max-w-5xl">
+        <!-- App content is rendered here by JS -->
+    </main>
+
+    <!-- Message Modal -->
+    <div id="message-modal" class="modal-overlay hidden">
+        <div class="modal-content text-center">
+            <h3 id="message-modal-title" class="text-xl font-semibold mb-4"></h3>
+            <p id="message-modal-content" class="mb-6"></p>
+            <button class="btn w-full" onclick="hideModal('message-modal')">OK</button>
+        </div>
+    </div>
+
+    <script>
+        // ======================================================================
+        // --- CONFIGURATION ---
+        // ======================================================================
+        // Prefer HTTPS, but fall back to HTTP if HTTPS is unreachable
+const API_HTTPS = `https://${window.location.hostname}:64800`;
+const API_HTTP  = `http://${window.location.hostname}:63512`;
+
+// Pick a sensible base URL depending on how the page was loaded.  We
+// default to the same protocol in order to avoid mixed‑content issues when
+// the UI is served over plain HTTP, and we also provide a fallback helper
+// that can switch protocols if the HTTPS endpoint is unreachable.
+let API_BASE_URL = (window.location.protocol === 'https:' ? API_HTTPS : API_HTTP);
+
+// helpers ----------------------------------------------------------------
+// convert an internal path (which may contain ?, ', etc.) into a portion of
+// a URL without confusing the browser.  This leaves leading slashes intact.
+function encodePath(p) {
+    if (p === '/') return '/';
+    return p.split('/').map(encodeURIComponent).join('/');
+}
+
+// helpers for escaping values used in HTML attributes and JS code
+function escapeHtmlAttr(str) {
+    return str.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+}
+
+// safely produce a JavaScript string literal for use inside JS code (not
+// attributes).  JSON.stringify already escapes as needed, and we also escape
+// apostrophes so the result is safe inside either quote style.
+function safeJs(str) {
+    return JSON.stringify(str).replace(/'/g, "\\'");
+}
+
+async function fetchWithFallback(url, options) {
+    try {
+        return await fetch(url, options);
+    } catch (err) {
+        // Network-level failure.
+        // If the page itself is loaded over HTTPS, don't attempt an HTTP fallback (browser will block mixed content).
+        console.warn('Fetch failed:', err);
+        if (window.location.protocol === 'http:') {
+            try {
+                API_BASE_URL = API_HTTP;
+                const altUrl = url.replace(API_HTTPS, API_HTTP);
+                return await fetch(altUrl, options);
+            } catch (err2) {
+                throw err2;
+            }
+        }
+        throw err;
+    }
+}
+
+
+        // ======================================================================
+        // --- GLOBAL STATE & DOM ELEMENTS ---
+        // ======================================================================
+        const appRoot = document.getElementById('app-root');
+        const authControls = document.getElementById('auth-controls');
+
+    let authToken = localStorage.getItem('fluxdrop_token');
+    let currentUsername = localStorage.getItem('fluxdrop_username');
+    // Track the currently viewed path in the file browser (always starts at root)
+    let currentPath = '/';
+
+        // ======================================================================
+        // --- UTILITY FUNCTIONS ---
+        // ======================================================================
+        function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        // strip an internal prefix such as "/FluxDrop/3/" from a path for display
+        function stripInternalPrefix(path) {
+            return path.replace(/^\/FluxDrop\/\d+\//, '/');
+        }
+
+        function showMessage(title, content) {
+            document.getElementById('message-modal-title').textContent = title;
+            document.getElementById('message-modal-content').textContent = content;
+            showModal('message-modal');
+        }
+
+        async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = true) {
+            const headers = new Headers({ 'Content-Type': 'application/json' });
+            if (requiresAuth) {
+                if (!authToken) throw new Error("Authentication token not found.");
+                headers.set('Authorization', `Bearer ${authToken}`);
+            }
+
+            const options = { method, headers };
+            if (body) options.body = JSON.stringify(body);
+
+            try {
+                // Use the helper which can automatically fall back to HTTP when
+                // running from an insecure page and the HTTPS server isn't
+                // reachable.  This also ensures we don't accidentally hit a
+                // mixed‑content block in the browser.
+                const response = await fetchWithFallback(`${API_BASE_URL}${endpoint}`, options);
+                const responseData = await response.json();
+                if (!response.ok) {
+                    throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
+                }
+                return responseData;
+            } catch (error) {
+                console.error('API Call Error:', error);
+                throw error;
+            }
+        }
+
+        // ======================================================================
+        // --- UI RENDERING & ROUTING ---
+        // ======================================================================
+        function renderAuthControls() {
+            if (authToken) {
+                authControls.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <span class="font-medium">Welcome, ${currentUsername}!</span>
+                        <button id="logout-btn" class="btn bg-red-500 hover:bg-red-600 text-sm">Logout</button>
+                    </div>
+                `;
+                document.getElementById('logout-btn').addEventListener('click', handleLogout);
+            } else {
+                authControls.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <button id="show-login-btn" class="btn text-sm">Login</button>
+                        <button id="show-register-btn" class="btn bg-green-500 hover:bg-green-600 text-sm">Register</button>
+                    </div>
+                `;
+                document.getElementById('show-login-btn').addEventListener('click', () => renderApp('login'));
+                document.getElementById('show-register-btn').addEventListener('click', () => renderApp('register'));
+            }
+        }
+        
+        function renderApp(route = 'login') {
+            renderAuthControls();
+            if (!authToken) {
+                if (route === 'register') renderRegisterView();
+                else renderLoginView();
+                return;
+            }
+            // If authenticated, render the main app view (file browser)
+renderFileBrowserView();
+
+        }
+
+        function renderLoginView() {
+            appRoot.innerHTML = `
+                <div class="card">
+                    <h2 class="text-2xl font-semibold mb-6 text-center text-blue-800">Login</h2>
+                    <form id="login-form" class="space-y-4">
+                        <input type="text" id="username" class="w-full p-3 border rounded-lg" placeholder="Username" required>
+                        <input type="password" id="password" class="w-full p-3 border rounded-lg" placeholder="Password" required>
+                        <button type="submit" class="btn w-full">Login</button>
+                    </form>
+                </div>
+            `;
+            document.getElementById('login-form').addEventListener('submit', handleLogin);
+        }
+
+        function renderRegisterView() {
+            appRoot.innerHTML = `
+                <div class="card">
+                    <h2 class="text-2xl font-semibold mb-6 text-center text-blue-800">Register</h2>
+                    <form id="register-form" class="space-y-4">
+                        <input type="text" id="reg-username" class="w-full p-3 border rounded-lg" placeholder="Username (for login)" required>
+                        <input type="text" id="reg-nickname" class="w-full p-3 border rounded-lg" placeholder="Nickname (publicly visible)" required>
+                        <input type="email" id="reg-email" class="w-full p-3 border rounded-lg" placeholder="Email Address" required>
+                        <input type="password" id="reg-password" class="w-full p-3 border rounded-lg" placeholder="Password" required>
+                        <button type="submit" class="btn w-full">Register</button>
+                    </form>
+                </div>
+            `;
+            document.getElementById('register-form').addEventListener('submit', handleRegister);
+        }
+        
+        function renderFileBrowserView() {
+            // Simple file browser UI: listing, upload, create folder, rename, delete, preview
+            appRoot.innerHTML = `
+                <div class="card">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-2xl font-semibold text-blue-800">File Browser</h2>
+                        <div class="flex gap-2">
+                            <button id="btn-up" class="btn bg-gray-300 text-black text-sm">Up</button>
+                            <button id="btn-refresh" class="btn text-sm">Refresh</button>
+                            <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm">New Folder</button>
+                            <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm">Browse CDN</button>
+                        </div>
+                    </div>
+
+                    <div id="path-breadcrumb" class="text-sm text-gray-600 mb-4"></div>
+
+                    <div class="mb-4">
+                        <form id="upload-form" class="flex gap-2 items-center">
+                            <input type="file" id="upload-file" class="p-2 border rounded" />
+                            <label class="text-sm"><input type="checkbox" id="upload-protected" /> Protected</label>
+                            <button class="btn" type="submit">Upload</button>
+                        </form>
+                    </div>
+
+                    <div id="file-list" class="mt-4"></div>
+                </div>
+            `;
+
+            document.getElementById('btn-refresh').addEventListener('click', () => loadDirectory(currentPath));
+            document.getElementById('btn-up').addEventListener('click', () => {
+                if (currentPath === '/' || currentPath === '/cdn') return;
+                // strip trailing slash
+                let p = currentPath.replace(/\/+$/, '');
+                let idx = p.lastIndexOf('/');
+                if (idx <= 0) p = '/'; else p = p.slice(0, idx);
+                currentPath = p;
+                loadDirectory(currentPath);
+            });
+            document.getElementById('btn-create-folder').addEventListener('click', promptCreateFolder);
+            document.getElementById('btn-browse-cdn').addEventListener('click', () => { currentPath = '/cdn'; loadDirectory(currentPath); });
+            document.getElementById('upload-form').addEventListener('submit', handleUploadForm);
+
+            // Initial load
+            loadDirectory(currentPath);
+        }
+
+        // Helper: build API path segment
+        function apiPathFor(path) {
+            // path should start with '/'
+            if (!path) path = '/';
+            if (!path.startsWith('/')) path = '/' + path;
+            return `/api/v1/list${encodePath(path)}`;
+        }
+
+        async function loadDirectory(path) {
+            const fileList = document.getElementById('file-list');
+            const breadcrumb = document.getElementById('path-breadcrumb');
+            // Normalize path
+            if (!path) path = '/';
+            if (!path.startsWith('/')) path = '/' + path;
+            currentPath = path;
+            breadcrumb.textContent = `Path: ${path}`;
+            fileList.innerHTML = `<p class="text-sm text-gray-500">Loading...</p>`;
+            try {
+                const endpoint = path === '/' ? '/api/v1/list/' : `/api/v1/list${encodePath(path)}`;
+                const data = await apiCall(endpoint, 'GET', null, true);
+                const entries = data.entries || [];
+                if (entries.length === 0) {
+                    fileList.innerHTML = `<p class="text-sm text-gray-600">(empty)</p>`;
+                    return;
+                }
+                const rows = entries.map(e => renderEntryRow(e)).join('');
+                fileList.innerHTML = `<table class="w-full text-left"><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+                attachRowListeners();
+            } catch (err) {
+                fileList.innerHTML = `<p class="text-sm text-red-600">Failed to load directory: ${err.message}</p>`;
+            }
+        }
+
+        function renderEntryRow(e) {
+            const nameEsc = e.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const path = e.path;
+            const size = e.is_dir ? '-' : `${(e.size/1024).toFixed(1)} KB`;
+            const safePathAttr = escapeHtmlAttr(path);
+            const actions = e.is_dir ?
+                `<button class="btn text-sm open-btn" data-path="${safePathAttr}">Open</button>` :
+                `<button class="btn text-sm download-btn" data-path="${safePathAttr}">Download</button>` +
+                ` <button class="btn bg-yellow-500 text-sm preview-btn" data-path="${safePathAttr}">Preview</button>`;
+            // if the entry has an uploader field (CDN listing), show it under the name
+            let nameCell = nameEsc;
+            if (e.uploader) {
+                const userEsc = e.uploader.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                nameCell += `<br><span class="text-xs text-gray-500">by ${userEsc}</span>`;
+            }
+            return `<tr class="border-t"><td>${nameCell}</td><td>${size}</td><td>${e.mtime}</td><td>${actions} <button class="btn bg-red-500 text-sm delete-btn" data-path="${escapeHtmlAttr(path)}">Delete</button> <button class="btn bg-gray-300 text-sm rename-btn" data-path="${escapeHtmlAttr(path)}">Rename</button></td></tr>`;
+        }
+
+        // Expose some functions globally for callers; listeners will invoke these.
+        window.enterDir = function(path) {
+            // Navigate into a directory and update currentPath
+            loadDirectory(path);
+        }
+
+        window.downloadFile = function(path) {
+            // Route through the FluxDrop API download endpoint.  Read the token
+            // straight from localStorage so we don't rely on a possibly stale
+            // global variable.
+            const url = `${API_BASE_URL}/api/v1/download${encodePath(path)}`;
+            const token = localStorage.getItem('fluxdrop_token');
+            // Pass token via query parameter since new window won't include headers
+            const urlWithToken = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+            window.open(urlWithToken, '_blank');
+        }
+
+        window.previewText = async function(path) {
+            try {
+                const url = `${API_BASE_URL}/api/v1/download${encodePath(path)}`;
+                const token = localStorage.getItem('fluxdrop_token');
+                const urlWithToken = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+                const resp = await fetchWithFallback(urlWithToken);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const text = await resp.text();
+                showMessage('Preview: ' + path, text.slice(0, 4000));
+            } catch (err) {
+                showMessage('Preview failed', String(err));
+            }
+        }
+
+        // After the table is inserted we need to hook up click handlers for the
+        // various buttons.  We read the path from the `data-path` attribute, so
+        // we no longer need to worry about quoting/escaping in the HTML.
+        function attachRowListeners() {
+            document.querySelectorAll('#file-list .open-btn').forEach(btn => {
+                btn.addEventListener('click', () => enterDir(btn.dataset.path));
+            });
+            document.querySelectorAll('#file-list .download-btn').forEach(btn => {
+                btn.addEventListener('click', () => downloadFile(btn.dataset.path));
+            });
+            document.querySelectorAll('#file-list .preview-btn').forEach(btn => {
+                btn.addEventListener('click', () => previewText(btn.dataset.path));
+            });
+            document.querySelectorAll('#file-list .delete-btn').forEach(btn => {
+                btn.addEventListener('click', () => deleteItem(btn.dataset.path));
+            });
+            document.querySelectorAll('#file-list .rename-btn').forEach(btn => {
+                btn.addEventListener('click', () => promptRename(btn.dataset.path));
+            });
+        }
+
+        window.deleteItem = async function(path) {
+            const disp = stripInternalPrefix(path);
+            if (!confirm('Delete ' + disp + '?')) return;
+            try {
+                await apiCall('/api/v1/delete', 'POST', { paths: [path] });
+                showMessage('Deleted', disp);
+                loadDirectory(currentPath);
+            } catch (err) {
+                showMessage('Delete failed', err.message);
+            }
+        }
+
+        window.promptRename = function(path) {
+            const disp = stripInternalPrefix(path);
+            const newName = prompt('New name (relative to same folder):', disp);
+            if (!newName) return;
+            apiCall('/api/v1/rename', 'POST', { old: path, new: newName }).then(() => { showMessage('Renamed', ''); loadDirectory(currentPath); }).catch(e => showMessage('Rename failed', e.message));
+        }
+
+        async function promptCreateFolder() {
+            const name = prompt('Folder name (relative to current folder):', 'NewFolder');
+            if (!name) return;
+            try {
+                // Use the new mkdir API to create the folder directly under the current path.
+                // Ensure we join paths correctly.
+                let targetPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
+                await apiCall('/api/v1/mkdir', 'POST', { path: targetPath }, true);
+                showMessage('Folder created', name);
+                loadDirectory(currentPath);
+            } catch (err) {
+                // Fallback to placeholder upload if mkdir fails for some reason
+                try {
+                    const fd = new FormData();
+                    fd.append('fileToUpload', new Blob(['']), '.placeholder');
+                    // Upload placeholder into the target directory (fallback)
+                    let endpointPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
+                    const endpoint = `/api/v1/upload/${encodePath(endpointPath)}`;
+                    await uploadFormData(endpoint, fd);
+                    showMessage('Folder created (via fallback)', name);
+                    loadDirectory(currentPath);
+                } catch (err2) {
+                    showMessage('Create folder failed', err.message || String(err2));
+                }
+            }
+        }
+
+        async function handleUploadForm(e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('upload-file');
+            if (!fileInput.files.length) { showMessage('Upload', 'No file selected'); return; }
+            const file = fileInput.files[0];
+            const protectedCheckbox = document.getElementById('upload-protected');
+            const fd = new FormData();
+            fd.append('fileToUpload', file, file.name);
+            if (protectedCheckbox.checked) fd.append('protected', '1');
+            try {
+                // Upload to the current path
+                const endpoint = `/api/v1/upload${encodePath(currentPath)}`;
+                const res = await uploadFormData(endpoint, fd);
+                showMessage('Upload successful', JSON.stringify(res));
+                loadDirectory(currentPath);
+            } catch (err) {
+                showMessage('Upload failed', err.message || String(err));
+            }
+        }
+
+        async function uploadFormData(endpoint, formData) {
+            const headers = {};
+            if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+            // Attempt HTTPS then fallback
+            try {
+                const r = await fetch(`${API_BASE_URL}${endpoint}`, { method: 'POST', body: formData, headers });
+                if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
+                const text = await r.text();
+                try { return JSON.parse(text); } catch { return text; }
+            } catch (e) {
+                // Try HTTP fallback
+                const alt = `${API_HTTP}${endpoint}`;
+                const r = await fetch(alt, { method: 'POST', body: formData, headers });
+                if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
+                const text = await r.text();
+                try { return JSON.parse(text); } catch { return text; }
+            }
+        }
+
+
+        // ======================================================================
+        // --- EVENT HANDLERS & LOGIC ---
+        // ======================================================================
+        async function handleRegister(e) {
+            e.preventDefault();
+            const username = document.getElementById('reg-username').value;
+            const nickname = document.getElementById('reg-nickname').value;
+            const email = document.getElementById('reg-email').value;
+            const password = document.getElementById('reg-password').value;
+
+            try {
+                const data = await apiCall('/auth/register', 'POST', { username, nickname, email, password }, false);
+                showMessage('Registration Success', data.message);
+                renderApp('login'); // Show login form after successful registration message
+            } catch (error) {
+                showMessage('Registration Failed', error.message);
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const data = await apiCall('/auth/login', 'POST', { username, password }, false);
+                authToken = data.token;
+                currentUsername = data.username;
+                localStorage.setItem('fluxdrop_token', authToken);
+                localStorage.setItem('fluxdrop_username', currentUsername);
+                renderApp(); // Re-render the app in its logged-in state
+            } catch (error) {
+                showMessage('Login Failed', error.message);
+            }
+        }
+
+        async function handleLogout() {
+            try {
+                await apiCall('/auth/logout', 'POST');
+            } catch (error) {
+                console.error("Logout failed on server, but logging out client-side anyway.", error);
+            } finally {
+                authToken = null;
+                currentUsername = null;
+                localStorage.removeItem('fluxdrop_token');
+                localStorage.removeItem('fluxdrop_username');
+                renderApp();
+            }
+        }
+
+        // ======================================================================
+        // --- INITIALIZATION ---
+        // ======================================================================
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check if user was redirected from a verification link
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('verified')) {
+                showMessage('Verification Successful', 'Your account is verified. Please log in.');
+                // Clean the URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+            renderApp();
+        });
+    </script>
+</body>
+</html>

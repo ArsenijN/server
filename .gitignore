@@ -2,7 +2,8 @@
 src/src.zip
 
 # Ignore secrets directory (contains keys, DBs, audit logs)
-src/secrets/real
+server/Web/secrets
+!server/Web/secrets/samples
 
 # Editor and system files
 .DS_Store
@@ -17,3 +18,11 @@ __pycache__/
 scripts/
 .cache/
 services/
+
+.vscode/
+
+# Temporarely keep FluxDrop out of scope due to some quality reasons
+src/FluxDrop site/
+
+# not sure
+src/generate_token.py

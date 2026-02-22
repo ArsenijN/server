@@ -12,13 +12,16 @@ from werkzeug.formparser import parse_form_data # For parsing multipart/form-dat
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, current_blacklist, blacklist_lock, stop_update_event
-from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY
+from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN
 
 # --- Configuration ---
 # Read bind IP and SSL port from environment. Default to 0.0.0.0 and non-privileged 8443.
 HTTPS_PORT = int(os.getenv('HTTPS_PORT', os.getenv('SSL_PORT', os.getenv('SERVER_PORT', '8443'))))
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
 BLACKLIST_UPDATE_INTERVAL = 60 # seconds
+
+# Port of the CDN server (server_cdn.py) — share links redirect there.
+CDN_HTTPS_PORT = int(os.getenv('CDN_HTTPS_PORT', '64800'))
 
 # --- File Upload Security Settings ---
 MAX_FILE_SIZE = 5 * 1024 * 1024 # 5 MB in bytes
@@ -105,6 +108,22 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         client_ip = self.client_address[0]
         requested_path = self.path
         print(f"Request from: {client_ip} -> {requested_path}")
+
+        # --- Share link redirect ---
+        # /share/<token>[/...] → CDN server which owns all FluxDrop share logic.
+        # This lets people share clean links like https://arseniusgen.uk.to/share/TOKEN
+        # which transparently forward to the CDN port that has the actual handler.
+        import re as _re
+        _share_m = _re.match(r'^(/share/[A-Za-z0-9_\-]+(?:/.*)?)', requested_path.split('?')[0])
+        if _share_m:
+            # Preserve the path and any query string
+            _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
+            _target = f"https://{PUBLIC_DOMAIN}:{CDN_HTTPS_PORT}{_share_m.group(1)}{_qs}"
+            self.send_response(302)   # 302 so expiry/revoke changes reflect immediately
+            self.send_header('Location', _target)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
 
         with blacklist_lock:
             if client_ip in current_blacklist:

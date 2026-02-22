@@ -42,3 +42,9 @@ user feedback or ideas for future development.
     leaving example/sample files in source control.
 
 Feel free to break these into issues or milestones as work proceeds.
+
+Own list for ToDo:
+
+- [x] **Safe download links**: use special tokens to download the files, not the user token
+
+Aaaaand a lot more since I made a lot of changes in code and forgot to actually capture them in changes :)

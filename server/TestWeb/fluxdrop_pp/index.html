@@ -164,12 +164,19 @@ async function fetchWithFallback(url, options) {
         function renderAuthControls() {
             if (authToken) {
                 authControls.innerHTML = `
-                    <div class="flex items-center gap-4">
-                        <span class="font-medium">Welcome, ${currentUsername}!</span>
+                    <div class="flex items-center gap-3">
+                        <span class="font-medium text-blue-900">Welcome, ${currentUsername}!</span>
+                        <button id="profile-btn" title="Profile & Settings"
+                            style="width:36px;height:36px;border-radius:50%;background:#3b82f6;border:2px solid #93c5fd;
+                                   color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+                                   transition:background .2s;" onmouseenter="this.style.background='#2563eb'" onmouseleave="this.style.background='#3b82f6'">
+                            👤
+                        </button>
                         <button id="logout-btn" class="btn bg-red-500 hover:bg-red-600 text-sm">Logout</button>
                     </div>
                 `;
                 document.getElementById('logout-btn').addEventListener('click', handleLogout);
+                document.getElementById('profile-btn').addEventListener('click', openProfileMenu);
             } else {
                 authControls.innerHTML = `
                     <div class="flex items-center gap-4">
@@ -181,7 +188,7 @@ async function fetchWithFallback(url, options) {
                 document.getElementById('show-register-btn').addEventListener('click', () => renderApp('register'));
             }
         }
-        
+
         function renderApp(route = 'login') {
             renderAuthControls();
             if (!authToken) {
@@ -223,7 +230,7 @@ renderFileBrowserView();
             `;
             document.getElementById('register-form').addEventListener('submit', handleRegister);
         }
-        
+
         function renderFileBrowserView() {
             // Simple file browser UI: listing, upload, create folder, rename, delete, preview
             appRoot.innerHTML = `
@@ -308,10 +315,11 @@ renderFileBrowserView();
             const path = e.path;
             const size = e.is_dir ? '-' : `${(e.size/1024).toFixed(1)} KB`;
             const safePathAttr = escapeHtmlAttr(path);
+            const shareBtn = `<button class="btn bg-purple-500 text-sm share-btn" data-path="${safePathAttr}" data-isdir="${e.is_dir ? '1' : '0'}" style="background:#8b5cf6">Share</button>`;
             const actions = e.is_dir ?
-                `<button class="btn text-sm open-btn" data-path="${safePathAttr}">Open</button>` :
+                `<button class="btn text-sm open-btn" data-path="${safePathAttr}">Open</button> ${shareBtn}` :
                 `<button class="btn text-sm download-btn" data-path="${safePathAttr}">Download</button>` +
-                ` <button class="btn bg-yellow-500 text-sm preview-btn" data-path="${safePathAttr}">Preview</button>`;
+                ` <button class="btn bg-yellow-500 text-sm preview-btn" data-path="${safePathAttr}">Preview</button> ${shareBtn}`;
             // if the entry has an uploader field (CDN listing), show it under the name
             let nameCell = nameEsc;
             if (e.uploader) {
@@ -327,23 +335,288 @@ renderFileBrowserView();
             loadDirectory(path);
         }
 
-        window.downloadFile = function(path) {
-            // Route through the FluxDrop API download endpoint.  Read the token
-            // straight from localStorage so we don't rely on a possibly stale
-            // global variable.
-            const url = `${API_BASE_URL}/api/v1/download${encodePath(path)}`;
-            const token = localStorage.getItem('fluxdrop_token');
-            // Pass token via query parameter since new window won't include headers
-            const urlWithToken = token ? `${url}?token=${encodeURIComponent(token)}` : url;
-            window.open(urlWithToken, '_blank');
+
+        // ======================================================================
+        // --- DOWNLOAD MANAGER (resumable, progress-tracked) ---
+        // NOTE: renderDownloadTray uses stable DOM patching so button clicks are
+        // never lost mid-stream (no full innerHTML replacement while downloading).
+        // ======================================================================
+        // Active downloads map: path -> { dlToken, totalSize, bytesReceived,
+        //   chunks[], abortController, status, filename }
+        const activeDownloads = new Map();
+
+        // Render (or update) the floating download tray.
+        // Uses stable DOM patching: the tray container and each row are only
+        // created once; subsequent calls only update text/bar/class values so
+        // buttons are never re-created mid-click.
+        function renderDownloadTray() {
+            let tray = document.getElementById('dl-tray');
+            if (!tray) {
+                tray = document.createElement('div');
+                tray.id = 'dl-tray';
+                tray.style.cssText = `
+                    position:fixed; bottom:0; right:1rem; width:340px; max-height:60vh;
+                    overflow-y:auto; background:#1e293b; border-radius:12px 12px 0 0;
+                    box-shadow:0 -4px 24px rgba(0,0,0,0.4); z-index:9000;
+                    font-family:Inter,sans-serif; font-size:13px; color:#e2e8f0;
+                `;
+                document.body.appendChild(tray);
+            }
+
+            if (activeDownloads.size === 0) {
+                tray.innerHTML = '';
+                return;
+            }
+
+            // --- Header (create once) ---
+            let header = tray.querySelector('.dl-tray-header');
+            if (!header) {
+                header = document.createElement('div');
+                header.className = 'dl-tray-header';
+                header.style.cssText = 'padding:10px 14px 6px;font-weight:700;font-size:14px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;';
+                header.innerHTML = `<span class="dl-count"></span><span style="cursor:pointer;opacity:.6" id="dl-tray-close">✕</span>`;
+                tray.prepend(header);
+                header.querySelector('#dl-tray-close').addEventListener('click', () => { tray.innerHTML = ''; });
+            }
+            header.querySelector('.dl-count').textContent = `📥 Downloads (${activeDownloads.size})`;
+
+            // Remove rows for finished+dismissed entries
+            tray.querySelectorAll('.dl-row').forEach(row => {
+                if (!activeDownloads.has(row.dataset.dlPath)) row.remove();
+            });
+
+            // Create or update one row per active download
+            for (const [path, dl] of activeDownloads) {
+                const pct = dl.totalSize ? Math.round(dl.bytesReceived / dl.totalSize * 100) : 0;
+                const recv = formatBytes(dl.bytesReceived);
+                const total = dl.totalSize ? formatBytes(dl.totalSize) : '?';
+                const name = dl.filename || path.split('/').pop();
+
+                let row = tray.querySelector(`.dl-row[data-dl-path="${CSS.escape(path)}"]`);
+                if (!row) {
+                    // Build the row skeleton once
+                    row = document.createElement('div');
+                    row.className = 'dl-row';
+                    row.dataset.dlPath = path;
+                    row.style.cssText = 'padding:10px 14px;border-bottom:1px solid #1e293b';
+                    row.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                            <span class="dl-name" title="${name}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px"></span>
+                            <span class="dl-bytes" style="color:#94a3b8"></span>
+                        </div>
+                        <div style="background:#334155;border-radius:4px;height:6px;margin-bottom:6px">
+                            <div class="dl-bar" style="background:#3b82f6;height:6px;border-radius:4px;width:0%;transition:width .3s"></div>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                            <span class="dl-status" style="color:#64748b"></span>
+                            <div class="dl-actions"></div>
+                        </div>`;
+                    tray.appendChild(row);
+
+                    // Wire up stable button references stored on the row element
+                    const actionsDiv = row.querySelector('.dl-actions');
+
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.textContent = 'Cancel';
+                    cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
+                    cancelBtn.addEventListener('click', () => cancelDownload(path));
+
+                    const resumeBtn = document.createElement('button');
+                    resumeBtn.textContent = 'Resume';
+                    resumeBtn.style.cssText = 'background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
+                    resumeBtn.addEventListener('click', () => resumeDownload(encodeURIComponent(path)));
+
+                    const pauseCancelBtn = document.createElement('button');
+                    pauseCancelBtn.textContent = 'Cancel';
+                    pauseCancelBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
+                    pauseCancelBtn.addEventListener('click', () => cancelDownload(path));
+
+                    const dismissBtn = document.createElement('button');
+                    dismissBtn.textContent = 'Dismiss';
+                    dismissBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
+                    dismissBtn.addEventListener('click', () => { activeDownloads.delete(path); renderDownloadTray(); });
+
+                    row._btns = { cancelBtn, resumeBtn, pauseCancelBtn, dismissBtn, actionsDiv };
+                }
+
+                // Update dynamic fields
+                const statusMap = { downloading: '⬇', paused: '⏸', error: '⚠', done: '✅' };
+                row.querySelector('.dl-name').textContent = (statusMap[dl.status] || '') + ' ' + name;
+                row.querySelector('.dl-bytes').textContent = `${recv} / ${total}`;
+                row.querySelector('.dl-bar').style.width = pct + '%';
+                row.querySelector('.dl-status').textContent = dl.status;
+
+                // Swap action buttons without re-creating them
+                const { actionsDiv, cancelBtn, resumeBtn, pauseCancelBtn, dismissBtn } = row._btns;
+                actionsDiv.innerHTML = '';
+                if (dl.status === 'downloading') {
+                    actionsDiv.appendChild(cancelBtn);
+                } else if (dl.status === 'paused' || dl.status === 'error') {
+                    actionsDiv.appendChild(resumeBtn);
+                    actionsDiv.appendChild(pauseCancelBtn);
+                } else if (dl.status === 'done') {
+                    actionsDiv.appendChild(dismissBtn);
+                }
+            }
+        }
+
+        function formatBytes(b) {
+            if (b < 1024) return b + ' B';
+            if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+            if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+            return (b/1073741824).toFixed(2) + ' GB';
+        }
+
+        // Mint a download token from the server
+        async function mintDownloadToken(path) {
+            const data = await apiCall('/api/v1/download_token', 'POST', { path });
+            return data; // { download_token, path, expires_in, total_size, bytes_confirmed }
+        }
+
+        // Core streaming download — starts from `resumeFrom` bytes
+        async function streamDownload(path, dl) {
+            dl.status = 'downloading';
+            dl.abortController = new AbortController();
+            renderDownloadTray();
+
+            try {
+                const urlPath = `/api/v1/download${encodePath(path)}`;
+                const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(dl.dlToken)}`;
+
+                const headers = {};
+                if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+                if (dl.bytesReceived > 0) {
+                    headers['Range'] = `bytes=${dl.bytesReceived}-`;
+                }
+
+                const resp = await fetchWithFallback(dlUrl, {
+                    headers,
+                    signal: dl.abortController.signal
+                });
+
+                if (!resp.ok && resp.status !== 206) {
+                    throw new Error(`Server returned ${resp.status}`);
+                }
+
+                // Update total size from Content-Range if we resumed
+                const cr = resp.headers.get('Content-Range');
+                if (cr) {
+                    const m = cr.match(/bytes \d+-\d+\/(\d+)/);
+                    if (m) dl.totalSize = parseInt(m[1]);
+                } else {
+                    const cl = resp.headers.get('Content-Length');
+                    if (cl) dl.totalSize = parseInt(cl);
+                }
+                renderDownloadTray();
+
+                const reader = resp.body.getReader();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    dl.chunks.push(value);
+                    dl.bytesReceived += value.byteLength;
+                    renderDownloadTray();
+                }
+
+                // Stitch all chunks and trigger browser save
+                const blob = new Blob(dl.chunks);
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = dl.filename;
+                a.click();
+                URL.revokeObjectURL(a.href);
+
+                dl.status = 'done';
+                renderDownloadTray();
+
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    dl.status = 'paused';
+                } else {
+                    console.error('Download error:', err);
+                    dl.status = 'error';
+                    dl.error = err.message;
+                }
+                renderDownloadTray();
+            }
+        }
+
+        window.downloadFile = async function(path) {
+            if (activeDownloads.has(path)) {
+                // Already tracked — just re-render tray
+                renderDownloadTray();
+                return;
+            }
+            try {
+                const tokenData = await mintDownloadToken(path);
+                const dl = {
+                    dlToken: tokenData.download_token,
+                    totalSize: tokenData.total_size || null,
+                    bytesReceived: 0,
+                    chunks: [],
+                    filename: path.split('/').pop(),
+                    status: 'downloading',
+                    abortController: null,
+                    error: null
+                };
+                activeDownloads.set(path, dl);
+                renderDownloadTray();
+                await streamDownload(path, dl);
+            } catch (err) {
+                showMessage('Download failed', err.message);
+            }
+        }
+
+        window.resumeDownload = async function(safePath) {
+            const path = decodeURIComponent(safePath);
+            const dl = activeDownloads.get(path);
+            if (!dl) return;
+            try {
+                // Re-mint a fresh token (old one may have expired)
+                const tokenData = await mintDownloadToken(path);
+                dl.dlToken = tokenData.download_token;
+                // server bytes_confirmed is the authoritative resume point;
+                // if our in-memory bytesReceived is less, trust the smaller value
+                // to avoid gaps. If more, keep ours (server may have restarted).
+                const serverConfirmed = tokenData.bytes_confirmed || 0;
+                if (serverConfirmed < dl.bytesReceived) {
+                    // Trim chunks back to serverConfirmed
+                    let kept = 0;
+                    const trimmed = [];
+                    for (const chunk of dl.chunks) {
+                        if (kept >= serverConfirmed) break;
+                        if (kept + chunk.byteLength <= serverConfirmed) {
+                            trimmed.push(chunk);
+                            kept += chunk.byteLength;
+                        } else {
+                            trimmed.push(chunk.slice(0, serverConfirmed - kept));
+                            kept = serverConfirmed;
+                        }
+                    }
+                    dl.chunks = trimmed;
+                    dl.bytesReceived = kept;
+                }
+                await streamDownload(path, dl);
+            } catch (err) {
+                showMessage('Resume failed', err.message);
+            }
+        }
+
+        window.cancelDownload = function(path) {
+            // path may be raw or encoded — normalise
+            try { path = decodeURIComponent(path); } catch(e) {}
+            const dl = activeDownloads.get(path);
+            if (dl && dl.abortController) dl.abortController.abort();
+            activeDownloads.delete(path);
+            renderDownloadTray();
         }
 
         window.previewText = async function(path) {
             try {
-                const url = `${API_BASE_URL}/api/v1/download${encodePath(path)}`;
-                const token = localStorage.getItem('fluxdrop_token');
-                const urlWithToken = token ? `${url}?token=${encodeURIComponent(token)}` : url;
-                const resp = await fetchWithFallback(urlWithToken);
+                const tokenData = await mintDownloadToken(path);
+                const urlPath = `/api/v1/download${encodePath(path)}`;
+                const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(tokenData.download_token)}`;
+                const resp = await fetchWithFallback(dlUrl);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const text = await resp.text();
                 showMessage('Preview: ' + path, text.slice(0, 4000));
@@ -370,6 +643,9 @@ renderFileBrowserView();
             });
             document.querySelectorAll('#file-list .rename-btn').forEach(btn => {
                 btn.addEventListener('click', () => promptRename(btn.dataset.path));
+            });
+            document.querySelectorAll('#file-list .share-btn').forEach(btn => {
+                btn.addEventListener('click', () => openShareDialog(btn.dataset.path, btn.dataset.isdir === '1'));
             });
         }
 
@@ -507,6 +783,347 @@ renderFileBrowserView();
                 localStorage.removeItem('fluxdrop_username');
                 renderApp();
             }
+        }
+
+        // ======================================================================
+        // --- PROFILE MENU ---
+        // ======================================================================
+        function openProfileMenu() {
+            // Close if already open
+            const existing = document.getElementById('profile-menu-modal');
+            if (existing) { existing.remove(); return; }
+
+            const overlay = document.createElement('div');
+            overlay.id = 'profile-menu-modal';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:8000;display:flex;align-items:flex-start;justify-content:flex-end;padding:70px 1rem 0 0';
+            overlay.innerHTML = `
+                <div id="profile-menu-panel" style="background:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.18);min-width:240px;overflow:hidden;animation:fadeSlideDown .15s ease">
+                    <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:18px 20px;display:flex;align-items:center;gap:12px">
+                        <div style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:22px">👤</div>
+                        <div>
+                            <div style="color:white;font-weight:700;font-size:15px">${currentUsername}</div>
+                            <div style="color:rgba(255,255,255,0.75);font-size:12px">FluxDrop account</div>
+                        </div>
+                    </div>
+                    <div style="padding:8px 0">
+                        <button class="profile-menu-item" id="pm-shares">🔗 Manage Shared Links</button>
+                        <div style="height:1px;background:#f1f5f9;margin:4px 0"></div>
+                        <button class="profile-menu-item" id="pm-logout" style="color:#ef4444">🚪 Logout</button>
+                    </div>
+                </div>`;
+            // Inject menu-item style
+            const style = document.createElement('style');
+            style.textContent = `
+                .profile-menu-item{display:block;width:100%;text-align:left;padding:10px 20px;background:none;border:none;font-size:14px;cursor:pointer;color:#1e293b;transition:background .15s}
+                .profile-menu-item:hover{background:#f8fafc}
+                @keyframes fadeSlideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}`;
+            overlay.appendChild(style);
+            document.body.appendChild(overlay);
+
+            overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+            document.getElementById('pm-shares').addEventListener('click', () => { overlay.remove(); openShareManager(); });
+            document.getElementById('pm-logout').addEventListener('click', () => { overlay.remove(); handleLogout(); });
+        }
+
+        // ======================================================================
+        // --- SHARE DIALOG (create a new share for a file/folder) ---
+        // ======================================================================
+        async function openShareDialog(path, isDir) {
+            const name = path.split('/').pop() || path;
+            // Default expiry options: none, 1 day, 7 days, 30 days, custom
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.id = 'share-dialog-overlay';
+            overlay.innerHTML = `
+                <div class="modal-content" style="max-width:500px">
+                    <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">🔗 Share "${name}"</h3>
+                    <p style="font-size:13px;color:#64748b;margin-bottom:16px">${isDir ? 'Folder' : 'File'}: <code style="background:#f1f5f9;padding:1px 5px;border-radius:4px">${path}</code></p>
+
+                    <div style="display:grid;gap:10px;margin-bottom:18px">
+                        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                            <input type="checkbox" id="sh-require-account" style="width:16px;height:16px">
+                            <span style="font-size:14px"><strong>Require FluxDrop account</strong> to access</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                            <input type="checkbox" id="sh-stats" checked style="width:16px;height:16px">
+                            <span style="font-size:14px"><strong>Track access stats</strong> (who/when accessed)</span>
+                        </label>
+
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <span style="font-size:14px;font-weight:600;white-space:nowrap">⏰ Expires:</span>
+                            <select id="sh-expiry-preset" style="flex:1;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:white">
+                                <option value="">Never (permanent)</option>
+                                <option value="1">1 day</option>
+                                <option value="7">7 days</option>
+                                <option value="30">30 days</option>
+                                <option value="90">90 days</option>
+                                <option value="custom">Custom date…</option>
+                            </select>
+                            <input type="date" id="sh-expiry-custom"
+                                style="display:none;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px"
+                                min="${new Date().toISOString().slice(0,10)}">
+                        </div>
+
+                        ${isDir ? `
+                        <hr style="border:none;border-top:1px solid #e2e8f0;margin:2px 0">
+                        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                            <input type="checkbox" id="sh-anon-upload" style="width:16px;height:16px">
+                            <span style="font-size:14px"><strong>Allow anyone to upload</strong> into this folder</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                            <input type="checkbox" id="sh-auth-upload" style="width:16px;height:16px">
+                            <span style="font-size:14px"><strong>Allow registered users to upload</strong> into this folder</span>
+                        </label>` : ''}
+                    </div>
+
+                    <div id="sh-result" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-bottom:14px">
+                        <div style="font-size:12px;color:#166534;margin-bottom:6px;font-weight:600">Share link created:</div>
+                        <div style="display:flex;gap:6px">
+                            <input id="sh-link-box" type="text" readonly style="flex:1;font-size:12px;padding:6px;border:1px solid #ccc;border-radius:6px;background:white;color:#1e293b">
+                            <button id="sh-copy-btn" style="background:#16a34a;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Copy</button>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;gap:8px;justify-content:flex-end">
+                        <button id="sh-cancel-btn" class="btn" style="background:#e2e8f0;color:#1e293b">Cancel</button>
+                        <button id="sh-create-btn" class="btn" style="background:#8b5cf6">Create Share Link</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+
+            // Show/hide custom date picker based on preset
+            const presetSel = document.getElementById('sh-expiry-preset');
+            const customInput = document.getElementById('sh-expiry-custom');
+            presetSel.addEventListener('change', () => {
+                customInput.style.display = presetSel.value === 'custom' ? 'block' : 'none';
+            });
+
+            // Helper: resolve expiry to ISO string or null
+            function resolveExpiry() {
+                const preset = presetSel.value;
+                if (!preset) return null;
+                if (preset === 'custom') {
+                    return customInput.value ? new Date(customInput.value + 'T23:59:59').toISOString() : null;
+                }
+                const d = new Date();
+                d.setDate(d.getDate() + parseInt(preset));
+                return d.toISOString();
+            }
+
+            document.getElementById('sh-cancel-btn').addEventListener('click', () => overlay.remove());
+            document.getElementById('sh-create-btn').addEventListener('click', async () => {
+                const btn = document.getElementById('sh-create-btn');
+                btn.disabled = true; btn.textContent = 'Creating…';
+                try {
+                    const body = {
+                        path,
+                        is_dir: isDir,
+                        require_account: document.getElementById('sh-require-account').checked,
+                        track_stats: document.getElementById('sh-stats').checked,
+                        allow_anon_upload: isDir && document.getElementById('sh-anon-upload') ? document.getElementById('sh-anon-upload').checked : false,
+                        allow_auth_upload: isDir && document.getElementById('sh-auth-upload') ? document.getElementById('sh-auth-upload').checked : false,
+                        expires_at: resolveExpiry(),
+                    };
+                    const data = await apiCall('/api/v1/shares', 'POST', body);
+                    const shareUrl = `${window.location.origin}/share/${data.token}`;
+                    document.getElementById('sh-result').style.display = 'block';
+                    document.getElementById('sh-link-box').value = shareUrl;
+                    document.getElementById('sh-copy-btn').addEventListener('click', () => {
+                        navigator.clipboard.writeText(shareUrl).then(() => {
+                            document.getElementById('sh-copy-btn').textContent = 'Copied!';
+                            setTimeout(() => { document.getElementById('sh-copy-btn').textContent = 'Copy'; }, 1500);
+                        });
+                    });
+                    btn.textContent = 'Done ✓'; btn.style.background = '#16a34a';
+                } catch (err) {
+                    btn.disabled = false; btn.textContent = 'Create Share Link';
+                    showMessage('Share failed', err.message);
+                }
+            });
+        }
+
+        // ======================================================================
+        // --- SHARE MANAGER (list + manage existing shares) ---
+        // ======================================================================
+        async function openShareManager() {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.id = 'share-manager-overlay';
+            overlay.innerHTML = `
+                <div class="modal-content" style="max-width:640px;width:95vw;max-height:80vh;overflow-y:auto">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                        <h3 style="font-size:18px;font-weight:700">🔗 Shared Links</h3>
+                        <button id="sm-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">✕</button>
+                    </div>
+                    <div id="sm-body"><p style="color:#64748b;font-size:14px">Loading…</p></div>
+                </div>`;
+            document.body.appendChild(overlay);
+            document.getElementById('sm-close').addEventListener('click', () => overlay.remove());
+
+            await loadShareManager();
+        }
+
+        async function loadShareManager() {
+            const body = document.getElementById('sm-body');
+            if (!body) return;
+            body.innerHTML = '<p style="color:#64748b;font-size:14px">Loading…</p>';
+            try {
+                const data = await apiCall('/api/v1/shares', 'GET');
+                const shares = data.shares || [];
+                if (shares.length === 0) {
+                    body.innerHTML = '<p style="color:#64748b;font-size:14px">No shared links yet. Use the Share button on any file or folder.</p>';
+                    return;
+                }
+                body.innerHTML = shares.map(s => renderShareRow(s)).join('');
+                body.querySelectorAll('.sm-delete-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        if (!confirm('Delete this share link? Recipients will no longer be able to access it.')) return;
+                        try {
+                            await apiCall(`/api/v1/shares/${btn.dataset.token}`, 'DELETE');
+                            await loadShareManager();
+                        } catch(e) { showMessage('Error', e.message); }
+                    });
+                });
+                body.querySelectorAll('.sm-toggle').forEach(cb => {
+                    cb.addEventListener('change', async () => {
+                        const token = cb.dataset.token;
+                        const field = cb.dataset.field;
+                        try {
+                            await apiCall(`/api/v1/shares/${token}`, 'PATCH', { [field]: cb.checked });
+                        } catch(e) { showMessage('Update failed', e.message); cb.checked = !cb.checked; }
+                    });
+                });
+                body.querySelectorAll('.sm-copy-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        navigator.clipboard.writeText(btn.dataset.url).then(() => {
+                            const orig = btn.textContent;
+                            btn.textContent = 'Copied!'; btn.style.background = '#16a34a';
+                            setTimeout(() => { btn.textContent = orig; btn.style.background = '#3b82f6'; }, 1500);
+                        });
+                    });
+                });
+                body.querySelectorAll('.sm-stats-btn').forEach(btn => {
+                    btn.addEventListener('click', () => openShareStats(btn.dataset.token, btn.dataset.name));
+                });
+
+                // Expiry date input — save on change (blur or Enter)
+                body.querySelectorAll('.sm-expiry-input').forEach(input => {
+                    const saveExpiry = async () => {
+                        const token = input.dataset.token;
+                        const val = input.value;
+                        const expires_at = val ? new Date(val + 'T23:59:59').toISOString() : null;
+                        try {
+                            await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at });
+                            // Refresh to show updated display
+                            await loadShareManager();
+                        } catch(e) { showMessage('Update failed', e.message); }
+                    };
+                    input.addEventListener('change', saveExpiry);
+                });
+
+                // Expiry clear (✕) button — remove expiry
+                body.querySelectorAll('.sm-expiry-clear').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const token = btn.dataset.token;
+                        try {
+                            await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at: null });
+                            await loadShareManager();
+                        } catch(e) { showMessage('Update failed', e.message); }
+                    });
+                });
+            } catch(e) {
+                body.innerHTML = `<p style="color:#ef4444;font-size:14px">Failed to load shares: ${e.message}</p>`;
+            }
+        }
+
+        function renderShareRow(s) {
+            const shareUrl = `${window.location.origin}/share/${s.token}`;
+            const urlEsc = escapeHtmlAttr(shareUrl);
+            const nameEsc = escapeHtmlAttr(s.path.split('/').pop() || s.path);
+            const pathEsc = escapeHtmlAttr(s.path);
+            const created = s.created_at ? new Date(s.created_at).toLocaleDateString() : '?';
+
+            // Format expiry for display and for the date input (YYYY-MM-DD)
+            let expiryDisplay = '<span style="color:#94a3b8">Never</span>';
+            let expiryInputVal = '';
+            if (s.expires_at) {
+                const expDate = new Date(s.expires_at);
+                const isExpired = expDate < new Date();
+                expiryDisplay = isExpired
+                    ? `<span style="color:#ef4444;font-weight:600">Expired ${expDate.toLocaleDateString()}</span>`
+                    : `<span style="color:#f59e0b;font-weight:600">⏰ ${expDate.toLocaleDateString()}</span>`;
+                expiryInputVal = expDate.toISOString().slice(0, 10);
+            }
+
+            return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+                    <div>
+                        <span style="font-weight:600;font-size:14px">${s.is_dir ? '📁' : '📄'} ${nameEsc}</span>
+                        <span style="font-size:11px;color:#94a3b8;margin-left:8px">${pathEsc}</span>
+                        <div style="font-size:11px;color:#64748b;margin-top:3px">
+                            Created ${created} · ${s.access_count || 0} access(es) · Expires: ${expiryDisplay}
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-shrink:0;margin-left:8px">
+                        ${s.track_stats ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}"
+                            style="background:#0ea5e9;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">Stats</button>` : ''}
+                        <button class="sm-copy-btn" data-url="${urlEsc}"
+                            style="background:#3b82f6;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">Copy Link</button>
+                        <button class="sm-delete-btn" data-token="${s.token}"
+                            style="background:#ef4444;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">Revoke</button>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:12px 20px;flex-wrap:wrap;align-items:center">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                        <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="require_account" ${s.require_account ? 'checked' : ''}>
+                        Require account
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                        <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="track_stats" ${s.track_stats ? 'checked' : ''}>
+                        Track stats
+                    </label>
+                    ${s.is_dir ? `
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                        <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_anon_upload" ${s.allow_anon_upload ? 'checked' : ''}>
+                        Anyone can upload
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                        <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_auth_upload" ${s.allow_auth_upload ? 'checked' : ''}>
+                        Auth users can upload
+                    </label>` : ''}
+                    <div style="display:flex;align-items:center;gap:6px;font-size:13px">
+                        <span style="white-space:nowrap">⏰ Expiry:</span>
+                        <input type="date" class="sm-expiry-input" data-token="${s.token}"
+                            value="${expiryInputVal}"
+                            style="padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#1e293b">
+                        <button class="sm-expiry-clear" data-token="${s.token}"
+                            style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:11px;color:#94a3b8"
+                            title="Remove expiry (make permanent)">✕</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        async function openShareStats(token, name) {
+            try {
+                const data = await apiCall(`/api/v1/shares/${token}/stats`, 'GET');
+                const logs = data.logs || [];
+                const rows = logs.length === 0 ? '<tr><td colspan="3" style="padding:12px;color:#94a3b8;text-align:center">No accesses recorded yet</td></tr>' :
+                    logs.map(l => `<tr style="border-top:1px solid #f1f5f9">
+                        <td style="padding:8px 12px;font-size:13px">${l.accessed_at ? new Date(l.accessed_at).toLocaleString() : '?'}</td>
+                        <td style="padding:8px 12px;font-size:13px">${l.username || '<span style="color:#94a3b8">anonymous</span>'}</td>
+                        <td style="padding:8px 12px;font-size:13px">${escapeHtmlAttr(l.action || 'view')}</td>
+                    </tr>`).join('');
+                showMessage(`📊 Stats: ${name}`,
+                    `<div style="text-align:left;max-height:300px;overflow-y:auto">` +
+                    `<table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f8fafc">
+                        <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">Time</th>
+                        <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">User</th>
+                        <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">Action</th>
+                    </tr></thead><tbody>${rows}</tbody></table></div>`
+                );
+            } catch(e) { showMessage('Stats error', e.message); }
         }
 
         // ======================================================================

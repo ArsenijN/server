@@ -12,6 +12,12 @@ HTTP_PORT = int(os.getenv('HTTP_PORT', os.getenv('SERVER_PORT', '8080')))
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
 BLACKLIST_UPDATE_INTERVAL = 60 # seconds
 
+# Port of the CDN server HTTP listener — share links redirect there when
+# the user visits over plain HTTP (rare, but handled gracefully).
+CDN_HTTP_PORT = int(os.getenv('CDN_HTTP_PORT', '63512'))
+# PUBLIC_DOMAIN is used to build the redirect URL
+from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
+
  
 
 # --- Request Handler ---
@@ -64,6 +70,19 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         client_ip = self.client_address[0]
         requested_path = self.path
         print(f"Request from: {client_ip} -> {requested_path}")
+
+        # --- Share link redirect ---
+        # /share/<token>[/...] → CDN server which owns all FluxDrop share logic.
+        import re as _re
+        _share_m = _re.match(r'^(/share/[A-Za-z0-9_\-]+(?:/.*)?)', requested_path.split('?')[0])
+        if _share_m:
+            _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
+            _target = f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}{_share_m.group(1)}{_qs}"
+            self.send_response(302)
+            self.send_header('Location', _target)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
 
         with blacklist_lock:
             if client_ip in current_blacklist:

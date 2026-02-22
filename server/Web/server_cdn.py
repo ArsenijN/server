@@ -505,7 +505,7 @@ def send_verification_email(email, token, username):
     # send an HTML email so we can display the logo inline.
     body = f"""
     <html><body>
-    <p><img src=\"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/fluxdrop_pp/icon.svg\" alt=\"FluxDrop logo\" width=\"64\"></p>
+    <p><img src=\"https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg\" alt=\"FluxDrop logo\" width=\"64\"></p>
     <p>Hello {username},</p>
     <p>Thank you for registering for FluxDrop. Please click the link below to verify your email address:</p>
     <p><a href=\"{verification_link}\">{verification_link}</a></p>
@@ -1245,7 +1245,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FluxDrop — {current_title}</title>
-<link rel="icon" type="image/svg" sizes="32x32" href="https://arseniusgen.uk.to/fluxdrop_pp/icon.svg">
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{{box-sizing:border-box}}
@@ -1293,6 +1293,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FluxDrop — Login to Access</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *{{box-sizing:border-box}}

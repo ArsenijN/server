@@ -47,6 +47,7 @@ Own list for ToDo:
 
 - [x] **Safe download links**: use special tokens to download the files, not 
 the user token
+- [ ] **Server stability integration**: detailed window with internet, services and features outages, planned works or other unexpected issues (aka DownDetector)
 
 Aaaaand a lot more since I made a lot of changes in code and forgot to actually 
 capture them in changes :)

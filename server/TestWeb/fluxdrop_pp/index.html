@@ -15,6 +15,17 @@
         .btn:hover { background-color: #2563eb; }
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
         .modal-content { background-color: white; border-radius: 1rem; padding: 2rem; width: 90%; max-width: 500px; }
+        #message-modal, #preview-modal { z-index: 9999; }
+        #preview-modal .preview-modal-content {
+            background: #0f172a; border-radius: 1rem; padding: 1.25rem;
+            width: 95vw; max-width: 960px; max-height: 92vh;
+            display: flex; flex-direction: column; gap: 0.75rem; position: relative;
+        }
+        #preview-modal video, #preview-modal audio, #preview-modal img { max-width: 100%; max-height: 70vh; border-radius: 8px; display: block; margin: 0 auto; }
+        #preview-modal audio { width: 100%; margin-top: 2rem; }
+        #preview-modal pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow: auto; max-height: 65vh; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+        .preview-close-btn { position: absolute; top: 0.75rem; right: 0.75rem; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 50%; width: 32px; height: 32px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .preview-close-btn:hover { background: rgba(255,255,255,0.25); }
         .hidden { display: none; }
     </style>
 </head>
@@ -41,6 +52,18 @@
             <h3 id="message-modal-title" class="text-xl font-semibold mb-4"></h3>
             <p id="message-modal-content" class="mb-6"></p>
             <button class="btn w-full" onclick="hideModal('message-modal')">OK</button>
+        </div>
+    </div>
+
+    <!-- Media / Text Preview Modal -->
+    <div id="preview-modal" class="modal-overlay hidden" onclick="if(event.target===this)closePreview()">
+        <div class="preview-modal-content">
+            <button class="preview-close-btn" onclick="closePreview()" title="Close">✕</button>
+            <div id="preview-title" style="color:#94a3b8;font-size:13px;padding-right:2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+            <div id="preview-body"></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+                <button id="preview-download-btn" class="btn text-sm" style="display:none">⬇ Download</button>
+            </div>
         </div>
     </div>
 
@@ -120,14 +143,18 @@ async function fetchWithFallback(url, options) {
         function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
         function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
 
-        // strip an internal prefix such as "/FluxDrop/3/" from a path for display
         function stripInternalPrefix(path) {
             return path.replace(/^\/FluxDrop\/\d+\//, '/');
         }
 
-        function showMessage(title, content) {
+        function escapeHtml(str) {
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function showMessage(title, content, isHtml = false) {
             document.getElementById('message-modal-title').textContent = title;
-            document.getElementById('message-modal-content').textContent = content;
+            const el = document.getElementById('message-modal-content');
+            if (isHtml) { el.innerHTML = content; } else { el.textContent = content; }
             showModal('message-modal');
         }
 
@@ -311,20 +338,24 @@ renderFileBrowserView();
         }
 
         function renderEntryRow(e) {
-            const nameEsc = e.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const nameEsc = escapeHtml(e.name);
             const path = e.path;
             const size = e.is_dir ? '-' : `${(e.size/1024).toFixed(1)} KB`;
             const safePathAttr = escapeHtmlAttr(path);
             const shareBtn = `<button class="btn bg-purple-500 text-sm share-btn" data-path="${safePathAttr}" data-isdir="${e.is_dir ? '1' : '0'}" style="background:#8b5cf6">Share</button>`;
-            const actions = e.is_dir ?
-                `<button class="btn text-sm open-btn" data-path="${safePathAttr}">Open</button> ${shareBtn}` :
-                `<button class="btn text-sm download-btn" data-path="${safePathAttr}">Download</button>` +
-                ` <button class="btn bg-yellow-500 text-sm preview-btn" data-path="${safePathAttr}">Preview</button> ${shareBtn}`;
-            // if the entry has an uploader field (CDN listing), show it under the name
-            let nameCell = nameEsc;
+
+            const nameLink = e.is_dir
+                ? `<a href="#" class="open-btn font-medium text-blue-600 hover:underline" data-path="${safePathAttr}" style="cursor:pointer">📁 ${nameEsc}</a>`
+                : `<a href="#" class="preview-btn font-medium text-gray-800 hover:text-blue-600 hover:underline" data-path="${safePathAttr}" style="cursor:pointer">📄 ${nameEsc}</a>`;
+
+            const actions = e.is_dir
+                ? `<button class="btn text-sm open-btn" data-path="${safePathAttr}">Open</button> ${shareBtn}`
+                : `<button class="btn text-sm download-btn" data-path="${safePathAttr}">Download</button>` +
+                  ` <button class="btn bg-yellow-500 text-sm preview-btn" data-path="${safePathAttr}">Preview</button> ${shareBtn}`;
+
+            let nameCell = nameLink;
             if (e.uploader) {
-                const userEsc = e.uploader.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                nameCell += `<br><span class="text-xs text-gray-500">by ${userEsc}</span>`;
+                nameCell += `<br><span class="text-xs text-gray-500">by ${escapeHtml(e.uploader)}</span>`;
             }
             return `<tr class="border-t"><td>${nameCell}</td><td>${size}</td><td>${e.mtime}</td><td>${actions} <button class="btn bg-red-500 text-sm delete-btn" data-path="${escapeHtmlAttr(path)}">Delete</button> <button class="btn bg-gray-300 text-sm rename-btn" data-path="${escapeHtmlAttr(path)}">Rename</button></td></tr>`;
         }
@@ -611,32 +642,89 @@ renderFileBrowserView();
             renderDownloadTray();
         }
 
-        window.previewText = async function(path) {
+        // ======================================================================
+        // --- MEDIA PREVIEW ---
+        // ======================================================================
+        const EXT_IMAGE = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico','avif','tiff','tif']);
+        const EXT_VIDEO = new Set(['mp4','webm','ogg','ogv','mov','m4v','mkv','avi']);
+        const EXT_AUDIO = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus','weba']);
+        const EXT_TEXT  = new Set(['txt','md','js','ts','jsx','tsx','py','sh','bash','json','xml','yaml','yml','toml','ini','cfg','conf','html','htm','css','scss','less','csv','log','env','rs','go','c','cpp','h','java','rb','php','swift','kt','sql','r','lua']);
+
+        function fileCategory(path) {
+            const ext = (path.split('.').pop() || '').toLowerCase();
+            if (EXT_IMAGE.has(ext)) return 'image';
+            if (EXT_VIDEO.has(ext)) return 'video';
+            if (EXT_AUDIO.has(ext)) return 'audio';
+            if (EXT_TEXT.has(ext))  return 'text';
+            return 'binary';
+        }
+
+        window.closePreview = function() {
+            const modal = document.getElementById('preview-modal');
+            modal.classList.add('hidden');
+            const body = document.getElementById('preview-body');
+            body.querySelectorAll('video,audio').forEach(el => { el.pause(); el.src = ''; });
+            body.innerHTML = '';
+            document.getElementById('preview-download-btn').style.display = 'none';
+        };
+
+        window.previewFile = async function(path) {
+            const filename = path.split('/').pop();
+            const cat = fileCategory(path);
+            const modal = document.getElementById('preview-modal');
+            const titleEl = document.getElementById('preview-title');
+            const bodyEl = document.getElementById('preview-body');
+            const dlBtn = document.getElementById('preview-download-btn');
+
+            titleEl.textContent = filename;
+            bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Loading…</p>';
+            dlBtn.style.display = 'none';
+            modal.classList.remove('hidden');
+
             try {
                 const tokenData = await mintDownloadToken(path);
                 const urlPath = `/api/v1/download${encodePath(path)}`;
                 const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(tokenData.download_token)}`;
-                const resp = await fetchWithFallback(dlUrl);
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const text = await resp.text();
-                showMessage('Preview: ' + path, text.slice(0, 4000));
+
+                if (cat === 'image') {
+                    bodyEl.innerHTML = `<img src="${dlUrl}" alt="${escapeHtml(filename)}" style="max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto">`;
+                    dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+                } else if (cat === 'video') {
+                    bodyEl.innerHTML = `<video controls autoplay style="max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto;background:#000"><source src="${dlUrl}">Your browser doesn't support this video format.</video>`;
+                    dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+                } else if (cat === 'audio') {
+                    bodyEl.innerHTML = `<div style="padding:2rem 1rem;text-align:center"><div style="font-size:4rem;margin-bottom:1rem">🎵</div><div style="color:#94a3b8;margin-bottom:1.5rem;font-size:15px">${escapeHtml(filename)}</div><audio controls autoplay style="width:100%"><source src="${dlUrl}">Your browser doesn't support audio playback.</audio></div>`;
+                    dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+                } else if (cat === 'text') {
+                    const resp = await fetch(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const text = await resp.text();
+                    const ext = (path.split('.').pop() || '').toLowerCase();
+                    bodyEl.innerHTML = `<pre class="lang-${ext}">${escapeHtml(text.slice(0, 50000))}${text.length > 50000 ? '\n\n… (truncated)' : ''}</pre>`;
+                    dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+                } else {
+                    bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center"><div style="font-size:3.5rem;margin-bottom:1rem">📄</div><div style="color:#94a3b8;margin-bottom:1rem">${escapeHtml(filename)}</div><p style="color:#64748b;font-size:14px">No preview available for this file type.</p></div>`;
+                    dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
+                }
             } catch (err) {
-                showMessage('Preview failed', String(err));
+                bodyEl.innerHTML = `<p style="color:#ef4444;padding:2rem;text-align:center">Preview failed: ${escapeHtml(String(err))}</p>`;
             }
-        }
+        };
+
+        window.previewText = window.previewFile;
 
         // After the table is inserted we need to hook up click handlers for the
         // various buttons.  We read the path from the `data-path` attribute, so
         // we no longer need to worry about quoting/escaping in the HTML.
         function attachRowListeners() {
             document.querySelectorAll('#file-list .open-btn').forEach(btn => {
-                btn.addEventListener('click', () => enterDir(btn.dataset.path));
+                btn.addEventListener('click', (e) => { e.preventDefault(); enterDir(btn.dataset.path); });
             });
             document.querySelectorAll('#file-list .download-btn').forEach(btn => {
                 btn.addEventListener('click', () => downloadFile(btn.dataset.path));
             });
             document.querySelectorAll('#file-list .preview-btn').forEach(btn => {
-                btn.addEventListener('click', () => previewText(btn.dataset.path));
+                btn.addEventListener('click', (e) => { e.preventDefault(); previewFile(btn.dataset.path); });
             });
             document.querySelectorAll('#file-list .delete-btn').forEach(btn => {
                 btn.addEventListener('click', () => deleteItem(btn.dataset.path));
@@ -864,6 +952,16 @@ renderFileBrowserView();
                                 min="${new Date().toISOString().slice(0,10)}">
                         </div>
 
+                        <hr style="border:none;border-top:1px solid #e2e8f0;margin:2px 0">
+                        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                            <input type="checkbox" id="sh-allow-preview" style="width:16px;height:16px">
+                            <span style="font-size:14px"><strong>Allow file preview</strong> — visitors can preview files without downloading</span>
+                        </label>
+                        ${!isDir ? `<label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                            <input type="checkbox" id="sh-cdn-embed" style="width:16px;height:16px">
+                            <span style="font-size:14px"><strong>Allow CDN embedding</strong> — link acts as a direct media URL (for Discord, websites, etc.)</span>
+                        </label>` : ''}
+
                         ${isDir ? `
                         <hr style="border:none;border-top:1px solid #e2e8f0;margin:2px 0">
                         <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
@@ -922,6 +1020,8 @@ renderFileBrowserView();
                         track_stats: document.getElementById('sh-stats').checked,
                         allow_anon_upload: isDir && document.getElementById('sh-anon-upload') ? document.getElementById('sh-anon-upload').checked : false,
                         allow_auth_upload: isDir && document.getElementById('sh-auth-upload') ? document.getElementById('sh-auth-upload').checked : false,
+                        allow_preview: document.getElementById('sh-allow-preview') ? document.getElementById('sh-allow-preview').checked : false,
+                        allow_cdn_embed: !isDir && document.getElementById('sh-cdn-embed') ? document.getElementById('sh-cdn-embed').checked : false,
                         expires_at: resolveExpiry(),
                     };
                     const data = await apiCall('/api/v1/shares', 'POST', body);
@@ -1083,6 +1183,14 @@ renderFileBrowserView();
                         <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="track_stats" ${s.track_stats ? 'checked' : ''}>
                         Track stats
                     </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                        <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_preview" ${s.allow_preview ? 'checked' : ''}>
+                        Allow preview
+                    </label>
+                    ${!s.is_dir ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                        <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_cdn_embed" ${s.allow_cdn_embed ? 'checked' : ''}>
+                        CDN embed
+                    </label>` : ''}
                     ${s.is_dir ? `
                     <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
                         <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_anon_upload" ${s.allow_anon_upload ? 'checked' : ''}>
@@ -1102,6 +1210,15 @@ renderFileBrowserView();
                             title="Remove expiry (make permanent)">✕</button>
                     </div>
                 </div>
+                ${s.allow_cdn_embed && !s.is_dir ? `
+                <div style="margin-top:10px;padding:10px;background:#fefce8;border:1px solid #fde047;border-radius:8px">
+                    <div style="font-size:11px;color:#854d0e;font-weight:600;margin-bottom:5px">🌐 CDN Embed URL (direct media link):</div>
+                    <div style="display:flex;gap:6px">
+                        <input type="text" readonly value="${urlEsc}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
+                        <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#ca8a04;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">Copy</button>
+                    </div>
+                    <div style="font-size:10px;color:#92400e;margin-top:4px">Use this URL directly in &lt;img&gt;, &lt;video&gt;, Discord, etc.</div>
+                </div>` : ''}
             </div>`;
         }
 
@@ -1121,7 +1238,8 @@ renderFileBrowserView();
                         <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">Time</th>
                         <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">User</th>
                         <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">Action</th>
-                    </tr></thead><tbody>${rows}</tbody></table></div>`
+                    </tr></thead><tbody>${rows}</tbody></table></div>`,
+                    true /* isHtml */
                 );
             } catch(e) { showMessage('Stats error', e.message); }
         }
@@ -1130,6 +1248,12 @@ renderFileBrowserView();
         // --- INITIALIZATION ---
         // ======================================================================
         document.addEventListener('DOMContentLoaded', () => {
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape') {
+                    if (!document.getElementById('preview-modal').classList.contains('hidden')) closePreview();
+                    else hideModal('message-modal');
+                }
+            });
             // Check if user was redirected from a verification link
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.has('verified')) {

@@ -17,7 +17,7 @@ from werkzeug.formparser import parse_form_data # For parsing multipart/form-dat
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse, parse_qs
+from urllib.parse import unquote, quote, urlparse, parse_qs
 from shared import CustomLogger
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, PUBLIC_DOMAIN
 
@@ -196,18 +196,25 @@ def init_db():
                 track_stats INTEGER DEFAULT 1,
                 allow_anon_upload INTEGER DEFAULT 0,
                 allow_auth_upload INTEGER DEFAULT 0,
+                allow_preview INTEGER DEFAULT 0,
+                allow_cdn_embed INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 expires_at TIMESTAMP DEFAULT NULL,
                 access_count INTEGER DEFAULT 0,
                 FOREIGN KEY (owner_id) REFERENCES users (id)
             )
         ''')
-        # Migration: add expires_at column to existing DBs that predate this column.
-        try:
-            cursor.execute("ALTER TABLE shared_links ADD COLUMN expires_at TIMESTAMP DEFAULT NULL")
-            conn.commit()
-        except Exception:
-            pass  # column already exists
+        # Migrations: add columns that may be missing in older DBs
+        for _col, _default in [
+            ('expires_at', 'NULL'),
+            ('allow_preview', '0'),
+            ('allow_cdn_embed', '0'),
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE shared_links ADD COLUMN {_col} {'TIMESTAMP DEFAULT NULL' if _col == 'expires_at' else 'INTEGER DEFAULT ' + _default}")
+                conn.commit()
+            except Exception:
+                pass  # column already exists
         # Per-access audit log for shared links.
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS share_access_log (
@@ -228,7 +235,7 @@ def init_db():
 
 def _create_share(user_id: int, path: str, is_dir: bool, require_account: bool,
                   track_stats: bool, allow_anon_upload: bool, allow_auth_upload: bool,
-                  expires_at=None) -> str:
+                  expires_at=None, allow_preview: bool = False, allow_cdn_embed: bool = False) -> str:
     """Mint a new public share token and store it. Returns the raw token.
     expires_at: ISO datetime string or None for no expiry.
     """
@@ -237,11 +244,13 @@ def _create_share(user_id: int, path: str, is_dir: bool, require_account: bool,
         conn.execute(
             """INSERT INTO shared_links
                (token, owner_id, path, is_dir, require_account, track_stats,
-                allow_anon_upload, allow_auth_upload, created_at, expires_at, access_count)
-               VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?,0)""",
+                allow_anon_upload, allow_auth_upload, allow_preview, allow_cdn_embed,
+                created_at, expires_at, access_count)
+               VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?,0)""",
             (raw, user_id, path, 1 if is_dir else 0,
              1 if require_account else 0, 1 if track_stats else 0,
              1 if allow_anon_upload else 0, 1 if allow_auth_upload else 0,
+             1 if allow_preview else 0, 1 if allow_cdn_embed else 0,
              expires_at)
         )
         conn.commit()
@@ -254,7 +263,8 @@ def _get_shares_for_user(user_id: int) -> list:
         cur = conn.cursor()
         cur.execute(
             """SELECT token, path, is_dir, require_account, track_stats,
-                      allow_anon_upload, allow_auth_upload, created_at, expires_at, access_count
+                      allow_anon_upload, allow_auth_upload, allow_preview, allow_cdn_embed,
+                      created_at, expires_at, access_count
                FROM shared_links WHERE owner_id = ? ORDER BY created_at DESC""",
             (user_id,)
         )
@@ -283,7 +293,8 @@ def _get_share(token: str) -> dict | None:
 
 
 def _update_share(token: str, owner_id: int, fields: dict):
-    allowed = {'require_account', 'track_stats', 'allow_anon_upload', 'allow_auth_upload', 'expires_at'}
+    allowed = {'require_account', 'track_stats', 'allow_anon_upload', 'allow_auth_upload',
+               'allow_preview', 'allow_cdn_embed', 'expires_at'}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return False
@@ -429,14 +440,14 @@ def _validate_download_token(relative_path: str, raw_token: str) -> dict | None:
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            """SELECT id, bytes_confirmed FROM download_tokens
+            """SELECT id, bytes_confirmed, user_id FROM download_tokens
                WHERE token_hash = ? AND relative_path = ? AND expires_at > CURRENT_TIMESTAMP""",
             (token_hash, relative_path)
         )
         row = cursor.fetchone()
         if not row:
             return None
-        return {"id": row[0], "bytes_confirmed": row[1]}
+        return {"id": row[0], "bytes_confirmed": row[1], "user_id": row[2]}
 
 
 def _update_token_progress(token_id: int, bytes_confirmed: int):
@@ -558,6 +569,17 @@ class AuthHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=SERVE_ROOT, **kwargs)
 
     # --- Response Helpers ---
+    @staticmethod
+    def _content_disposition(filename: str) -> str:
+        """RFC 5987/8187 Content-Disposition that handles any filename (Cyrillic, spaces, etc.)."""
+        try:
+            filename.encode('latin-1')
+            return f'attachment; filename="{filename}"'
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            from urllib.parse import quote as _q
+            ascii_fallback = filename.encode('ascii', errors='replace').decode('ascii').replace('"', '_')
+            return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{_q(filename, safe="")}'
+
     def _send_cors_headers(self):
         """Send CORS headers. If an Origin header is present and allowed, echo it and allow credentials.
         Otherwise fall back to wildcard for simple requests.
@@ -783,10 +805,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if self.shares_list_pattern.match(parsed_url.path):
             return self.handle_shares_create()
 
-        # Public share upload: POST /share/<token>/upload
+        # Public share upload: POST /share/<token>/upload[?subpath=...]
         pub_upload = re.match(r'^/share/([A-Za-z0-9_\-]+)/upload$', parsed_url.path)
         if pub_upload:
             return self.handle_public_share_upload(pub_upload.group(1))
+
+        # Public share mkdir: POST /share/<token>/mkdir
+        pub_mkdir = re.match(r'^/share/([A-Za-z0-9_\-]+)/mkdir$', parsed_url.path)
+        if pub_mkdir:
+            return self.handle_public_share_mkdir(pub_mkdir.group(1))
 
         # CatBox API
         if parsed_url.path == self.catbox_api_path:
@@ -988,6 +1015,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             allow_anon_upload=bool(data.get("allow_anon_upload", False)),
             allow_auth_upload=bool(data.get("allow_auth_upload", False)),
             expires_at=data.get("expires_at") or None,
+            allow_preview=bool(data.get("allow_preview", False)),
+            allow_cdn_embed=bool(data.get("allow_cdn_embed", False)),
         )
         logging.info(f"User {user_id} created share token {token} for path '{path}'")
         return self._send_response(201, json.dumps({"token": token, "path": path}))
@@ -1057,6 +1086,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             base_fs = os.path.normpath(os.path.join(owner_root, base_path_str.lstrip("/")))
 
         # Handle sub-path navigation within a shared folder
+        # Decode percent-encoding so filenames with spaces/non-ASCII resolve on disk.
+        if sub_path:
+            sub_path = unquote(sub_path)
         if sub_path and sub_path.strip("/"):
             target_fs = os.path.normpath(os.path.join(base_fs, sub_path.lstrip("/")))
         else:
@@ -1066,10 +1098,36 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not os.path.realpath(target_fs).startswith(os.path.realpath(base_fs)):
             return self._send_response(403, json.dumps({"error": "Forbidden: path outside shared area."}))
 
-        # --- File download ---
+        # --- CDN embed / inline serving ---
+        # When allow_cdn_embed is set on a single-file share, serve the file
+        # with its real MIME type and no Content-Disposition: attachment so
+        # browsers (and Discord, Slack, etc.) can embed/preview it directly.
+        # The share URL itself acts as a public CDN URL — no auth needed.
+        _cdn_embed = bool(share.get("allow_cdn_embed")) and not share.get("is_dir") and os.path.isfile(target_fs)
+        # allow_preview: for a ?preview=1 query param on single-file share, or
+        # for files inside a folder share that has allow_preview set.
+        _preview_mode = (
+            _cdn_embed or
+            (bool(share.get("allow_preview")) and os.path.isfile(target_fs) and
+             parse_qs(parsed_url.query).get("preview", [None])[0] == "1")
+        )
+
+        # --- File serving ---
         if os.path.isfile(target_fs):
+            # Choose content type and disposition based on mode
+            if _preview_mode or _cdn_embed:
+                import mimetypes as _mt
+                content_type = _mt.guess_type(target_fs)[0] or "application/octet-stream"
+                disposition = None  # inline — no Content-Disposition header
+                action = "preview" if _preview_mode and not _cdn_embed else "embed"
+            else:
+                content_type = "application/octet-stream"
+                disposition = self._content_disposition(os.path.basename(target_fs))
+                action = "download"
+
             if share["track_stats"]:
-                _log_share_access(token, visitor_user_id, action="download")
+                _log_share_access(token, visitor_user_id, action=action)
+
             file_size = os.path.getsize(target_fs)
             range_header = self.headers.get("Range")
             if range_header:
@@ -1081,8 +1139,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 length = end - start + 1
                 self.send_response(206)
                 self._send_cors_headers()
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(target_fs)}"')
+                self.send_header("Content-Type", content_type)
+                if disposition:
+                    self.send_header("Content-Disposition", disposition)
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
                 self.send_header("Content-Length", str(length))
@@ -1098,8 +1157,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             else:
                 self.send_response(200)
                 self._send_cors_headers()
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(target_fs)}"')
+                self.send_header("Content-Type", content_type)
+                if disposition:
+                    self.send_header("Content-Disposition", disposition)
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Content-Length", str(file_size))
                 self.end_headers()
@@ -1134,7 +1194,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         crumb_parts = sub_path_clean.split("/") if sub_path_clean else []
         crumbs_html = f'<a href="/share/{token}" style="color:#3b82f6;text-decoration:none">Home</a>'
         for i, part in enumerate(crumb_parts):
-            crumb_url = f"/share/{token}/" + "/".join(crumb_parts[:i+1])
+            crumb_url = "/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:i+1])
             crumbs_html += f' <span style="color:#94a3b8">/</span> <a href="{crumb_url}" style="color:#3b82f6;text-decoration:none">{part}</a>'
 
         # --- Build entry rows (recursive helper) ---
@@ -1147,7 +1207,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             for name in names:
                 entry_fs = os.path.join(directory, name)
                 rel_from_base = os.path.relpath(entry_fs, base_fs).replace(os.sep, "/")
-                entry_url = f"/share/{token}/{rel_from_base}"
+                entry_url = "/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in rel_from_base.split("/"))
                 st = os.stat(entry_fs)
                 mtime = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
                 pad = indent * 20
@@ -1165,14 +1225,26 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         rows += build_rows(entry_fs, indent + 1)
                 else:
                     size_str = f"{st.st_size / 1024:.1f} KB" if st.st_size < 1_048_576 else f"{st.st_size / 1_048_576:.2f} MB"
+                    # Preview URL: same as entry_url but with ?preview=1
+                    preview_url = entry_url + "?preview=1"
+                    allow_prev = bool(share.get("allow_preview"))
+                    name_cell = (
+                        f'<a href="{preview_url}" onclick="previewShareFile({repr(entry_url)},{repr(name)},event)" '
+                        f'style="color:#1e293b;text-decoration:none;cursor:pointer">📄 {name}</a>'
+                        if allow_prev else
+                        f'<a href="{entry_url}" download style="color:#1e293b;text-decoration:none">📄 {name}</a>'
+                    )
+                    preview_btn = (
+                        f'<a href="{preview_url}" onclick="previewShareFile({repr(entry_url)},{repr(name)},event)" '
+                        f'style="background:#8b5cf6;color:white;text-decoration:none;padding:3px 10px;border-radius:5px;font-size:12px;margin-right:4px">👁</a>'
+                        if allow_prev else ""
+                    )
                     rows += f"""<tr class="entry-row">
-                        <td style="padding:8px 12px 8px {12+pad}px">
-                            <a href="{entry_url}" download style="color:#1e293b;text-decoration:none">📄 {name}</a>
-                        </td>
+                        <td style="padding:8px 12px 8px {12+pad}px">{name_cell}</td>
                         <td style="padding:8px 12px;color:#64748b;font-size:13px">{size_str}</td>
                         <td style="padding:8px 12px;color:#94a3b8;font-size:13px">{mtime}</td>
                         <td style="padding:8px 12px">
-                            <a href="{entry_url}" download
+                            {preview_btn}<a href="{entry_url}" download
                                style="background:#3b82f6;color:white;text-decoration:none;padding:3px 10px;border-radius:5px;font-size:12px">↓</a>
                         </td>
                     </tr>"""
@@ -1183,7 +1255,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if sub_path_clean and os.path.isdir(target_fs):
             entries_html = build_rows(target_fs, indent=0)
             # Back link
-            parent_url = ("/share/" + token + "/" + "/".join(crumb_parts[:-1])).rstrip("/") if crumb_parts else f"/share/{token}"
+            parent_url = ("/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:-1])).rstrip("/") if crumb_parts else f"/share/{token}"
             back_row = f'<tr><td colspan="4" style="padding:6px 12px"><a href="{parent_url}" style="color:#64748b;text-decoration:none;font-size:13px">⬆ Parent folder</a></td></tr>'
             entries_html = back_row + entries_html
         else:
@@ -1195,6 +1267,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # --- Upload section ---
         upload_section = ""
         if share["allow_anon_upload"] or (share["allow_auth_upload"] and visitor_user_id):
+            encoded_subpath = quote(sub_path_clean, safe='/')
             upload_section = f"""
             <div style="margin-top:24px;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px">
                 <h3 style="margin:0 0 10px;font-size:15px;color:#166534">Upload files to this folder</h3>
@@ -1204,10 +1277,18 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         style="background:#16a34a;color:white;border:none;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;flex-shrink:0">
                         Upload
                     </button>
+                    <button onclick="promptMkdir()"
+                        style="background:#0ea5e9;color:white;border:none;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;flex-shrink:0">
+                        📁 New Folder
+                    </button>
                     <span id="upload-status" style="font-size:13px;color:#166534"></span>
                 </div>
                 <div id="upload-progress" style="margin-top:8px"></div>
                 <script>
+                const _UPLOAD_URL = '/share/{token}/upload?subpath={encoded_subpath}';
+                const _MKDIR_URL  = '/share/{token}/mkdir';
+                const _CURRENT_SUBPATH = {repr(sub_path_clean)};
+
                 async function uploadFiles(){{
                     const files = document.getElementById('upload-file').files;
                     if(!files.length){{document.getElementById('upload-status').textContent='No files selected';return;}}
@@ -1219,13 +1300,28 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         const fd = new FormData(); fd.append('file', f, f.name);
                         progressEl.textContent = `[${{done+failed+1}}/${{files.length}}] ${{f.name}}…`;
                         try{{
-                            const r = await fetch('/share/{token}/upload', {{method:'POST', body:fd}});
+                            const r = await fetch(_UPLOAD_URL, {{method:'POST', body:fd}});
                             if(r.ok) done++; else failed++;
                         }}catch(e){{ failed++; }}
                     }}
                     statusEl.textContent = `Done: ${{done}} uploaded${{failed ? ', '+failed+' failed' : ''}}`;
                     progressEl.textContent = '';
                     if(done > 0) setTimeout(()=>location.reload(), 1200);
+                }}
+
+                async function promptMkdir(){{
+                    const name = prompt('New folder name:');
+                    if(!name || !name.trim()) return;
+                    const subpath = _CURRENT_SUBPATH ? _CURRENT_SUBPATH + '/' + name.trim() : name.trim();
+                    try{{
+                        const r = await fetch(_MKDIR_URL, {{
+                            method:'POST',
+                            headers:{{'Content-Type':'application/json'}},
+                            body: JSON.stringify({{subpath}})
+                        }});
+                        if(r.ok) location.reload();
+                        else {{ const t = await r.text(); alert('Failed: '+t); }}
+                    }}catch(e){{ alert('Error: '+e); }}
                 }}
                 </script>
             </div>"""
@@ -1284,6 +1380,71 @@ class AuthHandler(SimpleHTTPRequestHandler):
     Powered by <a href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/index.html" style="color:#93c5fd;text-decoration:none;font-weight:600">FluxDrop</a>
   </div>
 </div>
+
+<!-- Inline preview modal for shared folders with allow_preview -->
+<div id="sp-preview-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;flex-direction:column;padding:1rem" onclick="if(event.target===this)closeSharePreview()">
+  <div style="background:#0f172a;border-radius:12px;padding:1.25rem;width:95vw;max-width:900px;max-height:90vh;display:flex;flex-direction:column;gap:0.75rem;position:relative">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span id="sp-preview-title" style="color:#94a3b8;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80%"></span>
+      <button onclick="closeSharePreview()" style="background:rgba(255,255,255,0.1);border:none;color:white;border-radius:50%;width:30px;height:30px;font-size:17px;cursor:pointer">✕</button>
+    </div>
+    <div id="sp-preview-body" style="overflow:auto;max-height:75vh"></div>
+    <div style="display:flex;justify-content:flex-end">
+      <a id="sp-preview-dl" href="#" download style="background:#3b82f6;color:white;padding:5px 14px;border-radius:7px;text-decoration:none;font-size:13px">⬇ Download</a>
+    </div>
+  </div>
+</div>
+<script>
+const _EXT_IMAGE = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico','avif']);
+const _EXT_VIDEO = new Set(['mp4','webm','ogg','ogv','mov','m4v']);
+const _EXT_AUDIO = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus']);
+const _EXT_TEXT  = new Set(['txt','md','js','ts','py','sh','json','xml','yaml','yml','toml','ini','css','html','htm','csv','log','rs','go','c','cpp','h','java','rb','php','sql']);
+
+function _escHtml(s) {{ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
+
+async function previewShareFile(url, name, event) {{
+  if (event) event.preventDefault();
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const overlay = document.getElementById('sp-preview-overlay');
+  const body = document.getElementById('sp-preview-body');
+  const title = document.getElementById('sp-preview-title');
+  const dl = document.getElementById('sp-preview-dl');
+
+  title.textContent = name;
+  dl.href = url;
+  dl.download = name;
+  body.innerHTML = '<p style="color:#64748b;text-align:center;padding:2rem">Loading…</p>';
+  overlay.style.display = 'flex';
+  document.addEventListener('keydown', _spKeyHandler);
+
+  const previewUrl = url + '?preview=1';
+
+  if (_EXT_IMAGE.has(ext)) {{
+    body.innerHTML = `<img src="${{previewUrl}}" alt="${{_escHtml(name)}}" style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto">`;
+  }} else if (_EXT_VIDEO.has(ext)) {{
+    body.innerHTML = `<video controls autoplay style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto;background:#000"><source src="${{previewUrl}}">Unsupported video.</video>`;
+  }} else if (_EXT_AUDIO.has(ext)) {{
+    body.innerHTML = `<div style="padding:2rem;text-align:center"><div style="font-size:4rem;margin-bottom:1rem">🎵</div><audio controls autoplay style="width:100%"><source src="${{previewUrl}}">Unsupported audio.</audio></div>`;
+  }} else if (_EXT_TEXT.has(ext)) {{
+    try {{
+      const r = await fetch(previewUrl);
+      const t = await r.text();
+      body.innerHTML = `<pre style="background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;overflow:auto;max-height:65vh;font-size:13px;white-space:pre-wrap;word-break:break-word">${{_escHtml(t.slice(0,50000))}}${{t.length>50000?'\\n…(truncated)':''}}</pre>`;
+    }} catch(e) {{ body.innerHTML = `<p style="color:#ef4444;text-align:center;padding:2rem">Failed: ${{_escHtml(String(e))}}</p>`; }}
+  }} else {{
+    body.innerHTML = `<div style="padding:3rem;text-align:center"><div style="font-size:3rem;margin-bottom:1rem">📄</div><p style="color:#94a3b8">No preview for this file type.</p></div>`;
+  }}
+}}
+
+function closeSharePreview() {{
+  const overlay = document.getElementById('sp-preview-overlay');
+  overlay.style.display = 'none';
+  document.getElementById('sp-preview-body').querySelectorAll('video,audio').forEach(el=>{{el.pause();el.src='';}});
+  document.getElementById('sp-preview-body').innerHTML = '';
+  document.removeEventListener('keydown', _spKeyHandler);
+}}
+function _spKeyHandler(e) {{ if (e.key === 'Escape') closeSharePreview(); }}
+</script>
 </body></html>"""
 
     def _render_share_login_page(self, token):
@@ -1377,31 +1538,36 @@ function redirect(token) {{
     # --- FluxDrop API Handlers ---
 
     def handle_public_share_upload(self, token: str):
-        """POST /share/<token>/upload — anonymous or authenticated upload into a shared folder."""
+        """POST /share/<token>/upload[?subpath=<relative>] — upload into a shared folder or subfolder."""
         share = _get_share(token)
         if not share or not share["is_dir"]:
             return self._send_response(404, json.dumps({"error": "Share not found or not a folder."}))
 
         visitor_user_id = self._check_token_auth()
-
-        # Permission check
         if share["allow_anon_upload"]:
-            pass  # anyone allowed
+            pass
         elif share["allow_auth_upload"] and visitor_user_id:
-            pass  # logged-in user allowed
+            pass
         else:
             return self._send_response(403, json.dumps({"error": "Uploads not permitted on this share."}))
 
-        # Resolve the shared folder path for the owner
+        # Resolve base dir
         owner_id = share["owner_id"]
         base_path_str = share["path"]
         if base_path_str.startswith("/cdn"):
-            dest_dir = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, base_path_str[len("/cdn"):].lstrip("/")))
+            base_dir = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, base_path_str[len("/cdn"):].lstrip("/")))
         else:
-            dest_dir = os.path.normpath(os.path.join(SERVE_ROOT, "FluxDrop", str(owner_id), base_path_str.lstrip("/")))
+            base_dir = os.path.normpath(os.path.join(SERVE_ROOT, "FluxDrop", str(owner_id), base_path_str.lstrip("/")))
 
+        # Resolve subfolder from ?subpath= query param
+        parsed_qs = parse_qs(urlparse(self.path).query)
+        raw_subpath = unquote(parsed_qs.get("subpath", [""])[0]).strip("/")
+        dest_dir = os.path.normpath(os.path.join(base_dir, raw_subpath)) if raw_subpath else base_dir
+
+        if not os.path.realpath(dest_dir).startswith(os.path.realpath(base_dir)):
+            return self._send_response(403, json.dumps({"error": "Forbidden: path outside shared area."}))
         if not os.path.isdir(dest_dir):
-            return self._send_response(404, json.dumps({"error": "Shared folder not found on disk."}))
+            return self._send_response(404, json.dumps({"error": "Target subfolder not found on disk."}))
 
         try:
             content_type = self.headers.get("Content-Type", "")
@@ -1429,10 +1595,52 @@ function redirect(token) {{
 
             if share["track_stats"]:
                 _log_share_access(token, visitor_user_id, action="upload")
-            logging.info(f"Share upload: token={token} file='{safe_name}' user={visitor_user_id}")
+            logging.info(f"Share upload: token={token} file='{safe_name}' subpath='{raw_subpath}' user={visitor_user_id}")
             return self._send_response(200, "OK", "text/plain")
         except Exception as e:
             logging.exception("Public share upload failed")
+            return self._send_response(500, json.dumps({"error": str(e)}))
+
+    def handle_public_share_mkdir(self, token: str):
+        """POST /share/<token>/mkdir — create a subfolder inside a shared folder.
+        Body (JSON): { "subpath": "current/sub/NewFolder" }
+        """
+        share = _get_share(token)
+        if not share or not share["is_dir"]:
+            return self._send_response(404, json.dumps({"error": "Share not found or not a folder."}))
+
+        visitor_user_id = self._check_token_auth()
+        if not (share["allow_anon_upload"] or (share["allow_auth_upload"] and visitor_user_id)):
+            return self._send_response(403, json.dumps({"error": "Not permitted."}))
+
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            data = json.loads(body)
+        except Exception:
+            return self._send_response(400, json.dumps({"error": "Invalid JSON."}))
+
+        raw_subpath = data.get("subpath", "").strip().strip("/")
+        if not raw_subpath:
+            return self._send_response(400, json.dumps({"error": "subpath is required."}))
+
+        owner_id = share["owner_id"]
+        base_path_str = share["path"]
+        if base_path_str.startswith("/cdn"):
+            base_dir = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, base_path_str[len("/cdn"):].lstrip("/")))
+        else:
+            base_dir = os.path.normpath(os.path.join(SERVE_ROOT, "FluxDrop", str(owner_id), base_path_str.lstrip("/")))
+
+        new_dir = os.path.normpath(os.path.join(base_dir, raw_subpath))
+        if not os.path.realpath(new_dir).startswith(os.path.realpath(base_dir)):
+            return self._send_response(403, json.dumps({"error": "Forbidden: path outside shared area."}))
+
+        try:
+            os.makedirs(new_dir, exist_ok=True)
+            logging.info(f"Share mkdir: token={token} dir='{raw_subpath}' user={visitor_user_id}")
+            return self._send_response(200, json.dumps({"ok": True}))
+        except Exception as e:
+            logging.exception("Public share mkdir failed")
             return self._send_response(500, json.dumps({"error": str(e)}))
 
     def handle_mint_download_token(self):
@@ -1533,12 +1741,41 @@ function redirect(token) {{
 
     def handle_fluxdrop_api_get(self, match):
         """Handles GET requests for the FluxDrop API."""
-        user_id = self._check_token_auth()
-        if not user_id:
-            return self._send_response(401, json.dumps({"error": "Unauthorized"}))
-
         _, command, path_segment = match.groups()
         relative_path = unquote(path_segment if path_segment else '')
+
+        # --- Auth gate ---
+        # For download requests that carry a ?dl_token= we can skip the
+        # session-token check: the dl_token itself proves prior authorisation
+        # (it was minted via an authenticated POST /api/v1/download_token).
+        # This allows <img>, <video>, <audio> tags to load files without the
+        # browser sending an Authorization header (which it never does for
+        # media elements).
+        user_id = self._check_token_auth()
+
+        if not user_id and command == 'download':
+            # Pre-validate the dl_token to extract the owning user_id.
+            # Full token validation (and 403 on bad token) happens below as before.
+            parsed_qs_early = parse_qs(urlparse(self.path).query)
+            dl_token_early = parsed_qs_early.get('dl_token', [None])[0]
+            if dl_token_early:
+                # We don't know the canonical path yet for CDN files, but we
+                # can do a loose lookup by token hash alone to get the user_id.
+                import hashlib as _hl
+                th = _hl.sha256(dl_token_early.encode()).hexdigest()
+                try:
+                    with sqlite3.connect(DB_FILE) as _conn:
+                        row = _conn.execute(
+                            "SELECT user_id FROM download_tokens WHERE token_hash = ? AND expires_at > CURRENT_TIMESTAMP",
+                            (th,)
+                        ).fetchone()
+                        if row:
+                            user_id = row[0]
+                except Exception:
+                    pass
+
+        if not user_id:
+            return self._send_response(401, json.dumps({"error": "Unauthorized"}))
 
         # Helper to calculate a user's personal root directory
         def user_base_path_for(user_id):
@@ -1730,7 +1967,7 @@ function redirect(token) {{
                     self.send_response(206)
                     self._send_cors_headers()
                     self.send_header('Content-Type', 'application/octet-stream')
-                    self.send_header('Content-Disposition', f'attachment; filename="{os.path.basename(base_path)}"')
+                    self.send_header('Content-Disposition', self._content_disposition(os.path.basename(base_path)))
                     self.send_header('Accept-Ranges', 'bytes')
                     self.send_header('Content-Range', f'bytes {start}-{end}/{file_size}')
                     self.send_header('Content-Length', str(length))
@@ -1760,7 +1997,7 @@ function redirect(token) {{
                     self.send_response(200)
                     self._send_cors_headers()
                     self.send_header('Content-Type', 'application/octet-stream')
-                    self.send_header('Content-Disposition', f'attachment; filename="{os.path.basename(base_path)}"')
+                    self.send_header('Content-Disposition', self._content_disposition(os.path.basename(base_path)))
                     self.send_header('Accept-Ranges', 'bytes')
                     self.send_header('Content-Length', str(file_size))
                     self.send_header('X-Bytes-Confirmed', '0')

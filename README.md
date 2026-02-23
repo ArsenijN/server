@@ -10,8 +10,8 @@ implementation) and [driveguard](https://github.com/ArsenijN/driveguard) (OTA
 updates, etc.). Since I make my own file hosting thing, I want to make it's 
 design "very human". So... there we are
 
-FluxDrop and entire server now operates with proper HTTPS cerificate thanks to 
-**Let's Encrypt**'s certificates! Test it out at: arseniusgen.uk.to or 
+FluxDrop and entire server now operates with proper HTTPS thanks to **Let's 
+Encrypt**'s certificates! Test it out at: arseniusgen.uk.to or 
 arsenius-gen.uk.to
 
 Q: Why you doesn't used Let's Encrypt before?

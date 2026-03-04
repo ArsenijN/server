@@ -1,9 +1,13 @@
 # server
 Just backend code of my server, nothing else, anyone can use it
 
+Currently, server is **NOT production-ready!!!** (see: [FluxDrop Audit](./fluxdrop_audit.md))
+
 Accessible at: https://arseniusgen.uk.to
 
-## FluxDrop connectivity to this server
+FluxDrop accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
+
+## FluxDrop relations to this server
 
 This server is a part of my own projects, like FluxDrop (whole CDN 
 implementation) and [driveguard](https://github.com/ArsenijN/driveguard) (OTA 
@@ -16,14 +20,14 @@ arsenius-gen.uk.to
 
 Q: Why you doesn't used Let's Encrypt before?
 A: High usage of domain. Yes, since I technically own a subdomain and not a 
-domain, provided by https://freedns.afraid.org/subdomain/, I was restricted by 
-the thing that other users also uses the subdomains from uk.to, and... In 2023 
-I was not able to do this since Let's Encrypt said that "there's a lot of certs 
-already made for this domain", and... Self-signed certs is only thing that was 
-made all of this happened. At 2026 usage was lowered (or the thing that uk.to 
-now a shealth domain, basically no one can now use it except those who used it 
-before?) and I was able to do the certificates successfully right and... Now 
-there we are
+domain, provided by [FreeDNS](https://freedns.afraid.org/subdomain/), I was 
+restricted by the thing that other users also uses the subdomains from uk.to, 
+and... In 2023 I was not able to do this since Let's Encrypt said that "there's 
+a lot of certs already made for this domain", and... Self-signed certs is only 
+thing that was made all of this happened. At 2026 usage was lowered (or the 
+thing that uk.to now a shealth domain, basically no one can now use it except 
+those who used it before?) and I was able to do the certificates successfully 
+right and... Now there we are
 
 ## Dev info
 ### Secrets handling

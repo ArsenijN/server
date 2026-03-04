@@ -11,28 +11,28 @@ REMOTE_HOST="arseniusgen.uk.to"
 REMOTE_PORT="2847"                             # SSH port
 SSH_KEY="$HOME/DebianServerKey"
 
-# --- make sure the SSH key is loaded into an agent so we only have to
-#     type its passphrase once per session.  This is not necessary if you
-#     already run an agent manually (e.g. via your shell rc), but harmless
-#     otherwise.  If the agent isn't running, ssh-add will start one.
-if ! ssh-add -l 2>/dev/null | grep -q "$(ssh-keygen -lf "$SSH_KEY" | awk '{print $2}')"; then
-    echo "Adding SSH key to agent (passphrase may be requested)"
-    if ! ssh-add "$SSH_KEY"; then
-        echo "WARNING: ssh-add failed; you may need to add the key yourself or run the script under an agent" >&2
-    fi
-fi
-
 REMOTE_SITE="~/servers/self-host/site"        # base on the server
-# we will sync the three subtrees individually, avoiding accidental delete
 
-# shared rsync options
-RSYNC_OPTS="-avz --exclude='__pycache__' --exclude='.git'"
+# shared rsync options as an array so excludes are passed as separate arguments
+# (quoting inside a string variable breaks rsync exclude matching)
+# secrets/ is excluded: it contains live credentials and DB that must not be
+# overwritten by a sync from a dev machine.
+RSYNC_OPTS=(-avz --exclude='__pycache__' --exclude='.git' --exclude='secrets/')
+
+# Use SSH ControlMaster so all rsync calls and the final SSH command share a
+# single connection — the passphrase is only asked once.
+SSH_CONTROL_PATH="/tmp/ssh_mux_${REMOTE_USER}_${REMOTE_HOST}_${REMOTE_PORT}"
+SSH_OPTS=(-p "$REMOTE_PORT" -i "$SSH_KEY" -o ControlMaster=auto -o "ControlPath=$SSH_CONTROL_PATH" -o ControlPersist=60)
+
+# Open the master connection up front (this is the only point a passphrase is needed)
+echo "Opening SSH connection to $REMOTE_HOST..."
+ssh "${SSH_OPTS[@]}" -N -f "$REMOTE_USER@$REMOTE_HOST"
 
 # helper for running rsync
 run_rsync() {
     local src="$1" dst="$2"
     echo "-> rsync $src → $dst"
-    rsync $RSYNC_OPTS -e "ssh -p $REMOTE_PORT -i $SSH_KEY" \
+    rsync "${RSYNC_OPTS[@]}" -e "ssh ${SSH_OPTS[*]}" \
           "$src" "$REMOTE_USER@$REMOTE_HOST:$dst"
 }
 
@@ -58,7 +58,7 @@ else
     SUDO_CMD="sudo"
 fi
 
-ssh -p "$REMOTE_PORT" -i "$SSH_KEY" "$REMOTE_USER@$REMOTE_HOST" <<SSH_CMDS
+ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$REMOTE_HOST" <<SSH_CMDS
   set -e
   $SUDO_CMD systemctl restart webserver-http.service webserver-https.service webserver-cdn.service
   echo "services restarted"

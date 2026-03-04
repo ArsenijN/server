@@ -15,6 +15,8 @@ import smtplib
 import sqlite3
 from werkzeug.formparser import parse_form_data # For parsing multipart/form-data (cgi deprecated in Python 3.13+)
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
@@ -104,10 +106,22 @@ logging.basicConfig(
 # ==============================================================================
 # --- DATABASE SETUP ---
 # ==============================================================================
+def _db_connect():
+    """Open a SQLite connection with WAL mode and a lock timeout.
+
+    - timeout=15: wait up to 15 s for a lock instead of failing immediately.
+    - WAL journal mode: allows concurrent readers alongside a single writer,
+      eliminating lock pile-ups under multi-threaded load after extended uptime.
+    """
+    conn = sqlite3.connect(DB_FILE, timeout=15)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
 def init_db():
     """Initializes the SQLite database and creates tables if they don't exist."""
     logging.info(f"Using DB_FILE={DB_FILE}")
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         cursor = conn.cursor()
         # Main users table
         cursor.execute('''
@@ -240,7 +254,7 @@ def _create_share(user_id: int, path: str, is_dir: bool, require_account: bool,
     expires_at: ISO datetime string or None for no expiry.
     """
     raw = secrets.token_urlsafe(24)
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         conn.execute(
             """INSERT INTO shared_links
                (token, owner_id, path, is_dir, require_account, track_stats,
@@ -258,7 +272,7 @@ def _create_share(user_id: int, path: str, is_dir: bool, require_account: bool,
 
 
 def _get_shares_for_user(user_id: int) -> list:
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(
@@ -271,25 +285,51 @@ def _get_shares_for_user(user_id: int) -> list:
         return [dict(r) for r in cur.fetchall()]
 
 
-def _get_share(token: str) -> dict | None:
-    """Return share metadata if token exists and has not expired; else None."""
-    with sqlite3.connect(DB_FILE) as conn:
+def _get_share_raw(token: str) -> dict | None:
+    """Return share row regardless of expiry, or None if token never existed."""
+    with _db_connect() as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("SELECT * FROM shared_links WHERE token = ?", (token,))
         r = cur.fetchone()
-        if not r:
-            return None
-        share = dict(r)
-        # Enforce optional expiry
-        if share.get('expires_at'):
-            try:
-                exp = datetime.fromisoformat(share['expires_at'])
-                if datetime.now() > exp:
-                    return None   # treat expired share as non-existent
-            except Exception:
-                pass
-        return share
+        return dict(r) if r else None
+
+
+def _parse_expiry(value: str):
+    """Parse expiry string in any format the UI might send (ISO or DD.MM.YYYY)."""
+    if not value:
+        return None
+    for fmt in ('%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d.%m.%Y'):
+        try:
+            return datetime.strptime(value.strip(), fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(value.strip())
+    except Exception:
+        return None
+
+
+def _is_share_expired(share: dict) -> bool:
+    """Return True if the share has a past expiry date."""
+    val = share.get('expires_at')
+    if not val:
+        return False
+    exp = _parse_expiry(val)
+    if exp is None:
+        return False
+    now = datetime.now(exp.tzinfo) if exp.tzinfo else datetime.now()
+    return now > exp
+
+
+def _get_share(token: str) -> dict | None:
+    """Return share metadata if token exists and has not expired; else None."""
+    share = _get_share_raw(token)
+    if not share:
+        return None
+    if _is_share_expired(share):
+        return None
+    return share
 
 
 def _update_share(token: str, owner_id: int, fields: dict):
@@ -307,7 +347,7 @@ def _update_share(token: str, owner_id: int, fields: dict):
         else:
             vals.append(1 if v else 0)
     vals += [token, owner_id]
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         cur = conn.execute(
             f"UPDATE shared_links SET {', '.join(parts)} WHERE token = ? AND owner_id = ?", vals
         )
@@ -316,7 +356,7 @@ def _update_share(token: str, owner_id: int, fields: dict):
 
 
 def _delete_share(token: str, owner_id: int) -> bool:
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         cur = conn.execute(
             "DELETE FROM shared_links WHERE token = ? AND owner_id = ?", (token, owner_id)
         )
@@ -326,7 +366,7 @@ def _delete_share(token: str, owner_id: int) -> bool:
 
 def _log_share_access(token: str, user_id, action: str = 'view'):
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             conn.execute(
                 "INSERT INTO share_access_log (token, user_id, action, accessed_at) VALUES (?,?,?,CURRENT_TIMESTAMP)",
                 (token, user_id, action)
@@ -341,7 +381,7 @@ def _log_share_access(token: str, user_id, action: str = 'view'):
 
 def _get_share_stats(token: str, owner_id: int) -> list | None:
     """Return access log for a share the requesting user owns."""
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         # Verify ownership
@@ -361,7 +401,7 @@ def _get_share_stats(token: str, owner_id: int) -> list | None:
 
 def _is_file_protected(relative_path):
     """Returns True if the file (relative to SERVE_ROOT, leading slash) is marked protected."""
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT protected FROM protected_files WHERE relative_path = ?", (relative_path,))
         r = cursor.fetchone()
@@ -373,7 +413,7 @@ def _check_token_for_file(relative_path, token):
     if not token:
         return False
     h = hashlib.sha256(token.encode('utf-8')).hexdigest()
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT token_hash FROM protected_files WHERE relative_path = ? AND protected = 1", (relative_path,))
         r = cursor.fetchone()
@@ -384,7 +424,7 @@ def _check_token_for_file(relative_path, token):
 
 def _mark_file_protected(relative_path, created_by=None):
     """Marks a file as protected in the DB. Does not generate a token (token can be generated by admin CLI)."""
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO protected_files (relative_path, protected, created_by) VALUES (?, 1, ?) ON CONFLICT(relative_path) DO UPDATE SET protected=1, created_by=excluded.created_by",
@@ -418,7 +458,7 @@ def _mint_download_token(relative_path: str, user_id: int) -> str:
     raw = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
     expires_at = datetime.now() + timedelta(seconds=DOWNLOAD_TOKEN_TTL_SECONDS)
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         conn.execute(
             "INSERT INTO download_tokens (token_hash, relative_path, user_id, expires_at, bytes_confirmed) VALUES (?, ?, ?, ?, 0)",
             (token_hash, relative_path, user_id, expires_at)
@@ -437,7 +477,7 @@ def _validate_download_token(relative_path: str, raw_token: str) -> dict | None:
     if not raw_token:
         return None
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    with sqlite3.connect(DB_FILE) as conn:
+    with _db_connect() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """SELECT id, bytes_confirmed, user_id FROM download_tokens
@@ -457,7 +497,7 @@ def _update_token_progress(token_id: int, bytes_confirmed: int):
     client (and server) both know the safe resume offset.
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             conn.execute(
                 "UPDATE download_tokens SET bytes_confirmed = ? WHERE id = ?",
                 (bytes_confirmed, token_id)
@@ -470,7 +510,7 @@ def _update_token_progress(token_id: int, bytes_confirmed: int):
 def _purge_expired_download_tokens():
     """Remove expired download tokens. Call periodically to keep the table small."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             conn.execute(
                 "DELETE FROM download_tokens WHERE expires_at <= CURRENT_TIMESTAMP"
             )
@@ -513,22 +553,77 @@ def send_verification_email(email, token, username):
 
     # Compose the message once, regardless of send outcome.
     subject = "Verify your FluxDrop Account"
-    # send an HTML email so we can display the logo inline.
-    body = f"""
-    <html><body>
-    <p><img src=\"https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg\" alt=\"FluxDrop logo\" width=\"64\"></p>
-    <p>Hello {username},</p>
-    <p>Thank you for registering for FluxDrop. Please click the link below to verify your email address:</p>
-    <p><a href=\"{verification_link}\">{verification_link}</a></p>
-    <p>This link will expire in 1 hour.</p>
-    <p>If you did not register for this account, please ignore this email.</p>
+
+    # Try to load icon.svg and convert it to a transparent PNG for embedding.
+    # Gmail blocks SVG entirely; only raster formats work.
+    # We use wand to rasterise at high resolution then crop to content so the
+    # transparent background is preserved (no white box on mobile).
+    icon_path = os.path.join(SERVE_DIRECTORY, 'fluxdrop_pp', 'icon.svg')
+    icon_cid = 'fluxdrop_icon'
+    icon_data = None  # will hold transparent PNG bytes if conversion succeeds
+    try:
+        from wand.image import Image as WandImage
+        from wand.color import Color
+        with WandImage(filename=icon_path, resolution=192) as img:
+            img.background_color = Color('transparent')
+            img.alpha_channel = 'set'
+            img.format = 'png'
+            img.trim()           # remove any whitespace border
+            img.resize(64, 64)   # small — same height as the title text
+            icon_data = img.make_blob()
+    except Exception as _e:
+        logging.warning(f"Could not rasterise icon.svg to PNG for email: {_e}")
+
+    if icon_data:
+        # Inline next to title, same height — mirrors the site header
+        icon_img = f'<img src="cid:{icon_cid}" alt="" width="32" height="32" style="vertical-align:middle;margin-right:6px;display:inline-block">'
+    else:
+        icon_img = ''
+
+    html_body = f"""
+    <html><body style="font-family:sans-serif;color:#1e293b;max-width:480px;margin:0 auto;padding:24px">
+    <div style="margin-bottom:20px">
+      {icon_img}<span style="font-size:24px;font-weight:700;color:#3b82f6;vertical-align:middle">FluxDrop</span>
+    </div>
+    <p>Hello <strong>{username}</strong>,</p>
+    <p>Thank you for registering. Please click the button below to verify your email address:</p>
+    <p style="margin:24px 0">
+        <a href="{verification_link}"
+           style="background:#3b82f6;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">
+           Verify my account
+        </a>
+    </p>
+    <p style="color:#64748b;font-size:13px">Or copy this link into your browser:<br>
+       <a href="{verification_link}" style="color:#3b82f6">{verification_link}</a></p>
+    <p style="color:#64748b;font-size:13px">This link expires in 1 hour.<br>
+       If you did not register, you can safely ignore this email.</p>
     <p>Thanks,<br>The FluxDrop Team</p>
     </body></html>
     """
-    msg = MIMEText(body, 'html')
+
+    # Build a multipart/related message so the icon CID attachment is recognised
+    msg = MIMEMultipart('related')
     msg['Subject'] = subject
     msg['From'] = SMTP_SENDER_EMAIL
     msg['To'] = email
+
+    # Wrap HTML in multipart/alternative (text fallback + HTML)
+    alt = MIMEMultipart('alternative')
+    alt.attach(MIMEText(
+        f"Hello {username},\n\nVerify your FluxDrop account: {verification_link}\n\nThis link expires in 1 hour.",
+        'plain'
+    ))
+    alt.attach(MIMEText(html_body, 'html'))
+    msg.attach(alt)
+
+    # Attach the icon inline — Content-Disposition must be inline (not attachment)
+    # and X-Attachment-Id must match the CID so Gmail does not show it as a file.
+    if icon_data:
+        img_part = MIMEImage(icon_data, _subtype='png')
+        img_part.add_header('Content-ID', f'<{icon_cid}>')
+        img_part.add_header('Content-Disposition', 'inline', filename='icon.png')
+        img_part.add_header('X-Attachment-Id', icon_cid)
+        msg.attach(img_part)
 
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -607,6 +702,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Max-Age', '86400')
 
     def _send_response(self, status_code, content, content_type='application/json'):
+        # Append charset for text responses so browsers don't guess the encoding
+        if content_type.startswith('text/') and 'charset' not in content_type:
+            content_type = content_type + '; charset=utf-8'
         self.send_response(status_code)
         self.send_header('Content-Type', content_type)
         self._send_cors_headers()
@@ -633,7 +731,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not token:
             return None # No token provided
 
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT user_id FROM sessions WHERE session_token = ? AND expires_at > CURRENT_TIMESTAMP", (token,))
             result = cursor.fetchone()
@@ -853,24 +951,33 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not all([username, nickname, email, password]):
             return self._send_response(400, json.dumps({"error": "Missing required fields."}))
 
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             cursor = conn.cursor()
             # Check against confirmed users first
             cursor.execute("SELECT id FROM users WHERE username = ? OR nickname = ? OR email = ?", (username, nickname, email))
             if cursor.fetchone():
                 return self._send_response(409, json.dumps({"error": "Username, nickname, or email already exists."}))
-            # Also ensure we don't already have a pending verification for the same details
-            cursor.execute("SELECT id FROM pending_verifications WHERE username = ? OR nickname = ? OR email = ?", (username, nickname, email))
+            # Also ensure we don't already have a *non-expired* pending verification for the same details.
+            # Expired rows are ignored here; the stale row is overwritten by the DELETE+INSERT below.
+            cursor.execute(
+                "SELECT id FROM pending_verifications WHERE (username = ? OR nickname = ? OR email = ?) AND expires_at > CURRENT_TIMESTAMP",
+                (username, nickname, email)
+            )
             if cursor.fetchone():
                 return self._send_response(409, json.dumps({"error": "A registration is already pending for that username, nickname or email."}))
 
         password_hash, salt = hash_password(password)
         verification_token = secrets.token_urlsafe(32)
-        expires_at = datetime.now() + timedelta(hours=1)
+        expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
 
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             cursor = conn.cursor()
             try:
+                # Purge any expired rows for the same identity before inserting the fresh one
+                cursor.execute(
+                    "DELETE FROM pending_verifications WHERE (username = ? OR nickname = ? OR email = ?) AND expires_at <= CURRENT_TIMESTAMP",
+                    (username, nickname, email)
+                )
                 cursor.execute(
                     "INSERT INTO pending_verifications (username, nickname, email, password_hash, salt, verification_token, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (username, nickname, email, password_hash, salt, verification_token, expires_at)
@@ -893,7 +1000,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not token:
             return self._send_response(400, "<h1>Verification Failed</h1><p>No token provided.</p>", 'text/html')
 
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM pending_verifications WHERE verification_token = ? AND expires_at > CURRENT_TIMESTAMP", (token,))
             pending_user = cursor.fetchone()
@@ -921,7 +1028,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not all([username, password]):
             return self._send_response(400, json.dumps({"error": "Missing username or password."}))
 
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id, password_hash, salt FROM users WHERE username = ?", (username,))
             user = cursor.fetchone()
@@ -955,7 +1062,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(400, json.dumps({"error": "No token provided."}))
 
         token = auth_header.split(' ', 1)[1]
-        with sqlite3.connect(DB_FILE) as conn:
+        with _db_connect() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM sessions WHERE session_token = ?", (token,))
             conn.commit()
@@ -1060,7 +1167,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         """GET /share/<token>[/sub/path] — public share page or file download."""
         share = _get_share(token)
         if not share:
-            return self._send_response(404, "<h1>404 — Share Not Found</h1><p>This link is invalid or has been revoked.</p>", "text/html")
+            raw = _get_share_raw(token)
+            if raw and _is_share_expired(raw):
+                return self._send_response(410, self._render_share_expired_page(), "text/html")
+            return self._send_response(404, self._render_share_not_found_page(), "text/html")
 
         # Determine the requesting user (may be None for anonymous)
         visitor_user_id = self._check_token_auth()
@@ -1182,7 +1292,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         """Render the public share HTML page with recursive folder listing."""
         owner_name = ""
         try:
-            with sqlite3.connect(DB_FILE) as conn:
+            with _db_connect() as conn:
                 r = conn.execute("SELECT nickname FROM users WHERE id = ?", (share["owner_id"],)).fetchone()
                 if r: owner_name = r[0]
         except Exception: pass
@@ -1330,7 +1440,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         expiry_badge = ""
         if share.get("expires_at"):
             try:
-                exp = datetime.fromisoformat(share["expires_at"])
+                exp = _parse_expiry(share["expires_at"])
                 expiry_badge = f'&nbsp;<span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">⏰ Expires {exp.strftime("%Y-%m-%d")}</span>'
             except Exception: pass
 
@@ -1533,6 +1643,56 @@ function redirect(token) {{
   if (t) redirect(t);
 }})();
 </script>
+</body></html>"""
+
+    def _render_share_expired_page(self):
+        return f"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FluxDrop — Link Expired</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{{box-sizing:border-box}}
+body{{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px}}
+.card{{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:36px;max-width:380px;width:100%;text-align:center}}
+.badge{{display:inline-block;background:#fef3c7;color:#92400e;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:16px;letter-spacing:.4px}}
+.btn{{display:inline-block;margin-top:20px;padding:10px 24px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;font-family:Inter,sans-serif;transition:background .15s}}
+.btn:hover{{background:#2563eb}}
+</style>
+</head><body>
+<div class="card">
+  <div style="font-size:46px;margin-bottom:12px">⏳</div>
+  <span class="badge">LINK EXPIRED</span>
+  <h2 style="margin:0 0 8px;color:#1e293b;font-size:20px">This link has expired</h2>
+  <p style="color:#64748b;font-size:13px;margin:0">The owner's share link is no longer valid. Ask them to generate a new one.</p>
+  <a class="btn" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/">Go to FluxDrop</a>
+</div>
+</body></html>"""
+
+    def _render_share_not_found_page(self):
+        return f"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FluxDrop — Link Not Found</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{{box-sizing:border-box}}
+body{{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px}}
+.card{{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:36px;max-width:380px;width:100%;text-align:center}}
+.badge{{display:inline-block;background:#fee2e2;color:#991b1b;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:16px;letter-spacing:.4px}}
+.btn{{display:inline-block;margin-top:20px;padding:10px 24px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;font-family:Inter,sans-serif;transition:background .15s}}
+.btn:hover{{background:#2563eb}}
+</style>
+</head><body>
+<div class="card">
+  <div style="font-size:46px;margin-bottom:12px">🔗</div>
+  <span class="badge">NOT FOUND</span>
+  <h2 style="margin:0 0 8px;color:#1e293b;font-size:20px">Link not found</h2>
+  <p style="color:#64748b;font-size:13px;margin:0">This share link is invalid or has been revoked by its owner.</p>
+  <a class="btn" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/">Go to FluxDrop</a>
+</div>
 </body></html>"""
 
     # --- FluxDrop API Handlers ---
@@ -1764,7 +1924,7 @@ function redirect(token) {{
                 import hashlib as _hl
                 th = _hl.sha256(dl_token_early.encode()).hexdigest()
                 try:
-                    with sqlite3.connect(DB_FILE) as _conn:
+                    with _db_connect() as _conn:
                         row = _conn.execute(
                             "SELECT user_id FROM download_tokens WHERE token_hash = ? AND expires_at > CURRENT_TIMESTAMP",
                             (th,)
@@ -1859,7 +2019,7 @@ function redirect(token) {{
                 # populate uploader map for CDN files
                 uploads = {}
                 try:
-                    with sqlite3.connect(DB_FILE) as conn2:
+                    with _db_connect() as conn2:
                         cur = conn2.cursor()
                         cur.execute(
                             "SELECT filename, users.username FROM cdn_uploads LEFT JOIN users ON cdn_uploads.uploaded_by = users.id"

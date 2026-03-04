@@ -803,23 +803,211 @@ renderFileBrowserView();
             }
         }
 
-        async function uploadFormData(endpoint, formData) {
-            const headers = {};
-            if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-            // Attempt HTTPS then fallback
-            try {
-                const r = await fetch(`${API_BASE_URL}${endpoint}`, { method: 'POST', body: formData, headers });
-                if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
-                const text = await r.text();
-                try { return JSON.parse(text); } catch { return text; }
-            } catch (e) {
-                // Try HTTP fallback
-                const alt = `${API_HTTP}${endpoint}`;
-                const r = await fetch(alt, { method: 'POST', body: formData, headers });
-                if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
-                const text = await r.text();
-                try { return JSON.parse(text); } catch { return text; }
+        // ======================================================================
+        // --- UPLOAD MANAGER (progress-tracked) ---
+        // ======================================================================
+        // Active uploads map: id -> { filename, loaded, total, status, error }
+        const activeUploads = new Map();
+        let uploadIdCounter = 0;
+
+        function formatSpeed(bps) {
+            if (bps < 1024) return bps.toFixed(0) + ' B/s';
+            if (bps < 1048576) return (bps / 1024).toFixed(1) + ' KB/s';
+            if (bps < 1073741824) return (bps / 1048576).toFixed(1) + ' MB/s';
+            return (bps / 1073741824).toFixed(2) + ' GB/s';
+        }
+
+        function formatEta(seconds) {
+            if (!isFinite(seconds) || seconds < 0) return '…';
+            if (seconds < 60) return Math.ceil(seconds) + 's';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + Math.ceil(seconds % 60) + 's';
+            return Math.floor(seconds / 3600) + 'h ' + Math.floor((seconds % 3600) / 60) + 'm';
+        }
+
+        function renderUploadTray() {
+            let tray = document.getElementById('ul-tray');
+            if (!tray) {
+                tray = document.createElement('div');
+                tray.id = 'ul-tray';
+                tray.style.cssText = `
+                    position:fixed; bottom:0; left:1rem; width:340px; max-height:60vh;
+                    overflow-y:auto; background:#1e293b; border-radius:12px 12px 0 0;
+                    box-shadow:0 -4px 24px rgba(0,0,0,0.4); z-index:9000;
+                    font-family:Inter,sans-serif; font-size:13px; color:#e2e8f0;
+                `;
+                document.body.appendChild(tray);
             }
+
+            if (activeUploads.size === 0) {
+                tray.innerHTML = '';
+                return;
+            }
+
+            // Header
+            let header = tray.querySelector('.ul-tray-header');
+            if (!header) {
+                header = document.createElement('div');
+                header.className = 'ul-tray-header';
+                header.style.cssText = 'padding:10px 14px 6px;font-weight:700;font-size:14px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;';
+                header.innerHTML = `<span class="ul-count"></span><span style="cursor:pointer;opacity:.6" id="ul-tray-close">✕</span>`;
+                tray.prepend(header);
+                header.querySelector('#ul-tray-close').addEventListener('click', () => { tray.innerHTML = ''; });
+            }
+            header.querySelector('.ul-count').textContent = `📤 Uploads (${activeUploads.size})`;
+
+            // Remove dismissed rows
+            tray.querySelectorAll('.ul-row').forEach(row => {
+                if (!activeUploads.has(row.dataset.ulId)) row.remove();
+            });
+
+            for (const [id, ul] of activeUploads) {
+                const pct = ul.total ? Math.round(ul.loaded / ul.total * 100) : 0;
+                const sent = formatBytes(ul.loaded);
+                const total = ul.total ? formatBytes(ul.total) : '?';
+
+                let row = tray.querySelector(`.ul-row[data-ul-id="${id}"]`);
+                if (!row) {
+                    row = document.createElement('div');
+                    row.className = 'ul-row';
+                    row.dataset.ulId = id;
+                    row.style.cssText = 'padding:10px 14px;border-bottom:1px solid #1e293b';
+                    row.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                            <span class="ul-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px"></span>
+                            <span class="ul-bytes" style="color:#94a3b8"></span>
+                        </div>
+                        <div style="background:#334155;border-radius:4px;height:6px;margin-bottom:6px">
+                            <div class="ul-bar" style="background:#22c55e;height:6px;border-radius:4px;width:0%;transition:width .2s"></div>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                            <span class="ul-status" style="color:#64748b"></span>
+                            <div class="ul-actions"></div>
+                        </div>`;
+                    tray.appendChild(row);
+
+                    const actionsDiv = row.querySelector('.ul-actions');
+                    const dismissBtn = document.createElement('button');
+                    dismissBtn.textContent = 'Dismiss';
+                    dismissBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
+                    dismissBtn.addEventListener('click', () => { activeUploads.delete(id); renderUploadTray(); });
+                    row._dismissBtn = dismissBtn;
+                    row._actionsDiv = actionsDiv;
+                }
+
+                const statusMap = { uploading: '⬆', done: '✅', error: '⚠' };
+                row.querySelector('.ul-name').textContent = (statusMap[ul.status] || '') + ' ' + ul.filename;
+                row.querySelector('.ul-bytes').textContent = `${sent} / ${total}`;
+                row.querySelector('.ul-bar').style.width = pct + '%';
+
+                let statusText = ul.status;
+                if (ul.status === 'uploading') {
+                    const parts = [];
+                    if (ul.speed != null) parts.push(formatSpeed(ul.speed));
+                    if (ul.eta != null) parts.push('ETA ' + formatEta(ul.eta));
+                    if (parts.length) statusText = parts.join(' · ');
+                } else if (ul.status === 'error') {
+                    statusText = '⚠ ' + (ul.error || 'failed');
+                }
+                row.querySelector('.ul-status').textContent = statusText;
+
+                const actionsDiv = row._actionsDiv;
+                actionsDiv.innerHTML = '';
+                if (ul.status === 'done' || ul.status === 'error') {
+                    actionsDiv.appendChild(row._dismissBtn);
+                }
+            }
+        }
+
+        function uploadFormData(endpoint, formData) {
+            return new Promise((resolve, reject) => {
+                const id = ++uploadIdCounter;
+                const filename = (() => {
+                    for (const [, v] of formData.entries()) {
+                        if (v instanceof File) return v.name;
+                    }
+                    return 'file';
+                })();
+
+                const ul = { filename, loaded: 0, total: 0, status: 'uploading', speed: null, eta: null, error: null };
+                activeUploads.set(id, ul);
+                renderUploadTray();
+
+                const xhr = new XMLHttpRequest();
+                let startTime = Date.now();
+                let lastLoaded = 0;
+                let lastTime = startTime;
+
+                xhr.upload.addEventListener('progress', e => {
+                    ul.loaded = e.loaded;
+                    ul.total = e.total || 0;
+
+                    const now = Date.now();
+                    const dt = (now - lastTime) / 1000;
+                    if (dt >= 0.5) {
+                        const bytesInWindow = e.loaded - lastLoaded;
+                        ul.speed = bytesInWindow / dt;
+                        ul.eta = ul.speed > 0 && ul.total ? (ul.total - e.loaded) / ul.speed : null;
+                        lastLoaded = e.loaded;
+                        lastTime = now;
+                    }
+                    renderUploadTray();
+                });
+
+                xhr.addEventListener('load', () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        ul.loaded = ul.total;
+                        ul.status = 'done';
+                        ul.speed = null;
+                        ul.eta = null;
+                        renderUploadTray();
+                        try { resolve(JSON.parse(xhr.responseText)); } catch { resolve(xhr.responseText); }
+                    } else {
+                        ul.status = 'error';
+                        ul.error = `HTTP ${xhr.status}`;
+                        renderUploadTray();
+                        reject(new Error(`Upload failed: ${xhr.status}`));
+                    }
+                });
+
+                xhr.addEventListener('error', () => {
+                    // Try HTTP fallback
+                    const xhrFallback = new XMLHttpRequest();
+                    xhrFallback.upload.addEventListener('progress', e => {
+                        ul.loaded = e.loaded;
+                        ul.total = e.total || 0;
+                        renderUploadTray();
+                    });
+                    xhrFallback.addEventListener('load', () => {
+                        if (xhrFallback.status >= 200 && xhrFallback.status < 300) {
+                            ul.loaded = ul.total;
+                            ul.status = 'done';
+                            ul.speed = null;
+                            ul.eta = null;
+                            renderUploadTray();
+                            try { resolve(JSON.parse(xhrFallback.responseText)); } catch { resolve(xhrFallback.responseText); }
+                        } else {
+                            ul.status = 'error';
+                            ul.error = `HTTP ${xhrFallback.status}`;
+                            renderUploadTray();
+                            reject(new Error(`Upload failed: ${xhrFallback.status}`));
+                        }
+                    });
+                    xhrFallback.addEventListener('error', () => {
+                        ul.status = 'error';
+                        ul.error = 'Network error';
+                        renderUploadTray();
+                        reject(new Error('Upload failed: network error'));
+                    });
+                    if (authToken) xhrFallback.setRequestHeader('Authorization', `Bearer ${authToken}`);
+                    xhrFallback.open('POST', `${API_HTTP}${endpoint}`);
+                    if (authToken) xhrFallback.setRequestHeader('Authorization', `Bearer ${authToken}`);
+                    xhrFallback.send(formData);
+                });
+
+                xhr.open('POST', `${API_BASE_URL}${endpoint}`);
+                if (authToken) xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+                xhr.send(formData);
+            });
         }
 
 

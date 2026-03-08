@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FluxDrop — {current_title}</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Inter,sans-serif;background:#f0f9ff;min-height:100vh;margin:0;padding:24px 16px}
+  .card{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.10);padding:28px;max-width:900px;margin:0 auto}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;border-bottom:2px solid #e2e8f0;white-space:nowrap}
+  .entry-row:hover td{background:#f8fafc}
+  a{color:inherit}
+  .crumbs{font-size:13px;color:#64748b;margin-bottom:16px;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+</style>
+</head><body>
+<div class="card">
+  <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+    <div style="font-size:36px;line-height:1">{share_icon}</div>
+    <div style="flex:1;min-width:0">
+      <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{current_title}</h1>
+      <div style="font-size:13px;color:#94a3b8">
+        Shared by <strong style="color:#475569">{owner_name}</strong>
+        {require_account_badge}
+        {expiry_badge}
+      </div>
+    </div>
+  </div>
+
+  <div class="crumbs">{crumbs_html}</div>
+
+  <table>
+    <thead><tr>
+      <th>Name</th><th>Size</th><th>Modified</th><th style="width:50px"></th>
+    </tr></thead>
+    <tbody>{entries_html}</tbody>
+  </table>
+  {upload_section}
+  <div style="margin-top:20px;padding-top:14px;border-top:1px solid #f1f5f9;font-size:12px;color:#cbd5e1;text-align:center">
+    Powered by <a href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/index.html" style="color:#93c5fd;text-decoration:none;font-weight:600">FluxDrop</a>
+  </div>
+</div>
+
+<!-- Inline preview modal for shared folders with allow_preview -->
+<div id="sp-preview-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;flex-direction:column;padding:1rem" onclick="if(event.target===this)closeSharePreview()">
+  <div style="background:#0f172a;border-radius:12px;padding:1.25rem;width:95vw;max-width:900px;max-height:90vh;display:flex;flex-direction:column;gap:0.75rem;position:relative">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span id="sp-preview-title" style="color:#94a3b8;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80%"></span>
+      <button onclick="closeSharePreview()" style="background:rgba(255,255,255,0.1);border:none;color:white;border-radius:50%;width:30px;height:30px;font-size:17px;cursor:pointer">✕</button>
+    </div>
+    <div id="sp-preview-body" style="overflow:auto;max-height:75vh"></div>
+    <div style="display:flex;justify-content:flex-end">
+      <a id="sp-preview-dl" href="#" download style="background:#3b82f6;color:white;padding:5px 14px;border-radius:7px;text-decoration:none;font-size:13px">⬇ Download</a>
+    </div>
+  </div>
+</div>
+<script>
+const _EXT_IMAGE = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico','avif']);
+const _EXT_VIDEO = new Set(['mp4','webm','ogg','ogv','mov','m4v']);
+const _EXT_AUDIO = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus']);
+const _EXT_TEXT  = new Set(['txt','md','js','ts','py','sh','json','xml','yaml','yml','toml','ini','css','html','htm','csv','log','rs','go','c','cpp','h','java','rb','php','sql']);
+
+function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function previewShareFile(url, name, event) {
+  if (event) event.preventDefault();
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const overlay = document.getElementById('sp-preview-overlay');
+  const body = document.getElementById('sp-preview-body');
+  const title = document.getElementById('sp-preview-title');
+  const dl = document.getElementById('sp-preview-dl');
+
+  title.textContent = name;
+  dl.href = url;
+  dl.download = name;
+  body.innerHTML = '<p style="color:#64748b;text-align:center;padding:2rem">Loading…</p>';
+  overlay.style.display = 'flex';
+  document.addEventListener('keydown', _spKeyHandler);
+
+  const previewUrl = url + '?preview=1';
+
+  if (_EXT_IMAGE.has(ext)) {
+    body.innerHTML = `<img src="${previewUrl}" alt="${_escHtml(name)}" style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto">`;
+  } else if (_EXT_VIDEO.has(ext)) {
+    body.innerHTML = `<video controls autoplay style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto;background:#000"><source src="${previewUrl}">Unsupported video.</video>`;
+  } else if (_EXT_AUDIO.has(ext)) {
+    body.innerHTML = `<div style="padding:2rem;text-align:center"><div style="font-size:4rem;margin-bottom:1rem">🎵</div><audio controls autoplay style="width:100%"><source src="${previewUrl}">Unsupported audio.</audio></div>`;
+  } else if (_EXT_TEXT.has(ext)) {
+    try {
+      const r = await fetch(previewUrl);
+      const t = await r.text();
+      body.innerHTML = `<pre style="background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;overflow:auto;max-height:65vh;font-size:13px;white-space:pre-wrap;word-break:break-word">${_escHtml(t.slice(0,50000))}${t.length>50000?'\n…(truncated)':''}</pre>`;
+    } catch(e) { body.innerHTML = `<p style="color:#ef4444;text-align:center;padding:2rem">Failed: ${_escHtml(String(e))}</p>`; }
+  } else {
+    body.innerHTML = `<div style="padding:3rem;text-align:center"><div style="font-size:3rem;margin-bottom:1rem">📄</div><p style="color:#94a3b8">No preview for this file type.</p></div>`;
+  }
+}
+
+function closeSharePreview() {
+  const overlay = document.getElementById('sp-preview-overlay');
+  overlay.style.display = 'none';
+  document.getElementById('sp-preview-body').querySelectorAll('video,audio').forEach(el=>{el.pause();el.src='';});
+  document.getElementById('sp-preview-body').innerHTML = '';
+  document.removeEventListener('keydown', _spKeyHandler);
+}
+function _spKeyHandler(e) { if (e.key === 'Escape') closeSharePreview(); }
+</script>
+</body></html>

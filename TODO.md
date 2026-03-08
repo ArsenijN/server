@@ -39,10 +39,10 @@ user feedback or ideas for future development.
   - [ ] JSON body size cap on all POST endpoints
   - [ ] Enforce IP blacklist in `server_cdn.py` (currently only in
     `server_http.py` and `server_https.py`)
-  - [ ] Periodic session table cleanup (expired rows accumulate forever)
+  - [x] Periodic session table cleanup (expired rows accumulate forever) -- fixed?
   - [ ] Migrate password hashing from SHA-256 to bcrypt or argon2
 
-- [ ] **HTML modularisation** — move inline HTML snippets out of
+- [x] **HTML modularisation** — move inline HTML snippets out of
   `server_cdn.py` into a `snippets/` folder with a `snippets.py` loader
   (see `fluxdrop_audit.md` Part 2 for the full design)
 
@@ -55,7 +55,7 @@ user feedback or ideas for future development.
   - Add settings to control whether group members may add/remove other
     users, set quotas, etc.
 
-- [ ] **Server stability dashboard** — detailed window showing internet,
+- [x] **Server stability dashboard** — detailed window showing internet,
   services and features outages, planned works or unexpected issues
   (aka DownDetector)
 
@@ -73,3 +73,26 @@ user feedback or ideas for future development.
   - **Folder size** in directory listings (sum of contained file sizes)
     for quota display.
   - Replace Tailwind CDN with a build step for production CSS.
+
+- [x] Fix the upload feature that are now broken
+- [ ] Test if `/status` will display the actual server outages (like when it doesn't work or got restarted and doesn't worked for few seconds)
+- [ ] Add message board to `/status`
+- [ ] Add fallback page for `/share` without token
+- [x] Fix the cancelation of upload
+- [ ] Fix the possible performance issues with server, use multithread for downloads with legacy support
+- [x] Fix the possible performance issues with server, use multithread for uploads ~~with legacy support?~~ -- can't be sure it's compliant with the legacy support, but at least works beautifully
+- [ ] Merge (or forward) HTTP and HTTPS regular ports with CDN's ports for more ideal links and simplicity
+- [ ] Add quota for user
+- [ ] Make admin account or admin access via configs or account or commands
+- [ ] Add manager for the non-finished uploads
+- [x] Fix the issue with FluxDrop preview link manager: in some edge case, FD downloads the HTML page instead of file content -- doesn't appear for now @20260308
+- [x] Declare current server version as `v0.7.0`
+- [ ] Avoid regression in server code files since I now can be confused with versioning system since code can be somewhere outdated; if not - just reapply new features to the code back
+- [ ] By some reason browser almost always displays the "hover link" `arseniusgen.uk.to/fluxdrop_pp/index.html#`, whenewer mouse was on the button or background - fixes by going out of the site, and same link regularly appears on the buttons
+- [ ] Add the HEIC, AVIF support for previews
+- [ ] Add PDF preview
+- [ ] Add plain text preview (.ini already there)
+- [ ] Add Markdown previews with proper formatting
+- [ ] Add .zip, .tar.gz, and so on support for previews (at least file table)
+- [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
+- [ ] Make special player with "video preview support", aka "slow internet mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce bandwidth and resolution)

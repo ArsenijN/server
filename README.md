@@ -1,4 +1,4 @@
-# server
+# server `v0.7.0`
 Just backend code of my server, nothing else, anyone can use it
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop Audit](./fluxdrop_audit.md))

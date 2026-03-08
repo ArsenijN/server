@@ -30,6 +30,7 @@ def _load_env_file(path):
 # try common names; user can create one locally
 _load_env_file(os.path.join(SECRETS_DIR, 'smtp.env'))
 _load_env_file(os.path.join(SECRETS_DIR, 'credentials_local.env'))
+_load_env_file(os.path.join(SECRETS_DIR, 'vars.env'))
 
 # Ensure secrets directory exists (will be created by deploy step; harmless locally)
 os.makedirs(SECRETS_DIR, exist_ok=True)
@@ -76,3 +77,6 @@ SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT', os.getenv('SMTP_PORT', '587')))
 SMTP_SENDER_EMAIL = os.getenv('SMTP_SENDER_EMAIL', '')
 SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
+
+# Chunks
+UPLOAD_CHUNK_SIZE = os.getenv('UPLOAD_CHUNK_SIZE', str(25 * 1024 * 1024)) #default 25 MB

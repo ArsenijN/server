@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FluxDrop — Login to Access</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px}
+.card{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:36px;max-width:380px;width:100%;text-align:center}
+input{width:100%;padding:10px 14px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:Inter,sans-serif;margin-bottom:10px;outline:none;transition:border .15s}
+input:focus{border-color:#3b82f6}
+.btn{width:100%;padding:11px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:background .15s;font-family:Inter,sans-serif}
+.btn:hover{background:#2563eb}
+.btn:disabled{background:#93c5fd;cursor:not-allowed}
+.err{color:#ef4444;font-size:13px;margin-top:6px;min-height:18px}
+</style>
+</head><body>
+<div class="card">
+  <div style="font-size:46px;margin-bottom:12px">🔒</div>
+  <h2 style="margin:0 0 6px;color:#1e293b;font-size:20px">Login Required</h2>
+  <p style="color:#64748b;font-size:13px;margin:0 0 22px">This shared link requires a FluxDrop account.</p>
+
+  <input type="text"     id="usr" placeholder="Username"  autocomplete="username">
+  <input type="password" id="pwd" placeholder="Password"  autocomplete="current-password">
+  <button class="btn" id="login-btn" onclick="doLogin()">Login &amp; Continue</button>
+  <div class="err" id="err"></div>
+
+  <div style="margin-top:16px;font-size:12px;color:#94a3b8">
+    Already logged in on this device?
+    <a href="#" onclick="useStoredToken()" style="color:#3b82f6;text-decoration:none">Use saved session</a>
+  </div>
+</div>
+
+<script>
+const CDN = {cdn_origin};
+const SHARE = {share_path};
+
+function useStoredToken() {
+  const t = localStorage.getItem('fluxdrop_token');
+  if (!t) { document.getElementById('err').textContent = 'No saved session found. Please log in.'; return; }
+  redirect(t);
+}
+
+async function doLogin() {
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('err');
+  const usr = document.getElementById('usr').value.trim();
+  const pwd = document.getElementById('pwd').value;
+  if (!usr || !pwd) { err.textContent = 'Please enter username and password.'; return; }
+  btn.disabled = true; btn.textContent = 'Logging in…'; err.textContent = '';
+  try {
+    const r = await fetch(CDN + '/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: usr, password: pwd})
+    });
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error || 'Login failed.'; btn.disabled = false; btn.textContent = 'Login & Continue'; return; }
+    localStorage.setItem('fluxdrop_token', data.token);
+    localStorage.setItem('fluxdrop_username', data.username);
+    redirect(data.token);
+  } catch(e) {
+    err.textContent = 'Network error: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Login & Continue';
+  }
+}
+
+function redirect(token) {
+  window.location.href = CDN + SHARE + '?token=' + encodeURIComponent(token);
+}
+
+(function() {
+  const t = localStorage.getItem('fluxdrop_token');
+  if (t) redirect(t);
+})();
+</script>
+</body></html>

@@ -2,6 +2,7 @@
 # Add versions if you want reproducible installs, e.g. requests==2.31.0
 requests
 werkzeug
+wand
 
 # Dev / optional
 # pytest

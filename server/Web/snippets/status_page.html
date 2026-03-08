@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<title>FluxDrop — System Status</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0a0c10;
+  --surface:   #111318;
+  --border:    #1e2130;
+  --border2:   #252a3a;
+  --text:      #e2e8f0;
+  --muted:     #5a6480;
+  --accent:    #3b82f6;
+  --accent2:   #60a5fa;
+  --green:     #22c55e;
+  --yellow:    #eab308;
+  --red:       #ef4444;
+  --orange:    #f97316;
+  --mono:      'IBM Plex Mono', monospace;
+  --display:   'Syne', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--mono);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* scanline overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.04) 2px,
+    rgba(0,0,0,0.04) 4px
+  );
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* top accent bar */
+.topbar {
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent) 0%, #8b5cf6 50%, var(--accent2) 100%);
+}
+
+header {
+  padding: 28px 40px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo-icon {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  border-radius: 8px;
+  display: grid; place-items: center;
+  font-size: 18px;
+}
+.logo-text {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+.logo-text span { color: var(--accent2); }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.overall-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.overall-status.ok    { background: rgba(34,197,94,0.12);  color: var(--green);  border: 1px solid rgba(34,197,94,0.25); }
+.overall-status.warn  { background: rgba(234,179,8,0.12);  color: var(--yellow); border: 1px solid rgba(234,179,8,0.25); }
+.overall-status.crit  { background: rgba(239,68,68,0.12);  color: var(--red);    border: 1px solid rgba(239,68,68,0.25); }
+
+.pulse {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+.ok   .pulse { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.warn .pulse { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.crit .pulse { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.85); }
+}
+
+.timestamp {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+}
+
+/* main layout */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 40px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* section label */
+.section-label {
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* stat cards grid */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--border2); }
+.card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.card:hover::after { opacity: 1; }
+
+.card-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.card-value {
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+  margin-bottom: 4px;
+  letter-spacing: -1px;
+}
+.card-value.green  { color: var(--green); }
+.card-value.yellow { color: var(--yellow); }
+.card-value.red    { color: var(--red); }
+.card-value.blue   { color: var(--accent2); }
+
+.card-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* disk bar */
+.disk-bar-wrap {
+  margin-top: 10px;
+}
+.disk-bar-track {
+  height: 4px;
+  background: var(--border2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.disk-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+.disk-bar-fill.ok     { background: var(--green); }
+.disk-bar-fill.warn   { background: var(--yellow); }
+.disk-bar-fill.crit   { background: var(--red); }
+
+/* services table */
+.services-table {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.svc-row {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  transition: background 0.15s;
+}
+.svc-row:last-child { border-bottom: none; }
+.svc-row:hover { background: rgba(255,255,255,0.02); }
+
+.svc-indicator {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.svc-indicator.ok     { background: var(--green);  box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+.svc-indicator.warn   { background: var(--yellow); box-shadow: 0 0 6px rgba(234,179,8,0.5); }
+.svc-indicator.crit   { background: var(--red);    box-shadow: 0 0 6px rgba(239,68,68,0.5); }
+.svc-indicator.info   { background: var(--accent2);box-shadow: 0 0 6px rgba(96,165,250,0.5); }
+
+.svc-name  { font-size: 13px; font-weight: 500; color: var(--text); flex: 1; }
+.svc-detail { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.svc-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.svc-badge.ok     { background: rgba(34,197,94,0.12);  color: var(--green); }
+.svc-badge.warn   { background: rgba(234,179,8,0.12);  color: var(--yellow); }
+.svc-badge.crit   { background: rgba(239,68,68,0.12);  color: var(--red); }
+.svc-badge.info   { background: rgba(96,165,250,0.12); color: var(--accent2); }
+
+/* uptime bar (90-day style) */
+.uptime-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+.uptime-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.uptime-title { font-size: 13px; font-weight: 500; }
+.uptime-pct {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--green);
+}
+.uptime-bars {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 32px;
+}
+.uptime-bar {
+  flex: 1;
+  border-radius: 2px;
+  min-height: 8px;
+  transition: opacity 0.15s;
+  cursor: default;
+}
+.uptime-bar:hover { opacity: 0.75; }
+.uptime-bar.ok     { background: var(--green); }
+.uptime-bar.warn   { background: var(--yellow); }
+.uptime-bar.crit   { background: var(--red); }
+.uptime-bar.empty  { background: var(--border2); }
+
+.uptime-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* cpu bar */
+.cpu-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.cpu-label { font-size: 11px; color: var(--muted); width: 60px; flex-shrink: 0; }
+.cpu-track {
+  flex: 1;
+  height: 6px;
+  background: var(--border2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cpu-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+}
+.cpu-pct { font-size: 11px; color: var(--text); width: 36px; text-align: right; flex-shrink: 0; }
+
+/* footer */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 16px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+footer span { font-size: 11px; color: var(--muted); }
+footer a { color: var(--accent2); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+  header, .container, footer { padding-left: 20px; padding-right: 20px; }
+  .cards { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    <div class="logo-text">Flux<span>Drop</span> Status</div>
+  </div>
+  <div class="header-right">
+    <div class="overall-status {overall_class}">
+      <div class="pulse"></div>
+      {overall_text}
+    </div>
+    <div class="timestamp">Updated {now_str} · auto-refresh 30s</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- ── SYSTEM OVERVIEW ── -->
+  <div>
+    <div class="section-label">System Overview</div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="card-label">System Uptime</div>
+        <div class="card-value blue">{sys_uptime_h}<span style="font-size:14px;font-family:var(--mono);font-weight:400;color:var(--muted)">h</span></div>
+        <div class="card-sub">{sys_uptime_str}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Server Uptime</div>
+        <div class="card-value blue">{srv_uptime_h}<span style="font-size:14px;font-family:var(--mono);font-weight:400;color:var(--muted)">h</span></div>
+        <div class="card-sub">since {srv_start_str}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Registered Users</div>
+        <div class="card-value">{user_count}</div>
+        <div class="card-sub">verified accounts</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Active Sessions</div>
+        <div class="card-value {sessions_color}">{active_sessions}</div>
+        <div class="card-sub">valid tokens now</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">FluxDrop Files</div>
+        <div class="card-value">{fluxdrop_files}</div>
+        <div class="card-sub">{fluxdrop_size_str} on disk</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">CatBox Files</div>
+        <div class="card-value">{catbox_files}</div>
+        <div class="card-sub">{catbox_size_str} on disk</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Active Shares</div>
+        <div class="card-value">{active_shares}</div>
+        <div class="card-sub">{expired_shares} expired</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Total Share Views</div>
+        <div class="card-value blue">{total_share_views}</div>
+        <div class="card-sub">across all links</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── STORAGE ── -->
+  <div>
+    <div class="section-label">Storage</div>
+    <div class="services-table">
+
+      <div class="svc-row">
+        <div class="svc-indicator {cdndisk_ind}"></div>
+        <div class="svc-name">CDN Media Drive <span style="color:var(--muted);font-size:11px">/media/arsen/dab4b7b7…</span></div>
+        <div class="svc-detail">{cdndisk_avail} free / {cdndisk_total}</div>
+        <div class="svc-badge {cdndisk_ind}">{cdndisk_pct}%</div>
+      </div>
+      <div style="padding: 0 20px 14px">
+        <div class="disk-bar-wrap">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:5px">
+            <span>{cdndisk_used} used</span><span>{cdndisk_avail} free</span>
+          </div>
+          <div class="disk-bar-track">
+            <div class="disk-bar-fill {cdndisk_ind}" style="width:{cdndisk_pct}%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="svc-row">
+        <div class="svc-indicator {rootdisk_ind}"></div>
+        <div class="svc-name">System Drive <span style="color:var(--muted);font-size:11px">/dev/sdb1 → /</span></div>
+        <div class="svc-detail">{rootdisk_avail} free / {rootdisk_total}</div>
+        <div class="svc-badge {rootdisk_ind}">{rootdisk_pct}%</div>
+      </div>
+      <div style="padding: 0 20px 14px">
+        <div class="disk-bar-wrap">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:5px">
+            <span>{rootdisk_used} used</span><span>{rootdisk_avail} free</span>
+          </div>
+          <div class="disk-bar-track">
+            <div class="disk-bar-fill {rootdisk_ind}" style="width:{rootdisk_pct}%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="svc-row" style="border-bottom:none">
+        <div class="svc-indicator {tmpdisk_ind}"></div>
+        <div class="svc-name">Temp Directory <span style="color:var(--muted);font-size:11px">/tmp (upload buffer)</span></div>
+        <div class="svc-detail">{tmpdisk_avail} free / {tmpdisk_total}</div>
+        <div class="svc-badge {tmpdisk_ind}">{tmpdisk_pct}%</div>
+      </div>
+      <div style="padding: 0 20px 14px">
+        <div class="disk-bar-wrap">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:5px">
+            <span>{tmpdisk_used} used</span><span>{tmpdisk_avail} free</span>
+          </div>
+          <div class="disk-bar-track">
+            <div class="disk-bar-fill {tmpdisk_ind}" style="width:{tmpdisk_pct}%"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── CPU & MEMORY ── -->
+  <div>
+    <div class="section-label">CPU &amp; Memory</div>
+    <div class="services-table">
+      <div style="padding: 20px 24px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex-wrap:wrap">
+          <div>
+            <div class="card-label" style="margin-bottom:12px">CPU Load (1m / 5m / 15m)</div>
+            {cpu_bars_html}
+          </div>
+          <div>
+            <div class="card-label" style="margin-bottom:12px">Memory</div>
+            <div class="cpu-row">
+              <div class="cpu-label">RAM used</div>
+              <div class="cpu-track"><div class="cpu-fill" style="width:{mem_pct}%;background:linear-gradient(90deg,#8b5cf6,#c084fc)"></div></div>
+              <div class="cpu-pct">{mem_pct}%</div>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px">{mem_used} / {mem_total} — {mem_avail} free</div>
+            <div style="margin-top:16px">
+              <div class="card-label" style="margin-bottom:8px">Swap</div>
+              <div class="cpu-row">
+                <div class="cpu-label">swap used</div>
+                <div class="cpu-track"><div class="cpu-fill" style="width:{swap_pct}%;background:linear-gradient(90deg,#f97316,#fb923c)"></div></div>
+                <div class="cpu-pct">{swap_pct}%</div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:6px">{swap_used} / {swap_total}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SERVICES ── -->
+  <div>
+    <div class="section-label">Services</div>
+    <div class="services-table">
+      <div class="svc-row">
+        <div class="svc-indicator {http_ind}"></div>
+        <div class="svc-name">HTTP Server</div>
+        <div class="svc-detail">:{HTTP_PORT}</div>
+        <div class="svc-badge {http_ind}">{http_status}</div>
+      </div>
+      <div class="svc-row">
+        <div class="svc-indicator {https_ind}"></div>
+        <div class="svc-name">HTTPS Server</div>
+        <div class="svc-detail">:{HTTPS_PORT}</div>
+        <div class="svc-badge {https_ind}">{https_status}</div>
+      </div>
+      <div class="svc-row">
+        <div class="svc-indicator {db_ind}"></div>
+        <div class="svc-name">SQLite Database</div>
+        <div class="svc-detail">{db_size_str}</div>
+        <div class="svc-badge {db_ind}">{db_status}</div>
+      </div>
+      <div class="svc-row" style="border-bottom:none">
+        <div class="svc-indicator {ssl_ind}"></div>
+        <div class="svc-name">TLS Certificate</div>
+        <div class="svc-detail">{ssl_detail}</div>
+        <div class="svc-badge {ssl_ind}">{ssl_status}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── UPTIME HISTORY ── -->
+  <div>
+    <div class="section-label">Uptime History (last 90 days)</div>
+    <div class="uptime-section">
+      <div class="uptime-header">
+        <div class="uptime-title">FluxDrop CDN</div>
+        <div class="uptime-pct">{uptime_pct}% uptime</div>
+      </div>
+      <div class="uptime-bars">
+        {uptime_bars_html}
+      </div>
+      <div class="uptime-footer">
+        <span>90 days ago</span>
+        <span>today</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── NETWORK ── -->
+  <div>
+    <div class="section-label">Network</div>
+    <div class="services-table">
+      <div class="svc-row">
+        <div class="svc-indicator info"></div>
+        <div class="svc-name">Bytes Received (since boot)</div>
+        <div class="svc-detail">{net_rx}</div>
+        <div class="svc-badge info">RX</div>
+      </div>
+      <div class="svc-row" style="border-bottom:none">
+        <div class="svc-indicator info"></div>
+        <div class="svc-name">Bytes Sent (since boot)</div>
+        <div class="svc-detail">{net_tx}</div>
+        <div class="svc-badge info">TX</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <span>FluxDrop CDN · <a href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/">Go to app</a></span>
+  <span>Page auto-refreshes every 30 seconds</span>
+</footer>
+
+</body>
+</html>

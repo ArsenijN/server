@@ -21,7 +21,29 @@ from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
 from shared import CustomLogger
-from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, PUBLIC_DOMAIN
+from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
+
+# ==============================================================================
+# --- HTML SNIPPET LOADER ---
+# ==============================================================================
+_SNIPPETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snippets')
+
+def _load_snippet(filename: str) -> str:
+    """Load an HTML snippet from the snippets/ subfolder."""
+    with open(os.path.join(_SNIPPETS_DIR, filename), encoding='utf-8') as f:
+        return f.read()
+
+def _render_snippet(filename: str, **kwargs) -> str:
+    """Load a snippet and substitute {PLACEHOLDER} tokens safely.
+
+    Unlike str.format(), this only replaces tokens whose names are explicitly
+    passed as keyword arguments, so CSS rules like *{box-sizing:border-box}
+    and JS template literals like ${previewUrl} are left completely untouched.
+    """
+    template = _load_snippet(filename)
+    for key, value in kwargs.items():
+        template = template.replace('{' + key + '}', str(value))
+    return template
 
 # ==============================================================================
 # --- CONFIGURATION ---
@@ -42,7 +64,7 @@ HTTP_PORT = int(os.getenv('HTTP_PORT', '63512'))
 HTTPS_PORT = int(os.getenv('HTTPS_PORT', '64800'))
 
 # Public domain and serve root
-PUBLIC_DOMAIN = os.getenv('PUBLIC_DOMAIN', PUBLIC_DOMAIN)
+PUBLIC_DOMAIN = os.getenv('PUBLIC_DOMAIN', _CONFIG_PUBLIC_DOMAIN)
 # Default server root for CDN: use the larger media volume rather than the TestWeb SSD.
 SERVE_ROOT = os.path.abspath(os.getenv('SERVE_ROOT', '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028'))
 CATBOX_UPLOAD_DIR = os.getenv('CATBOX_UPLOAD_DIR', 'CB_uploads')
@@ -65,7 +87,7 @@ LOG_FILE = LOG_FILE_CDN
 
 from config import SECRETS_DIR
 
-def _load_env_file(path):
+def _load_env_file(path: str) -> None:
     try:
         with open(path, encoding='utf-8') as f:
             for line in f:
@@ -90,6 +112,9 @@ SMTP_PORT = int(os.getenv('SMTP_PORT', os.getenv('SMTP_PORT', '587')))
 SMTP_SENDER_EMAIL = os.getenv('SMTP_SENDER_EMAIL', '')
 SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
 
+# Track when this process started (for server uptime on /status)
+_SERVER_START_TIME = time.time()
+
 # ==============================================================================
 # --- LOGGER SETUP (use shared CustomLogger) ---
 # ==============================================================================
@@ -106,16 +131,52 @@ logging.basicConfig(
 # ==============================================================================
 # --- DATABASE SETUP ---
 # ==============================================================================
+from contextlib import contextmanager
+
+# Per-upload-session lock to serialise concurrent chunk writes.
+# Without this, 4 parallel XHRs all read the same chunks_received list
+# and each write back only their own addition — losing the other 3.
+_chunk_locks = {}
+_chunk_locks_mutex = threading.Lock()
+
+def _get_chunk_lock(token):
+    with _chunk_locks_mutex:
+        if token not in _chunk_locks:
+            _chunk_locks[token] = threading.Lock()
+        return _chunk_locks[token]
+
+def _release_chunk_lock(token):
+    with _chunk_locks_mutex:
+        _chunk_locks.pop(token, None)
+
+
+@contextmanager
 def _db_connect():
     """Open a SQLite connection with WAL mode and a lock timeout.
+
+    Used as a context manager — the connection is always closed on exit,
+    preventing connection leaks in long-running daemon threads.
 
     - timeout=15: wait up to 15 s for a lock instead of failing immediately.
     - WAL journal mode: allows concurrent readers alongside a single writer,
       eliminating lock pile-ups under multi-threaded load after extended uptime.
+
+    Raises RuntimeError if the DB directory is not accessible (e.g. the
+    containing drive is unmounted), so callers get a clear error rather than
+    a cryptic sqlite3.OperationalError.
     """
+    db_dir = os.path.dirname(os.path.abspath(DB_FILE))
+    if not os.path.isdir(db_dir):
+        raise RuntimeError(
+            f"DB directory is not accessible: '{db_dir}'. "
+            "The drive may be unmounted or the path may not exist."
+        )
     conn = sqlite3.connect(DB_FILE, timeout=15)
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_db():
@@ -239,8 +300,308 @@ def init_db():
                 accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # Resumable chunked upload sessions.
+        # upload_token   — opaque token returned to the client at init; used to
+        #                  resume from any device without a session token.
+        # dest_path      — absolute path where the finished file will land.
+        # tmp_path       — directory holding received chunk files (*.chunk).
+        # total_size     — declared total file size in bytes (-1 = unknown).
+        # chunk_size     — negotiated chunk size in bytes.
+        # chunks_received— bitmask stored as JSON list of received chunk indices.
+        # sha256_final   — optional whole-file SHA-256 hex the client declared.
+        # owner_type     — 'user' | 'share' | 'catbox'
+        # owner_ref      — user_id or share token string
+        # last_activity  — updated on every chunk; used for TTL purging.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS upload_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                upload_token TEXT UNIQUE NOT NULL,
+                filename TEXT NOT NULL,
+                dest_path TEXT NOT NULL,
+                tmp_dir TEXT NOT NULL,
+                total_size INTEGER DEFAULT -1,
+                chunk_size INTEGER NOT NULL,
+                total_chunks INTEGER DEFAULT -1,
+                chunks_received TEXT DEFAULT '[]',
+                sha256_final TEXT,
+                owner_type TEXT NOT NULL,
+                owner_ref TEXT NOT NULL,
+                anon_device_token TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed INTEGER DEFAULT 0
+            )
+        ''')
+        # Persistent status snapshots for the uptime history graph.
+        # One row per 5-minute sample; keeps ~90 days = ~25920 rows max (tiny).
+        # status: 'ok' | 'degraded' | 'down'
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS status_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sampled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT NOT NULL,
+                http_up INTEGER DEFAULT 1,
+                https_up INTEGER DEFAULT 1,
+                db_ok INTEGER DEFAULT 1,
+                mem_pct INTEGER DEFAULT 0,
+                disk_pct INTEGER DEFAULT 0
+            )
+        ''')
         conn.commit()
     logging.info("Database initialized successfully.")
+
+
+# ==============================================================================
+# --- RESUMABLE UPLOAD HELPERS ---
+# ==============================================================================
+
+# Chunk size and abandoned-session TTL are tunable via env
+UPLOAD_CHUNK_SIZE   = int(os.getenv('UPLOAD_CHUNK_SIZE',   str(25 * 1024 * 1024)))   # 25 MB
+UPLOAD_SESSION_TTL  = int(os.getenv('UPLOAD_SESSION_TTL',  str(48 * 3600)))           # 48 h
+# Temp chunks land on the CDN drive itself, avoiding /tmp exhaustion
+UPLOAD_TMP_DIR      = os.getenv('UPLOAD_TMP_DIR', os.path.join(
+    '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028', '.upload_sessions'
+))
+
+def _upload_init(filename: str, dest_path: str, total_size: int,
+                 total_chunks: int, sha256_final: str | None,
+                 owner_type: str, owner_ref: str,
+                 anon_device_token: str | None = None) -> dict:
+    """Create a new upload session. Returns the session row as a dict."""
+    token = secrets.token_urlsafe(32)
+    tmp_dir = os.path.join(UPLOAD_TMP_DIR, token)
+    os.makedirs(tmp_dir, exist_ok=True)
+    with _db_connect() as conn:
+        conn.execute(
+            '''INSERT INTO upload_sessions
+               (upload_token, filename, dest_path, tmp_dir, total_size,
+                chunk_size, total_chunks, sha256_final, owner_type, owner_ref,
+                anon_device_token)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+            (token, filename, dest_path, tmp_dir, total_size,
+             UPLOAD_CHUNK_SIZE, total_chunks, sha256_final, owner_type, owner_ref,
+             anon_device_token)
+        )
+        conn.commit()
+    return _upload_get(token)
+
+def _upload_get(token: str) -> dict | None:
+    """Fetch an upload session by token. Returns dict or None."""
+    with _db_connect() as conn:
+        row = conn.execute(
+            'SELECT * FROM upload_sessions WHERE upload_token = ?', (token,)
+        ).fetchone()
+    if not row:
+        return None
+    keys = ['id','upload_token','filename','dest_path','tmp_dir','total_size',
+            'chunk_size','total_chunks','chunks_received','sha256_final',
+            'owner_type','owner_ref','anon_device_token','created_at','last_activity','completed']
+    d = dict(zip(keys, row))
+    d['chunks_received'] = json.loads(d['chunks_received'] or '[]')
+    return d
+
+def _upload_receive_chunk(token: str, chunk_index: int, data: bytes) -> dict:
+    """Write chunk to disk, verify SHA-256, update session. Returns updated session."""
+    session = _upload_get(token)
+    if not session:
+        raise KeyError('Upload session not found')
+    if session['completed']:
+        raise ValueError('Session already completed')
+
+    # Write chunk file (safe outside the lock — each index has a unique filename)
+    chunk_path = os.path.join(session['tmp_dir'], f'{chunk_index:06d}.chunk')
+    with open(chunk_path, 'wb') as f:
+        f.write(data)
+
+    # Serialise the read-modify-write so concurrent chunk uploads don't clobber
+    # each other's entries in the JSON list.
+    lock = _get_chunk_lock(token)
+    with lock:
+        # Re-read inside the lock to get the latest committed state
+        fresh = _upload_get(token)
+        if not fresh:
+            raise KeyError('Upload session disappeared')
+        received = fresh['chunks_received']
+        if chunk_index not in received:
+            received.append(chunk_index)
+            received.sort()
+        with _db_connect() as conn:
+            conn.execute(
+                '''UPDATE upload_sessions
+                   SET chunks_received = ?, last_activity = CURRENT_TIMESTAMP
+                   WHERE upload_token = ?''',
+                (json.dumps(received), token)
+            )
+            conn.commit()
+    return _upload_get(token)
+
+def _upload_assemble(token: str) -> str:
+    """Assemble all chunks into dest_path. Returns dest_path on success."""
+    session = _upload_get(token)
+    if not session:
+        raise KeyError('Upload session not found')
+
+    tmp_dir    = session['tmp_dir']
+    dest_path  = session['dest_path']
+    total_chunks = session['total_chunks']
+    received   = set(session['chunks_received'])
+
+    # Verify all chunks present
+    if total_chunks > 0:
+        missing = [i for i in range(total_chunks) if i not in received]
+        if missing:
+            raise ValueError(f'Missing chunks: {missing[:10]}{"…" if len(missing)>10 else ""}')
+
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+    # Assemble in order
+    hasher = hashlib.sha256()
+    with open(dest_path, 'wb') as out:
+        for idx in sorted(received):
+            chunk_path = os.path.join(tmp_dir, f'{idx:06d}.chunk')
+            with open(chunk_path, 'rb') as cf:
+                while True:
+                    block = cf.read(4 * 1024 * 1024)
+                    if not block:
+                        break
+                    out.write(block)
+                    hasher.update(block)
+
+    # Verify whole-file SHA-256 if client provided one
+    actual_sha256 = hasher.hexdigest()
+    if session['sha256_final'] and session['sha256_final'].lower() != actual_sha256:
+        os.remove(dest_path)
+        raise ValueError(
+            f'SHA-256 mismatch: expected {session["sha256_final"]}, got {actual_sha256}'
+        )
+
+    # Mark complete and clean up chunk dir
+    with _db_connect() as conn:
+        conn.execute(
+            'UPDATE upload_sessions SET completed = 1, last_activity = CURRENT_TIMESTAMP WHERE upload_token = ?',
+            (token,)
+        )
+        conn.commit()
+    _release_chunk_lock(token)  # free the per-session lock entry
+    try:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    except Exception:
+        pass
+
+    logging.info(f'Upload assembled: {dest_path} ({actual_sha256[:12]}…)')
+    return dest_path
+
+def _upload_session_status(session: dict) -> dict:
+    """Return a client-friendly status dict for a session."""
+    total   = session['total_chunks']
+    received = session['chunks_received']
+    return {
+        'upload_token':    session['upload_token'],
+        'filename':        session['filename'],
+        'chunk_size':      session['chunk_size'],
+        'total_chunks':    total,
+        'chunks_received': received,
+        'missing_chunks':  [i for i in range(total) if i not in received] if total > 0 else [],
+        'completed':       bool(session['completed']),
+        'last_activity':   session['last_activity'],
+    }
+
+def _purge_abandoned_upload_sessions() -> bool:
+    """Delete upload sessions and their tmp dirs that have been idle past TTL."""
+    try:
+        cutoff = datetime.now() - timedelta(seconds=UPLOAD_SESSION_TTL)
+        cutoff_str = cutoff.strftime('%Y-%m-%d %H:%M:%S')
+        with _db_connect() as conn:
+            rows = conn.execute(
+                'SELECT upload_token, tmp_dir FROM upload_sessions WHERE last_activity < ? AND completed = 0',
+                (cutoff_str,)
+            ).fetchall()
+            for token, tmp_dir in rows:
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                    logging.info(f'Purged abandoned upload session {token[:12]}…')
+                    _release_chunk_lock(token)
+                except Exception:
+                    pass
+            if rows:
+                conn.execute(
+                    'DELETE FROM upload_sessions WHERE last_activity < ? AND completed = 0',
+                    (cutoff_str,)
+                )
+                conn.commit()
+        return True
+    except Exception:
+        logging.exception('Failed to purge abandoned upload sessions')
+        return False
+
+
+def _record_status_snapshot(http_up: bool, https_up: bool, db_ok: bool,
+                            mem_pct: int, disk_pct: int) -> None:
+    """Write one status sample to the DB. Prunes rows older than 90 days."""
+    if http_up and https_up and db_ok:
+        status = 'ok'
+    elif not http_up or not https_up:
+        status = 'down'
+    else:
+        status = 'degraded'
+    try:
+        with _db_connect() as conn:
+            conn.execute(
+                '''INSERT INTO status_snapshots
+                   (status, http_up, https_up, db_ok, mem_pct, disk_pct)
+                   VALUES (?,?,?,?,?,?)''',
+                (status, int(http_up), int(https_up), int(db_ok), mem_pct, disk_pct)
+            )
+            # Keep only 90 days of data (90*24*12 = 25920 five-minute samples)
+            conn.execute(
+                "DELETE FROM status_snapshots WHERE sampled_at < datetime('now', '-90 days')"
+            )
+            conn.commit()
+    except Exception:
+        logging.exception('Failed to record status snapshot')
+
+
+def _get_status_history(days: int = 90) -> list:
+    """Return one aggregated row per day for the last `days` days.
+
+    Each row: { date, status ('ok'|'degraded'|'down'|'no_data'),
+                uptime_pct, sample_count }
+    Days are in descending order (today first).
+    """
+    try:
+        with _db_connect() as conn:
+            rows = conn.execute(
+                """SELECT date(sampled_at) as day,
+                          COUNT(*) as n,
+                          SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) as ok_n,
+                          SUM(CASE WHEN status='down' THEN 1 ELSE 0 END) as down_n
+                   FROM status_snapshots
+                   WHERE sampled_at >= datetime('now', ? || ' days')
+                   GROUP BY day
+                   ORDER BY day DESC""",
+                (f'-{days}',)
+            ).fetchall()
+    except Exception:
+        return []
+
+    by_day = {r[0]: r for r in rows}
+    result = []
+    today = datetime.now().date()
+    for i in range(days):
+        d = (today - timedelta(days=i)).isoformat()
+        if d in by_day:
+            _, n, ok_n, down_n = by_day[d]
+            pct = round(ok_n / n * 100, 1) if n else 0
+            if down_n == n:
+                st = 'down'
+            elif down_n > 0 or ok_n < n:
+                st = 'degraded'
+            else:
+                st = 'ok'
+            result.append({'date': d, 'status': st, 'uptime_pct': pct, 'sample_count': n})
+        else:
+            result.append({'date': d, 'status': 'no_data', 'uptime_pct': None, 'sample_count': 0})
+    return result
 
 
 # ==============================================================================
@@ -508,15 +869,20 @@ def _update_token_progress(token_id: int, bytes_confirmed: int):
 
 
 def _purge_expired_download_tokens():
-    """Remove expired download tokens. Call periodically to keep the table small."""
+    """Remove expired download tokens. Call periodically to keep the table small.
+
+    Returns True on success, False on failure (so the caller can back off).
+    """
     try:
         with _db_connect() as conn:
             conn.execute(
                 "DELETE FROM download_tokens WHERE expires_at <= CURRENT_TIMESTAMP"
             )
             conn.commit()
+        return True
     except Exception:
         logging.exception("Failed to purge expired download tokens")
+        return False
 
 
 # ==============================================================================
@@ -580,26 +946,11 @@ def send_verification_email(email, token, username):
     else:
         icon_img = ''
 
-    html_body = f"""
-    <html><body style="font-family:sans-serif;color:#1e293b;max-width:480px;margin:0 auto;padding:24px">
-    <div style="margin-bottom:20px">
-      {icon_img}<span style="font-size:24px;font-weight:700;color:#3b82f6;vertical-align:middle">FluxDrop</span>
-    </div>
-    <p>Hello <strong>{username}</strong>,</p>
-    <p>Thank you for registering. Please click the button below to verify your email address:</p>
-    <p style="margin:24px 0">
-        <a href="{verification_link}"
-           style="background:#3b82f6;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">
-           Verify my account
-        </a>
-    </p>
-    <p style="color:#64748b;font-size:13px">Or copy this link into your browser:<br>
-       <a href="{verification_link}" style="color:#3b82f6">{verification_link}</a></p>
-    <p style="color:#64748b;font-size:13px">This link expires in 1 hour.<br>
-       If you did not register, you can safely ignore this email.</p>
-    <p>Thanks,<br>The FluxDrop Team</p>
-    </body></html>
-    """
+    html_body = _render_snippet('email_verification.html',
+        icon_img=icon_img,
+        username=username,
+        verification_link=verification_link,
+    )
 
     # Build a multipart/related message so the icon CID attachment is recognised
     msg = MIMEMultipart('related')
@@ -643,6 +994,411 @@ def send_verification_email(email, token, username):
         return True
 
 # ==============================================================================
+# --- STATUS PAGE (/status) ---
+# ==============================================================================
+
+def _fmt_bytes(n: int) -> str:
+    """Human-readable byte size."""
+    for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+def _disk_indicator(pct: float) -> str:
+    if pct >= 90: return 'crit'
+    if pct >= 75: return 'warn'
+    return 'ok'
+
+def _build_status_page() -> str:
+    """Collect all system metrics and render the status HTML page."""
+    import ssl as _ssl
+
+    now = datetime.now()
+    now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+
+    # ── server uptime ──
+    srv_uptime_secs = int(time.time() - _SERVER_START_TIME)
+    srv_h = srv_uptime_secs // 3600
+    srv_m = (srv_uptime_secs % 3600) // 60
+    srv_uptime_h = str(srv_h)
+    srv_start_str = datetime.fromtimestamp(_SERVER_START_TIME).strftime('%Y-%m-%d %H:%M')
+
+    # ── system uptime (from /proc/uptime) ──
+    try:
+        with open('/proc/uptime') as f:
+            sys_uptime_secs = int(float(f.read().split()[0]))
+    except Exception:
+        sys_uptime_secs = 0
+    sys_h = sys_uptime_secs // 3600
+    sys_uptime_h = str(sys_h)
+    sys_d = sys_h // 24
+    sys_uptime_str = f"{sys_d}d {sys_h % 24}h {(sys_uptime_secs % 3600) // 60}m"
+
+    # ── disk stats ──
+    def _diskinfo(path: str) -> dict:
+        try:
+            st = os.statvfs(path)
+            total = st.f_frsize * st.f_blocks
+            avail = st.f_frsize * st.f_bavail
+            used  = total - avail
+            pct   = round(used / total * 100, 1) if total else 0
+            return {
+                'total': _fmt_bytes(total), 'used': _fmt_bytes(used),
+                'avail': _fmt_bytes(avail), 'pct': pct,
+                'ind':   _disk_indicator(pct),
+            }
+        except Exception:
+            return {'total':'N/A','used':'N/A','avail':'N/A','pct':0,'ind':'warn'}
+
+    cdn_disk  = _diskinfo(SERVE_ROOT)
+    root_disk = _diskinfo('/')
+    tmp_disk  = _diskinfo('/tmp')
+
+    # ── cpu load ──
+    try:
+        with open('/proc/loadavg') as f:
+            parts = f.read().split()
+        loads = [float(parts[0]), float(parts[1]), float(parts[2])]
+    except Exception:
+        loads = [0.0, 0.0, 0.0]
+
+    # get CPU count for normalising load to %
+    try:
+        cpu_count = os.cpu_count() or 1
+    except Exception:
+        cpu_count = 1
+
+    load_labels = ['1 min', '5 min', '15 min']
+    cpu_bars_html = ''
+    for label, load in zip(load_labels, loads):
+        pct = min(round(load / cpu_count * 100), 100)
+        cpu_bars_html += (
+            f'<div class="cpu-row">'
+            f'<div class="cpu-label">{label}</div>'
+            f'<div class="cpu-track"><div class="cpu-fill" style="width:{pct}%"></div></div>'
+            f'<div class="cpu-pct">{load:.2f}</div>'
+            f'</div>'
+        )
+
+    # ── memory (/proc/meminfo) ──
+    mem = {}
+    try:
+        with open('/proc/meminfo') as f:
+            for line in f:
+                k, v = line.split(':', 1)
+                mem[k.strip()] = int(v.strip().split()[0]) * 1024  # kB → bytes
+    except Exception:
+        pass
+
+    mem_total_b = mem.get('MemTotal', 0)
+    mem_avail_b = mem.get('MemAvailable', 0)
+    mem_used_b  = mem_total_b - mem_avail_b
+    mem_pct     = round(mem_used_b / mem_total_b * 100) if mem_total_b else 0
+    mem_total   = _fmt_bytes(mem_total_b)
+    mem_used    = _fmt_bytes(mem_used_b)
+    mem_avail   = _fmt_bytes(mem_avail_b)
+
+    swap_total_b = mem.get('SwapTotal', 0)
+    swap_free_b  = mem.get('SwapFree', 0)
+    swap_used_b  = swap_total_b - swap_free_b
+    swap_pct     = round(swap_used_b / swap_total_b * 100) if swap_total_b else 0
+    swap_total   = _fmt_bytes(swap_total_b)
+    swap_used    = _fmt_bytes(swap_used_b)
+
+    # ── network (first non-lo interface from /proc/net/dev) ──
+    net_rx_b = net_tx_b = 0
+    try:
+        with open('/proc/net/dev') as f:
+            for line in f:
+                line = line.strip()
+                if ':' not in line:
+                    continue
+                iface, data = line.split(':', 1)
+                iface = iface.strip()
+                if iface == 'lo':
+                    continue
+                nums = data.split()
+                net_rx_b += int(nums[0])
+                net_tx_b += int(nums[8])
+    except Exception:
+        pass
+    net_rx = _fmt_bytes(net_rx_b)
+    net_tx = _fmt_bytes(net_tx_b)
+
+    # ── DB stats ──
+    user_count = active_sessions = active_shares = expired_shares = total_share_views = 0
+    db_status = 'ok'; db_ind = 'ok'
+    try:
+        with _db_connect() as conn:
+            user_count       = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            active_sessions  = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE expires_at > CURRENT_TIMESTAMP"
+            ).fetchone()[0]
+            active_shares    = conn.execute(
+                "SELECT COUNT(*) FROM shared_links WHERE (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)"
+            ).fetchone()[0]
+            expired_shares   = conn.execute(
+                "SELECT COUNT(*) FROM shared_links WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP"
+            ).fetchone()[0]
+            total_share_views = conn.execute(
+                "SELECT COALESCE(SUM(access_count),0) FROM shared_links"
+            ).fetchone()[0]
+    except Exception:
+        db_status = 'degraded'; db_ind = 'warn'
+
+    db_size_str = 'N/A'
+    try:
+        db_size_str = _fmt_bytes(os.path.getsize(DB_FILE))
+    except Exception:
+        pass
+
+    # ── file counts ──
+    def _count_dir(path: str):
+        count = size = 0
+        try:
+            for root, _, files in os.walk(path):
+                for fn in files:
+                    fp = os.path.join(root, fn)
+                    try:
+                        size += os.path.getsize(fp)
+                        count += 1
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return count, size
+
+    fluxdrop_dir = os.path.join(SERVE_ROOT, 'FluxDrop')
+    catbox_dir   = os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR)
+    fluxdrop_files, fluxdrop_size = _count_dir(fluxdrop_dir)
+    catbox_files,   catbox_size   = _count_dir(catbox_dir)
+    fluxdrop_size_str = _fmt_bytes(fluxdrop_size)
+    catbox_size_str   = _fmt_bytes(catbox_size)
+
+    # ── TLS cert expiry ──
+    ssl_status = 'ok'; ssl_ind = 'ok'; ssl_detail = 'valid'
+    try:
+        import datetime as _dt
+        ctx = _ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+        ctx2 = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+        ctx2.check_hostname = False
+        ctx2.verify_mode = _ssl.CERT_NONE
+        import socket as _sock
+        with _sock.create_connection(('127.0.0.1', HTTPS_PORT), timeout=2) as raw:
+            with ctx2.wrap_socket(raw) as s:
+                cert = s.getpeercert()
+                exp_str = cert.get('notAfter', '')
+                exp_dt  = _dt.datetime.strptime(exp_str, '%b %d %H:%M:%S %Y %Z')
+                days_left = (exp_dt - _dt.datetime.utcnow()).days
+                ssl_detail = f"expires in {days_left}d ({exp_dt.strftime('%Y-%m-%d')})"
+                if days_left < 7:
+                    ssl_status = 'critical'; ssl_ind = 'crit'
+                elif days_left < 30:
+                    ssl_status = 'expiring'; ssl_ind = 'warn'
+    except Exception:
+        ssl_detail = 'check unavailable'
+        ssl_ind = 'info'; ssl_status = 'info'
+
+    # ── port liveness ──
+    import socket as _sock2
+    def _port_open(port: int) -> bool:
+        try:
+            with _sock2.create_connection(('127.0.0.1', port), timeout=1):
+                return True
+        except Exception:
+            return False
+
+    http_up  = _port_open(HTTP_PORT)
+    https_up = _port_open(HTTPS_PORT)
+    http_ind    = 'ok'   if http_up  else 'crit'
+    https_ind   = 'ok'   if https_up else 'crit'
+    http_status = 'operational' if http_up  else 'down'
+    https_status= 'operational' if https_up else 'down'
+
+    # ── uptime history bars (from DB — real per-day aggregates) ──────────
+    total_days = 90
+    history = _get_status_history(total_days)   # newest-first list of dicts
+
+    # Overall uptime % = fraction of sampled days that were fully ok
+    sampled = [h for h in history if h['status'] != 'no_data']
+    if sampled:
+        ok_days = sum(1 for h in sampled if h['status'] == 'ok')
+        uptime_pct = round(ok_days / len(sampled) * 100, 2)
+    else:
+        # Fall back to process uptime proxy if we have no history yet
+        days_up = min(int(srv_uptime_secs / 86400), total_days)
+        uptime_pct = round(days_up / total_days * 100, 2) if days_up > 0 else round(
+            srv_uptime_secs / (total_days * 86400) * 100, 2)
+        uptime_pct = min(uptime_pct, 100.0)
+
+    # Build bars — history[0] = today (rightmost bar)
+    COLOR = {'ok': '#22c55e', 'degraded': '#f59e0b', 'down': '#ef4444', 'no_data': '#334155'}
+    TITLE = {'ok': 'Operational', 'degraded': 'Degraded', 'down': 'Down', 'no_data': 'No data'}
+    bars = []
+    for h in reversed(history):   # oldest → newest = left → right
+        st = h['status']
+        pct_str = f" ({h['uptime_pct']}%)" if h['uptime_pct'] is not None else ''
+        title = f"{h['date']}: {TITLE[st]}{pct_str}"
+        height = 24 if h['date'] != history[0]['date'] else 32  # today taller
+        bars.append(
+            f'<div class="uptime-bar {st}" '
+            f'style="height:{height}px;background:{COLOR[st]}" '
+            f'title="{title}"></div>'
+        )
+    uptime_bars_html = '\n'.join(bars)
+
+    # ── overall status ──
+    if not http_up or not https_up or db_ind == 'warn':
+        overall_class = 'warn'; overall_text = 'Partial Outage'
+    elif cdn_disk['ind'] == 'crit' or root_disk['ind'] == 'crit':
+        overall_class = 'crit'; overall_text = 'Critical'
+    else:
+        overall_class = 'ok'; overall_text = 'All Systems Operational'
+
+    sessions_color = 'blue' if active_sessions > 0 else ''
+
+    return _render_snippet('status_page.html',
+        PUBLIC_DOMAIN=PUBLIC_DOMAIN,
+        now_str=now_str,
+        overall_class=overall_class,
+        overall_text=overall_text,
+        # system
+        sys_uptime_h=sys_uptime_h,
+        sys_uptime_str=sys_uptime_str,
+        srv_uptime_h=str(srv_h),
+        srv_start_str=srv_start_str,
+        # db stats
+        user_count=user_count,
+        active_sessions=active_sessions,
+        sessions_color=sessions_color,
+        fluxdrop_files=fluxdrop_files,
+        fluxdrop_size_str=fluxdrop_size_str,
+        catbox_files=catbox_files,
+        catbox_size_str=catbox_size_str,
+        active_shares=active_shares,
+        expired_shares=expired_shares,
+        total_share_views=total_share_views,
+        # storage
+        cdndisk_avail=cdn_disk['avail'], cdndisk_total=cdn_disk['total'],
+        cdndisk_used=cdn_disk['used'],   cdndisk_pct=cdn_disk['pct'],
+        cdndisk_ind=cdn_disk['ind'],
+        rootdisk_avail=root_disk['avail'], rootdisk_total=root_disk['total'],
+        rootdisk_used=root_disk['used'],   rootdisk_pct=root_disk['pct'],
+        rootdisk_ind=root_disk['ind'],
+        tmpdisk_avail=tmp_disk['avail'], tmpdisk_total=tmp_disk['total'],
+        tmpdisk_used=tmp_disk['used'],   tmpdisk_pct=tmp_disk['pct'],
+        tmpdisk_ind=tmp_disk['ind'],
+        # cpu / mem
+        cpu_bars_html=cpu_bars_html,
+        mem_pct=mem_pct, mem_total=mem_total, mem_used=mem_used, mem_avail=mem_avail,
+        swap_pct=swap_pct, swap_total=swap_total, swap_used=swap_used,
+        # services
+        HTTP_PORT=HTTP_PORT, HTTPS_PORT=HTTPS_PORT,
+        http_ind=http_ind, http_status=http_status,
+        https_ind=https_ind, https_status=https_status,
+        db_ind=db_ind, db_status=db_status, db_size_str=db_size_str,
+        ssl_ind=ssl_ind, ssl_status=ssl_status, ssl_detail=ssl_detail,
+        # uptime
+        uptime_pct=uptime_pct,
+        uptime_bars_html=uptime_bars_html,
+        # network
+        net_rx=net_rx, net_tx=net_tx,
+    ) + f"""
+<script>
+/* ── Status page AJAX auto-refresh (every 30 s) ─────────────────────── */
+(function() {{
+    const REFRESH_INTERVAL = 30000;
+    const STATUS_URL = '/api/v1/status.json';
+    const IND_COLOR = {{ ok:'#22c55e', degraded:'#f59e0b', down:'#ef4444', no_data:'#334155' }};
+
+    function fmtUptime(secs) {{
+        const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+        return h + 'h ' + m + 'm';
+    }}
+
+    async function refreshStatus() {{
+        try {{
+            const r = await fetch(STATUS_URL, {{cache:'no-store'}});
+            if (!r.ok) return;
+            const d = await r.json();
+
+            // Timestamp
+            const tsEl = document.getElementById('status-ts');
+            if (tsEl) tsEl.textContent = new Date().toLocaleTimeString();
+
+            // Overall banner
+            const bannerEl = document.querySelector('.status-banner') || document.querySelector('[class*="overall"]');
+            if (bannerEl) {{
+                const cls = {{ ok:'ok', degraded:'warn', down:'crit' }}[d.overall] || 'ok';
+                bannerEl.className = bannerEl.className.replace(/\b(ok|warn|crit)\b/g, cls);
+                const txt = bannerEl.querySelector('[id*="overall-text"], .overall-text, h2, h3');
+                if (txt) txt.textContent = {{
+                    ok:'All Systems Operational', degraded:'Partial Outage', down:'Major Outage'
+                }}[d.overall] || d.overall;
+            }}
+
+            // Uptime bar chart from history
+            const barsEl = document.getElementById('uptime-bars');
+            if (barsEl && d.history && d.history.length) {{
+                const COLOR = {{ ok:'#22c55e', degraded:'#f59e0b', down:'#ef4444', no_data:'#334155' }};
+                const TITLE = {{ ok:'Operational', degraded:'Degraded', down:'Down', no_data:'No data' }};
+                const bars = [...d.history].reverse().map((h, i) => {{
+                    const pctStr = h.uptime_pct != null ? ` (${{h.uptime_pct}}%)` : '';
+                    const ht = (i === d.history.length - 1) ? 32 : 24;
+                    return `<div class="uptime-bar ${{h.status}}" style="height:${{ht}}px;background:${{COLOR[h.status]}}" title="${{h.date}}: ${{TITLE[h.status]}}${{pctStr}}"></div>`;
+                }});
+                barsEl.innerHTML = bars.join('\\n');
+            }}
+
+            // Uptime %
+            const pctEl = document.getElementById('uptime-pct');
+            if (pctEl && d.history) {{
+                const sampled = d.history.filter(h => h.status !== 'no_data');
+                if (sampled.length) {{
+                    const okDays = sampled.filter(h => h.status === 'ok').length;
+                    pctEl.textContent = (okDays / sampled.length * 100).toFixed(2) + '%';
+                }}
+            }}
+
+            // Server uptime counter
+            const srvUptimeEl = document.getElementById('srv-uptime');
+            if (srvUptimeEl) srvUptimeEl.textContent = fmtUptime(d.srv_uptime_secs);
+
+            // Memory bar
+            const memBar = document.getElementById('mem-bar');
+            if (memBar) memBar.style.width = d.mem_pct + '%';
+            const memPctEl = document.getElementById('mem-pct');
+            if (memPctEl) memPctEl.textContent = d.mem_pct + '%';
+
+            // Disk bar
+            const diskBar = document.getElementById('cdn-disk-bar');
+            if (diskBar) diskBar.style.width = d.disk_pct + '%';
+
+        }} catch (e) {{
+            console.warn('Status refresh failed:', e);
+        }}
+    }}
+
+    // Refresh immediately after page load, then every 30 s
+    setTimeout(refreshStatus, 2000);
+    setInterval(refreshStatus, REFRESH_INTERVAL);
+
+    // Show "last updated" timestamp in the page title area if an element exists
+    const tsSpan = document.createElement('span');
+    tsSpan.id = 'status-ts';
+    tsSpan.style.cssText = 'font-size:11px;color:#64748b;margin-left:8px;';
+    tsSpan.title = 'Live — updates every 30 s';
+    document.addEventListener('DOMContentLoaded', () => {{
+        const h = document.querySelector('h1,h2,.page-title');
+        if (h) h.appendChild(tsSpan);
+    }});
+}})();
+</script>"""
+
+# ==============================================================================
 # --- MAIN REQUEST HANDLER ---
 # ==============================================================================
 class AuthHandler(SimpleHTTPRequestHandler):
@@ -658,6 +1414,18 @@ class AuthHandler(SimpleHTTPRequestHandler):
     public_share_pattern = re.compile(r'^/share/([A-Za-z0-9_\-]+)(/.*)?$')
     catbox_api_path = '/user/api.php'
     auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify)$')
+    # Chunked resumable upload API:
+    #   POST /api/v1/upload_session/init
+    #   POST /api/v1/upload_session/<token>/chunk/<index>
+    #   POST /api/v1/upload_session/<token>/complete
+    #   GET  /api/v1/upload_session/<token>/status
+    upload_session_init_pattern     = re.compile(r'^/api/(v[1-3])/upload_session/init$')
+    upload_session_config_pattern   = re.compile(r'^/api/(v[1-3])/upload_session/config$')
+    upload_speed_probe_pattern      = re.compile(r'^/api/(v[1-3])/upload_session/speed_probe$')
+    upload_session_chunk_pattern    = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/chunk/(\d+)$')
+    upload_session_complete_pattern = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/complete$')
+    upload_session_status_pattern   = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/status$')
+    upload_session_cancel_pattern   = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/cancel$')
 
     def __init__(self, *args, **kwargs):
         # This is crucial for SimpleHTTPRequestHandler to serve files from the correct directory
@@ -698,18 +1466,23 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
 
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, PUT, PATCH')
-        self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type, Range')
+        self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type, Range, X-Chunk-SHA256, X-Anon-Device-Token')
         self.send_header('Access-Control-Max-Age', '86400')
 
     def _send_response(self, status_code, content, content_type='application/json'):
         # Append charset for text responses so browsers don't guess the encoding
         if content_type.startswith('text/') and 'charset' not in content_type:
             content_type = content_type + '; charset=utf-8'
-        self.send_response(status_code)
-        self.send_header('Content-Type', content_type)
-        self._send_cors_headers()
-        self.end_headers()
-        self.wfile.write(content.encode('utf-8'))
+        try:
+            self.send_response(status_code)
+            self.send_header('Content-Type', content_type)
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(content.encode('utf-8'))
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+            # Client closed the connection before we finished writing
+            # (e.g. after a 460 chunk-hash mismatch). Not an error on our side.
+            pass
 
     # --- Authentication Middleware ---
     def _check_token_auth(self):
@@ -741,6 +1514,422 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         logging.warning(f"Token auth failed for token '{token}'")
         return None
+
+    def _handle_status_page(self):
+        """GET /status — render the system status page."""
+        try:
+            html = _build_status_page()
+            self._send_response(200, html, 'text/html')
+        except Exception:
+            logging.exception("Failed to render status page")
+            self._send_response(500, '<h1>Status page error</h1>', 'text/html')
+
+    def _handle_status_json(self):
+        """GET /api/v1/status.json — lightweight JSON snapshot for AJAX polling.
+
+        Returns current live metrics (no auth required — same info as /status page)
+        plus the 90-day daily uptime history from the DB.
+        """
+        import socket as _s2
+        def _port_open(port):
+            try:
+                with _s2.create_connection(('127.0.0.1', port), timeout=1): return True
+            except Exception: return False
+
+        http_up  = _port_open(HTTP_PORT)
+        https_up = _port_open(HTTPS_PORT)
+
+        # Memory
+        mem_pct = 0
+        try:
+            mem = {}
+            with open('/proc/meminfo') as f:
+                for line in f:
+                    k, v = line.split(':', 1)
+                    mem[k.strip()] = int(v.strip().split()[0]) * 1024
+            tot = mem.get('MemTotal', 0)
+            avail = mem.get('MemAvailable', 0)
+            mem_pct = round((tot - avail) / tot * 100) if tot else 0
+        except Exception:
+            pass
+
+        # Disk
+        disk_pct = 0
+        try:
+            st = os.statvfs(SERVE_ROOT)
+            total = st.f_frsize * st.f_blocks
+            avail_b = st.f_frsize * st.f_bavail
+            disk_pct = round((total - avail_b) / total * 100) if total else 0
+        except Exception:
+            pass
+
+        # DB liveness
+        db_ok = True
+        try:
+            with _db_connect() as conn:
+                conn.execute("SELECT 1")
+        except Exception:
+            db_ok = False
+
+        # CPU load
+        loads = [0.0, 0.0, 0.0]
+        try:
+            with open('/proc/loadavg') as f:
+                parts = f.read().split()
+            loads = [float(parts[0]), float(parts[1]), float(parts[2])]
+        except Exception:
+            pass
+
+        # Server uptime
+        srv_uptime_secs = int(time.time() - _SERVER_START_TIME)
+
+        if http_up and https_up and db_ok:
+            overall = 'ok'
+        elif not http_up or not https_up:
+            overall = 'down'
+        else:
+            overall = 'degraded'
+
+        history = _get_status_history(90)
+
+        payload = {
+            'overall': overall,
+            'http_up': http_up,
+            'https_up': https_up,
+            'db_ok': db_ok,
+            'mem_pct': mem_pct,
+            'disk_pct': disk_pct,
+            'cpu_load_1': loads[0],
+            'cpu_load_5': loads[1],
+            'cpu_load_15': loads[2],
+            'srv_uptime_secs': srv_uptime_secs,
+            'history': history,  # list of 90 dicts, newest first
+        }
+        self._send_response(200, json.dumps(payload))
+
+    # --- Chunked / Resumable Upload API ---
+
+    def _check_upload_session_auth(self, session: dict) -> tuple[bool, str]:
+        """Verify the caller is allowed to interact with this upload session.
+
+        Rules:
+          • owner_type == 'user' or 'catbox'  → must present a valid session token
+            whose user_id matches session['owner_ref'].
+          • owner_type == 'share' (anon path)  → session['anon_device_token'] must be
+            present and must match the X-Anon-Device-Token request header.
+
+        Returns (ok: bool, reason: str).
+        """
+        owner_type = session.get('owner_type')
+        if owner_type in ('user', 'catbox'):
+            user_id = self._check_token_auth()
+            if user_id is None:
+                return False, 'Unauthorized: valid session token required.'
+            if str(user_id) != str(session.get('owner_ref')):
+                return False, 'Forbidden: session token does not match upload owner.'
+            return True, ''
+        elif owner_type == 'share':
+            expected = session.get('anon_device_token')
+            if not expected:
+                # Should not happen, but treat as a server-side bug
+                return False, 'Upload session has no device token (internal error).'
+            provided = self.headers.get('X-Anon-Device-Token', '').strip()
+            if not provided:
+                return False, 'Unauthorized: X-Anon-Device-Token header required for anonymous uploads.'
+            if not secrets.compare_digest(expected, provided):
+                return False, 'Forbidden: device token mismatch.'
+            return True, ''
+        return False, f'Unknown owner_type: {owner_type}'
+
+    def handle_upload_session_config(self):
+        """GET /api/v1/upload_session/config
+        Returns server-side upload configuration so clients can compute
+        total_chunks correctly before calling /init.  No auth required —
+        these are non-sensitive server constants, equivalent to advertising
+        API limits in a public spec.
+        """
+        return self._send_response(200, json.dumps({
+            'chunk_size':     UPLOAD_CHUNK_SIZE,
+            'session_ttl':    UPLOAD_SESSION_TTL,
+            'max_chunk_size': UPLOAD_CHUNK_SIZE * 2,  # mirrors the 413 guard in handle_upload_session_chunk
+        }))
+
+    def handle_upload_speed_probe(self):
+        """POST /api/v1/upload_session/speed_probe
+        Accepts an arbitrary binary payload (up to 2 MB) and immediately
+        discards it, returning the number of bytes received.  Used by the
+        client to measure real upload bandwidth before the first chunk so
+        the ETA seed is accurate rather than a hardcoded guess.
+        No auth required — payload is discarded, no storage is touched.
+        """
+        MAX_PROBE = 2 * 1024 * 1024  # 2 MB hard cap
+        content_length = int(self.headers.get('Content-Length', 0))
+        if content_length < 0 or content_length > MAX_PROBE:
+            return self._send_response(400, json.dumps({'error': 'Probe payload must be 1 B – 2 MB.'}))
+        # Read and immediately discard — we only care about the timing
+        _ = self.rfile.read(content_length)
+        return self._send_response(200, json.dumps({'bytes_received': content_length}))
+
+    def handle_upload_session_init(self):
+        """POST /api/v1/upload_session/init
+        Body JSON:
+          filename      — original filename (required)
+          dest_path     — server-side destination relative to owner's root (required)
+          total_size    — total file size in bytes (required)
+          total_chunks  — number of chunks the client will send (required)
+          sha256        — optional whole-file SHA-256 hex for final verification
+          owner_type    — 'user' | 'share' | 'catbox'
+          share_token   — required when owner_type == 'share'
+
+        Auth rules:
+          • owner_type 'user'/'catbox' → valid Bearer session token required (registered users only).
+          • owner_type 'share'         → share must have allow_anon_upload OR (allow_auth_upload
+            AND a valid session token). The server mints an anon_device_token returned to the
+            caller; the client must store it and send it as X-Anon-Device-Token on every subsequent
+            chunk/complete/status call.  Cross-device resume is intentionally not supported for
+            anonymous uploads because the token cannot be transferred.
+
+        Returns JSON: { upload_token, chunk_size, total_chunks [, anon_device_token] }
+        """
+        user_id = self._check_token_auth()
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            data   = json.loads(self.rfile.read(length))
+        except Exception:
+            return self._send_response(400, json.dumps({'error': 'Invalid JSON body.'}))
+
+        filename     = data.get('filename', '').strip()
+        dest_rel     = data.get('dest_path', '').strip()
+        total_size   = int(data.get('total_size', -1))
+        total_chunks = int(data.get('total_chunks', -1))
+        sha256_final = data.get('sha256') or None
+        owner_type   = data.get('owner_type', 'user')
+        share_token  = data.get('share_token', '')
+
+        if not filename or not dest_rel or total_chunks < 1:
+            return self._send_response(400, json.dumps({'error': 'filename, dest_path, total_chunks required.'}))
+
+        anon_device_token: str | None = None
+
+        # Resolve absolute dest_path and owner_ref
+        if owner_type == 'user':
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Unauthorized: registered users only.'}))
+            base_fs = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+            dest_path = os.path.normpath(os.path.join(base_fs, dest_rel.lstrip('/')))
+            if not os.path.realpath(dest_path).startswith(os.path.realpath(base_fs)):
+                return self._send_response(400, json.dumps({'error': 'Invalid dest_path.'}))
+            owner_ref = str(user_id)
+
+        elif owner_type == 'share':
+            share = _get_share(share_token)
+            if not share or not share['is_dir']:
+                return self._send_response(404, json.dumps({'error': 'Share not found.'}))
+            # Determine whether this caller is allowed to upload to this share
+            anon_ok = bool(share['allow_anon_upload'])
+            auth_ok = bool(share['allow_auth_upload']) and user_id is not None
+            if not anon_ok and not auth_ok:
+                return self._send_response(403, json.dumps({'error': 'Uploads not permitted on this share.'}))
+            owner_id_s = share['owner_id']
+            base_path_str = share['path']
+            if base_path_str.startswith('/cdn'):
+                base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, base_path_str[len('/cdn'):].lstrip('/')))
+            else:
+                base_fs = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(owner_id_s), base_path_str.lstrip('/')))
+            dest_path = os.path.normpath(os.path.join(base_fs, dest_rel.lstrip('/')))
+            if not os.path.realpath(dest_path).startswith(os.path.realpath(base_fs)):
+                return self._send_response(400, json.dumps({'error': 'Invalid dest_path.'}))
+            owner_ref = share_token
+            # Always mint a device token for share uploads; the client stores it locally.
+            # For authenticated visitors it still acts as the binding token — keeps the
+            # logic uniform and avoids leaking which device a session belongs to.
+            anon_device_token = secrets.token_urlsafe(32)
+
+        elif owner_type == 'catbox':
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Unauthorized: registered users only.'}))
+            file_ext  = os.path.splitext(filename)[1]
+            rand_name = secrets.token_urlsafe(6).lower().replace('-','').replace('_','')
+            dest_path = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR, rand_name + file_ext))
+            owner_ref = str(user_id)
+        else:
+            return self._send_response(400, json.dumps({'error': f'Unknown owner_type: {owner_type}'}))
+
+        try:
+            session = _upload_init(
+                filename=os.path.basename(filename),
+                dest_path=dest_path,
+                total_size=total_size,
+                total_chunks=total_chunks,
+                sha256_final=sha256_final,
+                owner_type=owner_type,
+                owner_ref=owner_ref,
+                anon_device_token=anon_device_token,
+            )
+            logging.info(f'Upload session init: token={session["upload_token"][:12]}… file={filename} chunks={total_chunks} owner={owner_type}')
+            resp: dict = {
+                'upload_token': session['upload_token'],
+                'chunk_size':   session['chunk_size'],
+                'total_chunks': total_chunks,
+            }
+            if anon_device_token:
+                resp['anon_device_token'] = anon_device_token
+            return self._send_response(200, json.dumps(resp))
+        except Exception as e:
+            logging.exception('Failed to init upload session')
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+    def handle_upload_session_chunk(self, upload_token: str, chunk_index: int):
+        """POST /api/v1/upload_session/<token>/chunk/<index>
+        Body: raw binary chunk data.
+        Headers: Content-Length (required), X-Chunk-SHA256 (optional per-chunk hash).
+        Auth: Bearer session token (registered users) or X-Anon-Device-Token (share anon uploads).
+        Returns JSON: { chunks_received, missing_chunks }
+        """
+        session = _upload_get(upload_token)
+        if not session:
+            return self._send_response(404, json.dumps({'error': 'Upload session not found.'}))
+        if session['completed']:
+            return self._send_response(409, json.dumps({'error': 'Session already completed.'}))
+
+        ok, reason = self._check_upload_session_auth(session)
+        if not ok:
+            return self._send_response(403, json.dumps({'error': reason}))
+
+        # Validate chunk index
+        if session['total_chunks'] > 0 and chunk_index >= session['total_chunks']:
+            return self._send_response(400, json.dumps({'error': f'chunk_index {chunk_index} out of range.'}))
+
+        content_length = int(self.headers.get('Content-Length', 0))
+        if content_length <= 0:
+            return self._send_response(400, json.dumps({'error': 'Content-Length required.'}))
+        if content_length > UPLOAD_CHUNK_SIZE * 2:
+            return self._send_response(413, json.dumps({'error': 'Chunk too large.'}))
+
+        # Read raw chunk directly from socket — no /tmp involved
+        data = self.rfile.read(content_length)
+
+        # Optional per-chunk SHA-256 verification
+        expected_sha = self.headers.get('X-Chunk-SHA256', '').strip().lower()
+        if expected_sha:
+            actual_sha = hashlib.sha256(data).hexdigest()
+            if actual_sha != expected_sha:
+                return self._send_response(460, json.dumps({
+                    'error': 'Chunk SHA-256 mismatch.',
+                    'expected': expected_sha, 'actual': actual_sha,
+                }))
+
+        try:
+            updated = _upload_receive_chunk(upload_token, chunk_index, data)
+            status  = _upload_session_status(updated)
+            logging.info(f'Chunk received: token={upload_token[:12]}… idx={chunk_index} '
+                         f'({len(data)//1024}KB) {len(status["chunks_received"])}/{updated["total_chunks"]}')
+            return self._send_response(200, json.dumps(status))
+        except KeyError as e:
+            # Session disappeared mid-flight — normal when cancel fires concurrently
+            logging.info(f'Chunk {chunk_index} for {upload_token[:12]}… dropped: session gone (cancelled)')
+            return self._send_response(404, json.dumps({'error': 'Upload session not found (cancelled?)'}))
+        except Exception as e:
+            logging.exception(f'Failed to receive chunk {chunk_index} for {upload_token[:12]}…')
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+    def handle_upload_session_complete(self, upload_token: str):
+        """POST /api/v1/upload_session/<token>/complete
+        Assembles all chunks, verifies whole-file SHA-256 if provided, moves to dest_path.
+        Auth: Bearer session token (registered users) or X-Anon-Device-Token (share anon uploads).
+        Returns JSON: { url, sha256, size }
+        """
+        session = _upload_get(upload_token)
+        if not session:
+            return self._send_response(404, json.dumps({'error': 'Upload session not found.'}))
+        if session['completed']:
+            return self._send_response(409, json.dumps({'error': 'Already completed.'}))
+
+        ok, reason = self._check_upload_session_auth(session)
+        if not ok:
+            return self._send_response(403, json.dumps({'error': reason}))
+
+        try:
+            dest_path = _upload_assemble(upload_token)
+        except ValueError as e:
+            return self._send_response(422, json.dumps({'error': str(e)}))
+        except Exception as e:
+            logging.exception('Upload assembly failed')
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+        # Build public URL
+        owner_type = session['owner_type']
+        if owner_type == 'catbox':
+            rel = os.path.relpath(dest_path, SERVE_ROOT).replace(os.sep, '/')
+            file_url = f'https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/{rel}'
+        elif owner_type == 'share':
+            share = _get_share(session['owner_ref'])
+            owner_id_s = share['owner_id'] if share else 'unknown'
+            rel = os.path.relpath(dest_path, os.path.join(SERVE_ROOT, 'FluxDrop', str(owner_id_s))).replace(os.sep, '/')
+            file_url = f'https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/FluxDrop/{owner_id_s}/{rel}'
+        else:
+            owner_ref = session['owner_ref']
+            rel = os.path.relpath(dest_path, os.path.join(SERVE_ROOT, 'FluxDrop', owner_ref)).replace(os.sep, '/')
+            file_url = f'https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/FluxDrop/{owner_ref}/{rel}'
+
+        size = os.path.getsize(dest_path)
+        with open(dest_path, 'rb') as f:
+            sha256 = hashlib.sha256(f.read()).hexdigest() if size < 500 * 1024 * 1024 else 'skipped (>500MB)'
+
+        logging.info(f'Upload complete: {dest_path} ({size} bytes) token={upload_token[:12]}…')
+        return self._send_response(200, json.dumps({'url': file_url, 'sha256': sha256, 'size': size}))
+
+    def handle_upload_session_cancel(self, upload_token: str):
+        """DELETE /api/v1/upload_session/<token>
+        Immediately deletes the tmp chunk directory and DB row for an in-progress
+        upload session.  Safe to call when the user cancels — avoids waiting 48 h
+        for the TTL purge to reclaim the disk space.
+        Auth: same rules as chunk upload.
+        Returns JSON: { cancelled: true }
+        """
+        session = _upload_get(upload_token)
+        if not session:
+            # Already gone — treat as success
+            return self._send_response(200, json.dumps({'cancelled': True}))
+        if session['completed']:
+            return self._send_response(409, json.dumps({'error': 'Session already completed.'}))
+
+        ok, reason = self._check_upload_session_auth(session)
+        if not ok:
+            return self._send_response(403, json.dumps({'error': reason}))
+
+        try:
+            tmp_dir = session['tmp_dir']
+            with _db_connect() as conn:
+                conn.execute('DELETE FROM upload_sessions WHERE upload_token = ?', (upload_token,))
+                conn.commit()
+            _release_chunk_lock(upload_token)
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+            logging.info(f'Upload session cancelled and cleaned up: token={upload_token[:12]}…')
+            return self._send_response(200, json.dumps({'cancelled': True}))
+        except Exception as e:
+            logging.exception('Failed to cancel upload session')
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+    def handle_upload_session_status(self, upload_token: str):
+        """GET /api/v1/upload_session/<token>/status
+        Returns which chunks have been received and which are still missing.
+        Auth: Bearer session token (registered users) or X-Anon-Device-Token (share anon uploads).
+        Cross-device resume is only supported for registered users (share/anon callers must
+        supply the device token they received at init time).
+        """
+        session = _upload_get(upload_token)
+        if not session:
+            return self._send_response(404, json.dumps({'error': 'Upload session not found.'}))
+
+        ok, reason = self._check_upload_session_auth(session)
+        if not ok:
+            return self._send_response(403, json.dumps({'error': reason}))
+
+        return self._send_response(200, json.dumps(_upload_session_status(session)))
 
     # --- Static file protection enforcement ---
     def send_head(self):
@@ -817,6 +2006,23 @@ class AuthHandler(SimpleHTTPRequestHandler):
         """Routes GET requests to the appropriate handler or serves static files."""
         parsed_url = urlparse(self.path)
 
+        # Status page
+        if parsed_url.path == '/status':
+            return self._handle_status_page()
+
+        # JSON status API (for AJAX updates and external monitoring)
+        if parsed_url.path == '/api/v1/status.json':
+            return self._handle_status_json()
+
+        # Chunked upload session config (no auth — public server constants)
+        if self.upload_session_config_pattern.match(parsed_url.path):
+            return self.handle_upload_session_config()
+
+        # Chunked upload session status
+        us_status = self.upload_session_status_pattern.match(parsed_url.path)
+        if us_status:
+            return self.handle_upload_session_status(us_status.group(2))
+
         # Auth API calls (e.g., /auth/verify)
         auth_match = self.auth_api_pattern.match(parsed_url.path)
         if auth_match:
@@ -862,6 +2068,18 @@ class AuthHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         """Routes POST requests to the appropriate handler."""
         parsed_url = urlparse(self.path)
+
+        # Chunked upload session endpoints (before auth so chunk upload works with upload_token)
+        if self.upload_session_init_pattern.match(parsed_url.path):
+            return self.handle_upload_session_init()
+        if self.upload_speed_probe_pattern.match(parsed_url.path):
+            return self.handle_upload_speed_probe()
+        us_chunk = self.upload_session_chunk_pattern.match(parsed_url.path)
+        if us_chunk:
+            return self.handle_upload_session_chunk(us_chunk.group(2), int(us_chunk.group(3)))
+        us_complete = self.upload_session_complete_pattern.match(parsed_url.path)
+        if us_complete:
+            return self.handle_upload_session_complete(us_complete.group(2))
 
         # Auth API calls
         auth_match = self.auth_api_pattern.match(parsed_url.path)
@@ -933,8 +2151,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     def do_DELETE(self):
-        """Routes DELETE requests (used to revoke shares)."""
+        """Routes DELETE requests (used to revoke shares and cancel upload sessions)."""
         parsed_url = urlparse(self.path)
+        us_cancel = self.upload_session_cancel_pattern.match(parsed_url.path)
+        if us_cancel:
+            return self.handle_upload_session_cancel(us_cancel.group(2))
         item_match = self.shares_item_pattern.match(parsed_url.path)
         if item_match:
             return self.handle_share_delete(item_match.group(2))
@@ -1441,259 +2662,44 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if share.get("expires_at"):
             try:
                 exp = _parse_expiry(share["expires_at"])
-                expiry_badge = f'&nbsp;<span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">⏰ Expires {exp.strftime("%Y-%m-%d")}</span>'
+                if exp is not None:
+                    expiry_badge = f'&nbsp;<span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">⏰ Expires {exp.strftime("%Y-%m-%d")}</span>'
             except Exception: pass
 
         folder_name = os.path.basename(base_fs.rstrip("/")) or "Shared Folder"
         current_title = os.path.basename(target_fs.rstrip("/")) if sub_path_clean else folder_name
+        share_icon = '📁' if share['is_dir'] else '📄'
+        require_account_badge = (
+            '&nbsp;<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">🔒 Account required</span>'
+            if share["require_account"] else ''
+        )
 
-        return f"""<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FluxDrop — {current_title}</title>
-<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<style>
-  *{{box-sizing:border-box}}
-  body{{font-family:Inter,sans-serif;background:#f0f9ff;min-height:100vh;margin:0;padding:24px 16px}}
-  .card{{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.10);padding:28px;max-width:900px;margin:0 auto}}
-  table{{width:100%;border-collapse:collapse}}
-  th{{text-align:left;padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;border-bottom:2px solid #e2e8f0;white-space:nowrap}}
-  .entry-row:hover td{{background:#f8fafc}}
-  a{{color:inherit}}
-  .crumbs{{font-size:13px;color:#64748b;margin-bottom:16px;display:flex;align-items:center;gap:4px;flex-wrap:wrap}}
-</style>
-</head><body>
-<div class="card">
-  <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
-    <div style="font-size:36px;line-height:1">{'📁' if share['is_dir'] else '📄'}</div>
-    <div style="flex:1;min-width:0">
-      <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{current_title}</h1>
-      <div style="font-size:13px;color:#94a3b8">
-        Shared by <strong style="color:#475569">{owner_name}</strong>
-        {'&nbsp;<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">🔒 Account required</span>' if share["require_account"] else ''}
-        {expiry_badge}
-      </div>
-    </div>
-  </div>
-
-  <div class="crumbs">{crumbs_html}</div>
-
-  <table>
-    <thead><tr>
-      <th>Name</th><th>Size</th><th>Modified</th><th style="width:50px"></th>
-    </tr></thead>
-    <tbody>{entries_html}</tbody>
-  </table>
-  {upload_section}
-  <div style="margin-top:20px;padding-top:14px;border-top:1px solid #f1f5f9;font-size:12px;color:#cbd5e1;text-align:center">
-    Powered by <a href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/index.html" style="color:#93c5fd;text-decoration:none;font-weight:600">FluxDrop</a>
-  </div>
-</div>
-
-<!-- Inline preview modal for shared folders with allow_preview -->
-<div id="sp-preview-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;flex-direction:column;padding:1rem" onclick="if(event.target===this)closeSharePreview()">
-  <div style="background:#0f172a;border-radius:12px;padding:1.25rem;width:95vw;max-width:900px;max-height:90vh;display:flex;flex-direction:column;gap:0.75rem;position:relative">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <span id="sp-preview-title" style="color:#94a3b8;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80%"></span>
-      <button onclick="closeSharePreview()" style="background:rgba(255,255,255,0.1);border:none;color:white;border-radius:50%;width:30px;height:30px;font-size:17px;cursor:pointer">✕</button>
-    </div>
-    <div id="sp-preview-body" style="overflow:auto;max-height:75vh"></div>
-    <div style="display:flex;justify-content:flex-end">
-      <a id="sp-preview-dl" href="#" download style="background:#3b82f6;color:white;padding:5px 14px;border-radius:7px;text-decoration:none;font-size:13px">⬇ Download</a>
-    </div>
-  </div>
-</div>
-<script>
-const _EXT_IMAGE = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico','avif']);
-const _EXT_VIDEO = new Set(['mp4','webm','ogg','ogv','mov','m4v']);
-const _EXT_AUDIO = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus']);
-const _EXT_TEXT  = new Set(['txt','md','js','ts','py','sh','json','xml','yaml','yml','toml','ini','css','html','htm','csv','log','rs','go','c','cpp','h','java','rb','php','sql']);
-
-function _escHtml(s) {{ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
-
-async function previewShareFile(url, name, event) {{
-  if (event) event.preventDefault();
-  const ext = (name.split('.').pop() || '').toLowerCase();
-  const overlay = document.getElementById('sp-preview-overlay');
-  const body = document.getElementById('sp-preview-body');
-  const title = document.getElementById('sp-preview-title');
-  const dl = document.getElementById('sp-preview-dl');
-
-  title.textContent = name;
-  dl.href = url;
-  dl.download = name;
-  body.innerHTML = '<p style="color:#64748b;text-align:center;padding:2rem">Loading…</p>';
-  overlay.style.display = 'flex';
-  document.addEventListener('keydown', _spKeyHandler);
-
-  const previewUrl = url + '?preview=1';
-
-  if (_EXT_IMAGE.has(ext)) {{
-    body.innerHTML = `<img src="${{previewUrl}}" alt="${{_escHtml(name)}}" style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto">`;
-  }} else if (_EXT_VIDEO.has(ext)) {{
-    body.innerHTML = `<video controls autoplay style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto;background:#000"><source src="${{previewUrl}}">Unsupported video.</video>`;
-  }} else if (_EXT_AUDIO.has(ext)) {{
-    body.innerHTML = `<div style="padding:2rem;text-align:center"><div style="font-size:4rem;margin-bottom:1rem">🎵</div><audio controls autoplay style="width:100%"><source src="${{previewUrl}}">Unsupported audio.</audio></div>`;
-  }} else if (_EXT_TEXT.has(ext)) {{
-    try {{
-      const r = await fetch(previewUrl);
-      const t = await r.text();
-      body.innerHTML = `<pre style="background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;overflow:auto;max-height:65vh;font-size:13px;white-space:pre-wrap;word-break:break-word">${{_escHtml(t.slice(0,50000))}}${{t.length>50000?'\\n…(truncated)':''}}</pre>`;
-    }} catch(e) {{ body.innerHTML = `<p style="color:#ef4444;text-align:center;padding:2rem">Failed: ${{_escHtml(String(e))}}</p>`; }}
-  }} else {{
-    body.innerHTML = `<div style="padding:3rem;text-align:center"><div style="font-size:3rem;margin-bottom:1rem">📄</div><p style="color:#94a3b8">No preview for this file type.</p></div>`;
-  }}
-}}
-
-function closeSharePreview() {{
-  const overlay = document.getElementById('sp-preview-overlay');
-  overlay.style.display = 'none';
-  document.getElementById('sp-preview-body').querySelectorAll('video,audio').forEach(el=>{{el.pause();el.src='';}});
-  document.getElementById('sp-preview-body').innerHTML = '';
-  document.removeEventListener('keydown', _spKeyHandler);
-}}
-function _spKeyHandler(e) {{ if (e.key === 'Escape') closeSharePreview(); }}
-</script>
-</body></html>"""
+        return _render_snippet('share_folder_page.html',
+            PUBLIC_DOMAIN=PUBLIC_DOMAIN,
+            current_title=current_title,
+            share_icon=share_icon,
+            owner_name=owner_name,
+            require_account_badge=require_account_badge,
+            expiry_badge=expiry_badge,
+            crumbs_html=crumbs_html,
+            entries_html=entries_html,
+            upload_section=upload_section,
+        )
 
     def _render_share_login_page(self, token):
         cdn_origin = f"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}"
         share_path = f"/share/{token}"
-        return f"""<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FluxDrop — Login to Access</title>
-<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-*{{box-sizing:border-box}}
-body{{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px}}
-.card{{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:36px;max-width:380px;width:100%;text-align:center}}
-input{{width:100%;padding:10px 14px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:Inter,sans-serif;margin-bottom:10px;outline:none;transition:border .15s}}
-input:focus{{border-color:#3b82f6}}
-.btn{{width:100%;padding:11px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:background .15s;font-family:Inter,sans-serif}}
-.btn:hover{{background:#2563eb}}
-.btn:disabled{{background:#93c5fd;cursor:not-allowed}}
-.err{{color:#ef4444;font-size:13px;margin-top:6px;min-height:18px}}
-</style>
-</head><body>
-<div class="card">
-  <div style="font-size:46px;margin-bottom:12px">🔒</div>
-  <h2 style="margin:0 0 6px;color:#1e293b;font-size:20px">Login Required</h2>
-  <p style="color:#64748b;font-size:13px;margin:0 0 22px">This shared link requires a FluxDrop account.</p>
-
-  <input type="text"     id="usr" placeholder="Username"  autocomplete="username">
-  <input type="password" id="pwd" placeholder="Password"  autocomplete="current-password">
-  <button class="btn" id="login-btn" onclick="doLogin()">Login &amp; Continue</button>
-  <div class="err" id="err"></div>
-
-  <div style="margin-top:16px;font-size:12px;color:#94a3b8">
-    Already logged in on this device?
-    <a href="#" onclick="useStoredToken()" style="color:#3b82f6;text-decoration:none">Use saved session</a>
-  </div>
-</div>
-
-<script>
-const CDN = {cdn_origin!r};
-const SHARE = {share_path!r};
-
-// If the user already has a valid token in localStorage from the FluxDrop app,
-// offer to use it immediately without re-entering credentials.
-function useStoredToken() {{
-  const t = localStorage.getItem('fluxdrop_token');
-  if (!t) {{ document.getElementById('err').textContent = 'No saved session found. Please log in.'; return; }}
-  redirect(t);
-}}
-
-async function doLogin() {{
-  const btn = document.getElementById('login-btn');
-  const err = document.getElementById('err');
-  const usr = document.getElementById('usr').value.trim();
-  const pwd = document.getElementById('pwd').value;
-  if (!usr || !pwd) {{ err.textContent = 'Please enter username and password.'; return; }}
-  btn.disabled = true; btn.textContent = 'Logging in…'; err.textContent = '';
-  try {{
-    const r = await fetch(CDN + '/auth/login', {{
-      method: 'POST',
-      headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{username: usr, password: pwd}})
-    }});
-    const data = await r.json();
-    if (!r.ok) {{ err.textContent = data.error || 'Login failed.'; btn.disabled = false; btn.textContent = 'Login & Continue'; return; }}
-    // Optionally persist to localStorage so the FluxDrop app also picks it up
-    localStorage.setItem('fluxdrop_token', data.token);
-    localStorage.setItem('fluxdrop_username', data.username);
-    redirect(data.token);
-  }} catch(e) {{
-    err.textContent = 'Network error: ' + e.message;
-    btn.disabled = false; btn.textContent = 'Login & Continue';
-  }}
-}}
-
-function redirect(token) {{
-  // Append token as query param so the server can verify it on the next
-  // navigation request (browser page load can't send Authorization headers).
-  window.location.href = CDN + SHARE + '?token=' + encodeURIComponent(token);
-}}
-
-// Auto-try stored token on page load (silent, no error shown)
-(function() {{
-  const t = localStorage.getItem('fluxdrop_token');
-  if (t) redirect(t);
-}})();
-</script>
-</body></html>"""
+        return _render_snippet('share_login_page.html',
+            PUBLIC_DOMAIN=PUBLIC_DOMAIN,
+            cdn_origin=repr(cdn_origin),
+            share_path=repr(share_path),
+        )
 
     def _render_share_expired_page(self):
-        return f"""<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FluxDrop — Link Expired</title>
-<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-*{{box-sizing:border-box}}
-body{{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px}}
-.card{{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:36px;max-width:380px;width:100%;text-align:center}}
-.badge{{display:inline-block;background:#fef3c7;color:#92400e;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:16px;letter-spacing:.4px}}
-.btn{{display:inline-block;margin-top:20px;padding:10px 24px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;font-family:Inter,sans-serif;transition:background .15s}}
-.btn:hover{{background:#2563eb}}
-</style>
-</head><body>
-<div class="card">
-  <div style="font-size:46px;margin-bottom:12px">⏳</div>
-  <span class="badge">LINK EXPIRED</span>
-  <h2 style="margin:0 0 8px;color:#1e293b;font-size:20px">This link has expired</h2>
-  <p style="color:#64748b;font-size:13px;margin:0">The owner's share link is no longer valid. Ask them to generate a new one.</p>
-  <a class="btn" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/">Go to FluxDrop</a>
-</div>
-</body></html>"""
+        return _render_snippet('share_expired_page.html',PUBLIC_DOMAIN=PUBLIC_DOMAIN)
 
     def _render_share_not_found_page(self):
-        return f"""<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FluxDrop — Link Not Found</title>
-<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-*{{box-sizing:border-box}}
-body{{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px}}
-.card{{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:36px;max-width:380px;width:100%;text-align:center}}
-.badge{{display:inline-block;background:#fee2e2;color:#991b1b;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:16px;letter-spacing:.4px}}
-.btn{{display:inline-block;margin-top:20px;padding:10px 24px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;font-family:Inter,sans-serif;transition:background .15s}}
-.btn:hover{{background:#2563eb}}
-</style>
-</head><body>
-<div class="card">
-  <div style="font-size:46px;margin-bottom:12px">🔗</div>
-  <span class="badge">NOT FOUND</span>
-  <h2 style="margin:0 0 8px;color:#1e293b;font-size:20px">Link not found</h2>
-  <p style="color:#64748b;font-size:13px;margin:0">This share link is invalid or has been revoked by its owner.</p>
-  <a class="btn" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/">Go to FluxDrop</a>
-</div>
-</body></html>"""
+        return _render_snippet('share_not_found_page.html',PUBLIC_DOMAIN=PUBLIC_DOMAIN)
 
     # --- FluxDrop API Handlers ---
 
@@ -2094,6 +3100,11 @@ body{{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:c
             # offset even if the connection drops mid-stream.
             parsed_qs = parse_qs(urlparse(self.path).query)
             dl_token = parsed_qs.get('dl_token', [None])[0]
+            if dl_token is None:
+                return self._send_response(403, json.dumps({
+                    "error": "Forbidden: a valid download token is required.",
+                    "hint": "POST /api/v1/download_token with your session token to mint one."
+                }))
             token_meta = _validate_download_token(rel_path_for_db, dl_token)
             if token_meta is None:
                 return self._send_response(403, json.dumps({
@@ -2245,7 +3256,7 @@ body{{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:c
                 if not file_items:
                     return self._send_response(400, json.dumps({"error": "Missing fileToUpload field."}))
                 file_item = file_items[0]
-                filename = os.path.basename(file_item.filename)
+                filename = os.path.basename(file_item.filename or "")
 
                 # If the client uploaded a placeholder file (used by the UI to create folders),
                 # treat the target path as a directory to create and save the placeholder inside it.
@@ -2614,10 +3625,62 @@ def run_server(port, use_ssl=False):
         logging.info(f"{proto} server on port {port} has shut down.")
 
 def _token_purge_worker():
-    """Background thread: purge expired/used download tokens every 5 minutes."""
+    """Background thread: purge expired/used download tokens every 5 minutes.
+
+    Uses exponential backoff (up to 1 hour) when the DB is unreachable, so
+    the log is not flooded with errors every 5 minutes during a prolonged
+    outage (e.g. the media drive being unmounted). Resets to the normal
+    5-minute interval as soon as a purge succeeds.
+    """
+    NORMAL_INTERVAL = 300    # 5 minutes
+    MAX_INTERVAL    = 3600   # 1 hour
+    interval = NORMAL_INTERVAL
     while True:
-        time.sleep(300)
-        _purge_expired_download_tokens()
+        time.sleep(interval)
+        success = _purge_expired_download_tokens()
+        _purge_abandoned_upload_sessions()  # also clean up stale chunked uploads
+
+        # ── Record a status snapshot for uptime history ──────────────────
+        try:
+            import socket as _ss
+            def _p(port):
+                try:
+                    with _ss.create_connection(('127.0.0.1', port), timeout=1): return True
+                except Exception: return False
+            _http  = _p(HTTP_PORT)
+            _https = _p(HTTPS_PORT)
+            _db_ok = True
+            try:
+                with _db_connect() as _c: _c.execute("SELECT 1")
+            except Exception:
+                _db_ok = False
+            _mpct = 0
+            try:
+                _m = {}
+                with open('/proc/meminfo') as _f:
+                    for _l in _f:
+                        _k, _v = _l.split(':', 1)
+                        _m[_k.strip()] = int(_v.strip().split()[0]) * 1024
+                _t = _m.get('MemTotal', 0)
+                _mpct = round((_t - _m.get('MemAvailable', 0)) / _t * 100) if _t else 0
+            except Exception: pass
+            _dpct = 0
+            try:
+                _st = os.statvfs(SERVE_ROOT)
+                _tt = _st.f_frsize * _st.f_blocks
+                _dpct = round((_tt - _st.f_frsize * _st.f_bavail) / _tt * 100) if _tt else 0
+            except Exception: pass
+            _record_status_snapshot(_http, _https, _db_ok, _mpct, _dpct)
+        except Exception:
+            logging.exception('Status snapshot failed')
+
+        if success:
+            interval = NORMAL_INTERVAL
+        else:
+            interval = min(interval * 2, MAX_INTERVAL)
+            logging.warning(
+                f"TokenPurge: DB unavailable, next retry in {interval // 60} min."
+            )
 
 
 if __name__ == '__main__':
@@ -2625,7 +3688,7 @@ if __name__ == '__main__':
     init_db() # Initialize the database
 
     # Create necessary directories
-    for dir_path in [SERVE_ROOT, os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR)]:
+    for dir_path in [SERVE_ROOT, os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR), UPLOAD_TMP_DIR]:
         if not os.path.isdir(dir_path):
             logging.warning(f"Directory '{dir_path}' does not exist. Creating it.")
             try:

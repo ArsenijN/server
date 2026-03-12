@@ -11,6 +11,7 @@ import shutil
 import secrets
 import requests
 import hashlib
+import collections
 import smtplib
 import sqlite3
 from werkzeug.formparser import parse_form_data # For parsing multipart/form-data (cgi deprecated in Python 3.13+)
@@ -344,10 +345,63 @@ def init_db():
                 https_up INTEGER DEFAULT 1,
                 db_ok INTEGER DEFAULT 1,
                 mem_pct INTEGER DEFAULT 0,
-                disk_pct INTEGER DEFAULT 0
+                disk_pct INTEGER DEFAULT 0,
+                cause TEXT DEFAULT NULL
+            )
+        ''')
+        # Automatic incident log — one row per status-change event.
+        # cause: human-readable string describing what triggered the transition.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS incident_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP DEFAULT NULL,
+                severity TEXT NOT NULL,
+                cause TEXT NOT NULL,
+                detail TEXT DEFAULT NULL
+            )
+        ''')
+        # Admin message board — manually posted notices shown on /status.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS message_board (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                posted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                level TEXT NOT NULL DEFAULT 'info',
+                title TEXT NOT NULL,
+                body TEXT DEFAULT NULL
+            )
+        ''')
+        # Network connectivity outage log.
+        # Записується при кожному збої та відновленні інтернет-з'єднання.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS net_outages (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at       REAL    NOT NULL,
+                ended_at         REAL    DEFAULT NULL,
+                duration_sec     REAL    DEFAULT NULL,
+                probe_host       TEXT    NOT NULL DEFAULT '8.8.8.8',
+                confirmed_external INTEGER DEFAULT 0
             )
         ''')
         conn.commit()
+
+    # ── Schema migrations (safe to run on every startup) ──────────────────
+    # ALTER TABLE IF NOT EXISTS ... ADD COLUMN is not supported in older SQLite;
+    # instead we check the column list and add only if missing.
+    with _db_connect() as conn:
+        def _add_column_if_missing(table: str, column: str, definition: str) -> None:
+            cols = [r[1] for r in conn.execute(f'PRAGMA table_info({table})').fetchall()]
+            if column not in cols:
+                conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+                logging.info(f'Migration: added {table}.{column}')
+
+        _add_column_if_missing('status_snapshots', 'cause',      'TEXT DEFAULT NULL')
+        _add_column_if_missing('status_snapshots', 'net_ok',     'INTEGER DEFAULT 1')
+        _add_column_if_missing('status_snapshots', 'latency_ms', 'REAL DEFAULT NULL')
+        _add_column_if_missing('net_outages', 'note', 'TEXT DEFAULT NULL')
+        _add_column_if_missing('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0')
+        conn.commit()
+
     logging.info("Database initialized successfully.")
 
 
@@ -535,54 +589,450 @@ def _purge_abandoned_upload_sessions() -> bool:
         return False
 
 
+def _build_snapshot_cause(http_up: bool, https_up: bool, db_ok: bool,
+                           mem_pct: int, disk_pct: int) -> str | None:
+    """Return a short human-readable cause string when something is not fully ok."""
+    parts = []
+    if not http_up:
+        parts.append('HTTP server unreachable')
+    if not https_up:
+        parts.append('HTTPS server unreachable')
+    if not db_ok:
+        parts.append('database query failed')
+    if mem_pct >= 95:
+        parts.append(f'memory critical ({mem_pct}%)')
+    elif mem_pct >= 85:
+        parts.append(f'memory high ({mem_pct}%)')
+    if disk_pct >= 90:
+        parts.append(f'disk critical ({disk_pct}%)')
+    elif disk_pct >= 75:
+        parts.append(f'disk usage high ({disk_pct}%)')
+    return '; '.join(parts) if parts else None
+
+
 def _record_status_snapshot(http_up: bool, https_up: bool, db_ok: bool,
-                            mem_pct: int, disk_pct: int) -> None:
-    """Write one status sample to the DB. Prunes rows older than 90 days."""
+                            mem_pct: int, disk_pct: int,
+                            net_ok: bool = True,
+                            latency_ms: float | None = None) -> None:
+    """Write one status sample to the DB. Prunes rows older than 90 days.
+
+    Also maintains the incident_log table: opens a new incident when the
+    status transitions away from 'ok', and closes any open incident when it
+    returns to 'ok'.
+    """
     if http_up and https_up and db_ok:
         status = 'ok'
     elif not http_up or not https_up:
         status = 'down'
     else:
         status = 'degraded'
+
+    cause = _build_snapshot_cause(http_up, https_up, db_ok, mem_pct, disk_pct)
+
     try:
         with _db_connect() as conn:
             conn.execute(
                 '''INSERT INTO status_snapshots
-                   (status, http_up, https_up, db_ok, mem_pct, disk_pct)
-                   VALUES (?,?,?,?,?,?)''',
-                (status, int(http_up), int(https_up), int(db_ok), mem_pct, disk_pct)
+                   (status, http_up, https_up, db_ok, mem_pct, disk_pct, cause, net_ok, latency_ms)
+                   VALUES (?,?,?,?,?,?,?,?,?)''',
+                (status, int(http_up), int(https_up), int(db_ok), mem_pct, disk_pct, cause,
+                 int(net_ok), latency_ms)
             )
             # Keep only 90 days of data (90*24*12 = 25920 five-minute samples)
             conn.execute(
                 "DELETE FROM status_snapshots WHERE sampled_at < datetime('now', '-90 days')"
             )
+
+            # --- incident tracking ---
+            open_incident = conn.execute(
+                "SELECT id FROM incident_log WHERE resolved_at IS NULL ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+
+            if status != 'ok' and open_incident is None:
+                # New outage — open a fresh incident
+                severity = 'critical' if status == 'down' else 'degraded'
+                detail = (
+                    f"http_up={http_up}, https_up={https_up}, "
+                    f"db_ok={db_ok}, mem={mem_pct}%, disk={disk_pct}%"
+                )
+                conn.execute(
+                    '''INSERT INTO incident_log (severity, cause, detail)
+                       VALUES (?,?,?)''',
+                    (severity, cause or 'unknown', detail)
+                )
+            elif status == 'ok' and open_incident is not None:
+                # Recovered — close the incident
+                conn.execute(
+                    "UPDATE incident_log SET resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (open_incident[0],)
+                )
+
             conn.commit()
     except Exception:
         logging.exception('Failed to record status snapshot')
+
+
+# ==============================================================================
+# --- NETWORK CONNECTIVITY MONITOR ---
+# ==============================================================================
+
+_NET_PROBE_HOSTS = [
+    ('8.8.8.8', 53,  'Google DNS'),
+    ('1.1.1.1', 53,  'Cloudflare DNS'),
+]
+_NET_PROBE_TIMEOUT  = 3
+_NET_PROBE_INTERVAL      = 30   # normal polling interval (s)
+_NET_PROBE_INTERVAL_DOWN = 5    # faster polling during outage (s)
+
+# Shared state — written by _net_monitor_worker, read by status.json handler
+_net_monitor_state = {
+    'ok':           True,
+    'latency_ms':   None,
+    'outage_id':    None,    # rowid of open net_outages row, or None
+    'outage_since': None,    # unix timestamp of outage start
+}
+_net_state_lock = threading.Lock()
+
+# ── Auth rate limiter ──────────────────────────────────────────────────────
+_rl_lock     = threading.Lock()
+_rl_attempts: dict[str, list[float]] = collections.defaultdict(list)
+_RL_WINDOW   = 60    # seconds per window
+_RL_MAX_AUTH = 10    # max login/register attempts per IP per window
+_RL_MAX_API  = 30    # max sensitive-API attempts per IP per window
+
+def _rate_limit(ip: str, bucket: str = "auth", max_hits: int | None = None) -> bool:
+    """Return True (allowed) or False (throttled). Thread-safe."""
+    limit = max_hits if max_hits is not None else (_RL_MAX_AUTH if bucket == "auth" else _RL_MAX_API)
+    key   = f"{bucket}:{ip}"
+    now   = time.monotonic()
+    with _rl_lock:
+        ts = _rl_attempts[key]
+        _rl_attempts[key] = [t for t in ts if now - t < _RL_WINDOW]
+        if len(_rl_attempts[key]) >= limit:
+            return False
+        _rl_attempts[key].append(now)
+        return True
+
+
+def _net_probe_once() -> tuple[bool, float | None]:
+    """TCP-connect to each probe host; return (is_ok, avg_latency_ms).
+
+    is_ok is True when at least ONE host responds (avoids false positives
+    from a single temporarily unreachable server).  Declared outage only
+    when BOTH fail.
+    """
+    import socket as _ps
+    ok_lats = []
+    for host, port, _ in _NET_PROBE_HOSTS:
+        t0 = time.monotonic()
+        try:
+            with _ps.create_connection((host, port), timeout=_NET_PROBE_TIMEOUT):
+                ok_lats.append((time.monotonic() - t0) * 1000)
+        except Exception:
+            pass
+    if not ok_lats:
+        return False, None
+    return True, round(sum(ok_lats) / len(ok_lats), 2)
+
+
+def _dd_check_google() -> bool | None:
+    """Rough DownDetector check for Google/ISP outages.
+
+    Returns True  → DownDetector shows active user reports (external issue)
+            False → DownDetector looks clear
+            None  → check failed (network itself may be down)
+    """
+    try:
+        import urllib.request as _ur, ssl as _ssl
+        ctx = _ssl.create_default_context()
+        req = _ur.Request(
+            'https://downdetector.com/status/google/',
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        with _ur.urlopen(req, timeout=5, context=ctx) as r:
+            body = r.read(8192).decode('utf-8', errors='ignore').lower()
+        return ('problems at google' in body or 'user reports indicate' in body)
+    except Exception:
+        return None
+
+
+def _open_net_outage(probe_host: str) -> int | None:
+    try:
+        with _db_connect() as conn:
+            cur = conn.execute(
+                'INSERT INTO net_outages (started_at, probe_host) VALUES (?, ?)',
+                (time.time(), probe_host)
+            )
+            conn.commit()
+            return cur.lastrowid
+    except Exception:
+        logging.exception('NetMonitor: failed to open outage record')
+        return None
+
+
+def _close_net_outage(outage_id: int, started_at: float,
+                      confirmed_external: bool = False) -> None:
+    try:
+        now = time.time()
+        dur = round(now - started_at, 1)
+        with _db_connect() as conn:
+            conn.execute(
+                '''UPDATE net_outages
+                   SET ended_at=?, duration_sec=?, confirmed_external=?
+                   WHERE id=?''',
+                (now, dur, 1 if confirmed_external else 0, outage_id)
+            )
+            conn.commit()
+        logging.warning(
+            f'NetMonitor: connectivity restored after {dur:.0f}s'
+            + (' (external confirmed)' if confirmed_external else '')
+        )
+    except Exception:
+        logging.exception('NetMonitor: failed to close outage record')
+
+
+def _net_monitor_worker() -> None:
+    """Background daemon thread — probes internet every N seconds.
+
+    On outage:
+      1. Opens a net_outages row.
+      2. Spawns a one-shot thread to check DownDetector (non-blocking).
+      3. Polls every 5 s until connectivity is restored.
+    On recovery:
+      4. Closes the net_outages row with duration + external flag.
+    """
+    logging.info('NetMonitor: started (probing %s)',
+                 ', '.join(f'{h}:{p}' for h, p, _ in _NET_PROBE_HOSTS))
+    while True:
+        is_ok, latency = _net_probe_once()
+
+        with _net_state_lock:
+            was_ok       = _net_monitor_state['ok']
+            outage_id    = _net_monitor_state['outage_id']
+            outage_since = _net_monitor_state['outage_since']
+
+            _net_monitor_state['ok']         = is_ok
+            _net_monitor_state['latency_ms'] = latency
+
+            if not is_ok and was_ok:
+                logging.warning('NetMonitor: connectivity LOST')
+                oid = _open_net_outage(_NET_PROBE_HOSTS[0][0])
+                _net_monitor_state['outage_id']   = oid
+                _net_monitor_state['outage_since'] = time.time()
+
+                def _bg_dd(oid_=oid):
+                    confirmed = _dd_check_google()
+                    if confirmed is not None and oid_:
+                        try:
+                            with _db_connect() as _c:
+                                _c.execute(
+                                    'UPDATE net_outages SET confirmed_external=? WHERE id=?',
+                                    (1 if confirmed else 0, oid_)
+                                )
+                                _c.commit()
+                        except Exception:
+                            pass
+                threading.Thread(target=_bg_dd, daemon=True, name='DDCheck').start()
+
+            elif is_ok and not was_ok and outage_id is not None:
+                ext = False
+                try:
+                    with _db_connect() as _c:
+                        row = _c.execute(
+                            'SELECT confirmed_external FROM net_outages WHERE id=?',
+                            (outage_id,)
+                        ).fetchone()
+                        ext = bool(row[0]) if row else False
+                except Exception:
+                    pass
+                _close_net_outage(outage_id, outage_since or time.time(), ext)
+                _net_monitor_state['outage_id']   = None
+                _net_monitor_state['outage_since'] = None
+
+        time.sleep(_NET_PROBE_INTERVAL_DOWN if not is_ok else _NET_PROBE_INTERVAL)
+
+
+def _get_net_outages(days: int = 7) -> list:
+    """Return net outages from the last N days, newest first."""
+    try:
+        cutoff = time.time() - days * 86400
+        with _db_connect() as conn:
+            rows = conn.execute(
+                '''SELECT id, started_at, ended_at, duration_sec,
+                          probe_host, confirmed_external, COALESCE(note,'') as note
+                   FROM net_outages
+                   WHERE started_at >= ?
+                   ORDER BY started_at DESC''',
+                (cutoff,)
+            ).fetchall()
+        result = []
+        for row in rows:
+            oid, started, ended, dur, host, ext, note = row
+            started_str = datetime.fromtimestamp(started).strftime('%Y-%m-%d %H:%M:%S')
+            ended_str   = datetime.fromtimestamp(ended).strftime('%Y-%m-%d %H:%M:%S') if ended else None
+            if dur is not None:
+                if dur < 60:
+                    dur_str = f'{dur:.0f}s'
+                elif dur < 3600:
+                    dur_str = f'{dur/60:.0f}m {int(dur)%60}s'
+                else:
+                    dur_str = f'{dur/3600:.1f}h'
+            else:
+                dur_str = 'ongoing'
+            result.append({
+                'id':                  oid,
+                'started_at':          started_str,
+                'ended_at':            ended_str,
+                'duration_str':        dur_str,
+                'is_open':             ended is None,
+                'probe_host':          host,
+                'confirmed_external':  bool(ext),
+                'note':                note or None,
+            })
+        return result
+    except Exception:
+        logging.exception('NetMonitor: failed to fetch outages')
+        return []
+
+
+def _get_net_history_by_day(days: int = 90) -> dict:
+    """Return {date_str: {outage_count, total_downtime_sec}} for uptime bars."""
+    try:
+        cutoff = time.time() - days * 86400
+        with _db_connect() as conn:
+            rows = conn.execute(
+                """SELECT date(datetime(started_at, 'unixepoch', 'localtime')) as day,
+                          COUNT(*) as outage_count,
+                          SUM(COALESCE(duration_sec, 0)) as total_down
+                   FROM net_outages
+                   WHERE started_at >= ?
+                   GROUP BY day""",
+                (cutoff,)
+            ).fetchall()
+        return {r[0]: {'outage_count': r[1], 'total_downtime_sec': r[2] or 0}
+                for r in rows}
+    except Exception:
+        return {}
+
+
+def _get_recent_incidents(limit: int = 20) -> list:
+    """Return the most recent incidents from incident_log, newest first.
+
+    Each row: { id, started_at, resolved_at, severity, cause, detail,
+                duration_str, is_open }
+    """
+    try:
+        with _db_connect() as conn:
+            rows = conn.execute(
+                '''SELECT id, started_at, resolved_at, severity, cause, detail
+                   FROM incident_log
+                   ORDER BY id DESC
+                   LIMIT ?''',
+                (limit,)
+            ).fetchall()
+    except Exception:
+        return []
+
+    result = []
+    for row in rows:
+        inc_id, started_at, resolved_at, severity, cause, detail = row
+        is_open = resolved_at is None
+        if is_open:
+            duration_str = 'ongoing'
+        else:
+            try:
+                fmt = '%Y-%m-%d %H:%M:%S'
+                s = datetime.strptime(started_at[:19], fmt)
+                e = datetime.strptime(resolved_at[:19], fmt)
+                secs = int((e - s).total_seconds())
+                if secs < 60:
+                    duration_str = f'{secs}s'
+                elif secs < 3600:
+                    duration_str = f'{secs // 60}m {secs % 60}s'
+                else:
+                    duration_str = f'{secs // 3600}h {(secs % 3600) // 60}m'
+            except Exception:
+                duration_str = '?'
+        result.append({
+            'id': inc_id,
+            'started_at': started_at,
+            'resolved_at': resolved_at,
+            'severity': severity,
+            'cause': cause,
+            'detail': detail,
+            'duration_str': duration_str,
+            'is_open': is_open,
+        })
+    return result
+
+
+def _get_message_board(limit: int = 10) -> list:
+    """Return the most recent message-board posts, newest first.
+
+    Each row: { id, posted_at, level, title, body }
+    """
+    try:
+        with _db_connect() as conn:
+            rows = conn.execute(
+                '''SELECT id, posted_at, level, title, body
+                   FROM message_board
+                   ORDER BY id DESC
+                   LIMIT ?''',
+                (limit,)
+            ).fetchall()
+        return [
+            {'id': r[0], 'posted_at': r[1], 'level': r[2], 'title': r[3], 'body': r[4]}
+            for r in rows
+        ]
+    except Exception:
+        return []
 
 
 def _get_status_history(days: int = 90) -> list:
     """Return one aggregated row per day for the last `days` days.
 
     Each row: { date, status ('ok'|'degraded'|'down'|'no_data'),
-                uptime_pct, sample_count }
+                uptime_pct, sample_count, causes, http_down_n, https_down_n, db_down_n,
+                mem_max, disk_max }
     Days are in descending order (today first).
+    causes is a deduplicated list of non-null cause strings recorded that day.
     """
     try:
         with _db_connect() as conn:
             rows = conn.execute(
-                """SELECT date(sampled_at) as day,
+                """SELECT date(sampled_at, 'localtime') as day,
                           COUNT(*) as n,
-                          SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) as ok_n,
-                          SUM(CASE WHEN status='down' THEN 1 ELSE 0 END) as down_n
+                          SUM(CASE WHEN status='ok'   THEN 1 ELSE 0 END) as ok_n,
+                          SUM(CASE WHEN status='down' THEN 1 ELSE 0 END) as down_n,
+                          SUM(CASE WHEN http_up=0  THEN 1 ELSE 0 END) as http_down_n,
+                          SUM(CASE WHEN https_up=0 THEN 1 ELSE 0 END) as https_down_n,
+                          SUM(CASE WHEN db_ok=0    THEN 1 ELSE 0 END) as db_down_n,
+                          MAX(mem_pct)  as mem_max,
+                          MAX(disk_pct) as disk_max
                    FROM status_snapshots
                    WHERE sampled_at >= datetime('now', ? || ' days')
                    GROUP BY day
                    ORDER BY day DESC""",
                 (f'-{days}',)
             ).fetchall()
+            # Fetch distinct non-null causes per day (newest first within the day)
+            cause_rows = conn.execute(
+                """SELECT date(sampled_at, 'localtime') as day, cause
+                   FROM status_snapshots
+                   WHERE cause IS NOT NULL
+                     AND sampled_at >= datetime('now', ? || ' days')
+                   ORDER BY sampled_at DESC""",
+                (f'-{days}',)
+            ).fetchall()
     except Exception:
         return []
+
+    # Build deduplicated cause lists per day (preserve insertion order, newest first)
+    causes_by_day: dict[str, list[str]] = {}
+    for day, cause in cause_rows:
+        seen = causes_by_day.setdefault(day, [])
+        if cause not in seen:
+            seen.append(cause)
 
     by_day = {r[0]: r for r in rows}
     result = []
@@ -590,7 +1040,7 @@ def _get_status_history(days: int = 90) -> list:
     for i in range(days):
         d = (today - timedelta(days=i)).isoformat()
         if d in by_day:
-            _, n, ok_n, down_n = by_day[d]
+            _, n, ok_n, down_n, http_down_n, https_down_n, db_down_n, mem_max, disk_max = by_day[d]
             pct = round(ok_n / n * 100, 1) if n else 0
             if down_n == n:
                 st = 'down'
@@ -598,9 +1048,21 @@ def _get_status_history(days: int = 90) -> list:
                 st = 'degraded'
             else:
                 st = 'ok'
-            result.append({'date': d, 'status': st, 'uptime_pct': pct, 'sample_count': n})
+            result.append({
+                'date': d, 'status': st, 'uptime_pct': pct, 'sample_count': n,
+                'causes': causes_by_day.get(d, []),
+                'http_down_n': http_down_n or 0,
+                'https_down_n': https_down_n or 0,
+                'db_down_n': db_down_n or 0,
+                'mem_max': mem_max or 0,
+                'disk_max': disk_max or 0,
+            })
         else:
-            result.append({'date': d, 'status': 'no_data', 'uptime_pct': None, 'sample_count': 0})
+            result.append({
+                'date': d, 'status': 'no_data', 'uptime_pct': None, 'sample_count': 0,
+                'causes': [], 'http_down_n': 0, 'https_down_n': 0, 'db_down_n': 0,
+                'mem_max': 0, 'disk_max': 0,
+            })
     return result
 
 
@@ -1180,25 +1642,20 @@ def _build_status_page() -> str:
     ssl_status = 'ok'; ssl_ind = 'ok'; ssl_detail = 'valid'
     try:
         import datetime as _dt
-        ctx = _ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = _ssl.CERT_NONE
-        ctx2 = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
-        ctx2.check_hostname = False
-        ctx2.verify_mode = _ssl.CERT_NONE
-        import socket as _sock
-        with _sock.create_connection(('127.0.0.1', HTTPS_PORT), timeout=2) as raw:
-            with ctx2.wrap_socket(raw) as s:
-                cert = s.getpeercert()
-                exp_str = cert.get('notAfter', '')
-                exp_dt  = _dt.datetime.strptime(exp_str, '%b %d %H:%M:%S %Y %Z')
-                days_left = (exp_dt - _dt.datetime.utcnow()).days
-                ssl_detail = f"expires in {days_left}d ({exp_dt.strftime('%Y-%m-%d')})"
-                if days_left < 7:
-                    ssl_status = 'critical'; ssl_ind = 'crit'
-                elif days_left < 30:
-                    ssl_status = 'expiring'; ssl_ind = 'warn'
-    except Exception:
+        # get_server_certificate fetches PEM without verifying trust chain — works for self-signed certs
+        pem = _ssl.get_server_certificate(('127.0.0.1', HTTPS_PORT), timeout=2)
+        der = _ssl.PEM_cert_to_DER_cert(pem)
+        from cryptography import x509 as _x509
+        cert_obj  = _x509.load_der_x509_certificate(der)
+        exp_dt    = cert_obj.not_valid_after_utc.replace(tzinfo=None)
+        days_left = (exp_dt - _dt.datetime.utcnow()).days
+        ssl_detail = f"expires in {days_left}d ({exp_dt.strftime('%Y-%m-%d')})"
+        if days_left < 7:
+            ssl_status = 'critical'; ssl_ind = 'crit'
+        elif days_left < 30:
+            ssl_status = 'expiring'; ssl_ind = 'warn'
+    except Exception as _tls_err:
+        logging.warning(f"TLS cert check failed: {_tls_err}")
         ssl_detail = 'check unavailable'
         ssl_ind = 'info'; ssl_status = 'info'
 
@@ -1221,12 +1678,17 @@ def _build_status_page() -> str:
     # ── uptime history bars (from DB — real per-day aggregates) ──────────
     total_days = 90
     history = _get_status_history(total_days)   # newest-first list of dicts
+    net_day_hist = _get_net_history_by_day(total_days)  # {date_str: {outage_count, total_downtime_sec}}
 
-    # Overall uptime % = fraction of sampled days that were fully ok
-    sampled = [h for h in history if h['status'] != 'no_data']
-    if sampled:
-        ok_days = sum(1 for h in sampled if h['status'] == 'ok')
-        uptime_pct = round(ok_days / len(sampled) * 100, 2)
+    # Overall uptime % = ok samples / total samples (time-accurate, not day-granular)
+    total_samples = sum(h['sample_count'] for h in history if h['status'] != 'no_data')
+    if total_samples:
+        ok_samples = sum(
+            round(h['uptime_pct'] / 100 * h['sample_count'])
+            for h in history
+            if h['status'] != 'no_data' and h['uptime_pct'] is not None
+        )
+        uptime_pct = round(ok_samples / total_samples * 100, 2)
     else:
         # Fall back to process uptime proxy if we have no history yet
         days_up = min(int(srv_uptime_secs / 86400), total_days)
@@ -1235,30 +1697,155 @@ def _build_status_page() -> str:
         uptime_pct = min(uptime_pct, 100.0)
 
     # Build bars — history[0] = today (rightmost bar)
-    COLOR = {'ok': '#22c55e', 'degraded': '#f59e0b', 'down': '#ef4444', 'no_data': '#334155'}
+    # Each bar is a column of 3 .uptime-seg divs: HTTP (top), HTTPS (middle), DB (bottom).
+    # Segment colour: green=no outages, yellow=partial, red=all-samples-down, grey=no data.
     TITLE = {'ok': 'Operational', 'degraded': 'Degraded', 'down': 'Down', 'no_data': 'No data'}
     bars = []
+    import html as _html_mod, json as _json_mod
+
+    def _seg_class(down_n: int, total_n: int) -> str:
+        if not total_n:       return 'nodata'
+        if down_n == 0:       return 'ok'
+        if down_n >= total_n: return 'down'
+        return 'partial'
+
     for h in reversed(history):   # oldest → newest = left → right
         st = h['status']
-        pct_str = f" ({h['uptime_pct']}%)" if h['uptime_pct'] is not None else ''
-        title = f"{h['date']}: {TITLE[st]}{pct_str}"
-        height = 24 if h['date'] != history[0]['date'] else 32  # today taller
-        bars.append(
-            f'<div class="uptime-bar {st}" '
-            f'style="height:{height}px;background:{COLOR[st]}" '
-            f'title="{title}"></div>'
-        )
+        causes_json = _html_mod.escape(_json_mod.dumps(h.get('causes', []), ensure_ascii=False))
+        if st == 'no_data':
+            bars.append(
+                f'<div class="uptime-bar" title="{h["date"]}: No data" '
+                f'data-date="{h["date"]}" data-status="no_data" '
+                f'data-uptime="" data-samples="0" '
+                f'data-http-down="0" data-https-down="0" data-db-down="0" '
+                f'data-mem-max="0" data-disk-max="0" data-causes="{causes_json}" '
+                f'data-net-outages="0" data-net-downtime="0">'
+                f'<div class="uptime-seg nodata"></div>'
+                f'<div class="uptime-seg nodata"></div>'
+                f'<div class="uptime-seg nodata"></div>'
+                f'<div class="uptime-seg net-nodata"></div>'
+                f'</div>'
+            )
+        else:
+            n         = h['sample_count'] or 0
+            http_cls  = _seg_class(h.get('http_down_n',  0), n)
+            https_cls = _seg_class(h.get('https_down_n', 0), n)
+            db_cls    = _seg_class(h.get('db_down_n',    0), n)
+            pct_str   = f" ({h['uptime_pct']}%)" if h['uptime_pct'] is not None else ''
+            title     = (f"{h['date']}: {TITLE[st]}{pct_str} · "
+                         f"HTTP:{http_cls} HTTPS:{https_cls} DB:{db_cls}")
+            _nd       = net_day_hist.get(h['date'], {})
+            net_outs  = _nd.get('outage_count', 0) or 0
+            net_down  = _nd.get('total_downtime_sec', 0) or 0
+            if not _nd:           net_cls = 'net-nodata'
+            elif net_outs == 0:   net_cls = 'net-ok'
+            elif net_down >= 300: net_cls = 'net-down'
+            else:                 net_cls = 'net-partial'
+            net_title = f'{net_outs} outage(s), {net_down}s total' if net_outs else 'ok'
+            bars.append(
+                f'<div class="uptime-bar" title="{title}" '
+                f'data-date="{h["date"]}" data-status="{st}" '
+                f'data-uptime="{h["uptime_pct"] or ""}" data-samples="{n}" '
+                f'data-http-down="{h.get("http_down_n", 0)}" '
+                f'data-https-down="{h.get("https_down_n", 0)}" '
+                f'data-db-down="{h.get("db_down_n", 0)}" '
+                f'data-mem-max="{h.get("mem_max", 0)}" '
+                f'data-disk-max="{h.get("disk_max", 0)}" '
+                f'data-causes="{causes_json}" '
+                f'data-net-outages="{net_outs}" data-net-downtime="{net_down}">'
+                f'<div class="uptime-seg {http_cls}" title="HTTP: {http_cls}"></div>'
+                f'<div class="uptime-seg {https_cls}" title="HTTPS: {https_cls}"></div>'
+                f'<div class="uptime-seg {db_cls}" title="DB: {db_cls}"></div>'
+                f'<div class="uptime-seg {net_cls}" title="NET: {net_title}"></div>'
+                f'</div>'
+            )
     uptime_bars_html = '\n'.join(bars)
 
     # ── overall status ──
+    with _net_state_lock:
+        _cur_net_outage = _net_monitor_state['outage_id'] is not None
     if not http_up or not https_up or db_ind == 'warn':
-        overall_class = 'warn'; overall_text = 'Partial Outage'
+        overall_class = 'crit'; overall_text = 'Partial Outage'
     elif cdn_disk['ind'] == 'crit' or root_disk['ind'] == 'crit':
         overall_class = 'crit'; overall_text = 'Critical'
+    elif ssl_ind == 'crit':
+        overall_class = 'crit'; overall_text = 'TLS Certificate Critical'
+    elif _cur_net_outage or ssl_ind == 'warn':
+        overall_class = 'warn'; overall_text = 'Degraded'
     else:
         overall_class = 'ok'; overall_text = 'All Systems Operational'
 
     sessions_color = 'blue' if active_sessions > 0 else ''
+
+    # ── incidents & message board ──
+    incidents     = _get_recent_incidents(20)
+    board_posts   = _get_message_board(10)
+
+    SEV_IND  = {'critical': 'crit', 'degraded': 'warn'}
+    SEV_LABEL = {'critical': 'Major Outage', 'degraded': 'Degraded'}
+
+    def _esc(s: str) -> str:
+        import html as _html
+        return _html.escape(str(s)) if s else ''
+
+    # Build incident rows HTML
+    incident_rows_html = ''
+    if incidents:
+        for inc in incidents:
+            ind   = 'crit' if inc['is_open'] else SEV_IND.get(inc['severity'], 'warn')
+            badge_text = 'ONGOING' if inc['is_open'] else 'RESOLVED'
+            badge_ind  = 'crit'   if inc['is_open'] else 'ok'
+            cause_esc = _esc(inc['cause'])
+            detail_esc = _esc(inc['detail'] or '')
+            started_esc = _esc(inc['started_at'][:16])
+            duration_esc = _esc(inc['duration_str'])
+            detail_block = (
+                f'<div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)">'
+                f'{detail_esc}</div>'
+            ) if detail_esc else ''
+            incident_rows_html += (
+                f'<div class="svc-row">'
+                f'  <div class="svc-indicator {ind}"></div>'
+                f'  <div class="svc-name" style="flex:1">'
+                f'    <div>{cause_esc}</div>'
+                f'    {detail_block}'
+                f'    <div style="font-size:10px;color:var(--muted);margin-top:2px">started {started_esc} · duration {duration_esc}</div>'
+                f'  </div>'
+                f'  <div class="svc-badge {badge_ind}">{badge_text}</div>'
+                f'</div>'
+            )
+    else:
+        incident_rows_html = (
+            '<div style="padding:20px 24px;font-size:12px;color:var(--muted)">No incidents recorded yet.</div>'
+        )
+
+    # Build message board HTML
+    BOARD_IND = {'info': 'info', 'warning': 'warn', 'critical': 'crit', 'ok': 'ok'}
+    board_rows_html = ''
+    if board_posts:
+        for post in board_posts:
+            ind = BOARD_IND.get(post['level'], 'info')
+            title_esc = _esc(post['title'])
+            body_esc  = _esc(post['body'] or '')
+            date_esc  = _esc(post['posted_at'][:16])
+            body_block = (
+                f'<div style="font-size:11px;color:var(--muted);margin-top:4px">{body_esc}</div>'
+            ) if body_esc else ''
+            board_rows_html += (
+                f'<div class="svc-row">'
+                f'  <div class="svc-indicator {ind}"></div>'
+                f'  <div class="svc-name" style="flex:1">'
+                f'    <div>{title_esc}</div>'
+                f'    {body_block}'
+                f'    <div style="font-size:10px;color:var(--muted);margin-top:2px">{date_esc}</div>'
+                f'  </div>'
+                f'  <div class="svc-badge {ind}">{post["level"].upper()}</div>'
+                f'</div>'
+            )
+    else:
+        board_rows_html = (
+            '<div style="padding:20px 24px;font-size:12px;color:var(--muted)">No announcements.</div>'
+        )
 
     return _render_snippet('status_page.html',
         PUBLIC_DOMAIN=PUBLIC_DOMAIN,
@@ -1306,97 +1893,10 @@ def _build_status_page() -> str:
         uptime_bars_html=uptime_bars_html,
         # network
         net_rx=net_rx, net_tx=net_tx,
-    ) + f"""
-<script>
-/* ── Status page AJAX auto-refresh (every 30 s) ─────────────────────── */
-(function() {{
-    const REFRESH_INTERVAL = 30000;
-    const STATUS_URL = '/api/v1/status.json';
-    const IND_COLOR = {{ ok:'#22c55e', degraded:'#f59e0b', down:'#ef4444', no_data:'#334155' }};
-
-    function fmtUptime(secs) {{
-        const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
-        return h + 'h ' + m + 'm';
-    }}
-
-    async function refreshStatus() {{
-        try {{
-            const r = await fetch(STATUS_URL, {{cache:'no-store'}});
-            if (!r.ok) return;
-            const d = await r.json();
-
-            // Timestamp
-            const tsEl = document.getElementById('status-ts');
-            if (tsEl) tsEl.textContent = new Date().toLocaleTimeString();
-
-            // Overall banner
-            const bannerEl = document.querySelector('.status-banner') || document.querySelector('[class*="overall"]');
-            if (bannerEl) {{
-                const cls = {{ ok:'ok', degraded:'warn', down:'crit' }}[d.overall] || 'ok';
-                bannerEl.className = bannerEl.className.replace(/\b(ok|warn|crit)\b/g, cls);
-                const txt = bannerEl.querySelector('[id*="overall-text"], .overall-text, h2, h3');
-                if (txt) txt.textContent = {{
-                    ok:'All Systems Operational', degraded:'Partial Outage', down:'Major Outage'
-                }}[d.overall] || d.overall;
-            }}
-
-            // Uptime bar chart from history
-            const barsEl = document.getElementById('uptime-bars');
-            if (barsEl && d.history && d.history.length) {{
-                const COLOR = {{ ok:'#22c55e', degraded:'#f59e0b', down:'#ef4444', no_data:'#334155' }};
-                const TITLE = {{ ok:'Operational', degraded:'Degraded', down:'Down', no_data:'No data' }};
-                const bars = [...d.history].reverse().map((h, i) => {{
-                    const pctStr = h.uptime_pct != null ? ` (${{h.uptime_pct}}%)` : '';
-                    const ht = (i === d.history.length - 1) ? 32 : 24;
-                    return `<div class="uptime-bar ${{h.status}}" style="height:${{ht}}px;background:${{COLOR[h.status]}}" title="${{h.date}}: ${{TITLE[h.status]}}${{pctStr}}"></div>`;
-                }});
-                barsEl.innerHTML = bars.join('\\n');
-            }}
-
-            // Uptime %
-            const pctEl = document.getElementById('uptime-pct');
-            if (pctEl && d.history) {{
-                const sampled = d.history.filter(h => h.status !== 'no_data');
-                if (sampled.length) {{
-                    const okDays = sampled.filter(h => h.status === 'ok').length;
-                    pctEl.textContent = (okDays / sampled.length * 100).toFixed(2) + '%';
-                }}
-            }}
-
-            // Server uptime counter
-            const srvUptimeEl = document.getElementById('srv-uptime');
-            if (srvUptimeEl) srvUptimeEl.textContent = fmtUptime(d.srv_uptime_secs);
-
-            // Memory bar
-            const memBar = document.getElementById('mem-bar');
-            if (memBar) memBar.style.width = d.mem_pct + '%';
-            const memPctEl = document.getElementById('mem-pct');
-            if (memPctEl) memPctEl.textContent = d.mem_pct + '%';
-
-            // Disk bar
-            const diskBar = document.getElementById('cdn-disk-bar');
-            if (diskBar) diskBar.style.width = d.disk_pct + '%';
-
-        }} catch (e) {{
-            console.warn('Status refresh failed:', e);
-        }}
-    }}
-
-    // Refresh immediately after page load, then every 30 s
-    setTimeout(refreshStatus, 2000);
-    setInterval(refreshStatus, REFRESH_INTERVAL);
-
-    // Show "last updated" timestamp in the page title area if an element exists
-    const tsSpan = document.createElement('span');
-    tsSpan.id = 'status-ts';
-    tsSpan.style.cssText = 'font-size:11px;color:#64748b;margin-left:8px;';
-    tsSpan.title = 'Live — updates every 30 s';
-    document.addEventListener('DOMContentLoaded', () => {{
-        const h = document.querySelector('h1,h2,.page-title');
-        if (h) h.appendChild(tsSpan);
-    }});
-}})();
-</script>"""
+        # incidents & board
+        incident_rows_html=incident_rows_html,
+        board_rows_html=board_rows_html,
+    )
 
 # ==============================================================================
 # --- MAIN REQUEST HANDLER ---
@@ -1477,6 +1977,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_response(status_code)
             self.send_header('Content-Type', content_type)
             self._send_cors_headers()
+            # Security headers (audit items #7, #10)
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('X-Frame-Options', 'SAMEORIGIN')
             self.end_headers()
             self.wfile.write(content.encode('utf-8'))
         except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
@@ -1514,6 +2017,31 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         logging.warning(f"Token auth failed for token '{token}'")
         return None
+
+    def _check_admin_auth(self) -> "dict | None":
+        """Validate Bearer token and require is_admin=1. Sends 401/403 on failure."""
+        auth_header = self.headers.get('Authorization')
+        token = None
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ', 1)[1]
+        if not token:
+            self._send_response(401, json.dumps({'error': 'Authentication required.'}), 'application/json')
+            return None
+        with _db_connect() as conn:
+            row = conn.execute(
+                '''SELECT u.id, u.is_admin FROM sessions s
+                   JOIN users u ON u.id = s.user_id
+                   WHERE s.session_token = ? AND s.expires_at > CURRENT_TIMESTAMP''',
+                (token,)
+            ).fetchone()
+        if not row:
+            self._send_response(401, json.dumps({'error': 'Invalid or expired token.'}), 'application/json')
+            return None
+        user_id, is_admin = row
+        if not is_admin:
+            self._send_response(403, json.dumps({'error': 'Admin access required.'}), 'application/json')
+            return None
+        return {'id': user_id, 'is_admin': True}
 
     def _handle_status_page(self):
         """GET /status — render the system status page."""
@@ -1592,6 +2120,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         history = _get_status_history(90)
 
+        with _net_state_lock:
+            _s_net_ok  = _net_monitor_state['ok']
+            _s_net_lat = _net_monitor_state['latency_ms']
+            _s_outage  = _net_monitor_state['outage_id'] is not None
+
         payload = {
             'overall': overall,
             'http_up': http_up,
@@ -1603,11 +2136,114 @@ class AuthHandler(SimpleHTTPRequestHandler):
             'cpu_load_5': loads[1],
             'cpu_load_15': loads[2],
             'srv_uptime_secs': srv_uptime_secs,
-            'history': history,  # list of 90 dicts, newest first
+            'history': history,
+            'incidents': _get_recent_incidents(10),
+            'board': _get_message_board(5),
+            'net_ok':         _s_net_ok,
+            'net_latency_ms': _s_net_lat,
+            'net_outage_now': _s_outage,
+            'net_outages':    _get_net_outages(days=7),
+            'net_day_hist':   _get_net_history_by_day(days=90),
         }
         self._send_response(200, json.dumps(payload))
 
+    def _handle_status_day_json(self, date_str: str) -> None:
+        """GET /api/v1/status/day/<YYYY-MM-DD> — all raw samples for one day.
+
+        Returns a list of sample objects sorted oldest-first, each with:
+          sampled_at, status, http_up, https_up, db_ok, mem_pct, disk_pct, cause
+        No auth required (same visibility as /status).
+        """
+        import re as _re
+        if not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+            self._send_response(400, json.dumps({'error': 'invalid date'}), 'application/json')
+            return
+        try:
+            with _db_connect() as conn:
+                rows = conn.execute(
+                    """SELECT sampled_at, status, http_up, https_up,
+                              db_ok, mem_pct, disk_pct, cause, net_ok
+                       FROM status_snapshots
+                       WHERE date(sampled_at, 'localtime') = ?
+                       ORDER BY sampled_at ASC""",
+                    (date_str,)
+                ).fetchall()
+        except Exception:
+            self._send_response(500, json.dumps({'error': 'db error'}), 'application/json')
+            return
+
+        samples = []
+        for r in rows:
+            samples.append({
+                'sampled_at': r[0],
+                'status':     r[1],
+                'http_up':    bool(r[2]),
+                'https_up':   bool(r[3]),
+                'db_ok':      bool(r[4]),
+                'mem_pct':    r[5],
+                'disk_pct':   r[6],
+                'cause':      r[7],
+                'net_ok':     bool(r[8]) if r[8] is not None else True,
+            })
+
+        # Fetch net outage windows that overlap with this day (localtime)
+        # started_at/ended_at are Unix timestamps; convert to localtime ISO strings for the client
+        day_start = datetime.strptime(date_str, '%Y-%m-%d')
+        day_end   = day_start + timedelta(days=1)
+        # time.mktime() treats naive datetime as local time — correct for any timezone/DST
+        ts_start = time.mktime(day_start.timetuple())
+        ts_end   = time.mktime(day_end.timetuple())
+        net_windows = []
+        try:
+            with _db_connect() as conn2:
+                net_rows = conn2.execute(
+                    """SELECT started_at, COALESCE(ended_at, ?), duration_sec
+                       FROM net_outages
+                       WHERE started_at < ? AND (ended_at IS NULL OR ended_at > ?)
+                       ORDER BY started_at ASC""",
+                    (time.time(), ts_end, ts_start)
+                ).fetchall()
+            for nr in net_rows:
+                net_windows.append({
+                    'started_ts':   float(nr[0]),
+                    'ended_ts':     float(nr[1]),
+                    'duration_sec': nr[2],
+                })
+        except Exception:
+            logging.exception('status/day: failed to fetch net_windows')
+
+        self._send_response(200, json.dumps({'date': date_str, 'samples': samples, 'net_windows': net_windows}), 'application/json')
+
+    def _handle_net_outage_note(self, outage_id: str) -> None:
+        """POST /api/v1/net_outage/<id>/note  {"note": "..."}  — admin only."""
+        if not _rate_limit(self.client_address[0], "api"):
+            self._send_response(429, json.dumps({'error': 'Too many requests.'}), 'application/json')
+            return
+        user = self._check_admin_auth()
+        if not user:
+            return
+        cl = int(self.headers.get('Content-Length', 0))
+        if cl > 4096:
+            self._send_response(413, json.dumps({'error': 'Request too large.'}), 'application/json')
+            return
+        try:
+            body = json.loads(self.rfile.read(cl))
+            note = str(body.get('note', '') or '').strip() or None
+            oid  = int(outage_id)
+        except Exception:
+            self._send_response(400, json.dumps({'error': 'bad request'}), 'application/json')
+            return
+        try:
+            with _db_connect() as conn:
+                conn.execute('UPDATE net_outages SET note=? WHERE id=?', (note, oid))
+                conn.commit()
+        except Exception:
+            self._send_response(500, json.dumps({'error': 'db error'}), 'application/json')
+            return
+        self._send_response(200, json.dumps({'ok': True, 'id': oid, 'note': note}), 'application/json')
+
     # --- Chunked / Resumable Upload API ---
+
 
     def _check_upload_session_auth(self, session: dict) -> tuple[bool, str]:
         """Verify the caller is allowed to interact with this upload session.
@@ -2014,6 +2650,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if parsed_url.path == '/api/v1/status.json':
             return self._handle_status_json()
 
+        # Per-day sample detail for the status modal
+        _day_m = re.match(r'^/api/v1/status/day/(\d{4}-\d{2}-\d{2})$', parsed_url.path)
+        if _day_m:
+            return self._handle_status_day_json(_day_m.group(1))
+
         # Chunked upload session config (no auth — public server constants)
         if self.upload_session_config_pattern.match(parsed_url.path):
             return self.handle_upload_session_config()
@@ -2140,6 +2781,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if flux_match:
             return self.handle_fluxdrop_api_post(flux_match)
 
+        # Net outage note
+        _note_m = re.match(r'^/api/v1/net_outage/(\d+)/note$', parsed_url.path)
+        if _note_m:
+            return self._handle_net_outage_note(_note_m.group(1))
+
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     def do_PATCH(self):
@@ -2164,6 +2810,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
     # --- Auth API Handlers ---
     def handle_auth_register(self, data):
         """Handles user registration."""
+        client_ip = self.client_address[0]
+        if not _rate_limit(client_ip, "auth"):
+            logging.warning(f"Rate limit hit on register from {client_ip}")
+            return self._send_response(429, json.dumps({"error": "Too many attempts. Please wait a minute."}))
         username = data.get('username')
         nickname = data.get('nickname')
         email = data.get('email')
@@ -2243,6 +2893,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def handle_auth_login(self, data):
         """Handles user login and issues a session token."""
+        client_ip = self.client_address[0]
+        if not _rate_limit(client_ip, "auth"):
+            logging.warning(f"Rate limit hit on login from {client_ip}")
+            return self._send_response(429, json.dumps({"error": "Too many login attempts. Please wait a minute."}))
         username = data.get('username')
         password = data.get('password')
 
@@ -2272,6 +2926,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 "INSERT INTO sessions (user_id, session_token, expires_at) VALUES (?, ?, ?)",
                 (user_id, session_token, expires_at)
             )
+            conn.commit()
+            conn.execute("DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP")
             conn.commit()
 
         return self._send_response(200, json.dumps({"message": "Login successful.", "token": session_token, "username": username}))
@@ -3670,7 +4326,11 @@ def _token_purge_worker():
                 _tt = _st.f_frsize * _st.f_blocks
                 _dpct = round((_tt - _st.f_frsize * _st.f_bavail) / _tt * 100) if _tt else 0
             except Exception: pass
-            _record_status_snapshot(_http, _https, _db_ok, _mpct, _dpct)
+            with _net_state_lock:
+                _net_ok  = _net_monitor_state['ok']
+                _net_lat = _net_monitor_state['latency_ms']
+            _record_status_snapshot(_http, _https, _db_ok, _mpct, _dpct,
+                                    net_ok=_net_ok, latency_ms=_net_lat)
         except Exception:
             logging.exception('Status snapshot failed')
 
@@ -3700,6 +4360,9 @@ if __name__ == '__main__':
     # --- Start Background Workers ---
     purge_thread = threading.Thread(target=_token_purge_worker, name="TokenPurge", daemon=True)
     purge_thread.start()
+
+    net_mon_thread = threading.Thread(target=_net_monitor_worker, name="NetMonitor", daemon=True)
+    net_mon_thread.start()
 
     # --- Start Server Threads ---
     http_thread = threading.Thread(target=run_server, args=(HTTP_PORT, False), name="HTTP-Thread", daemon=True)

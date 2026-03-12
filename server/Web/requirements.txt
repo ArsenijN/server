@@ -1,9 +1,37 @@
-# Minimal requirements for the web server components
-# Add versions if you want reproducible installs, e.g. requests==2.31.0
-requests
-werkzeug
-wand
+# FluxDrop server dependencies
+# Tested on Python 3.14.3 (minimum recommended version — server is developed and
+# run on Python 3.14.3; older 3.x releases may work but are not supported).
+#
+# Install:
+#   pip install -r requirements.txt
+# or into a venv (recommended for production):
+#   python3.14 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
 
-# Dev / optional
-# pytest
-# black
+# --- HTTP / API ---
+# Used for outbound HTTP calls (e.g. health checks, any future webhook/API calls).
+requests>=2.31.0
+
+# --- Multipart form parsing ---
+# Replaces the deprecated cgi module removed in Python 3.13+.
+# parse_form_data() is used in server_cdn.py for file upload parsing.
+werkzeug>=3.0.0
+
+# --- Image processing ---
+# Used to rasterise the SVG icon embedded in outgoing e-mails.
+# Requires ImageMagick to be installed on the system:
+#   Ubuntu/Debian: sudo apt install imagemagick libmagickwand-dev
+#   Fedora/RHEL:   sudo dnf install ImageMagick ImageMagick-devel
+wand>=0.6.11
+
+# --- Password hashing (planned — see TODO: migrate from SHA-256) ---
+# Uncomment when the bcrypt migration is implemented:
+# bcrypt>=4.1.0
+# argon2-cffi>=23.1.0
+
+# --- Dev / testing (not required for production) ---
+# pytest>=8.0.0
+# black>=24.0.0
+
+# --- Required for TLS checks in health monitoring (optional, but recommended) ---
+cryptography>=41.0.0

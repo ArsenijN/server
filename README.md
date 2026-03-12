@@ -1,7 +1,10 @@
-# server `v0.7.0`
+# server `v0.7.1`
 Just backend code of my server, nothing else, anyone can use it
 
-Currently, server is **NOT production-ready!!!** (see: [FluxDrop Audit](./fluxdrop_audit.md))
+Release note: **in-between version, snap before huge updates to internals and other things**
+
+Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
+Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
 
 Accessible at: https://arseniusgen.uk.to
 
@@ -18,8 +21,9 @@ FluxDrop and entire server now operates with proper HTTPS thanks to **Let's
 Encrypt**'s certificates! Test it out at: arseniusgen.uk.to or 
 arsenius-gen.uk.to
 
-Q: Why you doesn't used Let's Encrypt before?
-A: High usage of domain. Yes, since I technically own a subdomain and not a 
+> Q: Why you didn't used Let's Encrypt before?
+
+> A: High usage of domain. Yes, since I technically own a subdomain and not a 
 domain, provided by [FreeDNS](https://freedns.afraid.org/subdomain/), I was 
 restricted by the thing that other users also uses the subdomains from uk.to, 
 and... In 2023 I was not able to do this since Let's Encrypt said that "there's 

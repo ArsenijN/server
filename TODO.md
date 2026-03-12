@@ -74,20 +74,28 @@ user feedback or ideas for future development.
     for quota display.
   - Replace Tailwind CDN with a build step for production CSS.
 
+- [ ] Add placeholder items to avoid UI flash, like YouTube or other services have when client doesn't have enough speed to fetch the proper data
+- [ ] Fix every FluxDrop snippet (UI) to work properly with mobile and non-16:9 screens
 - [x] Fix the upload feature that are now broken
-- [ ] Test if `/status` will display the actual server outages (like when it doesn't work or got restarted and doesn't worked for few seconds)
-- [ ] Add message board to `/status`
+- [x] Test if `/status` will display the actual server outages (like when it doesn't work or got restarted and doesn't worked for few seconds)
+- [x] Add message board to `/status` to add infos of something was broken and server outage was long
+- [x] Add automatic details tab about the outages (like why server considered that it was outaged)
+- [x] Add ability to see per-day details of outages (line graph or similar to the uptime history)
+- [x] Add error catchers, embed to the server reliability history (like what was wrong and why happened)
+- [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Add fallback page for `/share` without token
 - [x] Fix the cancelation of upload
 - [ ] Fix the possible performance issues with server, use multithread for downloads with legacy support
-- [x] Fix the possible performance issues with server, use multithread for uploads ~~with legacy support?~~ -- can't be sure it's compliant with the legacy support, but at least works beautifully
-- [ ] Merge (or forward) HTTP and HTTPS regular ports with CDN's ports for more ideal links and simplicity
+- [x] ~~Fix the possible performance issues with server, use multithread for uploads with legacy support?~~ -- can't be sure it's compliant with the legacy support, but at least it works beautifully
+- [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports for more ideal links and simplicity
 - [ ] Add quota for user
-- [ ] Make admin account or admin access via configs or account or commands
-- [ ] Add manager for the non-finished uploads
+- [x] Make admin account or admin access via configs or account or commands
+- [ ] Add more settings that can be managed via site with admin account
+- [ ] Check for the safety measures for admin-related things
+- [ ] Add manager for the non-finished uploads (window)
 - [x] Fix the issue with FluxDrop preview link manager: in some edge case, FD downloads the HTML page instead of file content -- doesn't appear for now @20260308
 - [x] Declare current server version as `v0.7.0`
-- [ ] Avoid regression in server code files since I now can be confused with versioning system since code can be somewhere outdated; if not - just reapply new features to the code back
+- [x] ~~Avoid regression in server code files since I now can be confused with versioning system since code can be somewhere outdated; if not - just reapply new features to the code back~~ - avoided
 - [ ] By some reason browser almost always displays the "hover link" `arseniusgen.uk.to/fluxdrop_pp/index.html#`, whenewer mouse was on the button or background - fixes by going out of the site, and same link regularly appears on the buttons
 - [ ] Add the HEIC, AVIF support for previews
 - [ ] Add PDF preview

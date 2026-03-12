@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="30">
 <title>FluxDrop — System Status</title>
 <link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -289,24 +288,107 @@ header {
   font-weight: 700;
   color: var(--green);
 }
+.uptime-history {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+  padding-bottom: 2px;
+}
+.uptime-history::-webkit-scrollbar { height: 3px; }
+.uptime-history::-webkit-scrollbar-track { background: transparent; }
+.uptime-history::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 .uptime-bars {
   display: flex;
   gap: 2px;
   align-items: flex-end;
-  height: 32px;
+  height: 52px;
+  /* bars stretch to fill; scroll only kicks in below min-width */
 }
+/* Each bar is a column of 4 service segments (HTTP / HTTPS / DB / NET) */
 .uptime-bar {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 7px;
+  height: 100%;
   border-radius: 2px;
-  min-height: 8px;
-  transition: opacity 0.15s;
-  cursor: default;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  cursor: pointer;
+  transition: opacity 0.15s, filter 0.12s;
 }
-.uptime-bar:hover { opacity: 0.75; }
-.uptime-bar.ok     { background: var(--green); }
-.uptime-bar.warn   { background: var(--yellow); }
-.uptime-bar.crit   { background: var(--red); }
-.uptime-bar.empty  { background: var(--border2); }
+.uptime-bar:hover { opacity: 0.75; filter: brightness(1.15); }
+.uptime-seg {
+  flex: 1;
+  border-radius: 1px;
+  min-height: 0;
+}
+.uptime-seg.ok      { background: var(--green); }
+.uptime-seg.partial { background: var(--yellow); }
+.uptime-seg.down    { background: var(--red); }
+.uptime-seg.nodata  { background: var(--border2); }
+
+/* 4th uptime bar segment — network connectivity */
+.uptime-seg.net-ok      { background: #06b6d4; }
+.uptime-seg.net-partial { background: var(--orange); }
+.uptime-seg.net-down    { background: #a855f7; }
+.uptime-seg.net-nodata  { background: var(--border2); }
+
+/* net live badge in header */
+.net-live-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 5px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.4px;
+  font-family: var(--mono); transition: background 0.3s, color 0.3s;
+}
+.net-live-badge.ok   { background: rgba(6,182,212,0.12); color: #06b6d4; border: 1px solid rgba(6,182,212,0.25); }
+.net-live-badge.down { background: rgba(168,85,247,0.12); color: #a855f7; border: 1px solid rgba(168,85,247,0.25); }
+
+/* outage list rows */
+.outage-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+  font-size: 12px; transition: background 0.15s;
+}
+.outage-row:last-child { border-bottom: none; }
+.outage-row:hover { background: rgba(255,255,255,0.02); }
+.outage-note { font-size:10px; color:var(--muted); padding:2px 0 4px 0; font-style:italic; }
+.outage-note-btn { background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0 4px; opacity:0.5; }
+.outage-note-btn:hover { opacity:1; color:var(--text); }
+#admin-pill { position:fixed; bottom:18px; right:18px; z-index:999;
+  display:flex; align-items:center; gap:8px;
+  background: rgba(15,23,42,0.92); border:1px solid var(--border);
+  border-radius:20px; padding:6px 14px; font-size:11px;
+  backdrop-filter:blur(8px); cursor:pointer; transition: border-color 0.2s; }
+#admin-pill:hover { border-color: rgba(99,102,241,0.5); }
+#admin-pill .pill-dot { width:7px;height:7px;border-radius:50%; flex-shrink:0; }
+#admin-pill .pill-dot.ok { background:#22c55e; }
+#admin-pill .pill-dot.off { background:#475569; }
+#admin-pill .pill-label { color:var(--muted); }
+.outage-time {
+  font-family: var(--mono); color: var(--muted); font-size: 11px;
+  white-space: nowrap; flex-shrink: 0; min-width: 160px;
+}
+.outage-dur { font-family: var(--mono); font-weight: 600; flex-shrink: 0; min-width: 60px; }
+.outage-dur.open   { color: #a855f7; }
+.outage-dur.closed { color: var(--text); }
+.outage-flags { display: flex; gap: 5px; flex-shrink: 0; margin-left: auto; flex-wrap: wrap; }
+.outage-flag {
+  font-size: 9px; padding: 2px 6px; border-radius: 3px;
+  font-weight: 600; letter-spacing: 0.3px;
+}
+.outage-flag.ext   { background: rgba(239,68,68,0.15);  color: var(--red); }
+.outage-flag.local { background: rgba(234,179,8,0.12);  color: var(--yellow); }
+.outage-flag.open  { background: rgba(168,85,247,0.15); color: #a855f7; }
+.outage-flag.ok    { background: rgba(34,197,94,0.12);  color: var(--green); }
+
+/* latency mini-bar */
+.lat-bar {
+  display: inline-block; height: 8px; border-radius: 2px;
+  vertical-align: middle; max-width: 80px;
+  background: linear-gradient(90deg, #06b6d4, #3b82f6);
+  transition: width 0.4s ease;
+}
 
 .uptime-footer {
   display: flex;
@@ -348,6 +430,181 @@ footer {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* incident detail line */
+.inc-detail {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  margin-top: 3px;
+  word-break: break-word;
+}
+
+/* day-detail modal */
+.day-modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+}
+.day-modal-backdrop.open { display: flex; }
+.day-modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 28px 32px;
+  max-width: 620px;
+  width: 95%;
+  max-height: 88vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+.day-modal-close {
+  position: absolute;
+  top: 14px; right: 18px;
+  background: none; border: none;
+  color: var(--muted); font-size: 20px;
+  cursor: pointer; line-height: 1;
+}
+.day-modal-close:hover { color: var(--text); }
+.day-modal-title {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.day-modal-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+.day-modal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.day-modal-row:last-child { border-bottom: none; }
+.day-modal-key { color: var(--muted); }
+.day-modal-val { font-weight: 500; font-family: var(--mono); }
+
+/* timeline strip */
+.timeline-wrap {
+  margin-top: 20px;
+}
+.timeline-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.timeline-strip-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+  margin-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+.timeline-strip-scroll::-webkit-scrollbar { height: 3px; }
+.timeline-strip-scroll::-webkit-scrollbar-track { background: transparent; }
+.timeline-strip-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.timeline-strip {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 28px;
+  min-width: max-content;
+}
+.timeline-seg {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 100%;
+  border-radius: 1px;
+  cursor: pointer;
+  transition: opacity 0.12s, filter 0.12s;
+}
+.timeline-seg:hover { opacity: 0.75; filter: brightness(1.25); }
+.timeline-seg.ok       { background: var(--green); }
+.timeline-seg.degraded { background: var(--yellow); }
+.timeline-seg.down     { background: var(--red); }
+.timeline-seg.net-ok   { background: #06b6d4; }
+.timeline-seg.net-down { background: #a855f7; }
+
+.timeline-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* sample detail list */
+.sample-list {
+  margin-top: 14px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.sample-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.sample-item:last-child { border-bottom: none; }
+.sample-item.ok       { border-left: 3px solid var(--green); }
+.sample-item.degraded { border-left: 3px solid var(--yellow); }
+.sample-item.down     { border-left: 3px solid var(--red); }
+.sample-time {
+  font-family: var(--mono);
+  color: var(--text);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 58px;
+}
+.sample-cause {
+  color: var(--muted);
+  word-break: break-word;
+}
+.sample-cause.bad { color: var(--yellow); }
+.sample-flags {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.sflag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.sflag.bad { background: rgba(239,68,68,0.18); color: var(--red); }
+.sflag.ok  { background: rgba(34,197,94,0.12);  color: var(--green); }
+
+.modal-loading {
+  text-align: center;
+  padding: 24px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* uptime bar is now clickable */
+.uptime-bar { cursor: pointer; }
+.uptime-bar:hover { opacity: 0.75; filter: brightness(1.2); }
+
 footer span { font-size: 11px; color: var(--muted); }
 footer a { color: var(--accent2); text-decoration: none; }
 footer a:hover { text-decoration: underline; }
@@ -373,6 +630,10 @@ footer a:hover { text-decoration: underline; }
       {overall_text}
     </div>
     <div class="timestamp">Updated {now_str} · auto-refresh 30s</div>
+    <div id="net-live-badge" class="net-live-badge ok" title="Live internet probe (8.8.8.8 + 1.1.1.1)">
+      <span id="net-live-dot" style="width:7px;height:7px;border-radius:50%;background:#06b6d4;box-shadow:0 0 5px #06b6d4;flex-shrink:0"></span>
+      <span id="net-live-text">NET ···</span>
+    </div>
   </div>
 </header>
 
@@ -565,13 +826,101 @@ footer a:hover { text-decoration: underline; }
         <div class="uptime-title">FluxDrop CDN</div>
         <div class="uptime-pct">{uptime_pct}% uptime</div>
       </div>
-      <div class="uptime-bars">
-        {uptime_bars_html}
+      <div class="uptime-history" id="uptime-history">
+        <div class="uptime-bars" id="uptime-bars">
+          {uptime_bars_html}
+        </div>
       </div>
       <div class="uptime-footer">
         <span>90 days ago</span>
         <span>today</span>
       </div>
+      <!-- legend: mini bar beside 4 labelled rows -->
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:10px;color:var(--muted)">
+        <span style="font-size:9px;letter-spacing:0.5px;color:var(--muted);margin-right:2px">Each bar:</span>
+        <div style="display:flex;flex-direction:column;gap:1px;width:7px;height:28px;flex-shrink:0" title="Current service status">
+          <div id="legend-http-seg"  style="flex:1;background:var(--border2);border-radius:1px;transition:background 0.4s"></div>
+          <div id="legend-https-seg" style="flex:1;background:var(--border2);border-radius:1px;transition:background 0.4s"></div>
+          <div id="legend-db-seg"    style="flex:1;background:var(--border2);border-radius:1px;transition:background 0.4s"></div>
+          <div id="legend-net-seg"   style="flex:1;background:var(--border2);border-radius:1px;transition:background 0.4s"></div>
+        </div>
+        <div style="display:grid;grid-template-rows:repeat(4,7px);gap:1px;align-items:center">
+          <div style="display:flex;align-items:center;gap:5px;white-space:nowrap">
+            <span style="min-width:30px">HTTP</span>
+            <span style="width:7px;height:7px;background:var(--green);border-radius:1px;display:inline-block"></span><span>ok</span>
+            <span style="width:7px;height:7px;background:var(--yellow);border-radius:1px;display:inline-block;margin-left:3px"></span><span>partial</span>
+            <span style="width:7px;height:7px;background:var(--red);border-radius:1px;display:inline-block;margin-left:3px"></span><span>down</span>
+            <span style="width:7px;height:7px;background:var(--border2);border-radius:1px;display:inline-block;margin-left:3px"></span><span>no data</span>
+          </div>
+          <div style="display:flex;align-items:center"><span style="min-width:30px">HTTPS</span></div>
+          <div style="display:flex;align-items:center"><span style="min-width:30px">DB</span></div>
+          <div style="display:flex;align-items:center;gap:5px;white-space:nowrap">
+            <span style="min-width:30px">NET</span>
+            <span style="width:7px;height:7px;background:#06b6d4;border-radius:1px;display:inline-block"></span><span>ok</span>
+            <span style="width:7px;height:7px;background:var(--orange);border-radius:1px;display:inline-block;margin-left:3px"></span><span>partial</span>
+            <span style="width:7px;height:7px;background:#a855f7;border-radius:1px;display:inline-block;margin-left:3px"></span><span>outage</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── NETWORK MONITOR ── -->
+  <div>
+    <div class="section-label">Network Monitor</div>
+
+    <!-- Поточний стан -->
+    <div class="services-table" style="margin-bottom:12px">
+      <div class="svc-row">
+        <div class="svc-indicator" id="nm-indicator" style="background:#06b6d4;box-shadow:0 0 6px rgba(6,182,212,0.5)"></div>
+        <div class="svc-name">Internet Connectivity
+          <div class="svc-detail">Probing 8.8.8.8 + 1.1.1.1 via TCP:53 · outage when both fail</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:11px;font-family:var(--mono)">
+          <span title="Round-trip latency"><span class="lat-bar" id="nm-lat-bar" style="width:0px"></span></span>
+          <span id="nm-latency-val" style="color:var(--muted);min-width:52px;text-align:right">— ms</span>
+        </div>
+        <div class="svc-badge" id="nm-badge" style="background:rgba(6,182,212,0.12);color:#06b6d4">OK</div>
+      </div>
+      <div class="svc-row" style="border-bottom:none">
+        <div class="svc-indicator info"></div>
+        <div class="svc-name">DownDetector cross-check
+          <div class="svc-detail">Fires on outage detection — confirms if issue is external (ISP/Cloudflare)</div>
+        </div>
+        <div class="svc-badge info" id="nm-dd-badge">—</div>
+      </div>
+    </div>
+
+    <!-- Список збоїв за 7 днів -->
+    <div class="section-label" style="margin-top:4px">Outages — last 7 days</div>
+    <div class="services-table" id="nm-outages-list">
+      <div style="padding:20px 24px;font-size:12px;color:var(--muted)">Loading…</div>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+      Polled every 30 s (5 s during outage) · outage declared only when <em>both</em> probe hosts unreachable simultaneously
+    </div>
+  </div>
+
+  <!-- ── MESSAGE BOARD ── -->
+  <div>
+    <div class="section-label">Announcements &amp; Message Board</div>
+    <div class="services-table" id="board-rows">
+      {board_rows_html}
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+      Admin-posted notices. To add an entry run:
+      <code style="font-family:var(--mono);background:var(--surface);padding:2px 6px;border-radius:3px;border:1px solid var(--border)">INSERT INTO message_board (level,title,body) VALUES ('info','Your title','Optional details');</code>
+    </div>
+  </div>
+
+  <!-- ── INCIDENT LOG ── -->
+  <div>
+    <div class="section-label">Incident Log (last 20)</div>
+    <div class="services-table" id="incident-rows">
+      {incident_rows_html}
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+      Incidents are recorded automatically whenever the server status transitions away from Operational, and closed on recovery.
     </div>
   </div>
 
@@ -598,8 +947,589 @@ footer a:hover { text-decoration: underline; }
 
 <footer>
   <span>FluxDrop CDN · <a href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/">Go to app</a></span>
-  <span>Page auto-refreshes every 30 seconds</span>
+  <span>Live data — AJAX refresh every 30 s, no page reload</span>
 </footer>
+<!-- ── DAY DETAIL MODAL ── -->
+<div class="day-modal-backdrop" id="day-modal-backdrop">
+  <div class="day-modal" role="dialog" aria-modal="true">
+    <button class="day-modal-close" id="day-modal-close" aria-label="Close">✕</button>
+    <div class="day-modal-title" id="day-modal-title">—</div>
+    <div class="day-modal-sub" id="day-modal-sub"></div>
+    <div id="day-modal-rows"></div>
+    <div id="day-modal-timeline"></div>
+  </div>
+</div>
 
+<script>
+/* ── Uptime bar builder (shared by server-render path and AJAX refresh) ─── */
+(function() {
+  const COLOR_SEG = { ok: 'var(--green)', partial: 'var(--yellow)', down: 'var(--red)', nodata: 'var(--border2)' };
+
+  function segClass(downN, totalN) {
+    if (!totalN) return 'nodata';
+    if (downN === 0) return 'ok';
+    if (downN >= totalN) return 'down';
+    return 'partial';
+  }
+
+  function netSegClass(nd) {
+    if (!nd) return 'net-nodata';
+    if (nd.outage_count === 0) return 'net-ok';
+    if (nd.total_downtime_sec >= 300) return 'net-down';
+    return 'net-partial';
+  }
+
+  window._buildUptimeBar = function(h, netDayHist) {
+    const nd     = (netDayHist || {})[h.date];
+    const netCls = netSegClass(nd);
+    const netOuts = (nd || {}).outage_count || 0;
+    const netDown = (nd || {}).total_downtime_sec || 0;
+
+    if (h.status === 'no_data') {
+      const causesEsc = JSON.stringify([]).replace(/"/g, '&quot;');
+      return `<div class="uptime-bar"
+        title="${h.date}: No data${netOuts ? ` · NET:${netOuts} outage(s)` : ''}"
+        data-date="${h.date}" data-status="no_data"
+        data-uptime="" data-samples="0"
+        data-http-down="0" data-https-down="0" data-db-down="0"
+        data-mem-max="0" data-disk-max="0" data-causes="${causesEsc}"
+        data-net-outages="${netOuts}" data-net-downtime="${netDown}">
+        <div class="uptime-seg nodata"></div>
+        <div class="uptime-seg nodata"></div>
+        <div class="uptime-seg nodata"></div>
+        <div class="uptime-seg ${netCls}"></div>
+      </div>`;
+    }
+    const n       = h.sample_count || 0;
+    const httpCls = segClass(h.http_down_n  || 0, n);
+    const httpsCls= segClass(h.https_down_n || 0, n);
+    const dbCls   = segClass(h.db_down_n    || 0, n);
+    const pctStr  = h.uptime_pct != null ? ` (${h.uptime_pct}%)` : '';
+    const STATUS  = { ok:'Operational', degraded:'Degraded', down:'Down' };
+    const netInfo = netOuts ? ` · NET:${netOuts} outage(s)` : '';
+    const tip     = `${h.date}: ${STATUS[h.status] || h.status}${pctStr} · HTTP:${httpCls} HTTPS:${httpsCls} DB:${dbCls}${netInfo}`;
+    const causesEsc = JSON.stringify(h.causes || []).replace(/"/g, '&quot;');
+    return `<div class="uptime-bar"
+      title="${tip}"
+      data-date="${h.date}" data-status="${h.status}"
+      data-uptime="${h.uptime_pct ?? ''}" data-samples="${n}"
+      data-http-down="${h.http_down_n || 0}"
+      data-https-down="${h.https_down_n || 0}"
+      data-db-down="${h.db_down_n || 0}"
+      data-mem-max="${h.mem_max || 0}"
+      data-disk-max="${h.disk_max || 0}"
+      data-causes="${causesEsc}"
+      data-net-outages="${netOuts}"
+      data-net-downtime="${netDown}">
+      <div class="uptime-seg ${httpCls}" title="HTTP: ${httpCls}"></div>
+      <div class="uptime-seg ${httpsCls}" title="HTTPS: ${httpsCls}"></div>
+      <div class="uptime-seg ${dbCls}" title="DB: ${dbCls}"></div>
+      <div class="uptime-seg ${netCls}" title="NET: ${netOuts ? `${netOuts} outage(s), ${netDown}s total` : 'ok'}"></div>
+    </div>`;
+  };
+})();
+
+/* ── Day-detail modal ───────────────────────────────────────────────────── */
+(function() {
+  const SL = { ok:'Operational', degraded:'Degraded', down:'Down', no_data:'No data' };
+  const SC = { ok:'var(--green)', degraded:'var(--yellow)', down:'var(--red)', no_data:'var(--muted)' };
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  function openDayModal(bar) {
+    const date    = bar.dataset.date   || '?';
+    const status  = bar.dataset.status || 'no_data';
+    const uptime  = bar.dataset.uptime;
+    const samples = parseInt(bar.dataset.samples  || '0');
+    const httpDn  = parseInt(bar.dataset.httpDown  || '0');
+    const httpsDn = parseInt(bar.dataset.httpsDown || '0');
+    const dbDn    = parseInt(bar.dataset.dbDown    || '0');
+    const memMax  = parseInt(bar.dataset.memMax    || '0');
+    const diskMax = parseInt(bar.dataset.diskMax   || '0');
+    const netOut  = parseInt(bar.dataset.netOutages  || '0');
+    const netDown = parseInt(bar.dataset.netDowntime || '0');
+
+    document.getElementById('day-modal-title').innerHTML =
+      `${esc(date)} <span style="font-size:13px;color:${SC[status]||'var(--text)'}">${SL[status]||status}</span>`;
+    const netOutStr = netOut > 0 ? ` · ${netOut} net outage${netOut !== 1 ? 's' : ''}` : '';
+    document.getElementById('day-modal-sub').textContent =
+      uptime ? `${uptime}% uptime · ${samples} 5-min samples${netOutStr}` : `${samples} samples recorded${netOutStr}`;
+
+    const netDownStr = netOut > 0
+      ? `${netOut} outage(s) · ${netDown < 60 ? netDown+'s' : Math.round(netDown/60)+'m'} total`
+      : 'none';
+    const rows = [
+      ['HTTP outages',  httpDn  ? `${httpDn} sample${httpDn  !==1?'s':''}` : 'none'],
+      ['HTTPS outages', httpsDn ? `${httpsDn} sample${httpsDn!==1?'s':''}` : 'none'],
+      ['DB issues',     dbDn    ? `${dbDn} sample${dbDn    !==1?'s':''}` : 'none'],
+      ['Net outages',   netDownStr],
+      ['Peak memory',   memMax  ? `${memMax}%` : '—'],
+      ['Peak disk',     diskMax ? `${diskMax}%` : '—'],
+    ];
+    document.getElementById('day-modal-rows').innerHTML = rows.map(([k,v]) =>
+      `<div class="day-modal-row"><span class="day-modal-key">${k}</span><span class="day-modal-val">${v}</span></div>`
+    ).join('');
+
+    const tl = document.getElementById('day-modal-timeline');
+    tl.innerHTML = '<div class="modal-loading">Loading timeline…</div>';
+    document.getElementById('day-modal-backdrop').classList.add('open');
+
+    if (date !== '?') {
+      fetch(`/api/v1/status/day/${encodeURIComponent(date)}`, {cache:'no-store'})
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(d => renderTimeline(tl, d.samples, d))
+        .catch(e => { tl.innerHTML = `<div class="modal-loading" style="color:var(--red)">Failed to load timeline (${e})</div>`; });
+    }
+  }
+
+  // Convert a UTC "YYYY-MM-DD HH:MM:SS" DB string to local time string
+  function utcDbToLocal(s, len) {
+    const d = new Date(s.replace(' ', 'T') + 'Z');
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    const ss = String(d.getSeconds()).padStart(2,'0');
+    return len === 5 ? `${hh}:${mm}` : `${hh}:${mm}:${ss}`;
+  }
+
+  function renderTimeline(container, samples, d) {
+    if (!samples || !samples.length) {
+      container.innerHTML = '<div class="modal-loading">No samples recorded yet for this day.</div>';
+      return;
+    }
+    const stripSegs = samples.map(s => {
+      const t = utcDbToLocal(s.sampled_at, 8);
+      const tip = `${t} — ${s.status}${s.cause ? ': '+s.cause : ''}`;
+      return `<div class="timeline-seg ${s.status}" title="${esc(tip)}"></div>`;
+    }).join('');
+    // Build NET strip from precise outage windows (not per-sample net_ok flag)
+    // net_windows are UTC-stored localtime strings from the server
+    // net_windows use Unix timestamps (seconds) — no timezone ambiguity
+    const netWins = (d.net_windows || []).map(w => ({
+      start: w.started_ts * 1000,  // ms
+      end:   w.ended_ts   * 1000,
+    }));
+    const hasNetOutage = netWins.length > 0;
+    const netSegs = samples.map(s => {
+      const t = utcDbToLocal(s.sampled_at, 8);
+      // sampled_at is UTC string — parse as UTC for unix ms comparison
+      const sMs = new Date(s.sampled_at.replace(' ','T') + 'Z').getTime();
+      // A sample at time T covers the 5-min window [T-300s, T]
+      // Outage overlaps the 10-min window ending at this sample's timestamp.
+      // 10 min (2 sample periods) ensures gaps between snapshots are covered.
+      const inOutage = netWins.some(w => w.end > (sMs - 600000) && w.start < sMs);
+      const cls = inOutage ? 'net-down' : 'net-ok';
+      const tip = `${t} — NET: ${inOutage ? 'outage' : 'ok'}`;
+      return `<div class="timeline-seg ${cls}" title="${esc(tip)}"></div>`;
+    }).join('');
+    const firstT = utcDbToLocal(samples[0].sampled_at, 5);
+    const lastT  = utcDbToLocal(samples[samples.length-1].sampled_at, 5);
+    const badSamples = samples.filter(s => s.status !== 'ok' || s.cause);
+    const sampleRows = badSamples.map(s => {
+      const t = utcDbToLocal(s.sampled_at, 8);
+      const cause = s.cause
+        ? esc(s.cause)
+        : '<span style="color:var(--muted)">no cause recorded</span>';
+      const flags = [
+        !s.http_up  ? '<span class="sflag bad">HTTP↓</span>' : '<span class="sflag ok">HTTP✓</span>',
+        !s.https_up ? '<span class="sflag bad">HTTPS↓</span>' : '<span class="sflag ok">HTTPS✓</span>',
+        !s.db_ok    ? '<span class="sflag bad">DB↓</span>' : '<span class="sflag ok">DB✓</span>',
+        (s.net_ok === false) ? '<span class="sflag bad">NET↓</span>' : '<span class="sflag ok">NET✓</span>',
+      ].join('');
+      return `<div class="sample-item ${s.status}">
+        <span class="sample-time">${esc(t)}</span>
+        <span class="sample-cause ${s.cause?'bad':''}">${cause}</span>
+        <span class="sample-flags">${flags}</span>
+      </div>`;
+    }).join('');
+    const allOkNote = badSamples.length === 0
+      ? '<div style="padding:10px 12px;font-size:11px;color:var(--green)">All samples operational.</div>'
+      : '';
+    const memMax2  = Math.max(...samples.map(s => s.mem_pct));
+    const diskMax2 = Math.max(...samples.map(s => s.disk_pct));
+    container.innerHTML = `
+      <div class="timeline-wrap">
+        <div class="timeline-label">5-minute timeline (${samples.length} samples \u00b7 ${firstT}\u2013${lastT})</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+          <span style="font-size:9px;color:var(--muted);width:28px;flex-shrink:0">SVC</span>
+          <div class="timeline-strip-scroll" id="timeline-strip-scroll" style="flex:1">
+            <div class="timeline-strip">${stripSegs}</div>
+          </div>
+        </div>
+        ${hasNetOutage ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+          <span style="font-size:9px;color:var(--muted);width:28px;flex-shrink:0">NET</span>
+          <div class="timeline-strip-scroll" style="flex:1">
+            <div class="timeline-strip">${netSegs}</div>
+          </div>
+        </div>` : ''}
+        <div class="timeline-times" style="padding-left:34px"><span>${firstT}</span><span>${lastT}</span></div>
+        <div style="display:flex;gap:16px;font-size:10px;color:var(--muted);margin-bottom:12px">
+          <span>Peak RAM: <b style="color:var(--text)">${memMax2}%</b></span>
+          <span>Peak disk: <b style="color:var(--text)">${diskMax2}%</b></span>
+          <span>Non-ok: <b style="color:${badSamples.length?'var(--yellow)':'var(--green)'}">${badSamples.length}</b></span>
+        </div>
+      </div>
+      ${badSamples.length > 0 || allOkNote ? `
+      <div class="timeline-label" style="margin-bottom:6px">Incident samples</div>
+      <div class="sample-list">${sampleRows}${allOkNote}</div>` : ''}`;
+    // scroll timeline to the end (most recent samples) after render
+    const sc = document.getElementById('timeline-strip-scroll');
+    if (sc) {
+      sc.scrollLeft = sc.scrollWidth;
+      // Update the HH:MM labels under the strip to reflect what's currently visible
+      const tlTimes = sc.parentElement.querySelector('.timeline-times');
+      function updateTimelineLabels() {
+        if (!tlTimes) return;
+        const segs = sc.querySelectorAll('.timeline-seg');
+        if (!segs.length) return;
+        // Each seg is 5px wide + 2px gap = 7px per slot
+        const SEG_W = 7;
+        const leftIdx  = Math.max(0, Math.floor(sc.scrollLeft / SEG_W));
+        const rightIdx = Math.min(segs.length - 1, Math.floor((sc.scrollLeft + sc.clientWidth) / SEG_W));
+        // Title format is "HH:MM:SS — status..." — grab first 5 chars for HH:MM
+        const leftTime  = (segs[leftIdx].title  || '').slice(0, 5);
+        const rightTime = (segs[rightIdx].title || '').slice(0, 5);
+        tlTimes.children[0].textContent = leftTime;
+        tlTimes.children[1].textContent = rightTime;
+      }
+      sc.addEventListener('scroll', updateTimelineLabels, {passive: true});
+      updateTimelineLabels(); // set correct labels for initial scrolled-to-end position
+    }
+  }
+
+  function closeDayModal() {
+    document.getElementById('day-modal-backdrop').classList.remove('open');
+  }
+
+  function scrollBarsToLatest() {
+    const sc = document.getElementById('uptime-history');
+    if (sc) sc.scrollLeft = sc.scrollWidth;
+  }
+  window.scrollBarsToLatest = scrollBarsToLatest;
+
+  function attachBars() {
+    document.querySelectorAll('.uptime-bar').forEach(bar => {
+      if (bar._modalAttached) return;
+      bar._modalAttached = true;
+      bar.addEventListener('click', () => openDayModal(bar));
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    attachBars();
+    scrollBarsToLatest();
+    document.getElementById('day-modal-close').addEventListener('click', closeDayModal);
+    document.getElementById('day-modal-backdrop').addEventListener('click', function(e) {
+      if (e.target === this) closeDayModal();
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDayModal(); });
+    const barsContainer = document.getElementById('uptime-bars');
+    if (barsContainer) {
+      new MutationObserver(attachBars).observe(barsContainer, {childList:true});
+    }
+  });
+})();
+
+/* ── Status page AJAX auto-refresh (every 30 s) ─────────────────────── */
+(function() {
+  const REFRESH_INTERVAL = 30000;
+  const STATUS_URL = '/api/v1/status.json';
+
+  function fmtUptime(secs) {
+    const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60);
+    return h + 'h ' + m + 'm';
+  }
+
+  async function refreshStatus() {
+    // Never touch the DOM while the day-detail modal is open —
+    // MutationObserver + innerHTML replacement would close it.
+    if (document.getElementById('day-modal-backdrop')?.classList.contains('open')) return;
+
+    try {
+      const r = await fetch(STATUS_URL, {cache:'no-store'});
+      if (!r.ok) return;
+      const d = await r.json();
+
+      // Timestamp
+      const tsEl = document.getElementById('status-ts');
+      if (tsEl) tsEl.textContent = new Date().toLocaleTimeString();
+
+      // Overall banner
+      const bannerEl = document.querySelector('.status-banner') || document.querySelector('[class*="overall"]');
+      if (bannerEl) {
+        const cls = {ok:'ok', degraded:'warn', down:'crit'}[d.overall] || 'ok';
+        bannerEl.className = bannerEl.className.replace(/(ok|warn|crit)/g, cls);
+        const txt = bannerEl.querySelector('[id*="overall-text"], .overall-text, h2, h3');
+        if (txt) txt.textContent = {
+          ok:'All Systems Operational', degraded:'Partial Outage', down:'Major Outage'
+        }[d.overall] || d.overall;
+      }
+
+      // Live legend mini bar — colour each segment by current service state
+      const OK = 'var(--green)', DOWN = 'var(--red)';
+      const httpSeg  = document.getElementById('legend-http-seg');
+      const httpsSeg = document.getElementById('legend-https-seg');
+      const dbSeg    = document.getElementById('legend-db-seg');
+      const netSeg   = document.getElementById('legend-net-seg');
+      if (httpSeg)  httpSeg.style.background  = d.http_up  ? OK : DOWN;
+      if (httpsSeg) httpsSeg.style.background = d.https_up ? OK : DOWN;
+      if (dbSeg)    dbSeg.style.background    = d.db_ok    ? OK : DOWN;
+      if (netSeg)   netSeg.style.background   = (d.net_ok !== false) ? '#06b6d4' : '#a855f7';
+
+      // Uptime bar chart — uses shared _buildUptimeBar()
+      const barsEl = document.getElementById('uptime-bars');
+      if (barsEl && d.history && d.history.length) {
+        const bars = [...d.history].reverse().map(h => window._buildUptimeBar(h, d.net_day_hist));
+        barsEl.innerHTML = bars.join('\n');
+        scrollBarsToLatest();
+      }
+
+      // Network Monitor UI
+      (function updateNetUI() {
+        const esc2 = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const netOk  = d.net_ok !== false;
+        const netLat = d.net_latency_ms;
+        const outageNow = d.net_outage_now;
+
+        // Header badge
+        const badge = document.getElementById('net-live-badge');
+        const dot   = document.getElementById('net-live-dot');
+        const txt   = document.getElementById('net-live-text');
+        if (badge) badge.className = 'net-live-badge ' + (netOk ? 'ok' : 'down');
+        if (dot)  { dot.style.background = netOk ? '#06b6d4' : '#a855f7'; dot.style.boxShadow = netOk ? '0 0 5px #06b6d4' : '0 0 5px #a855f7'; }
+        if (txt)  txt.textContent = netOk ? ('NET ' + (netLat != null ? netLat.toFixed(0)+'ms' : '···')) : 'NET DOWN';
+
+        // Panel indicator + badge
+        const nmInd   = document.getElementById('nm-indicator');
+        const nmBadge = document.getElementById('nm-badge');
+        const latVal  = document.getElementById('nm-latency-val');
+        const latBar  = document.getElementById('nm-lat-bar');
+        if (nmInd)   { nmInd.style.background = netOk ? '#06b6d4' : '#a855f7'; nmInd.style.boxShadow = netOk ? '0 0 6px rgba(6,182,212,0.5)' : '0 0 6px rgba(168,85,247,0.5)'; }
+        if (nmBadge) { nmBadge.textContent = outageNow ? 'OUTAGE' : (netOk ? 'OK' : 'DOWN'); nmBadge.style.background = netOk ? 'rgba(6,182,212,0.12)' : 'rgba(168,85,247,0.12)'; nmBadge.style.color = netOk ? '#06b6d4' : '#a855f7'; }
+        if (latVal)  latVal.textContent = netLat != null ? netLat.toFixed(1)+' ms' : '— ms';
+        if (latBar)  latBar.style.width = netLat != null ? Math.min(80, Math.round(netLat / 3))+'px' : '0px';
+
+        // DownDetector badge
+        const ddBadge = document.getElementById('nm-dd-badge');
+        if (ddBadge) {
+          const outages = d.net_outages || [];
+          const last = outages[0];
+          if (last && last.confirmed_external) {
+            ddBadge.textContent = 'EXTERNAL'; ddBadge.style.background = 'rgba(239,68,68,0.15)'; ddBadge.style.color = 'var(--red)';
+          } else if (last && last.is_open) {
+            ddBadge.textContent = 'CHECKING…'; ddBadge.style.background = 'rgba(234,179,8,0.12)'; ddBadge.style.color = 'var(--yellow)';
+          } else {
+            ddBadge.textContent = 'All clear'; ddBadge.style.background = 'rgba(34,197,94,0.1)'; ddBadge.style.color = 'var(--green)';
+          }
+        }
+
+        // Outage list
+        const outEl = document.getElementById('nm-outages-list');
+        if (outEl) {
+          const outages = d.net_outages || [];
+          if (!outages.length) {
+            outEl.innerHTML = '<div style="padding:20px 24px;font-size:12px;color:var(--green)">No outages in the last 7 days.</div>';
+          } else {
+            outEl.innerHTML = outages.map(o => {
+              const openFlag = o.is_open ? '<span class="outage-flag open">ONGOING</span>' : '<span class="outage-flag ok">RESOLVED</span>';
+              const extFlag  = o.confirmed_external ? '<span class="outage-flag ext">EXTERNAL</span>' : '<span class="outage-flag local">LOCAL/UNCONFIRMED</span>';
+              const endStr   = o.ended_at ? '→ '+esc2(o.ended_at.slice(11,19)) : '→ now';
+              const noteHtml = o.note ? `<div class="outage-note">${esc2(o.note)}</div>` : '';
+              const editBtn  = `<button class="outage-note-btn" onclick="editOutageNote(${o.id}, this)" title="Add/edit note">✎</button>`;
+              return `<div class="outage-row" data-id="${o.id}">
+                <div class="outage-time">${esc2(o.started_at.slice(0,16))} ${endStr}</div>
+                <div class="outage-dur ${o.is_open?'open':'closed'}">${esc2(o.duration_str)}</div>
+                <div class="outage-flags">${extFlag}${openFlag}${editBtn}</div>
+                ${noteHtml}
+              </div>`;
+            }).join('');
+          }
+        }
+      })();
+
+      // Uptime %
+      const pctEl = document.getElementById('uptime-pct');
+      if (pctEl && d.history) {
+        const sampled = d.history.filter(h => h.status !== 'no_data');
+        if (sampled.length) {
+          const okDays = sampled.filter(h => h.status === 'ok').length;
+          pctEl.textContent = (okDays / sampled.length * 100).toFixed(2) + '%';
+        }
+      }
+
+      // Server uptime counter
+      const srvUptimeEl = document.getElementById('srv-uptime');
+      if (srvUptimeEl) srvUptimeEl.textContent = fmtUptime(d.srv_uptime_secs);
+
+      // Memory bar
+      const memBar = document.getElementById('mem-bar');
+      if (memBar) memBar.style.width = d.mem_pct + '%';
+      const memPctEl = document.getElementById('mem-pct');
+      if (memPctEl) memPctEl.textContent = d.mem_pct + '%';
+
+      // Disk bar
+      const diskBar = document.getElementById('cdn-disk-bar');
+      if (diskBar) diskBar.style.width = d.disk_pct + '%';
+
+      // Incident log
+      const incEl = document.getElementById('incident-rows');
+      if (incEl && d.incidents) {
+        const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const SEV = {critical:'crit', degraded:'warn'};
+        incEl.innerHTML = d.incidents.length === 0
+          ? '<div style="padding:20px 24px;font-size:12px;color:var(--muted)">No incidents recorded yet.</div>'
+          : d.incidents.map(inc => {
+              const ind = inc.is_open ? 'crit' : (SEV[inc.severity]||'warn');
+              const badge = inc.is_open
+                ? '<span class="svc-badge crit">ONGOING</span>'
+                : '<span class="svc-badge ok">RESOLVED</span>';
+              const detail = inc.detail ? `<div class="inc-detail">${esc(inc.detail)}</div>` : '';
+              return `<div class="svc-row">
+                <div class="svc-indicator ${ind}"></div>
+                <div class="svc-name" style="flex:1">
+                  <div>${esc(inc.cause)}</div>${detail}
+                  <div style="font-size:10px;color:var(--muted);margin-top:2px">started ${esc(inc.started_at.slice(0,16))} · duration ${esc(inc.duration_str)}</div>
+                </div>${badge}
+              </div>`;
+            }).join('');
+      }
+
+      // Message board
+      const boardEl = document.getElementById('board-rows');
+      if (boardEl && d.board) {
+        const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const BIND = {info:'info', warning:'warn', critical:'crit', ok:'ok'};
+        boardEl.innerHTML = d.board.length === 0
+          ? '<div style="padding:20px 24px;font-size:12px;color:var(--muted)">No announcements.</div>'
+          : d.board.map(post => {
+              const ind = BIND[post.level]||'info';
+              const body = post.body ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">${esc(post.body)}</div>` : '';
+              return `<div class="svc-row">
+                <div class="svc-indicator ${ind}"></div>
+                <div class="svc-name" style="flex:1">
+                  <div>${esc(post.title)}</div>${body}
+                  <div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(post.posted_at.slice(0,16))}</div>
+                </div>
+                <div class="svc-badge ${ind}">${post.level.toUpperCase()}</div>
+              </div>`;
+            }).join('');
+      }
+
+    } catch(e) {
+      console.warn('Status refresh failed:', e);
+    }
+  }
+
+  setTimeout(refreshStatus, 2000);
+  setInterval(refreshStatus, REFRESH_INTERVAL);
+
+  // "Last updated" timestamp
+  const tsSpan = document.createElement('span');
+  tsSpan.id = 'status-ts';
+  tsSpan.style.cssText = 'font-size:11px;color:#64748b;margin-left:8px;';
+  tsSpan.title = 'Live — updates every 30 s';
+  document.addEventListener('DOMContentLoaded', () => {
+    const h = document.querySelector('h1,h2,.page-title');
+    if (h) h.appendChild(tsSpan);
+  });
+})();
+
+// ── Admin auth state (module-level, not inside any IIFE) ──────────────────
+let _adminToken = sessionStorage.getItem('admin_token') || null;
+
+function _updateAdminPill() {
+  const dot   = document.getElementById('admin-dot');
+  const label = document.getElementById('admin-label');
+  const btns  = document.querySelectorAll('.outage-note-btn');
+  if (_adminToken) {
+    dot.className   = 'pill-dot ok';
+    label.textContent = 'Admin ✓';
+    btns.forEach(b => b.style.display = '');
+  } else {
+    dot.className   = 'pill-dot off';
+    label.textContent = 'Admin';
+    btns.forEach(b => b.style.display = 'none');
+  }
+}
+
+async function adminPillClick() {
+  if (_adminToken) {
+    // Already logged in — offer logout
+    if (!confirm('Log out of admin?')) return;
+    _adminToken = null;
+    sessionStorage.removeItem('admin_token');
+    _updateAdminPill();
+    return;
+  }
+  const username = prompt('Admin username:');
+  if (!username) return;
+  const password = prompt('Admin password:');
+  if (!password) return;
+  try {
+    const r = await fetch('/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password})
+    });
+    const d = await r.json();
+    if (!r.ok) { alert('Login failed: ' + (d.error || r.status)); return; }
+    // Verify the token has admin rights by probing a lightweight endpoint
+    const probe = await fetch('/api/v1/net_outage/0/note', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + d.token},
+      body: JSON.stringify({note: null})
+    });
+    if (probe.status === 403) { alert('This account does not have admin privileges.'); return; }
+    // 200 or 404 (no outage id 0) both mean admin access confirmed
+    _adminToken = d.token;
+    sessionStorage.setItem('admin_token', _adminToken);
+    _updateAdminPill();
+  } catch(e) { alert('Login error: ' + e); }
+}
+
+// window-scoped so onclick= attributes can reach it
+window.editOutageNote = async function(id, btn) {
+  if (!_adminToken) {
+    alert('Please log in as admin first (bottom-right corner).');
+    return;
+  }
+  const row     = btn.closest('.outage-row');
+  const current = row.querySelector('.outage-note')?.textContent || '';
+  const note    = prompt('Outage note (blank to clear):', current);
+  if (note === null) return;
+  try {
+    const r = await fetch(`/api/v1/net_outage/${id}/note`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _adminToken},
+      body: JSON.stringify({note: note.trim() || null})
+    });
+    if (r.status === 401 || r.status === 403) {
+      _adminToken = null; sessionStorage.removeItem('admin_token');
+      _updateAdminPill();
+      alert('Session expired. Please log in again.');
+      return;
+    }
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    let noteEl = row.querySelector('.outage-note');
+    if (data.note) {
+      if (!noteEl) {
+        noteEl = document.createElement('div');
+        noteEl.className = 'outage-note';
+        row.appendChild(noteEl);
+      }
+      noteEl.textContent = data.note;
+    } else if (noteEl) {
+      noteEl.remove();
+    }
+  } catch(e) { alert('Failed to save note: ' + e); }
+};
+
+// Hide edit buttons until admin is verified; restore on reload if token cached
+document.addEventListener('DOMContentLoaded', _updateAdminPill);
+</script>
+
+<div id="admin-pill" onclick="adminPillClick()" title="Admin login for outage annotation">
+  <span class="pill-dot off" id="admin-dot"></span>
+  <span class="pill-label" id="admin-label">Admin</span>
+</div>
 </body>
 </html>

@@ -21,7 +21,7 @@ from email.mime.image import MIMEImage
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
-from shared import CustomLogger
+from shared import CustomLogger, current_blacklist, blacklist_lock
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 
 # ==============================================================================
@@ -412,6 +412,8 @@ def init_db():
 # Chunk size and abandoned-session TTL are tunable via env
 UPLOAD_CHUNK_SIZE   = int(os.getenv('UPLOAD_CHUNK_SIZE',   str(25 * 1024 * 1024)))   # 25 MB
 UPLOAD_SESSION_TTL  = int(os.getenv('UPLOAD_SESSION_TTL',  str(48 * 3600)))           # 48 h
+MAX_JSON_BODY       = int(os.getenv('MAX_JSON_BODY',        str(1  * 1024 * 1024)))   # 1 MB — cap all JSON request bodies
+MAX_UPLOAD_BYTES    = int(os.getenv('MAX_UPLOAD_BYTES',     str(10 * 1024 * 1024 * 1024)))  # 10 GB legacy upload cap
 # Temp chunks land on the CDN drive itself, avoiding /tmp exhaustion
 UPLOAD_TMP_DIR      = os.getenv('UPLOAD_TMP_DIR', os.path.join(
     '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028', '.upload_sessions'
@@ -1926,6 +1928,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
     upload_session_complete_pattern = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/complete$')
     upload_session_status_pattern   = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/status$')
     upload_session_cancel_pattern   = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/cancel$')
+    board_list_pattern  = re.compile(r'^/api/(v[1-3])/board$')
+    board_item_pattern  = re.compile(r'^/api/(v[1-3])/board/(\d+)$')
+    incident_pattern    = re.compile(r'^/api/(v[1-3])/incident$')
 
     def __init__(self, *args, **kwargs):
         # This is crucial for SimpleHTTPRequestHandler to serve files from the correct directory
@@ -2241,6 +2246,122 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self._send_response(500, json.dumps({'error': 'db error'}), 'application/json')
             return
         self._send_response(200, json.dumps({'ok': True, 'id': oid, 'note': note}), 'application/json')
+
+    def _handle_board_post(self) -> None:
+        """POST /api/v1/board  {level, title, body}  — admin only."""
+        if not _rate_limit(self.client_address[0], 'api'):
+            return self._send_response(429, json.dumps({'error': 'Rate limit exceeded.'}))
+        user = self._check_admin_auth()
+        if not user:
+            return
+        cl = int(self.headers.get('Content-Length', 0))
+        if cl <= 0 or cl > MAX_JSON_BODY:
+            return self._send_response(400, json.dumps({'error': 'Invalid body.'}))
+        try:
+            data = json.loads(self.rfile.read(cl))
+        except Exception:
+            return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
+        level = str(data.get('level', 'info'))
+        title = str(data.get('title', '')).strip()
+        body  = str(data.get('body', '') or '').strip() or None
+        if level not in ('info', 'warning', 'critical', 'ok'):
+            level = 'info'
+        if not title:
+            return self._send_response(400, json.dumps({'error': 'title is required.'}))
+        if len(title) > 200:
+            return self._send_response(400, json.dumps({'error': 'title too long (max 200).'}))
+        if body and len(body) > 2000:
+            return self._send_response(400, json.dumps({'error': 'body too long (max 2000).'}))
+        try:
+            with _db_connect() as conn:
+                cur = conn.execute(
+                    'INSERT INTO message_board (level, title, body) VALUES (?, ?, ?)',
+                    (level, title, body)
+                )
+                conn.commit()
+                row_id = cur.lastrowid
+            logging.info(f"Board post created by admin {user['id']}: [{level}] {title!r}")
+            return self._send_response(200, json.dumps({'ok': True, 'id': row_id}), 'application/json')
+        except Exception:
+            logging.exception('Failed to create board post')
+            return self._send_response(500, json.dumps({'error': 'Internal server error.'}))
+
+    def _handle_board_delete(self, post_id: str) -> None:
+        """DELETE /api/v1/board/<id>  — admin only."""
+        if not _rate_limit(self.client_address[0], 'api'):
+            return self._send_response(429, json.dumps({'error': 'Rate limit exceeded.'}))
+        user = self._check_admin_auth()
+        if not user:
+            return
+        try:
+            pid = int(post_id)
+        except ValueError:
+            return self._send_response(400, json.dumps({'error': 'Invalid id.'}))
+        try:
+            with _db_connect() as conn:
+                cur = conn.execute('DELETE FROM message_board WHERE id = ?', (pid,))
+                conn.commit()
+            if cur.rowcount == 0:
+                return self._send_response(404, json.dumps({'error': 'Post not found.'}))
+            logging.info(f"Board post {pid} deleted by admin {user['id']}")
+            return self._send_response(200, json.dumps({'ok': True}), 'application/json')
+        except Exception:
+            logging.exception('Failed to delete board post')
+            return self._send_response(500, json.dumps({'error': 'Internal server error.'}))
+
+    def _handle_incident_create(self) -> None:
+        """POST /api/v1/incident  {cause, started_at, ended_at?, severity}  — admin only.
+
+        Inserts a manual entry into the incidents table so planned maintenance
+        and missed outages appear in the incident log on the status page.
+        started_at / ended_at are local-time strings (YYYY-MM-DDTHH:MM) from
+        the browser datetime-local input — stored as-is (treated as local by
+        the existing incident rendering logic).
+        """
+        if not _rate_limit(self.client_address[0], 'api'):
+            return self._send_response(429, json.dumps({'error': 'Rate limit exceeded.'}))
+        user = self._check_admin_auth()
+        if not user:
+            return
+        cl = int(self.headers.get('Content-Length', 0))
+        if cl <= 0 or cl > MAX_JSON_BODY:
+            return self._send_response(400, json.dumps({'error': 'Invalid body.'}))
+        try:
+            data = json.loads(self.rfile.read(cl))
+        except Exception:
+            return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
+        cause    = str(data.get('cause', '')).strip()
+        started  = str(data.get('started_at', '')).strip()
+        ended    = str(data.get('ended_at', '') or '').strip() or None
+        severity = str(data.get('severity', 'degraded'))
+        if not cause:
+            return self._send_response(400, json.dumps({'error': 'cause is required.'}))
+        if not started:
+            return self._send_response(400, json.dumps({'error': 'started_at is required.'}))
+        if severity not in ('degraded', 'critical'):
+            severity = 'degraded'
+        # Normalise datetime-local T separator to space for DB consistency
+        started = started.replace('T', ' ')
+        if ended:
+            ended = ended.replace('T', ' ')
+        try:
+            with _db_connect() as conn:
+                # Reuse the incident_log table (same schema used by the automatic monitor)
+                cur = conn.execute(
+                    '''INSERT INTO incident_log (cause, started_at, resolved_at, severity, detail)
+                       VALUES (?, ?, ?, ?, ?)''',
+                    (cause, started, ended, severity, '(manual entry)')
+                )
+                conn.commit()
+                inc_id = cur.lastrowid
+            logging.info(
+                f"Manual incident created by admin {user['id']}: "
+                f"[{severity}] {cause!r} {started}–{ended or 'open'}"
+            )
+            return self._send_response(200, json.dumps({'ok': True, 'id': inc_id}), 'application/json')
+        except Exception:
+            logging.exception('Failed to create manual incident')
+            return self._send_response(500, json.dumps({'error': 'Internal server error.'}))
 
     # --- Chunked / Resumable Upload API ---
 
@@ -2640,6 +2761,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         """Routes GET requests to the appropriate handler or serves static files."""
+        with blacklist_lock:
+            if self.client_address[0] in current_blacklist:
+                return self._send_response(403, json.dumps({"error": "Forbidden"}))
         parsed_url = urlparse(self.path)
 
         # Status page
@@ -2708,6 +2832,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         """Routes POST requests to the appropriate handler."""
+        with blacklist_lock:
+            if self.client_address[0] in current_blacklist:
+                return self._send_response(403, json.dumps({"error": "Forbidden"}))
         parsed_url = urlparse(self.path)
 
         # Chunked upload session endpoints (before auth so chunk upload works with upload_token)
@@ -2735,6 +2862,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 content_len = int(self.headers.get('Content-Length', 0))
                 if content_len <= 0:
                     return self._send_response(400, json.dumps({"error": "Empty request body."}))
+                if content_len > MAX_JSON_BODY:
+                    return self._send_response(413, json.dumps({"error": "Request body too large."}))
                 post_body = self.rfile.read(content_len)
                 try:
                     data = json.loads(post_body)
@@ -2786,6 +2915,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if _note_m:
             return self._handle_net_outage_note(_note_m.group(1))
 
+        # Admin: message board post
+        if parsed_url.path == '/api/v1/board':
+            return self._handle_board_post()
+
+        # Admin: manual incident creation
+        if parsed_url.path == '/api/v1/incident':
+            return self._handle_incident_create()
+
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     def do_PATCH(self):
@@ -2805,6 +2942,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         item_match = self.shares_item_pattern.match(parsed_url.path)
         if item_match:
             return self.handle_share_delete(item_match.group(2))
+        # Admin: delete board post
+        _board_del = re.match(r'^/api/v1/board/(\d+)$', parsed_url.path)
+        if _board_del:
+            return self._handle_board_delete(_board_del.group(1))
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     # --- Auth API Handlers ---
@@ -3935,10 +4076,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     return self._send_response(400, json.dumps({"error": "Invalid save path."}))
                 # werkzeug FileStorage exposes the uploaded stream as .stream
                 with open(save_path, 'wb') as f:
+                    written = 0
                     while True:
                         chunk = file_item.stream.read(2 * 1024 * 1024)
                         if not chunk:
                             break
+                        written += len(chunk)
+                        if written > MAX_UPLOAD_BYTES:
+                            os.unlink(save_path)
+                            return self._send_response(413, json.dumps({"error": "File too large."}))
                         f.write(chunk)
 
                 # Construct the public URL.  For CDN uploads use the "/cdn" prefix,

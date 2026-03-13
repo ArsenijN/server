@@ -1,7 +1,8 @@
-# server `v0.7.1`
+# server `v0.7.2`
 Just backend code of my server, nothing else, anyone can use it
 
-Release note: **in-between version, snap before huge updates to internals and other things**
+*Release note: **in-between versions, snaps before huge updates to internals and 
+other things***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

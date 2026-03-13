@@ -609,6 +609,51 @@ footer span { font-size: 11px; color: var(--muted); }
 footer a { color: var(--accent2); text-decoration: none; }
 footer a:hover { text-decoration: underline; }
 
+/* admin panel modal */
+.admin-modal-backdrop {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65); z-index: 3000;
+  align-items: center; justify-content: center;
+}
+.admin-modal-backdrop.open { display: flex; }
+.admin-modal {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 12px; padding: 28px 32px; max-width: 520px; width: 95%;
+  max-height: 88vh; overflow-y: auto; position: relative;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+.admin-modal-close {
+  position: absolute; top: 14px; right: 18px;
+  background: none; border: none; color: var(--muted);
+  font-size: 20px; cursor: pointer; line-height: 1;
+}
+.admin-modal-close:hover { color: var(--text); }
+.admin-modal-title { font-family: var(--display); font-size: 17px; font-weight: 700; margin-bottom: 18px; }
+.admin-field { margin-bottom: 14px; }
+.admin-field label { display: block; font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.admin-field input, .admin-field textarea, .admin-field select {
+  width: 100%; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 6px; color: var(--text); font-family: var(--mono); font-size: 12px;
+  padding: 8px 12px; outline: none; transition: border-color 0.2s;
+}
+.admin-field input:focus, .admin-field textarea:focus, .admin-field select:focus { border-color: var(--accent); }
+.admin-field textarea { resize: vertical; min-height: 64px; }
+.admin-btn { display: inline-block; padding: 8px 18px; border-radius: 6px; border: none; font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+.admin-btn:hover { opacity: 0.82; }
+.admin-btn.primary { background: var(--accent); color: #fff; }
+.admin-btn.danger  { background: rgba(239,68,68,0.18); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+.admin-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+.admin-tab { padding: 5px 14px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid transparent; color: var(--muted); background: none; transition: all 0.15s; }
+.admin-tab.active { background: rgba(59,130,246,0.15); color: var(--accent2); border-color: rgba(59,130,246,0.3); }
+.admin-tab:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.04); }
+.admin-pane { display: none; }
+.admin-pane.active { display: block; }
+.admin-board-list { margin-bottom: 16px; max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+.admin-board-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.admin-board-item:last-child { border-bottom: none; }
+.admin-board-item .item-title { flex: 1; color: var(--text); }
+.admin-board-item .item-time { color: var(--muted); font-size: 10px; white-space: nowrap; margin-top: 2px; }
+
 @media (max-width: 640px) {
   header, .container, footer { padding-left: 20px; padding-right: 20px; }
   .cards { grid-template-columns: 1fr 1fr; }
@@ -1150,17 +1195,17 @@ footer a:hover { text-decoration: underline; }
         <div class="timeline-label">5-minute timeline (${samples.length} samples \u00b7 ${firstT}\u2013${lastT})</div>
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
           <span style="font-size:9px;color:var(--muted);width:28px;flex-shrink:0">SVC</span>
-          <div class="timeline-strip-scroll" id="timeline-strip-scroll" style="flex:1">
+          <div class="timeline-strip-scroll tl-scroll" id="timeline-strip-scroll" style="flex:1">
             <div class="timeline-strip">${stripSegs}</div>
           </div>
         </div>
         ${hasNetOutage ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
           <span style="font-size:9px;color:var(--muted);width:28px;flex-shrink:0">NET</span>
-          <div class="timeline-strip-scroll" style="flex:1">
+          <div class="timeline-strip-scroll tl-scroll" style="flex:1">
             <div class="timeline-strip">${netSegs}</div>
           </div>
         </div>` : ''}
-        <div class="timeline-times" style="padding-left:34px"><span>${firstT}</span><span>${lastT}</span></div>
+        <div class="timeline-times" id="timeline-times-row" style="padding-left:34px"><span>${firstT}</span><span>${lastT}</span></div>
         <div style="display:flex;gap:16px;font-size:10px;color:var(--muted);margin-bottom:12px">
           <span>Peak RAM: <b style="color:var(--text)">${memMax2}%</b></span>
           <span>Peak disk: <b style="color:var(--text)">${diskMax2}%</b></span>
@@ -1170,29 +1215,46 @@ footer a:hover { text-decoration: underline; }
       ${badSamples.length > 0 || allOkNote ? `
       <div class="timeline-label" style="margin-bottom:6px">Incident samples</div>
       <div class="sample-list">${sampleRows}${allOkNote}</div>` : ''}`;
-    // scroll timeline to the end (most recent samples) after render
-    const sc = document.getElementById('timeline-strip-scroll');
-    if (sc) {
-      sc.scrollLeft = sc.scrollWidth;
-      // Update the HH:MM labels under the strip to reflect what's currently visible
-      const tlTimes = sc.parentElement.querySelector('.timeline-times');
-      function updateTimelineLabels() {
-        if (!tlTimes) return;
-        const segs = sc.querySelectorAll('.timeline-seg');
-        if (!segs.length) return;
-        // Each seg is 5px wide + 2px gap = 7px per slot
-        const SEG_W = 7;
-        const leftIdx  = Math.max(0, Math.floor(sc.scrollLeft / SEG_W));
-        const rightIdx = Math.min(segs.length - 1, Math.floor((sc.scrollLeft + sc.clientWidth) / SEG_W));
-        // Title format is "HH:MM:SS — status..." — grab first 5 chars for HH:MM
-        const leftTime  = (segs[leftIdx].title  || '').slice(0, 5);
-        const rightTime = (segs[rightIdx].title || '').slice(0, 5);
-        tlTimes.children[0].textContent = leftTime;
-        tlTimes.children[1].textContent = rightTime;
+    // Scroll all strips to end; link them so they move together; update time labels
+    const allScrolls = container.querySelectorAll('.timeline-strip-scroll');
+    const tlTimes    = container.querySelector('.timeline-times');
+    const SEG_W = 7; // 5px width + 2px gap
+
+    function updateTimelineLabels() {
+      if (!tlTimes || !allScrolls[0]) return;
+      const sc   = allScrolls[0]; // SVC strip drives the labels
+      const segs = sc.querySelectorAll('.timeline-seg');
+      if (!segs.length) return;
+      const visLeft  = sc.scrollLeft;
+      const visRight = sc.scrollLeft + sc.clientWidth;
+      // Walk forward to find first seg whose LEFT edge is >= visLeft (fully inside)
+      let leftIdx = -1;
+      for (let i = 0; i < segs.length; i++) {
+        if (i * SEG_W >= visLeft) { leftIdx = i; break; }
       }
-      sc.addEventListener('scroll', updateTimelineLabels, {passive: true});
-      updateTimelineLabels(); // set correct labels for initial scrolled-to-end position
+      // Walk backward to find last seg whose RIGHT edge (left + 5px) is <= visRight
+      let rightIdx = -1;
+      for (let i = segs.length - 1; i >= 0; i--) {
+        if (i * SEG_W + 5 <= visRight) { rightIdx = i; break; }
+      }
+      if (leftIdx === -1 || rightIdx === -1 || leftIdx > rightIdx) return;
+      tlTimes.children[0].textContent = (segs[leftIdx]?.title  || '').slice(0, 5);
+      tlTimes.children[1].textContent = (segs[rightIdx]?.title || '').slice(0, 5);
     }
+
+    let _syncLock = false;
+    allScrolls.forEach(sc => {
+      sc.addEventListener('scroll', () => {
+        if (_syncLock) return;
+        _syncLock = true;
+        allScrolls.forEach(other => { if (other !== sc) other.scrollLeft = sc.scrollLeft; });
+        updateTimelineLabels();
+        _syncLock = false;
+      }, {passive: true});
+    });
+
+    allScrolls.forEach(sc => { sc.scrollLeft = sc.scrollWidth; });
+    updateTimelineLabels();
   }
 
   function closeDayModal() {
@@ -1432,65 +1494,177 @@ footer a:hover { text-decoration: underline; }
   });
 })();
 
-// ── Admin auth state (module-level, not inside any IIFE) ──────────────────
+// ── Admin auth state ──────────────────────────────────────────────────────
 let _adminToken = sessionStorage.getItem('admin_token') || null;
 
 function _updateAdminPill() {
-  const dot   = document.getElementById('admin-dot');
-  const label = document.getElementById('admin-label');
-  const btns  = document.querySelectorAll('.outage-note-btn');
+  const dot  = document.getElementById('admin-dot');
+  const label= document.getElementById('admin-label');
+  const btns = document.querySelectorAll('.outage-note-btn');
   if (_adminToken) {
-    dot.className   = 'pill-dot ok';
+    dot.className     = 'pill-dot ok';
     label.textContent = 'Admin ✓';
     btns.forEach(b => b.style.display = '');
   } else {
-    dot.className   = 'pill-dot off';
+    dot.className     = 'pill-dot off';
     label.textContent = 'Admin';
     btns.forEach(b => b.style.display = 'none');
   }
 }
 
 async function adminPillClick() {
-  if (_adminToken) {
-    // Already logged in — offer logout
-    if (!confirm('Log out of admin?')) return;
-    _adminToken = null;
-    sessionStorage.removeItem('admin_token');
-    _updateAdminPill();
-    return;
-  }
+  if (_adminToken) { openAdminPanel(); return; }
   const username = prompt('Admin username:');
   if (!username) return;
   const password = prompt('Admin password:');
   if (!password) return;
   try {
     const r = await fetch('/auth/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({username, password})
     });
     const d = await r.json();
     if (!r.ok) { alert('Login failed: ' + (d.error || r.status)); return; }
-    // Verify the token has admin rights by probing a lightweight endpoint
+    // probe admin rights
     const probe = await fetch('/api/v1/net_outage/0/note', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + d.token},
       body: JSON.stringify({note: null})
     });
     if (probe.status === 403) { alert('This account does not have admin privileges.'); return; }
-    // 200 or 404 (no outage id 0) both mean admin access confirmed
     _adminToken = d.token;
     sessionStorage.setItem('admin_token', _adminToken);
     _updateAdminPill();
+    openAdminPanel();
   } catch(e) { alert('Login error: ' + e); }
 }
 
-// window-scoped so onclick= attributes can reach it
-window.editOutageNote = async function(id, btn) {
-  if (!_adminToken) {
-    alert('Please log in as admin first (bottom-right corner).');
-    return;
+// ── Admin panel ───────────────────────────────────────────────────────────
+function openAdminPanel() {
+  document.getElementById('admin-modal-backdrop').classList.add('open');
+  adminLoadBoard();
+  const now = new Date(); now.setSeconds(0, 0);
+  document.getElementById('outage-started').value =
+    new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+function closeAdminPanel() {
+  document.getElementById('admin-modal-backdrop').classList.remove('open');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('admin-modal-close').addEventListener('click', closeAdminPanel);
+  document.getElementById('admin-modal-backdrop').addEventListener('click', e => {
+    if (e.target === document.getElementById('admin-modal-backdrop')) closeAdminPanel();
+  });
+  document.querySelectorAll('.admin-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.admin-pane').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('admin-pane-' + tab.dataset.pane).classList.add('active');
+    });
+  });
+  _updateAdminPill();
+});
+
+// ── Board management ──────────────────────────────────────────────────────
+const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+async function adminLoadBoard() {
+  const el = document.getElementById('admin-board-list');
+  try {
+    const r = await fetch('/api/v1/status.json', {cache:'no-store'});
+    const d = await r.json();
+    const posts = d.board || [];
+    const BIND  = {info:'info', warning:'warn', critical:'crit', ok:'ok'};
+    if (!posts.length) {
+      el.innerHTML = '<div style="padding:10px 12px;font-size:11px;color:var(--muted)">No posts yet.</div>';
+      return;
+    }
+    el.innerHTML = posts.map(p => {
+      const ind = BIND[p.level] || 'info';
+      return `<div class="admin-board-item">
+        <div class="svc-indicator ${ind}" style="flex-shrink:0;margin-top:2px"></div>
+        <div class="item-title">${_esc(p.title)}
+          ${p.body ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${_esc(p.body)}</div>` : ''}
+          <div class="item-time">${_esc((p.posted_at||'').slice(0,16))} · ${p.level.toUpperCase()}</div>
+        </div>
+        <button class="admin-btn danger" style="padding:3px 8px;font-size:10px;flex-shrink:0;margin-top:2px"
+          onclick="adminBoardDelete(${p.id})">✕</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="padding:10px 12px;font-size:11px;color:var(--red)">Failed to load (${e})</div>`;
   }
+}
+
+window.adminBoardPost = async function() {
+  if (!_adminToken) { alert('Not logged in.'); return; }
+  const level = document.getElementById('board-level').value;
+  const title = document.getElementById('board-title').value.trim();
+  const body  = document.getElementById('board-body').value.trim();
+  if (!title) { alert('Title is required.'); return; }
+  try {
+    const r = await fetch('/api/v1/board', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'Authorization':'Bearer '+_adminToken},
+      body: JSON.stringify({level, title, body: body||null})
+    });
+    if (r.status === 401 || r.status === 403) { _handleAdminExpired(); return; }
+    if (!r.ok) { const d = await r.json(); alert('Error: '+(d.error||r.status)); return; }
+    document.getElementById('board-title').value = '';
+    document.getElementById('board-body').value  = '';
+    adminLoadBoard();
+  } catch(e) { alert('Failed: '+e); }
+};
+
+window.adminBoardDelete = async function(id) {
+  if (!_adminToken) return;
+  if (!confirm('Delete this post?')) return;
+  try {
+    const r = await fetch('/api/v1/board/'+id, {
+      method: 'DELETE', headers: {'Authorization':'Bearer '+_adminToken}
+    });
+    if (r.status === 401 || r.status === 403) { _handleAdminExpired(); return; }
+    if (!r.ok) { const d = await r.json(); alert('Error: '+(d.error||r.status)); return; }
+    adminLoadBoard();
+  } catch(e) { alert('Failed: '+e); }
+};
+
+// ── Manual incident creation ──────────────────────────────────────────────
+window.adminOutagePost = async function() {
+  if (!_adminToken) { alert('Not logged in.'); return; }
+  const cause    = document.getElementById('outage-cause').value.trim();
+  const started  = document.getElementById('outage-started').value;
+  const ended    = document.getElementById('outage-ended').value;
+  const severity = document.getElementById('outage-severity').value;
+  const resEl    = document.getElementById('outage-result');
+  if (!cause)   { alert('Cause is required.'); return; }
+  if (!started) { alert('Start time is required.'); return; }
+  try {
+    const r = await fetch('/api/v1/incident', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'Authorization':'Bearer '+_adminToken},
+      body: JSON.stringify({cause, started_at: started, ended_at: ended||null, severity})
+    });
+    if (r.status === 401 || r.status === 403) { _handleAdminExpired(); return; }
+    const d = await r.json();
+    if (!r.ok) { resEl.style.color='var(--red)'; resEl.textContent='Error: '+(d.error||r.status); return; }
+    resEl.style.color='var(--green)'; resEl.textContent='Incident created (id '+d.id+').';
+    document.getElementById('outage-cause').value = '';
+    document.getElementById('outage-ended').value = '';
+  } catch(e) { resEl.style.color='var(--red)'; resEl.textContent='Failed: '+e; }
+};
+
+function _handleAdminExpired() {
+  _adminToken = null; sessionStorage.removeItem('admin_token');
+  _updateAdminPill(); closeAdminPanel();
+  alert('Session expired. Please log in again.');
+}
+
+// ── Outage note editing ───────────────────────────────────────────────────
+window.editOutageNote = async function(id, btn) {
+  if (!_adminToken) { alert('Please log in as admin first (bottom-right corner).'); return; }
   const row     = btn.closest('.outage-row');
   const current = row.querySelector('.outage-note')?.textContent || '';
   const note    = prompt('Outage note (blank to clear):', current);
@@ -1501,35 +1675,94 @@ window.editOutageNote = async function(id, btn) {
       headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _adminToken},
       body: JSON.stringify({note: note.trim() || null})
     });
-    if (r.status === 401 || r.status === 403) {
-      _adminToken = null; sessionStorage.removeItem('admin_token');
-      _updateAdminPill();
-      alert('Session expired. Please log in again.');
-      return;
-    }
+    if (r.status === 401 || r.status === 403) { _handleAdminExpired(); return; }
     if (!r.ok) throw new Error(await r.text());
     const data = await r.json();
     let noteEl = row.querySelector('.outage-note');
     if (data.note) {
-      if (!noteEl) {
-        noteEl = document.createElement('div');
-        noteEl.className = 'outage-note';
-        row.appendChild(noteEl);
-      }
+      if (!noteEl) { noteEl = document.createElement('div'); noteEl.className = 'outage-note'; row.appendChild(noteEl); }
       noteEl.textContent = data.note;
-    } else if (noteEl) {
-      noteEl.remove();
-    }
+    } else if (noteEl) { noteEl.remove(); }
   } catch(e) { alert('Failed to save note: ' + e); }
 };
-
-// Hide edit buttons until admin is verified; restore on reload if token cached
-document.addEventListener('DOMContentLoaded', _updateAdminPill);
 </script>
 
-<div id="admin-pill" onclick="adminPillClick()" title="Admin login for outage annotation">
+<!-- ── ADMIN PANEL MODAL ── -->
+<div class="admin-modal-backdrop" id="admin-modal-backdrop">
+  <div class="admin-modal" role="dialog" aria-modal="true">
+    <button class="admin-modal-close" id="admin-modal-close" aria-label="Close">✕</button>
+    <div class="admin-modal-title">⚙ Admin Panel</div>
+    <div class="admin-tabs">
+      <button class="admin-tab active" data-pane="board">Message Board</button>
+      <button class="admin-tab" data-pane="outage">Manual Incident</button>
+    </div>
+
+    <!-- Board pane -->
+    <div class="admin-pane active" id="admin-pane-board">
+      <div class="admin-board-list" id="admin-board-list">
+        <div style="padding:12px;font-size:11px;color:var(--muted)">Loading…</div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:14px">Post a new announcement visible on the status page.</div>
+      <div class="admin-field">
+        <label>Level</label>
+        <select id="board-level">
+          <option value="info">INFO</option>
+          <option value="warning">WARNING</option>
+          <option value="critical">CRITICAL</option>
+          <option value="ok">OK / Resolved</option>
+        </select>
+      </div>
+      <div class="admin-field">
+        <label>Title</label>
+        <input type="text" id="board-title" placeholder="Brief headline…" maxlength="200">
+      </div>
+      <div class="admin-field">
+        <label>Body (optional)</label>
+        <textarea id="board-body" placeholder="Additional details, root cause, ETA…" maxlength="2000"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="admin-btn primary" onclick="adminBoardPost()">Post</button>
+        <button class="admin-btn" style="background:rgba(234,179,8,0.12);color:var(--yellow);border:1px solid rgba(234,179,8,0.2)"
+          onclick="document.getElementById('board-level').value='warning';document.getElementById('board-title').value='Planned maintenance';document.getElementById('board-body').value='Server will be restarted for updates.'">🔧 Maintenance preset</button>
+        <button class="admin-btn" style="background:rgba(34,197,94,0.1);color:var(--green);border:1px solid rgba(34,197,94,0.2)"
+          onclick="document.getElementById('board-level').value='ok';document.getElementById('board-title').value='All systems restored';document.getElementById('board-body').value='Issue has been resolved and services are back to normal.'">✅ Resolved preset</button>
+      </div>
+    </div>
+
+    <!-- Manual incident pane -->
+    <div class="admin-pane" id="admin-pane-outage">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+        Declare a manual incident entry (e.g. planned maintenance or past events the monitor missed).
+      </div>
+      <div class="admin-field">
+        <label>Cause / Title</label>
+        <input type="text" id="outage-cause" placeholder="e.g. Planned maintenance — router firmware update" maxlength="300">
+      </div>
+      <div class="admin-field">
+        <label>Started at (local time)</label>
+        <input type="datetime-local" id="outage-started">
+      </div>
+      <div class="admin-field">
+        <label>Ended at (leave blank = ongoing)</label>
+        <input type="datetime-local" id="outage-ended">
+      </div>
+      <div class="admin-field">
+        <label>Severity</label>
+        <select id="outage-severity">
+          <option value="degraded">Degraded</option>
+          <option value="critical">Critical / Full outage</option>
+        </select>
+      </div>
+      <button class="admin-btn primary" onclick="adminOutagePost()">Create Incident</button>
+      <div id="outage-result" style="margin-top:12px;font-size:11px"></div>
+    </div>
+  </div>
+</div>
+
+<div id="admin-pill" onclick="adminPillClick()" title="Admin login / panel">
   <span class="pill-dot off" id="admin-dot"></span>
   <span class="pill-label" id="admin-label">Admin</span>
 </div>
+
 </body>
 </html>

@@ -28,23 +28,25 @@ user feedback or ideas for future development.
 - [x] **Hosting links / streaming support**
   - Similar to share links but intended for embedding (useful for
     video/audio playback) with optional bandwidth throttling or expiry.
-
----
-
-- [ ] **Security hardening** (see `fluxdrop_audit.md` for full details —
+- [x] **Security hardening** (see `fluxdrop_audit.md` for full details —
   required before public/production release)
-  - [ ] Rate limiting on `/auth/login` and `/auth/register` (brute-force
+  - [x] Rate limiting on `/auth/login` and `/auth/register` (brute-force
     protection)
-  - [ ] Upload size cap (both FluxDrop API and public share upload)
-  - [ ] JSON body size cap on all POST endpoints
-  - [ ] Enforce IP blacklist in `server_cdn.py` (currently only in
+  - [x] Upload size cap (both FluxDrop API and public share upload)
+  - [x] JSON body size cap on all POST endpoints
+  - [x] Enforce IP blacklist in `server_cdn.py` (currently only in
     `server_http.py` and `server_https.py`)
   - [x] Periodic session table cleanup (expired rows accumulate forever) -- fixed?
-  - [ ] Migrate password hashing from SHA-256 to bcrypt or argon2
-
+  - [x] Migrate password hashing from SHA-256 to bcrypt or argon2
 - [x] **HTML modularisation** — move inline HTML snippets out of
   `server_cdn.py` into a `snippets/` folder with a `snippets.py` loader
   (see `fluxdrop_audit.md` Part 2 for the full design)
+
+- [x] **Server stability dashboard** — detailed window showing internet,
+  services and features outages, planned works or unexpected issues
+  (aka DownDetector)
+
+---
 
 - [ ] **Tree download** — allow downloading an entire folder as a `.zip`
   archive from the API.
@@ -55,9 +57,7 @@ user feedback or ideas for future development.
   - Add settings to control whether group members may add/remove other
     users, set quotas, etc.
 
-- [x] **Server stability dashboard** — detailed window showing internet,
-  services and features outages, planned works or unexpected issues
-  (aka DownDetector)
+
 
 - [ ] **Tailwind CSS — production build** — replace the CDN `<script>` with
   a proper build step so unused classes are purged and there is no
@@ -74,6 +74,8 @@ user feedback or ideas for future development.
     for quota display.
   - Replace Tailwind CDN with a build step for production CSS.
 
+- [ ] Fix `status` page have inconsistent times
+- [ ] Fix `status` page have inconsistent items
 - [ ] Add placeholder items to avoid UI flash, like YouTube or other services have when client doesn't have enough speed to fetch the proper data
 - [ ] Fix every FluxDrop snippet (UI) to work properly with mobile and non-16:9 screens
 - [x] Fix the upload feature that are now broken

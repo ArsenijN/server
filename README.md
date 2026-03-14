@@ -1,7 +1,7 @@
-# server `v0.8.1`
+# server `v0.8.1.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix deprecation warning, audit changed***
+*Release note: **ToDo updates, old versions showcase***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

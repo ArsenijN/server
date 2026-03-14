@@ -1,7 +1,7 @@
-# server `v0.8.1.2`
+# server `v0.9.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **ToDo updates, attempt to manually divide FluxDrop site to separate files***
+*Release note: **Tailwind CSS proper build***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

@@ -1,14 +1,6 @@
 body { font-family: 'Inter', sans-serif; background-color: #f0f9ff; }
 .card { background-color: white; border-radius: 1.5rem; box-shadow: 0 10px_20px_rgba(0,0,0,0.1); padding: 2rem; }
-.btn                  { background-color: #3b82f6; } /* default blue */
-.btn:hover            { background-color: #2563eb; }
-.btn.bg-gray-200,
-.btn.bg-gray-300      { background-color: #d1d5db; color: #111; }
-.btn.bg-red-500       { background-color: #ef4444; }
-.btn.bg-green-500     { background-color: #22c55e; }
-.btn.bg-yellow-300    { background-color: #fde047; color: #111; }
-.btn.bg-yellow-500    { background-color: #eab308; }
-.btn.bg-purple-500    { background-color: #a855f7; }
+.btn { background-color: #3b82f6; color: white; padding: 0.75rem 1.5rem; border-radius: 0.75rem; font-weight: 600; transition: background-color 0.3s ease; cursor: pointer; border: none; }
 .btn:hover { background-color: #2563eb; }
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-content { background-color: white; border-radius: 1rem; padding: 2rem; width: 90%; max-width: 500px; }

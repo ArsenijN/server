@@ -25,5 +25,14 @@ services/
 src/FluxDrop site/
 
 # not sure
-src/generate_token.py
 .venv/
+
+# Node / Tailwind build tooling
+node_modules/
+package-lock.json
+
+# Tailwind source (not needed on server)
+# src/input.css
+
+# Built CSS is committed (it's the deployment artifact)
+# server/TestWeb/fluxdrop_pp/styles.css  ← do NOT ignore this

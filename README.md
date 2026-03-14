@@ -1,7 +1,7 @@
-# server `v0.7.3`
+# server `v0.7.3.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **fixed the issue with the net outage in status page***
+*Release note: **This commit have changes in status page of the overlapping of the net outage. It will not be used later, but maybe will be handy for someone***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

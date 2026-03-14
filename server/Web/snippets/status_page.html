@@ -1155,14 +1155,23 @@ footer a:hover { text-decoration: underline; }
     // Show NET strip whenever monitoring was active (net_ok present on any sample),
     // not only when there were outages — a clean day should still show the cyan strip.
     const hasNetData = samples.some(s => s.net_ok !== undefined && s.net_ok !== null);
+    // For each outage window, find the single sample whose [sMs-300s, sMs] window
+    // has the greatest overlap with the outage, and mark only that one.
+    // This prevents a short outage near a sample boundary from lighting up 2 segments.
+    const outageSegMs = new Set();
+    for (const w of netWins) {
+      let bestMs = null, bestOverlap = 0;
+      for (const s of samples) {
+        const sMs = new Date(s.sampled_at.replace(' ','T') + 'Z').getTime();
+        const overlapMs = Math.max(0, Math.min(w.end, sMs) - Math.max(w.start, sMs - 300000));
+        if (overlapMs > bestOverlap) { bestOverlap = overlapMs; bestMs = sMs; }
+      }
+      if (bestMs !== null) outageSegMs.add(bestMs);
+    }
     const netSegs = samples.map(s => {
       const t = utcDbToLocal(s.sampled_at, 8);
-      // sampled_at is UTC string — parse as UTC for unix ms comparison
       const sMs = new Date(s.sampled_at.replace(' ','T') + 'Z').getTime();
-      // Sample at time T covers window [T-300s, T]. Outage overlaps if it
-      // started before T and ended after T-300s.
-      
-      const inOutage = netWins.some(w => w.end > (sMs - 300000) && w.start < sMs);
+      const inOutage = outageSegMs.has(sMs);
       const cls = inOutage ? 'net-down' : 'net-ok';
       const tip = `${t} — NET: ${inOutage ? 'outage' : 'ok'}`;
       return `<div class="timeline-seg ${cls}" title="${esc(tip)}"></div>`;

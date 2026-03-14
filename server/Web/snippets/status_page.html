@@ -1017,16 +1017,16 @@ footer a:hover { text-decoration: underline; }
     return 'partial';
   }
 
-  function netSegClass(nd) {
-    if (!nd) return 'net-nodata';
-    if (nd.outage_count === 0) return 'net-ok';
+  function netSegClass(nd, hasData) {
+    if (!nd && !hasData) return 'net-nodata';
+    if (!nd || nd.outage_count === 0) return 'net-ok';
     if (nd.total_downtime_sec >= 300) return 'net-down';
     return 'net-partial';
   }
 
   window._buildUptimeBar = function(h, netDayHist) {
     const nd     = (netDayHist || {})[h.date];
-    const netCls = netSegClass(nd);
+    const netCls = netSegClass(nd, h.sample_count > 0);
     const netOuts = (nd || {}).outage_count || 0;
     const netDown = (nd || {}).total_downtime_sec || 0;
 
@@ -1152,15 +1152,17 @@ footer a:hover { text-decoration: underline; }
       start: w.started_ts * 1000,  // ms
       end:   w.ended_ts   * 1000,
     }));
-    const hasNetOutage = netWins.length > 0;
+    // Show NET strip whenever monitoring was active (net_ok present on any sample),
+    // not only when there were outages — a clean day should still show the cyan strip.
+    const hasNetData = samples.some(s => s.net_ok !== undefined && s.net_ok !== null);
     const netSegs = samples.map(s => {
       const t = utcDbToLocal(s.sampled_at, 8);
       // sampled_at is UTC string — parse as UTC for unix ms comparison
       const sMs = new Date(s.sampled_at.replace(' ','T') + 'Z').getTime();
-      // A sample at time T covers the 5-min window [T-300s, T]
-      // Outage overlaps the 10-min window ending at this sample's timestamp.
-      // 10 min (2 sample periods) ensures gaps between snapshots are covered.
-      const inOutage = netWins.some(w => w.end > (sMs - 600000) && w.start < sMs);
+      // Sample at time T covers window [T-300s, T]. Outage overlaps if it
+      // started before T and ended after T-300s.
+      
+      const inOutage = netWins.some(w => w.end > (sMs - 300000) && w.start < sMs);
       const cls = inOutage ? 'net-down' : 'net-ok';
       const tip = `${t} — NET: ${inOutage ? 'outage' : 'ok'}`;
       return `<div class="timeline-seg ${cls}" title="${esc(tip)}"></div>`;
@@ -1199,7 +1201,7 @@ footer a:hover { text-decoration: underline; }
             <div class="timeline-strip">${stripSegs}</div>
           </div>
         </div>
-        ${hasNetOutage ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+        ${hasNetData ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
           <span style="font-size:9px;color:var(--muted);width:28px;flex-shrink:0">NET</span>
           <div class="timeline-strip-scroll tl-scroll" style="flex:1">
             <div class="timeline-strip">${netSegs}</div>

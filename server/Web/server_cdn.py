@@ -1739,8 +1739,9 @@ def _build_status_page() -> str:
             _nd       = net_day_hist.get(h['date'], {})
             net_outs  = _nd.get('outage_count', 0) or 0
             net_down  = _nd.get('total_downtime_sec', 0) or 0
-            if not _nd:           net_cls = 'net-nodata'
-            elif net_outs == 0:   net_cls = 'net-ok'
+            if not _nd and n == 0: net_cls = 'net-nodata'
+            elif not _nd:          net_cls = 'net-ok'
+            elif net_outs == 0:    net_cls = 'net-ok'
             elif net_down >= 300: net_cls = 'net-down'
             else:                 net_cls = 'net-partial'
             net_title = f'{net_outs} outage(s), {net_down}s total' if net_outs else 'ok'

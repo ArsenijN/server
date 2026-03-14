@@ -29,47 +29,55 @@ MAX_FILE_SIZE = 5 * 1024 * 1024 # 5 MB in bytes
 ALLOWED_EXTENSIONS = {'.txt', '.jpg', '.jpeg', '.png', '.gif', '.pdf', '.zip'} # Whitelist of allowed file extensions
 
 # --- CAPTCHA Storage ---
-# This dictionary will store CAPTCHA challenges.
-# In a real-world scenario, this would be a more robust session management
-# or database to prevent memory leaks and ensure persistence.
-# Key: CAPTCHA ID (string), Value: Correct Answer (string)
+# Key: CAPTCHA ID (string), Value: (correct_answer, monotonic_timestamp)
 captcha_challenges = {}
-captcha_lock = threading.Lock() # Lock for thread-safe access to captcha_challenges
+captcha_lock = threading.Lock()
+CAPTCHA_TTL = 600  # 10 minutes — abandon protection against memory accumulation
 
 def generate_captcha():
-    """Generates a simple math CAPTCHA and stores its answer."""
+    """Generates a simple math CAPTCHA, stores its answer with a TTL timestamp."""
     num1 = random.randint(1, 10)
     num2 = random.randint(1, 10)
     operators = ['+', '-', '*']
     operator = random.choice(operators)
-    
+
     question = f"{num1} {operator} {num2}"
     if operator == '+':
         answer = str(num1 + num2)
     elif operator == '-':
         answer = str(num1 - num2)
-    else: # '*'
+    else:  # '*'
         answer = str(num1 * num2)
-    
+
     captcha_id = str(uuid.uuid4())
+    now = time.monotonic()
     with captcha_lock:
-        captcha_challenges[captcha_id] = answer
+        # N11: Evict stale entries on every insert to bound memory usage
+        stale = [k for k, (_, ts) in captcha_challenges.items() if now - ts > CAPTCHA_TTL]
+        for k in stale:
+            del captcha_challenges[k]
+        captcha_challenges[captcha_id] = (answer, now)
     return captcha_id, question
 
 def verify_captcha(captcha_id, user_answer):
-    """Verifies the user's CAPTCHA answer and removes the challenge."""
+    """Verifies the user's CAPTCHA answer, removes the challenge, and checks TTL."""
     with captcha_lock:
-        correct_answer = captcha_challenges.pop(captcha_id, None) # Get and remove
-    
-    if correct_answer is None:
+        entry = captcha_challenges.pop(captcha_id, None)
+
+    if entry is None:
         print(f"CAPTCHA verification failed: ID '{captcha_id}' not found or already used.")
         return False
-    
-    if user_answer.strip() == correct_answer:
+
+    answer, ts = entry
+    if time.monotonic() - ts > CAPTCHA_TTL:
+        print(f"CAPTCHA expired for ID '{captcha_id}'.")
+        return False
+
+    if user_answer.strip() == answer:
         print(f"CAPTCHA verified successfully for ID '{captcha_id}'.")
         return True
     else:
-        print(f"CAPTCHA verification failed: User answer '{user_answer}' vs correct '{correct_answer}' for ID '{captcha_id}'.")
+        print(f"CAPTCHA verification failed for ID '{captcha_id}'.")
         return False
 
 

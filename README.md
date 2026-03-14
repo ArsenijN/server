@@ -1,7 +1,7 @@
-# server `v0.7.4`
+# server `v0.8.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Audit-related changes, before credentials changes***
+*Release note: **Audit-related changes, after credentials changes, audit change pending***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

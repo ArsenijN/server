@@ -11,6 +11,7 @@ import shutil
 import secrets
 import requests
 import hashlib
+import bcrypt
 import collections
 import smtplib
 import sqlite3
@@ -56,7 +57,8 @@ ALLOWED_ORIGINS = {
     'arsenius-gen.uk.to',
     'arsenius_gen.uk.to',
     '134.249.151.95',
-    'localhost'
+    # 'localhost' removed — allows any page on the visitor's machine to make
+    # credentialed cross-origin requests to the server. Not needed in production.
 }
 
 # Host/ports
@@ -1352,13 +1354,22 @@ def _purge_expired_download_tokens():
 # ==============================================================================
 # --- AUTHENTICATION & USER MANAGEMENT ---
 # ==============================================================================
-def hash_password(password, salt=None):
-    """Hashes a password with a salt. Generates a new salt if one isn't provided."""
-    if salt is None:
-        salt = secrets.token_hex(16)
-    salted_password = (salt + password).encode('utf-8')
-    hashed_password = hashlib.sha256(salted_password).hexdigest()
-    return hashed_password, salt
+
+def _sha256_hash(password: str, salt: str) -> tuple[str, str]:
+    """Legacy SHA-256 hash — used only during the bcrypt migration path."""
+    salted = (salt + password).encode('utf-8')
+    return hashlib.sha256(salted).hexdigest(), salt
+
+def hash_password(password: str, salt=None) -> tuple[str, str]:
+    """Hash a password with bcrypt.
+
+    The ``salt`` parameter is accepted for call-site compatibility with the
+    old SHA-256 path but is ignored — bcrypt embeds its own random salt.
+    Returns ``(hashed, '')`` so callers that unpack two values still work;
+    the empty string signals "no external salt".
+    """
+    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12))
+    return hashed.decode('utf-8'), ''
 
 def send_verification_email(email, token, username):
     """Sends a verification email to the user.
@@ -3082,11 +3093,30 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(401, json.dumps({"error": "Invalid credentials."}))
 
             user_id, stored_hash, salt = user
-            password_hash, _ = hash_password(password, salt)
 
-            if not secrets.compare_digest(password_hash, stored_hash):
-                logging.info(f"Login failed for user_id={user_id} (username={username}): password mismatch")
-                return self._send_response(401, json.dumps({"error": "Invalid credentials."}))
+            # Transparent bcrypt migration:
+            # - New hashes start with '$2b$' (bcrypt). Verify with bcrypt.checkpw.
+            # - Old hashes are hex strings (SHA-256). Verify with the legacy path,
+            #   then immediately re-hash with bcrypt and update the DB row so the
+            #   user migrates silently on their next successful login.
+            if stored_hash.startswith('$2b$'):
+                # bcrypt path — timing-safe by design
+                if not bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
+                    logging.info(f"Login failed for user_id={user_id} (username={username}): bcrypt mismatch")
+                    return self._send_response(401, json.dumps({"error": "Invalid credentials."}))
+            else:
+                # Legacy SHA-256 path
+                legacy_hash, _ = _sha256_hash(password, salt)
+                if not secrets.compare_digest(legacy_hash, stored_hash):
+                    logging.info(f"Login failed for user_id={user_id} (username={username}): sha256 mismatch")
+                    return self._send_response(401, json.dumps({"error": "Invalid credentials."}))
+                # Upgrade in place — store bcrypt hash, clear the now-unused salt column
+                new_hash, _ = hash_password(password)
+                cursor.execute(
+                    "UPDATE users SET password_hash=?, salt=? WHERE id=?",
+                    (new_hash, '', user_id)
+                )
+                logging.info(f"Migrated user_id={user_id} from SHA-256 to bcrypt on login")
 
             # Issue a new session token
             session_token = secrets.token_urlsafe(32)

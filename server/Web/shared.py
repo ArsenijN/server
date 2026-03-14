@@ -114,7 +114,12 @@ def health_check_self_ping_https(server_ip, https_port):
     url = f"https://{server_ip}:{https_port}/"
     while True:
         try:
-            ctx = ssl._create_unverified_context()
+            # N10: Use the public ssl API instead of the private _create_unverified_context().
+            # Self-signed cert on a self-ping — hostname check and cert verification are
+            # intentionally disabled, but we use the supported public interface to do it.
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(url, timeout=5, context=ctx) as response:
                 if response.status != 200:
                     print(f"Health check failed: status {response.status}")

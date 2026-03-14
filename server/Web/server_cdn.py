@@ -1660,8 +1660,8 @@ def _build_status_page() -> str:
         der = _ssl.PEM_cert_to_DER_cert(pem)
         from cryptography import x509 as _x509
         cert_obj  = _x509.load_der_x509_certificate(der)
-        exp_dt    = cert_obj.not_valid_after_utc.replace(tzinfo=None)
-        days_left = (exp_dt - _dt.datetime.utcnow()).days
+        exp_dt    = cert_obj.not_valid_after_utc  # already timezone-aware (UTC)
+        days_left = (exp_dt - _dt.datetime.now(_dt.timezone.utc)).days
         ssl_detail = f"expires in {days_left}d ({exp_dt.strftime('%Y-%m-%d')})"
         if days_left < 7:
             ssl_status = 'critical'; ssl_ind = 'crit'

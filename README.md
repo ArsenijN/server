@@ -1,7 +1,7 @@
-# server `v0.9.0`
+# server `v0.9.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Tailwind CSS proper build***
+*Release note: **Small changes to the `build.sh`***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

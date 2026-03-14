@@ -31,8 +31,5 @@ src/FluxDrop site/
 node_modules/
 package-lock.json
 
-# Tailwind source (not needed on server)
-# src/input.css
-
 # Built CSS is committed (it's the deployment artifact)
 # server/TestWeb/fluxdrop_pp/styles.css  ← do NOT ignore this

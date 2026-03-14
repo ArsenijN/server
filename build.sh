@@ -9,7 +9,7 @@ cd "$SCRIPT_DIR"
 
 SRC="./server/build/src/fluxdrop_pp"
 OUT="./server/TestWeb/fluxdrop_pp"
-CSS_INPUT="./src/input.css"
+CSS_INPUT="$SRC/input.css"
 CSS_OUTPUT="$OUT/tailwindcss.css"
 
 # Parse flags
@@ -28,10 +28,10 @@ done
 
 sync_files() {
     echo "📁 Syncing files $SRC → $OUT ..."
-    # Copy everything from src (including styles.css); never delete OUT-only files (e.g. icon.svg)
+    # Copy everything except input.css (Tailwind source, not needed on server)
     rsync -av \
-    --exclude="styles.css" \
-    "$SRC/" "$OUT/"
+        --exclude="input.css" \
+        "$SRC/" "$OUT/"
     echo "✅ Files synced"
 }
 

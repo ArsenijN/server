@@ -21,8 +21,8 @@ from email.mime.image import MIMEImage
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
-from shared import CustomLogger, current_blacklist, blacklist_lock
-from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
+from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
+from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 
 # ==============================================================================
 # --- HTML SNIPPET LOADER ---
@@ -2021,7 +2021,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 logging.info(f"Token auth success for user_id '{result[0]}'")
                 return result[0] # Return user_id
 
-        logging.warning(f"Token auth failed for token '{token}'")
+        logging.warning(f"Token auth failed for token '{token[:8]}…'")
         return None
 
     def _check_admin_auth(self) -> "dict | None":
@@ -2742,6 +2742,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     # --- Main Router (do_*) ---
     def do_OPTIONS(self):
+        with blacklist_lock:
+            if self.client_address[0] in current_blacklist:
+                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
         self.send_response(204)
         self._send_cors_headers()
         self.end_headers()
@@ -2928,6 +2931,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def do_PATCH(self):
         """Routes PATCH requests (used to update share settings)."""
+        with blacklist_lock:
+            if self.client_address[0] in current_blacklist:
+                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
         parsed_url = urlparse(self.path)
         item_match = self.shares_item_pattern.match(parsed_url.path)
         if item_match:
@@ -2936,6 +2942,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         """Routes DELETE requests (used to revoke shares and cancel upload sessions)."""
+        with blacklist_lock:
+            if self.client_address[0] in current_blacklist:
+                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
         parsed_url = urlparse(self.path)
         us_cancel = self.upload_session_cancel_pattern.match(parsed_url.path)
         if us_cancel:
@@ -2963,6 +2972,24 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         if not all([username, nickname, email, password]):
             return self._send_response(400, json.dumps({"error": "Missing required fields."}))
+
+        # N12: Enforce maximum field lengths before any expensive hashing
+        _MAX_USERNAME = 64
+        _MAX_NICKNAME = 64
+        _MAX_EMAIL    = 254   # RFC 5321 maximum
+        _MAX_PASSWORD = 1024  # bcrypt only uses first 72 bytes; cap well above that
+        if (len(username) > _MAX_USERNAME or
+                len(nickname) > _MAX_NICKNAME or
+                len(email)    > _MAX_EMAIL    or
+                len(password) > _MAX_PASSWORD):
+            return self._send_response(
+                400, json.dumps({'error': 'One or more fields exceed the maximum allowed length.'})
+            )
+        import re as _re
+        if not _re.match(r'^[A-Za-z0-9_\-\.]{3,64}$', username):
+            return self._send_response(
+                400, json.dumps({'error': 'Username must be 3–64 characters: letters, digits, _ - .'})
+            )
 
         with _db_connect() as conn:
             cursor = conn.cursor()
@@ -3057,7 +3084,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             user_id, stored_hash, salt = user
             password_hash, _ = hash_password(password, salt)
 
-            if password_hash != stored_hash:
+            if not secrets.compare_digest(password_hash, stored_hash):
                 logging.info(f"Login failed for user_id={user_id} (username={username}): password mismatch")
                 return self._send_response(401, json.dumps({"error": "Invalid credentials."}))
 
@@ -4443,6 +4470,30 @@ def _token_purge_worker():
         success = _purge_expired_download_tokens()
         _purge_abandoned_upload_sessions()  # also clean up stale chunked uploads
 
+        # N5: Purge expired pending_verifications rows (1-hour TTL, never bulk-cleared before)
+        try:
+            with _db_connect() as conn:
+                conn.execute("DELETE FROM pending_verifications WHERE expires_at <= CURRENT_TIMESTAMP")
+                conn.commit()
+        except Exception:
+            logging.exception('TokenPurge: failed to purge pending_verifications')
+
+        # N6: Prune net_outages (keep 180 days) and incident_log (keep newest 200 rows)
+        try:
+            with _db_connect() as conn:
+                conn.execute(
+                    "DELETE FROM net_outages WHERE started_at < ?",
+                    (time.time() - 180 * 86400,)
+                )
+                conn.execute(
+                    '''DELETE FROM incident_log WHERE id NOT IN (
+                           SELECT id FROM incident_log ORDER BY id DESC LIMIT 200
+                       )'''
+                )
+                conn.commit()
+        except Exception:
+            logging.exception('TokenPurge: failed to prune net_outages/incident_log')
+
         # ── Record a status snapshot for uptime history ──────────────────
         try:
             import socket as _ss
@@ -4493,6 +4544,16 @@ def _token_purge_worker():
 if __name__ == '__main__':
     # --- Pre-flight Checks & Setup ---
     init_db() # Initialize the database
+
+    # N1 fix: load blacklist and start refresh thread (was never started in CDN)
+    load_blacklist_safely(BLACKLIST_FILE)
+    _bl_thread = threading.Thread(
+        target=update_blacklist,
+        args=(BLACKLIST_FILE, 60, stop_update_event),
+        name='BlacklistRefresh',
+        daemon=True,
+    )
+    _bl_thread.start()
 
     # Create necessary directories
     for dir_path in [SERVE_ROOT, os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR), UPLOAD_TMP_DIR]:

@@ -9,6 +9,7 @@ import datetime
 import logging # Using standard logging module for better control
 import uuid # For generating unique IDs for CAPTCHA
 from werkzeug.formparser import parse_form_data # For parsing multipart/form-data (cgi deprecated in Python 3.13+)
+from urllib.parse import quote_plus
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, current_blacklist, blacklist_lock, stop_update_event
@@ -82,10 +83,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         # Ensure the upload directory exists
         os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
-        # Change to the directory we want to serve. This ensures the handler
-        # serves files from the correct location regardless of where the script is run.
-        os.chdir(SERVE_DIRECTORY)
-        super().__init__(*args, **kwargs)
+        # Pass directory to the parent constructor — this is thread-safe.
+        # os.chdir() changes the *process-wide* cwd and races under ThreadingHTTPServer.
+        super().__init__(*args, directory=SERVE_DIRECTORY, **kwargs)
 
     def _set_headers(self, status_code=200, content_type='text/html'):
         """Helper to set common headers including CORS."""
@@ -188,15 +188,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
         if requested_path == '/upload':
-            self._set_headers(200, 'text/html')
-            captcha_id, captcha_question = generate_captcha()
-            upload_form_html = f"""
-            <!DOCTYPE html>
-            <html lang="en">
-            ...existing code...
-            </html>
-            """
-            self.wfile.write(upload_form_html.encode('utf-8'))
+            # The FluxDrop CDN (server_cdn.py) handles all uploads.
+            # This route previously contained an editing stub and is now removed.
+            self.send_response(404)
+            body = b"<h1>404 Not Found</h1><p>Uploads are handled by the FluxDrop CDN.</p>"
+            self.send_header("Content-type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         def patched_end_headers():
             self.send_header("Accept-Ranges", "bytes")
@@ -385,7 +384,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def _redirect_with_message(self, path, status, message):
         """Helper to redirect the client with status and message parameters."""
-        encoded_message = http.server.quote_plus(message)
+        encoded_message = quote_plus(message)
         self.send_response(303) # See Other
         self.send_header('Location', f"{path}?status={status}&message={encoded_message}")
         self.end_headers()

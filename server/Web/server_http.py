@@ -28,10 +28,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     
     def __init__(self, *args, **kwargs):
-        # Change to the directory we want to serve. This ensures the handler
-        # serves files from the correct location regardless of where the script is run.
-        os.chdir(SERVE_DIRECTORY)
-        super().__init__(*args, **kwargs)
+        # Pass directory to the parent constructor — this is thread-safe.
+        # os.chdir() changes the *process-wide* cwd and races under ThreadingHTTPServer.
+        super().__init__(*args, directory=SERVE_DIRECTORY, **kwargs)
 
     def add_cors_headers(self):
         """

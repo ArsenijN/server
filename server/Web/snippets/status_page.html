@@ -1006,22 +1006,22 @@ footer a:hover { text-decoration: underline; }
 </div>
 
 <script>
+// autocomment: Format UTC datetime string like "2024-08-01 14:23" for display, converting to local timezone. Input is stored as UTC without Z suffix, so we append Z before parsing to ensure correct handling regardless of client timezone.
+function _fmtUtc(s) {
+  if (!s) return '';
+  // Stored as UTC without Z — append Z so Date() parses it correctly
+  const d = new Date((s + 'Z').replace(' ', 'T'));
+  return isNaN(d) ? s.slice(0, 16)
+    : d.getFullYear() + '-'
+      + String(d.getMonth()+1).padStart(2,'0') + '-'
+      + String(d.getDate()).padStart(2,'0') + ' '
+      + String(d.getHours()).padStart(2,'0') + ':'
+      + String(d.getMinutes()).padStart(2,'0');
+}
+
 /* ── Uptime bar builder (shared by server-render path and AJAX refresh) ─── */
 (function() {
   const COLOR_SEG = { ok: 'var(--green)', partial: 'var(--yellow)', down: 'var(--red)', nodata: 'var(--border2)' };
-
-  // autocomment: Format UTC datetime string like "2024-08-01 14:23" for display, converting to local timezone. Input is stored as UTC without Z suffix, so we append Z before parsing to ensure correct handling regardless of client timezone.
-  function _fmtUtc(s) {
-    if (!s) return '';
-    // Stored as UTC without Z — append Z so Date() parses it correctly
-    const d = new Date((s + 'Z').replace(' ', 'T'));
-    return isNaN(d) ? s.slice(0, 16)
-      : d.getFullYear() + '-'
-        + String(d.getMonth()+1).padStart(2,'0') + '-'
-        + String(d.getDate()).padStart(2,'0') + ' '
-        + String(d.getHours()).padStart(2,'0') + ':'
-        + String(d.getMinutes()).padStart(2,'0');
-  }
 
   function segClass(downN, totalN) {
     if (!totalN) return 'nodata';

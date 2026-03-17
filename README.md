@@ -1,7 +1,7 @@
-# server `v0.9.1`
+# server `v0.9.2`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Small changes to the `build.sh`***
+*Release note: **Small changes to the time calculations***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

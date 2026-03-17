@@ -945,9 +945,17 @@ def _get_recent_incidents(limit: int = 20) -> list:
             duration_str = 'ongoing'
         else:
             try:
-                fmt = '%Y-%m-%d %H:%M:%S'
-                s = datetime.strptime(started_at[:19], fmt)
-                e = datetime.strptime(resolved_at[:19], fmt)
+                def _parse_dt(raw):
+                    raw = raw[:19]
+                    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M',
+                                '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M'):
+                        try:
+                            return datetime.strptime(raw, fmt)
+                        except ValueError:
+                            pass
+                    raise ValueError(f'Unrecognised datetime: {raw!r}')
+                s = _parse_dt(started_at)
+                e = _parse_dt(resolved_at)
                 secs = int((e - s).total_seconds())
                 if secs < 60:
                     duration_str = f'{secs}s'

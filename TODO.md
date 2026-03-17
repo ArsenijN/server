@@ -36,23 +36,27 @@ user feedback or ideas for future development.
     for quota display.
   - Replace Tailwind CDN with a build step for production CSS.
 
-- [ ] Fix `status` page have inconsistent times
-- [ ] Fix `status` page have inconsistent items
+- [ ] Links are auto-copied on creation in share menu
+- [ ] Shares that will work after file move/folder rename/file rename
+- [x] Fix `status` page have inconsistent times
+- [ ] Fix `status` page have inconsistent items (what?)
 - [ ] Fix upload speed measurements was inconsistent
 - [ ] Add placeholder items to snippets and FluxDrop site to avoid UI flash, like YouTube or other services have when client doesn't have enough speed to fetch the proper data
-- [ ] Divide FluxDrop site to dedicated HTML, JS and CSS
-- [ ] Fix every FluxDrop snippet (UI) to work properly with mobile and non-16:9 screens
+- [x] Divide FluxDrop site to dedicated HTML, JS and CSS
+- [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
+- [ ] Fix every FluxDrop snippet and site (UIs) to work properly with mobile and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Add fallback page for `/share` without token
 - [ ] Improve server download speeds by use of multithreaded function
+- [ ] Check the performance of the file check on the server (filehash checksums after uploads)
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports for more ideal links and simplicity
 - [ ] Add usable space quota for user
 - [ ] Add "profile" to check current used quota, subscribtion info, change of the password, etc.
 - [ ] Add quota info to mini-profile menu
 - [ ] Add more settings that can be managed via site with admin account
 - [ ] Check for the safety measures for admin-related things
-- [ ] Add manager for the non-finished uploads (window)
-- [ ] By some reason browser almost always displays the "hover link" `arseniusgen.uk.to/fluxdrop_pp/index.html#`, whenewer mouse was on the button or background - fixes by going out of the site, and same link regularly appears on the buttons
+- [ ] Add manager for the unfinished uploads (window)
+- [ ] Fix issue when browser almost always displays the "hover link" `arseniusgen.uk.to/fluxdrop_pp/index.html#`, whenewer mouse was on the button or background - fixes by going out of the site, and same link regularly appears on the buttons (after it stops the first issue)
 - [ ] Add the HEIC, AVIF support for previews
 - [ ] Add PDF preview
 - [ ] Add plain text preview (.ini already there)

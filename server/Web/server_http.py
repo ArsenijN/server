@@ -73,12 +73,27 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # --- Share link redirect ---
         # /share/<token>[/...] → CDN server which owns all FluxDrop share logic.
         import re as _re
+        # Bare /share with no token → redirect to not-found page on CDN
+        if requested_path.split('?')[0] in ('/share', '/share/'):
+            self.send_response(302)
+            self.send_header('Location', f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}/share/")
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         _share_m = _re.match(r'^(/share/[A-Za-z0-9_\-]+(?:/.*)?)', requested_path.split('?')[0])
         if _share_m:
             _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
             _target = f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}{_share_m.group(1)}{_qs}"
             self.send_response(302)
             self.send_header('Location', _target)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        # --- /status redirect → CDN ---
+        if requested_path.split('?')[0] == '/status':
+            _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
+            self.send_response(302)
+            self.send_header('Location', f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}/status{_qs}")
             self.send_header('Content-Length', '0')
             self.end_headers()
             return

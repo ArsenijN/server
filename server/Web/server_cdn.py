@@ -2829,6 +2829,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if self.shares_list_pattern.match(parsed_url.path):
             return self.handle_shares_list()
 
+        # Bare /share or /share/ with no token → friendly error page
+        if parsed_url.path in ('/share', '/share/'):
+            return self._send_response(404, self._render_share_not_found_page(), 'text/html')
+
         # Public share page / file access
         pub_match = self.public_share_pattern.match(parsed_url.path)
         if pub_match:

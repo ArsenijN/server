@@ -1,7 +1,7 @@
-# server `v0.9.2.1`
+# server `v0.9.3`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Hotfix to the time function position (wrong place)***
+*Release note: **Proper error message for `/share` without token, auto-redirect `/status` from HTTP(S) hosters to CDN***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

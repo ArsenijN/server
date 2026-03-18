@@ -122,6 +122,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # This lets people share clean links like https://arseniusgen.uk.to/share/TOKEN
         # which transparently forward to the CDN port that has the actual handler.
         import re as _re
+        # Bare /share with no token → redirect to not-found page on CDN
+        if requested_path.split('?')[0] in ('/share', '/share/'):
+            self.send_response(302)
+            self.send_header('Location', f"https://{PUBLIC_DOMAIN}:{CDN_HTTPS_PORT}/share/")
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         _share_m = _re.match(r'^(/share/[A-Za-z0-9_\-]+(?:/.*)?)', requested_path.split('?')[0])
         if _share_m:
             # Preserve the path and any query string
@@ -129,6 +136,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             _target = f"https://{PUBLIC_DOMAIN}:{CDN_HTTPS_PORT}{_share_m.group(1)}{_qs}"
             self.send_response(302)   # 302 so expiry/revoke changes reflect immediately
             self.send_header('Location', _target)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        # --- /status redirect → CDN ---
+        if requested_path.split('?')[0] == '/status':
+            _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
+            self.send_response(302)
+            self.send_header('Location', f"https://{PUBLIC_DOMAIN}:{CDN_HTTPS_PORT}/status{_qs}")
             self.send_header('Content-Length', '0')
             self.end_headers()
             return

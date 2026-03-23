@@ -152,6 +152,32 @@ def _release_chunk_lock(token):
     with _chunk_locks_mutex:
         _chunk_locks.pop(token, None)
 
+# In-process assembly progress tracker.
+# Written by _upload_assemble while it hashes/copies; read by the
+# /assembly_progress polling endpoint.  Entries are cleaned up on
+# completion or error so the dict stays small.
+# Format: token -> {'bytes_hashed': int, 'total_bytes': int, 'done': bool, 'error': str|None}
+_assembly_progress: dict = {}
+_assembly_progress_lock = threading.Lock()
+
+def _assembly_progress_set(token: str, bytes_hashed: int, total_bytes: int,
+                            done: bool = False, error: str | None = None) -> None:
+    with _assembly_progress_lock:
+        _assembly_progress[token] = {
+            'bytes_hashed': bytes_hashed,
+            'total_bytes':  total_bytes,
+            'done':         done,
+            'error':        error,
+        }
+
+def _assembly_progress_get(token: str) -> dict | None:
+    with _assembly_progress_lock:
+        return _assembly_progress.get(token)
+
+def _assembly_progress_clear(token: str) -> None:
+    with _assembly_progress_lock:
+        _assembly_progress.pop(token, None)
+
 
 @contextmanager
 def _db_connect():
@@ -574,22 +600,40 @@ def _upload_assemble(token: str) -> tuple[str, str]:
 
     # 3. Stream-copy chunks into the final file while hashing inline.
     #    Using a 1 MiB read buffer keeps memory flat regardless of chunk size.
-    READ_BUF = 1 * 1024 * 1024
-    hasher = hashlib.sha256()
-    with open(dest_path, 'wb') as out:
-        for idx in sorted_chunks:
-            chunk_path = os.path.join(tmp_dir, f'{idx:06d}.chunk')
-            with open(chunk_path, 'rb') as cf:
-                while True:
-                    block = cf.read(READ_BUF)
-                    if not block:
-                        break
-                    out.write(block)
-                    hasher.update(block)
+    #    We report progress into _assembly_progress every 4 MiB so the client
+    #    polling endpoint can show a real-time ETA without a separate file read.
+    READ_BUF      = 1 * 1024 * 1024   # 1 MiB per read() call
+    REPORT_EVERY  = 4 * 1024 * 1024   # update progress dict every 4 MiB written
+    hasher        = hashlib.sha256()
+    bytes_hashed  = 0
+    last_reported = 0
+
+    _assembly_progress_set(token, 0, total_size)
+
+    try:
+        with open(dest_path, 'wb') as out:
+            for idx in sorted_chunks:
+                chunk_path = os.path.join(tmp_dir, f'{idx:06d}.chunk')
+                with open(chunk_path, 'rb') as cf:
+                    while True:
+                        block = cf.read(READ_BUF)
+                        if not block:
+                            break
+                        out.write(block)
+                        hasher.update(block)
+                        bytes_hashed += len(block)
+                        if bytes_hashed - last_reported >= REPORT_EVERY:
+                            _assembly_progress_set(token, bytes_hashed, total_size)
+                            last_reported = bytes_hashed
+    except Exception as exc:
+        _assembly_progress_set(token, bytes_hashed, total_size, error=str(exc))
+        raise
 
     # 4. Verify whole-file SHA-256 if the client declared one at init time.
     actual_sha256 = hasher.hexdigest()
     if session['sha256_final'] and session['sha256_final'].lower() != actual_sha256:
+        _assembly_progress_set(token, bytes_hashed, total_size,
+                               error='SHA-256 mismatch')
         try:
             os.remove(dest_path)
         except OSError:
@@ -599,6 +643,7 @@ def _upload_assemble(token: str) -> tuple[str, str]:
         )
 
     # 5. Mark complete in DB and clean up tmp chunks.
+    _assembly_progress_set(token, total_size, total_size, done=True)
     with _db_connect() as conn:
         conn.execute(
             'UPDATE upload_sessions SET completed = 1, last_activity = CURRENT_TIMESTAMP WHERE upload_token = ?',
@@ -606,6 +651,7 @@ def _upload_assemble(token: str) -> tuple[str, str]:
         )
         conn.commit()
     _release_chunk_lock(token)
+    _assembly_progress_clear(token)
     try:
         shutil.rmtree(tmp_dir, ignore_errors=True)
     except Exception:
@@ -2013,6 +2059,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     upload_session_complete_pattern = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/complete$')
     upload_session_status_pattern   = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/status$')
     upload_session_cancel_pattern   = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/cancel$')
+    upload_session_assemble_progress_pattern = re.compile(r'^/api/(v[1-3])/upload_session/([A-Za-z0-9_\-]+)/assembly_progress$')
     board_list_pattern  = re.compile(r'^/api/(v[1-3])/board$')
     board_item_pattern  = re.compile(r'^/api/(v[1-3])/board/(\d+)$')
     incident_pattern    = re.compile(r'^/api/(v[1-3])/incident$')
@@ -2776,6 +2823,47 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         return self._send_response(200, json.dumps(_upload_session_status(session)))
 
+    def handle_upload_session_assembly_progress(self, upload_token: str):
+        """GET /api/v1/upload_session/<token>/assembly_progress
+        Returns in-process assembly/hashing progress so the client can show
+        a real ETA during the 'Verifying…' phase.
+
+        Response JSON:
+          { bytes_hashed, total_bytes, pct, eta_seconds, done, error }
+
+        The entry exists only while _upload_assemble() is running in another
+        thread (triggered by /complete).  If the entry is absent the assembly
+        either hasn't started yet or has already finished and been cleared.
+        """
+        session = _upload_get(upload_token)
+        if not session:
+            return self._send_response(404, json.dumps({'error': 'Upload session not found.'}))
+
+        ok, reason = self._check_upload_session_auth(session)
+        if not ok:
+            return self._send_response(403, json.dumps({'error': reason}))
+
+        prog = _assembly_progress_get(upload_token)
+        if prog is None:
+            # Not in progress — either not started or already cleaned up
+            return self._send_response(200, json.dumps({
+                'bytes_hashed': 0, 'total_bytes': session['total_size'],
+                'pct': 0, 'eta_seconds': None, 'done': bool(session['completed']),
+                'error': None,
+            }))
+
+        total   = prog['total_bytes'] or session['total_size'] or 1
+        hashed  = prog['bytes_hashed']
+        pct     = round(hashed / total * 100, 1) if total > 0 else 0
+        return self._send_response(200, json.dumps({
+            'bytes_hashed': hashed,
+            'total_bytes':  total,
+            'pct':          pct,
+            'eta_seconds':  None,   # server doesn't track its own speed; client computes ETA
+            'done':         prog['done'],
+            'error':        prog['error'],
+        }))
+
     # --- Static file protection enforcement ---
     def send_head(self):
         """Override send_head to enforce token checks for protected static files.
@@ -2878,6 +2966,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         us_status = self.upload_session_status_pattern.match(parsed_url.path)
         if us_status:
             return self.handle_upload_session_status(us_status.group(2))
+
+        # Assembly progress (polled by the client during the 'Verifying…' phase)
+        us_ap = self.upload_session_assemble_progress_pattern.match(parsed_url.path)
+        if us_ap:
+            return self.handle_upload_session_assembly_progress(us_ap.group(2))
 
         # Auth API calls (e.g., /auth/verify)
         auth_match = self.auth_api_pattern.match(parsed_url.path)

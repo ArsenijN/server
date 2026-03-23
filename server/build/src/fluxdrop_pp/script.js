@@ -200,7 +200,7 @@ function renderRegisterView() {
 function renderFileBrowserView() {
     // Simple file browser UI: listing, upload, create folder, rename, delete, preview
     appRoot.innerHTML = `
-        <div class="card">
+        <div class="card" style="min-height:520px">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-2xl font-semibold text-blue-800">File Browser</h2>
                 <div class="flex gap-2">
@@ -233,7 +233,7 @@ function renderFileBrowserView() {
                 </form>
             </div>
 
-            <div id="file-list" class="mt-4"></div>
+            <div id="file-list" class="mt-4" style="min-height:320px"></div>
         </div>
     `;
 
@@ -299,6 +299,58 @@ function apiPathFor(path) {
     return `/api/v1/list${encodePath(path)}`;
 }
 
+
+// ── Skeleton loader helpers ──────────────────────────────────────────────
+// Returns an HTML string of N animated skeleton table rows that mimic
+// the real file-list table layout, preventing UI flash on directory loads.
+function skeletonRows(n = 6) {
+    const shimmer = [
+        'background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%)',
+        'background-size:200% 100%',
+        'animation:fd-shimmer 1.4s infinite',
+        'border-radius:4px',
+        'display:inline-block',
+    ].join(';');
+
+    // Inject keyframes once
+    if (!document.getElementById('fd-shimmer-style')) {
+        const st = document.createElement('style');
+        st.id = 'fd-shimmer-style';
+        st.textContent = '@keyframes fd-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}';
+        document.head.appendChild(st);
+    }
+
+    const widths = [
+        ['55%','8%','14%'],
+        ['40%','10%','14%'],
+        ['62%','7%','14%'],
+        ['48%','9%','14%'],
+        ['35%','11%','14%'],
+        ['58%','8%','14%'],
+    ];
+    // Name widths vary to look natural; size/mtime are fixed; actions are right-aligned
+    const nameWidths = ['55%','40%','65%','48%','35%','60%'];
+    return Array.from({ length: n }, (_, i) => {
+        const nw = nameWidths[i % nameWidths.length];
+        return `<tr class="border-t">
+            <td style="padding:9px 8px;vertical-align:middle">
+                <span style="${shimmer};width:${nw};height:14px"></span>
+            </td>
+            <td style="padding:9px 8px;vertical-align:middle">
+                <span style="${shimmer};width:70%;height:13px"></span>
+            </td>
+            <td style="padding:9px 8px;vertical-align:middle">
+                <span style="${shimmer};width:80%;height:13px"></span>
+            </td>
+            <td style="padding:9px 8px;vertical-align:middle;text-align:right">
+                <span style="${shimmer};width:64px;height:24px;border-radius:6px;margin-left:4px"></span>
+                <span style="${shimmer};width:52px;height:24px;border-radius:6px;margin-left:4px"></span>
+                <span style="${shimmer};width:48px;height:24px;border-radius:6px;margin-left:4px"></span>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
 async function loadDirectory(path) {
     const fileList = document.getElementById('file-list');
     const breadcrumb = document.getElementById('path-breadcrumb');
@@ -307,44 +359,111 @@ async function loadDirectory(path) {
     if (!path.startsWith('/')) path = '/' + path;
     currentPath = path;
     breadcrumb.textContent = `Path: ${path}`;
-    fileList.innerHTML = `<p class="text-sm text-gray-500">Loading...</p>`;
+    // Show skeleton rows immediately so the table shape appears while fetching
+    fileList.innerHTML = `<table style="width:100%;table-layout:fixed;border-collapse:collapse">
+        <colgroup>
+            <col style="width:42%">
+            <col style="width:10%">
+            <col style="width:18%">
+            <col style="width:30%">
+        </colgroup>
+        <thead><tr style="border-bottom:2px solid #e2e8f0">
+            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Name</th>
+            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Size</th>
+            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Modified</th>
+            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:right">Actions</th>
+        </tr></thead>
+            <tbody>${skeletonRows(7)}</tbody>
+        </table>`;
     try {
         const endpoint = path === '/' ? '/api/v1/list/' : `/api/v1/list${encodePath(path)}`;
         const data = await apiCall(endpoint, 'GET', null, true);
         const entries = data.entries || [];
         if (entries.length === 0) {
-            fileList.innerHTML = `<p class="text-sm text-gray-600">(empty)</p>`;
+            fileList.innerHTML = `<p class="text-sm text-gray-600" style="padding:1rem">(empty)</p>`;
             return;
         }
         const rows = entries.map(e => renderEntryRow(e)).join('');
-        fileList.innerHTML = `<table class="w-full text-left"><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+        fileList.innerHTML = `<table style="width:100%;table-layout:fixed;border-collapse:collapse">
+        <colgroup>
+            <col style="width:42%">
+            <col style="width:10%">
+            <col style="width:18%">
+            <col style="width:30%">
+        </colgroup>
+        <thead><tr style="border-bottom:2px solid #e2e8f0">
+            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Name</th>
+            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Size</th>
+            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Modified</th>
+            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:right">Actions</th>
+        </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
         attachRowListeners();
     } catch (err) {
-        fileList.innerHTML = `<p class="text-sm text-red-600">Failed to load directory: ${err.message}</p>`;
+        fileList.innerHTML = `<p class="text-sm text-red-600" style="padding:1rem">Failed to load directory: ${err.message}</p>`;
     }
 }
 
+
+// Compact action button style used inside the file-list table.
+// Much smaller than the global .btn so all buttons fit on one row.
+function _ab(label, cls, color, dataAttrs) {
+    const attrs = Object.entries(dataAttrs).map(([k,v]) => `data-${k}="${v}"`).join(' ');
+    return `<button class="${cls}"
+        style="background:${color};color:white;border:none;border-radius:6px;
+               padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer;
+               white-space:nowrap;line-height:1.6"
+        ${attrs}>${label}</button>`;
+}
+
 function renderEntryRow(e) {
-    const nameEsc = escapeHtml(e.name);
-    const path = e.path;
-    const size = e.is_dir ? '-' : `${(e.size/1024).toFixed(1)} KB`;
-    const safePathAttr = escapeHtmlAttr(path);
-    const shareBtn = `<button class="btn bg-purple-500 text-sm share-btn" data-path="${safePathAttr}" data-isdir="${e.is_dir ? '1' : '0'}" style="background:#8b5cf6">Share</button>`;
+    const nameEsc    = escapeHtml(e.name);
+    const path       = e.path;
+    const safePA     = escapeHtmlAttr(path);
+    const sizeStr    = e.is_dir ? '—' : formatBytes(e.size);
 
-    const nameLink = e.is_dir
-        ? `<a href="#" class="open-btn font-medium text-blue-600 hover:underline" data-path="${safePathAttr}" style="cursor:pointer">📁 ${nameEsc}</a>`
-        : `<a href="#" class="preview-btn font-medium text-gray-800 hover:text-blue-600 hover:underline" data-path="${safePathAttr}" style="cursor:pointer">📄 ${nameEsc}</a>`;
+    // Name cell: plain <button> instead of <a> — no href, no status-bar tooltip in any browser
+    const TD_NAME = 'style="padding:9px 8px;vertical-align:middle;overflow:hidden"';
+    const nameBtn = e.is_dir
+        ? `<button class="open-btn" data-path="${safePA}"
+               style="background:none;border:none;cursor:pointer;font-weight:600;
+                      color:#2563eb;font-size:14px;text-align:left;padding:0;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%"
+               title="${safePA}">📁 ${nameEsc}</button>`
+        : `<button class="preview-btn" data-path="${safePA}"
+               style="background:none;border:none;cursor:pointer;font-weight:500;
+                      color:#1e293b;font-size:14px;text-align:left;padding:0;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%"
+               title="${safePA}">📄 ${nameEsc}</button>`;
 
-    const actions = e.is_dir
-        ? `<button class="btn text-sm open-btn" data-path="${safePathAttr}">Open</button> ${shareBtn}`
-        : `<button class="btn text-sm download-btn" data-path="${safePathAttr}">Download</button>` +
-            ` <button class="btn bg-yellow-500 text-sm preview-btn" data-path="${safePathAttr}">Preview</button> ${shareBtn}`;
+    const uploaderLine = e.uploader
+        ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">by ${escapeHtml(e.uploader)}</div>`
+        : '';
 
-    let nameCell = nameLink;
-    if (e.uploader) {
-        nameCell += `<br><span class="text-xs text-gray-500">by ${escapeHtml(e.uploader)}</span>`;
-    }
-    return `<tr class="border-t"><td>${nameCell}</td><td>${size}</td><td>${e.mtime}</td><td>${actions} <button class="btn bg-red-500 text-sm delete-btn" data-path="${escapeHtmlAttr(path)}">Delete</button> <button class="btn bg-gray-300 text-sm rename-btn" data-path="${escapeHtmlAttr(path)}">Rename</button></td></tr>`;
+    // Action buttons — compact, always single row
+    const p = { path: safePA };
+    const pd = { path: safePA, isdir: e.is_dir ? '1' : '0' };
+    const btnOpen     = _ab('Open',     'open-btn',     '#3b82f6', p);
+    const btnDl       = _ab('Download', 'download-btn', '#3b82f6', p);
+    const btnPreview  = _ab('Preview',  'preview-btn',  '#f59e0b', p);
+    const btnShare    = _ab('Share',    'share-btn',    '#8b5cf6', pd);
+    const btnDelete   = _ab('Delete',   'delete-btn',   '#ef4444', p);
+    const btnRename   = _ab('Rename',   'rename-btn',   '#94a3b8', p);
+
+    const actionBtns = e.is_dir
+        ? [btnOpen, btnShare, btnDelete, btnRename].join(' ')
+        : [btnDl, btnPreview, btnShare, btnDelete, btnRename].join(' ');
+
+    const TD_COMMON = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
+    const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap;text-align:right"';
+
+    return `<tr class="border-t" style="transition:background 0.12s" onmouseenter="this.style.background='#f8fafc'" onmouseleave="this.style.background=''">
+        <td ${TD_NAME}>${nameBtn}${uploaderLine}</td>
+        <td ${TD_COMMON} class="text-sm text-gray-500">${sizeStr}</td>
+        <td ${TD_COMMON} class="text-sm text-gray-500">${e.mtime}</td>
+        <td ${TD_ACTIONS}>${actionBtns}</td>
+    </tr>`;
 }
 
 // Expose some functions globally for callers; listeners will invoke these.
@@ -1180,15 +1299,64 @@ async function uploadChunked(file, destRel, opts = {}) {
     }
 
     // ── Complete ────────────────────────────────────────────────────
-    ul.status = 'verifying';
-    ul.speed  = null;
-    ul.eta    = null;
+    ul.status        = 'verifying';
+    ul.speed         = null;
+    ul.eta           = null;
+    ul.verifyPct     = 0;
+    ul.verifyEta     = null;
+    ul.verifyBytes   = 0;
+    ul.verifyTotal   = file.size;
     renderUploadTray();
+
+    // Poll /assembly_progress while the server hashes the assembled file.
+    // We compute client-side ETA using an EWA on the bytes_hashed deltas.
+    let pollTimer = null;
+    let verifySpeed = null;
+    let verifyLastBytes = 0;
+    let verifyLastTime  = Date.now();
+    const EWA_V = 0.3;
+
+    function startVerifyPoller() {
+        if (pollTimer) return;
+        pollTimer = setInterval(async () => {
+            try {
+                const r = await fetchWithFallback(
+                    `${API_BASE_URL}/api/v1/upload_session/${uploadToken}/assembly_progress`,
+                    { headers: authHeaders(anonDeviceToken) }
+                );
+                if (!r.ok) return;
+                const p = await r.json();
+                if (p.error) { clearInterval(pollTimer); return; }
+                ul.verifyPct   = p.pct || 0;
+                ul.verifyBytes = p.bytes_hashed || 0;
+                ul.verifyTotal = p.total_bytes  || file.size;
+
+                // EWA speed + ETA
+                const now = Date.now();
+                const dt  = (now - verifyLastTime) / 1000;
+                if (dt >= 0.5 && ul.verifyBytes > verifyLastBytes) {
+                    const raw = (ul.verifyBytes - verifyLastBytes) / dt;
+                    verifySpeed   = verifySpeed != null
+                        ? EWA_V * raw + (1 - EWA_V) * verifySpeed
+                        : raw;
+                    ul.verifyEta  = verifySpeed > 0
+                        ? (ul.verifyTotal - ul.verifyBytes) / verifySpeed
+                        : null;
+                    verifyLastBytes = ul.verifyBytes;
+                    verifyLastTime  = now;
+                }
+                renderUploadTray();
+                if (p.done) { clearInterval(pollTimer); pollTimer = null; }
+            } catch (_) { /* non-fatal — /complete will return the real result */ }
+        }, 500);
+    }
+    startVerifyPoller();
 
     const completeRes = await fetchWithFallback(
         `${API_BASE_URL}/api/v1/upload_session/${uploadToken}/complete`,
         { method: 'POST', headers: authHeaders(anonDeviceToken) }
     );
+    clearInterval(pollTimer);
     if (!completeRes.ok) {
         const err = await completeRes.json().catch(() => ({}));
         ul.status = 'error';
@@ -1429,7 +1597,11 @@ function renderUploadTray() {
         row.querySelector('.ul-name').textContent = (statusMap[ul.status] || '') + ' ' + ul.filename;
         row.querySelector('.ul-bytes').textContent = `${sent} / ${total}`;
         const bar = row.querySelector('.ul-bar');
-        bar.style.width = pct + '%';
+        // During verification use verifyPct for the bar so it visually advances
+        const displayPct = (ul.status === 'verifying' && ul.verifyPct != null && ul.verifyPct > 0)
+            ? ul.verifyPct
+            : pct;
+        bar.style.width = displayPct + '%';
         bar.style.background = ul.status === 'paused' ? '#f59e0b' : ul.status === 'error' || ul.status === 'cancelled' ? '#ef4444' : ul.status === 'verifying' ? '#a78bfa' : '#22c55e';
 
         let statusText = ul.status;
@@ -1439,7 +1611,17 @@ function renderUploadTray() {
             if (ul.eta != null) parts.push('ETA ' + formatEta(ul.eta));
             if (parts.length) statusText = parts.join(' · ');
         } else if (ul.status === 'verifying') {
-            statusText = '🔍 Verifying integrity…';
+            // Show real progress if the poller has data, otherwise generic label
+            if (ul.verifyPct != null && ul.verifyPct > 0) {
+                const vParts = [`🔍 Verifying… ${ul.verifyPct.toFixed(0)}%`];
+                if (ul.verifyEta != null) vParts.push('ETA ' + formatEta(ul.verifyEta));
+                if (ul.verifyBytes && ul.verifyTotal) {
+                    vParts.push(`${formatBytes(ul.verifyBytes)} / ${formatBytes(ul.verifyTotal)}`);
+                }
+                statusText = vParts.join(' · ');
+            } else {
+                statusText = '🔍 Verifying integrity…';
+            }
         } else if (ul.status === 'paused') {
             statusText = '⏸ Paused — click Resume to continue';
         } else if (ul.status === 'error') {
@@ -1741,7 +1923,17 @@ async function openShareDialog(path, isDir) {
     document.getElementById('sh-cancel-btn').addEventListener('click', () => overlay.remove());
     document.getElementById('sh-create-btn').addEventListener('click', async () => {
         const btn = document.getElementById('sh-create-btn');
-        btn.disabled = true; btn.textContent = 'Creating…';
+        btn.disabled = true;
+        btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px">' +
+            '<svg style="animation:spin 0.8s linear infinite;width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>' +
+            'Creating…</span>';
+        // inject spin keyframe once
+        if (!document.getElementById('fd-spin-style')) {
+            const st = document.createElement('style');
+            st.id = 'fd-spin-style';
+            st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+            document.head.appendChild(st);
+        }
         try {
             const body = {
                 path,
@@ -1758,12 +1950,22 @@ async function openShareDialog(path, isDir) {
             const shareUrl = `${window.location.origin}/share/${data.token}`;
             document.getElementById('sh-result').style.display = 'block';
             document.getElementById('sh-link-box').value = shareUrl;
-            document.getElementById('sh-copy-btn').addEventListener('click', () => {
+
+            // Auto-copy to clipboard immediately on creation
+            const copyBtn = document.getElementById('sh-copy-btn');
+            function doCopy() {
                 navigator.clipboard.writeText(shareUrl).then(() => {
-                    document.getElementById('sh-copy-btn').textContent = 'Copied!';
-                    setTimeout(() => { document.getElementById('sh-copy-btn').textContent = 'Copy'; }, 1500);
+                    copyBtn.textContent = '✓ Copied!';
+                    copyBtn.style.background = '#15803d';
+                    setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.style.background = '#16a34a'; }, 2000);
+                }).catch(() => {
+                    // Fallback: select the input so the user can Ctrl+C
+                    document.getElementById('sh-link-box').select();
                 });
-            });
+            }
+            copyBtn.addEventListener('click', doCopy);
+            doCopy(); // auto-copy on creation
+
             btn.textContent = 'Done ✓'; btn.style.background = '#16a34a';
         } catch (err) {
             btn.disabled = false; btn.textContent = 'Create Share Link';
@@ -1796,7 +1998,28 @@ async function openShareManager() {
 async function loadShareManager() {
     const body = document.getElementById('sm-body');
     if (!body) return;
-    body.innerHTML = '<p style="color:#64748b;font-size:14px">Loading…</p>';
+    // Skeleton share cards while fetching
+    body.innerHTML = Array.from({length: 3}, () => `
+        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:10px">
+                <div>
+                    <span style="display:inline-block;width:160px;height:15px;border-radius:4px;
+                        background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);
+                        background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span><br>
+                    <span style="display:inline-block;width:100px;height:11px;border-radius:4px;margin-top:6px;
+                        background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);
+                        background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
+                </div>
+                <div style="display:flex;gap:6px">
+                    <span style="display:inline-block;width:60px;height:28px;border-radius:6px;
+                        background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);
+                        background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
+                    <span style="display:inline-block;width:54px;height:28px;border-radius:6px;
+                        background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);
+                        background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
+                </div>
+            </div>
+        </div>`).join('');
     try {
         const data = await apiCall('/api/v1/shares', 'GET');
         const shares = data.shares || [];
@@ -2266,6 +2489,103 @@ function openInterruptedManager(onClose) {
         // --- INITIALIZATION ---
         // ======================================================================
 document.addEventListener('DOMContentLoaded', () => {
+    // ── Service Worker registration ───────────────────────────────────────
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => {
+            // Registration failure is non-fatal; app still works online
+        });
+    }
+
+    // ── Offline / online banner ───────────────────────────────────────────
+    // We don't trust navigator.onLine alone — it can be true even when the
+    // server is unreachable (captive portals, DNS failure, etc.).  Instead we
+    // probe the server's /api/v1/upload_session/config endpoint (tiny, no auth,
+    // no side effects) to confirm real connectivity before removing the banner.
+    let _probeTimer = null;
+    let _isOffline  = false;
+
+    function createOfflineBanner() {
+        if (document.getElementById('offline-banner')) return;
+        const banner = document.createElement('div');
+        banner.id = 'offline-banner';
+        banner.style.cssText = [
+            'position:fixed;top:0;left:0;width:100%;z-index:99999',
+            'background:#1e293b;color:#e2e8f0',
+            'display:flex;align-items:center;justify-content:center;gap:10px',
+            'padding:10px 16px;font-family:Inter,sans-serif;font-size:14px',
+            'font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,0.3)',
+            'transform:translateY(-100%);transition:transform 0.3s ease',
+        ].join(';');
+        banner.innerHTML = `
+            <span style="font-size:18px">📡</span>
+            <span id="offline-banner-text">Seems like you're offline. Please connect to the internet to access FluxDrop.</span>
+        `;
+        document.body.prepend(banner);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            banner.style.transform = 'translateY(0)';
+        }));
+    }
+
+    function removeOfflineBanner() {
+        const banner = document.getElementById('offline-banner');
+        if (!banner) return;
+        banner.style.transform = 'translateY(-100%)';
+        setTimeout(() => banner.remove(), 320);
+    }
+
+    async function probeConnectivity() {
+        // A HEAD request to the config endpoint is ~200 bytes and requires no auth
+        try {
+            const r = await fetch(`${API_BASE_URL}/api/v1/upload_session/config`, {
+                method: 'HEAD', cache: 'no-store',
+                signal: AbortSignal.timeout(4000),
+            });
+            return r.ok || r.status < 500; // 4xx = server reachable, counts as online
+        } catch {
+            return false;
+        }
+    }
+
+    function startOnlineProbe() {
+        if (_probeTimer) return;
+        _probeTimer = setInterval(async () => {
+            const reachable = await probeConnectivity();
+            if (reachable) {
+                _isOffline = false;
+                removeOfflineBanner();
+                clearInterval(_probeTimer);
+                _probeTimer = null;
+            } else {
+                // Still down — update banner text to show retrying
+                const txt = document.getElementById('offline-banner-text');
+                if (txt) txt.textContent = "You're offline — retrying connection…";
+            }
+        }, 5000); // probe every 5 s until back online
+    }
+
+    function goOffline() {
+        if (_isOffline) return;
+        _isOffline = true;
+        createOfflineBanner();
+        startOnlineProbe();
+    }
+
+    function onlineEventFired() {
+        // Browser fired 'online' — probe first, don't trust it blindly
+        probeConnectivity().then(ok => {
+            if (ok) { _isOffline = false; removeOfflineBanner(); clearInterval(_probeTimer); _probeTimer = null; }
+            // if probe fails, goOffline() keeps the banner up and probe loop running
+        });
+    }
+
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online',  onlineEventFired);
+
+    // Initial check: if navigator says offline immediately show banner + probe loop
+    if (!navigator.onLine) {
+        goOffline();
+    }
+
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
             if (!document.getElementById('preview-modal').classList.contains('hidden')) closePreview();

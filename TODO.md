@@ -32,18 +32,16 @@ user feedback or ideas for future development.
     for quota display.
   - [x] Replace Tailwind CDN with a build step for production CSS.
 
-- [x] Check the performance of the file check on the server (filehash checksums after uploads)
-- [x] Check for the safety measures for admin-related things (I think for now it's ok)
-- [ ] Links are auto-copied on creation in share menu
-- [ ] Fix issue when browser almost always displays the "hover link" `arseniusgen.uk.to/fluxdrop_pp/index.html#`, whenewer mouse was on the button or background - fixes by going out of the site, and same link regularly appears on the buttons (after it stops the first issue)
+- [ ] Add sorting in file manager (by name, size, date of modify; folders first, treat folders as files (sorting))
+- [x] Links are auto-copied on creation in share menu
+- [x] Fix issue when browser almost always displays the "hover link" `arseniusgen.uk.to/fluxdrop_pp/index.html#`, whenewer mouse was on the button or background - fixes by going out of the site, and same link regularly appears on the buttons (after it stops the first issue)
 - [ ] Sand off the UI and textes, fix small inconsistences in UI (like on rename function)
 - [ ] i18n support (language changes)
-- [ ] Add support from browser to switch between states (I mean... what I mean by that)
-- [ ] Add support for internet interruption (auto-continue)
-- [ ] Add handler to show when internet connection drops
+- [x] Add support for internet interruption (auto-continue) - I mean when internet drops, it will display an info that server is temporarely unreachable, etc.
+- [ ] Add handler to show when internet connection drops (upload/download)
+- [x] Add handler to show when internet connection drops (basics)
 - [ ] Shares that will work after file move/folder rename/file rename
-- [x] Fix upload speed measurements was inconsistent
-- [ ] Add placeholder items to snippets and FluxDrop site to avoid UI flash, like YouTube or other services have when client doesn't have enough speed to fetch the proper data
+- [x] Add placeholder items to snippets and FluxDrop site to avoid UI flash, like YouTube or other services have when client doesn't have enough speed to fetch the proper data
 - [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
 - [ ] Fix every FluxDrop snippet and site (UIs) to work properly with mobile and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
@@ -54,7 +52,7 @@ user feedback or ideas for future development.
 - [ ] Add "profile" to check current used quota, subscribtion info, change of the password, etc.
 - [ ] Add quota info to mini-profile menu
 - [ ] Add more settings that can be managed via site with admin account
-- [ ] Add manager for the unfinished uploads (window)
+- [x] Add manager for the unfinished uploads (window)
 - [ ] Add the HEIC, AVIF support for previews
 - [ ] Add PDF preview
 - [ ] Add plain text preview (.ini already there)
@@ -70,4 +68,4 @@ user feedback or ideas for future development.
 - [ ] Add autoupdate "agreement" (when newer ToS or PP appears - user must accept it within)
 - [ ] Discover ways to build own page via modules (zero-code; not necessary since I can just remember CSS and HTML, and do that by hands)
 - [ ] Improve user iterations by adding auto-reconnect on dropped connection (e.g. switched networks)
-- [ ] Add the detailed (with ETA) info about the file check on the server side (no long waits without any feedback of what does server do)
+- [x] Add the detailed (with ETA) info about the file check on the server side (no long waits without any feedback of what does server do)

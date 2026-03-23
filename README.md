@@ -1,7 +1,7 @@
-# server `v0.9.4`
+# server `v0.9.5`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix the upload logics, polishing off user-side details***
+*Release note: **UI fixes, internet offline message, cached page, no jumpy UI***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

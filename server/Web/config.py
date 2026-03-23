@@ -79,4 +79,4 @@ SMTP_SENDER_EMAIL = os.getenv('SMTP_SENDER_EMAIL', '')
 SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
 
 # Chunks
-UPLOAD_CHUNK_SIZE = os.getenv('UPLOAD_CHUNK_SIZE', str(25 * 1024 * 1024)) #default 25 MB
+UPLOAD_CHUNK_SIZE = os.getenv('UPLOAD_CHUNK_SIZE', str(1 * 1024 * 1024)) #default 1 MB

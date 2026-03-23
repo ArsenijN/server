@@ -215,14 +215,20 @@ function renderFileBrowserView() {
 
             <div class="mb-4">
                 <form id="upload-form" class="flex gap-2 items-center flex-wrap">
-                    <input type="file" id="upload-file" class="p-2 border rounded" />
+                    <input type="file" id="upload-file" class="p-2 border rounded" multiple />
                     <label class="text-sm"><input type="checkbox" id="upload-protected" /> Protected</label>
                     <button class="btn" type="submit">Upload</button>
+                    <button type="button" id="btn-show-queue"
+                        class="btn text-sm hidden"
+                        style="background:#6366f1"
+                        title="View upload queue">
+                        📋 Queue (<span id="queue-count">0</span>)
+                    </button>
                     <button type="button" id="btn-resume-interrupted"
                         class="btn text-sm hidden"
                         style="background:#f59e0b"
-                        title="Resume uploads that were interrupted by a page reload">
-                        ⟳ Resume interrupted
+                        title="Manage interrupted uploads">
+                        ⟳ Interrupted (<span id="interrupted-count">0</span>)
                     </button>
                 </form>
             </div>
@@ -245,87 +251,40 @@ function renderFileBrowserView() {
     document.getElementById('btn-browse-cdn').addEventListener('click', () => { currentPath = '/cdn'; loadDirectory(currentPath); });
     document.getElementById('upload-form').addEventListener('submit', handleUploadForm);
 
-    // Show "Resume interrupted" button if any interrupted sessions exist in localStorage
-    function refreshResumeBtn() {
-        const btn = document.getElementById('btn-resume-interrupted');
-        if (!btn) return;
-        const pending = getAllInterruptedUploads();
-        if (pending.length > 0) {
-            btn.classList.remove('hidden');
-            btn.textContent = `⟳ Resume interrupted (${pending.length})`;
-        } else {
-            btn.classList.add('hidden');
-        }
+    // ── Upload queue state ──────────────────────────────────────────
+    // Holds { file, destRel, ownerType, isProtected } waiting to upload.
+    window._uploadQueue = window._uploadQueue || [];
+
+    function refreshQueueBtn() {
+        const btn = document.getElementById('btn-show-queue');
+        const countEl = document.getElementById('queue-count');
+        if (!btn || !countEl) return;
+        const q = window._uploadQueue;
+        if (q.length > 0) { btn.classList.remove('hidden'); countEl.textContent = q.length; }
+        else { btn.classList.add('hidden'); }
     }
-    refreshResumeBtn();
 
-    document.getElementById('btn-resume-interrupted').addEventListener('click', async () => {
+    function refreshInterruptedBtn() {
+        const btn = document.getElementById('btn-resume-interrupted');
+        const countEl = document.getElementById('interrupted-count');
+        if (!btn || !countEl) return;
         const pending = getAllInterruptedUploads();
-        if (!pending.length) { showMessage('No interrupted uploads', 'Nothing to resume.'); return; }
+        if (pending.length > 0) { btn.classList.remove('hidden'); countEl.textContent = pending.length; }
+        else { btn.classList.add('hidden'); }
+    }
 
-        // Ask the user to pick the files again (browser security prevents accessing files by path)
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.multiple = true;
-        fileInput.style.display = 'none';
-        document.body.appendChild(fileInput);
-        fileInput.click();
-        fileInput.addEventListener('change', async () => {
-            document.body.removeChild(fileInput);
-            const selectedFiles = Array.from(fileInput.files);
-            let matched = 0, skipped = 0;
-            for (const meta of pending) {
-                const f = selectedFiles.find(sf => sf.name === meta.filename && sf.size === meta.total);
-                if (!f) { skipped++; continue; }
-                matched++;
-                // Ask server which chunks it already has
-                let startIdx = meta.nextChunkIdx || 0;
-                try {
-                    const statusRes = await fetchWithFallback(
-                        `${API_BASE_URL}/api/v1/upload_session/${meta.uploadToken}/status`,
-                        { method: 'GET', headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} }
-                    );
-                    if (statusRes.ok) {
-                        const st = await statusRes.json();
-                        // Resume from the first missing chunk
-                        if (st.missing_chunks && st.missing_chunks.length > 0) {
-                            startIdx = st.missing_chunks[0];
-                        } else if (!st.missing_chunks || st.missing_chunks.length === 0) {
-                            // Already complete on server — just fire /complete
-                            await fetchWithFallback(
-                                `${API_BASE_URL}/api/v1/upload_session/${meta.uploadToken}/complete`,
-                                { method: 'POST', headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} }
-                            );
-                            removeInterruptedUpload(meta.uploadToken);
-                            continue;
-                        }
-                    } else {
-                        // Session expired or not found — clean up stale record
-                        removeInterruptedUpload(meta.uploadToken);
-                        skipped++;
-                        continue;
-                    }
-                } catch {}
+    refreshQueueBtn();
+    refreshInterruptedBtn();
 
-                uploadChunked(f, meta.destRel, {
-                    ownerType:        meta.ownerType,
-                    shareToken:       meta.shareToken || '',
-                    resumeToken:      meta.uploadToken,
-                    resumeFromChunk:  startIdx,
-                    resumeChunkSize:  meta.chunkSize,
-                    resumeAnonToken:  meta.anonDeviceToken,
-                }).then(() => {
-                    loadDirectory(currentPath);
-                    refreshResumeBtn();
-                }).catch(() => { refreshResumeBtn(); });
-            }
-            if (skipped > 0 && matched === 0) {
-                showMessage('Resume', `Could not match any selected files to interrupted uploads. Make sure you select the exact same files (${pending.map(p=>p.filename).join(', ')}).`);
-            } else if (matched > 0) {
-                showMessage('Resuming', `Resuming ${matched} upload(s)${skipped ? `, ${skipped} could not be matched` : ''}.`);
-            }
-            refreshResumeBtn();
-        });
+    document.getElementById('btn-show-queue').addEventListener('click', () => {
+        openUploadQueuePanel(refreshQueueBtn);
+    });
+
+    // --- old refreshResumeBtn stub (kept for call compatibility below) ---
+    function refreshResumeBtn() { refreshInterruptedBtn(); }
+
+    document.getElementById('btn-resume-interrupted').addEventListener('click', () => {
+        openInterruptedManager(refreshInterruptedBtn);
     });
 
     // Initial load
@@ -918,7 +877,7 @@ async function uploadChunked(file, destRel, opts = {}) {
         // ── Resuming an existing session ────────────────────────────
         uploadToken     = opts.resumeToken;
         anonDeviceToken = opts.resumeAnonToken || loadAnonDeviceToken(uploadToken) || null;
-        chunkSize       = opts.resumeChunkSize || 25 * 1024 * 1024;
+        chunkSize       = opts.resumeChunkSize || 1 * 1024 * 1024;
         totalChunks     = Math.ceil(file.size / chunkSize) || 1;
         startIdx        = opts.resumeFromChunk || 0;
     } else {
@@ -952,7 +911,7 @@ async function uploadChunked(file, destRel, opts = {}) {
         const cfg       = cfgResult.status === 'fulfilled' ? cfgResult.value : null;
         const probeSpeed = probeResult.status === 'fulfilled' ? probeResult.value : null;
 
-        let serverChunkSize = (cfg && cfg.chunk_size) ? cfg.chunk_size : 25 * 1024 * 1024;
+        let serverChunkSize = (cfg && cfg.chunk_size) ? cfg.chunk_size : 1 * 1024 * 1024;
 
         // ── Init session (no blocking whole-file SHA — server verifies after assembly) ──
         const tentativeTotalChunks = Math.ceil(file.size / serverChunkSize) || 1;
@@ -1035,15 +994,62 @@ async function uploadChunked(file, destRel, opts = {}) {
 
     // ── Parallel chunk upload loop ──────────────────────────────────
     // Send up to CONCURRENCY chunks at a time for much faster uploads.
-    const CONCURRENCY = 4;
+    const CONCURRENCY = 8;
 
     // Per-chunk XHR registry so cancel aborts ALL in-flight XHRs, not just the last one
     const activeXhrs = new Map(); // idx -> xhr
 
+    // ── Shared EWA rate sampler ─────────────────────────────────────
+    // All concurrent XHR progress events feed raw bytes into one sampler
+    // that emits a smoothed speed (exponential weighted average) every 800ms.
+    // This eliminates per-chunk speed jitter from concurrent uploads.
+    let samplerLoaded   = startIdx * chunkSize; // bytes confirmed sent at start
+    let samplerLastTime = Date.now();
+    let samplerLastSnap = samplerLoaded;
+    const EWA_ALPHA     = 0.25; // smoothing factor: lower = smoother but slower to react
+    const SAMPLE_MS     = 800;  // minimum ms between speed recalculations
+
+    function samplerOnBytes(delta) {
+        // Thread-safe: JavaScript is single-threaded; no mutex needed.
+        samplerLoaded = Math.min(file.size, samplerLoaded + delta);
+        ul.loaded     = samplerLoaded;
+
+        const now = Date.now();
+        const dt  = now - samplerLastTime;
+        if (dt >= SAMPLE_MS) {
+            const rawSpeed = (samplerLoaded - samplerLastSnap) / (dt / 1000);
+            if (rawSpeed > 0) {
+                // EWA: blend new measurement with previous
+                ul.speed = ul.speed != null
+                    ? EWA_ALPHA * rawSpeed + (1 - EWA_ALPHA) * ul.speed
+                    : rawSpeed;
+                ul.eta = (file.size - samplerLoaded) / ul.speed;
+            }
+            samplerLastSnap = samplerLoaded;
+            samplerLastTime = now;
+        }
+        renderUploadTray();
+    }
+
+    // Per-chunk SHA-256 using SubtleCrypto (async, zero-copy, works in both
+    // Firefox and Chromium).  Returns hex string.
+    async function chunkSha256(blob) {
+        const buf    = await blob.arrayBuffer();
+        const digest = await crypto.subtle.digest('SHA-256', buf);
+        return Array.from(new Uint8Array(digest))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
     async function uploadChunk(idx) {
-        const start    = idx * chunkSize;
-        const blob     = file.slice(start, start + chunkSize);
-        const chunkEnd = Math.min(file.size, start + blob.size);
+        const start = idx * chunkSize;
+        const blob  = file.slice(start, start + chunkSize);
+
+        // Compute SHA-256 before sending so the server can reject corrupt data
+        // immediately. SubtleCrypto reads the blob in a worker thread; for 1 MB
+        // chunks this takes <5 ms on modern hardware and runs in parallel with
+        // the previous chunk's XHR, so it adds no measurable latency.
+        let chunkHash = null;
+        try { chunkHash = await chunkSha256(blob); } catch (_) { /* non-fatal */ }
 
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -1054,45 +1060,20 @@ async function uploadChunked(file, destRel, opts = {}) {
                 abort: () => { activeXhrs.forEach(x => x.abort()); }
             };
 
-            const tickerStart  = Date.now();
-            // Track per-chunk sent bytes as a delta so concurrent chunks don't stomp ul.loaded
-            let   chunkSentPrev = 0;
-            let   lastProgTime  = tickerStart;
-            let   lastLoadedSnap = ul.loaded;
+            let chunkSentPrev = 0; // bytes already fed to sampler from this XHR
 
             xhr.upload.onprogress = (e) => {
                 if (!e.lengthComputable) return;
-                // Add only the new bytes this chunk sent since last event
-                const chunkDelta = e.loaded - chunkSentPrev;
-                chunkSentPrev    = e.loaded;
-                ul.loaded = Math.min(file.size, ul.loaded + chunkDelta);
-
-                const now = Date.now();
-                const dt  = (now - lastProgTime) / 1000;
-                if (dt >= 0.3) {
-                    const delta = ul.loaded - lastLoadedSnap;
-                    if (delta > 0) {
-                        ul.speed       = delta / dt;
-                        ul.eta         = ul.speed > 0 ? (file.size - ul.loaded) / ul.speed : null;
-                        lastLoadedSnap = ul.loaded;
-                        lastProgTime   = now;
-                    }
-                }
-                renderUploadTray();
+                const delta  = e.loaded - chunkSentPrev;
+                chunkSentPrev = e.loaded;
+                if (delta > 0) samplerOnBytes(delta);
             };
 
             xhr.onload = () => {
                 activeXhrs.delete(idx);
-                // Settle ul.loaded: add any remaining bytes not yet counted via progress events
-                const alreadyCounted = chunkSentPrev; // bytes already added to ul.loaded
-                const remaining = blob.size - alreadyCounted;
-                if (remaining > 0) ul.loaded = Math.min(file.size, ul.loaded + remaining);
-
-                const dt = (Date.now() - tickerStart) / 1000;
-                if (dt > 0) {
-                    ul.speed = blob.size / dt;
-                    ul.eta   = ul.speed > 0 ? (file.size - ul.loaded) / ul.speed : null;
-                }
+                // Credit any bytes not yet counted via onprogress
+                const remaining = blob.size - chunkSentPrev;
+                if (remaining > 0) samplerOnBytes(remaining);
                 renderUploadTray();
                 if (xhr.status >= 200 && xhr.status < 300) {
                     resolve();
@@ -1113,6 +1094,7 @@ async function uploadChunked(file, destRel, opts = {}) {
 
             xhr.open('POST', `${API_BASE_URL}/api/v1/upload_session/${uploadToken}/chunk/${idx}`);
             xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+            if (chunkHash) xhr.setRequestHeader('X-Chunk-SHA256', chunkHash);
             const ah = authHeaders(anonDeviceToken);
             for (const [k, v] of Object.entries(ah)) xhr.setRequestHeader(k, v);
             xhr.send(blob);
@@ -1231,22 +1213,70 @@ async function handleUploadForm(e) {
     e.preventDefault();
     const fileInput = document.getElementById('upload-file');
     if (!fileInput.files.length) { showMessage('Upload', 'No file selected'); return; }
-    const file = fileInput.files[0];
+    const files = Array.from(fileInput.files);
     const isProtected = document.getElementById('upload-protected').checked;
+    const ownerType = currentPath.startsWith('/cdn') ? 'catbox' : 'user';
 
-    // dest_path relative to the user's root — mirrors the old upload endpoint path
-    const destRel = (currentPath.startsWith('/cdn') ? currentPath : currentPath) + '/' + file.name;
+    // Build queue items for all selected files
+    const items = files.map(f => ({
+        file: f,
+        destRel: (currentPath.endsWith('/') ? currentPath : currentPath + '/') + f.name,
+        ownerType,
+        isProtected,
+    }));
 
-    try {
-        const res = await uploadChunked(file, destRel, {
-            ownerType: currentPath.startsWith('/cdn') ? 'catbox' : 'user',
-        });
-        showMessage('Upload successful', `${file.name} uploaded successfully.`);
-        loadDirectory(currentPath);
-    } catch (err) {
-        if (err.name === 'PauseSignal' || err.message === 'Upload cancelled') return;
-        showMessage('Upload failed', err.message || String(err));
+    if (items.length === 1) {
+        // Single file: start immediately
+        try {
+            await uploadChunked(items[0].file, items[0].destRel, { ownerType });
+            showMessage('Upload successful', `${items[0].file.name} uploaded successfully.`);
+            loadDirectory(currentPath);
+        } catch (err) {
+            if (err.name === 'PauseSignal' || err.message === 'Upload cancelled') return;
+            showMessage('Upload failed', err.message || String(err));
+        }
+    } else {
+        // Multiple files: first file starts immediately, rest go to queue
+        const [first, ...rest] = items;
+        window._uploadQueue = [...(window._uploadQueue || []), ...rest];
+        const refreshQ = () => {
+            const btn = document.getElementById('btn-show-queue');
+            const countEl = document.getElementById('queue-count');
+            if (btn && countEl) {
+                const q = window._uploadQueue;
+                if (q.length > 0) { btn.classList.remove('hidden'); countEl.textContent = q.length; }
+                else btn.classList.add('hidden');
+            }
+        };
+        refreshQ();
+
+        // Start first immediately, then drain queue sequentially
+        async function drainQueue(startItem) {
+            let item = startItem;
+            while (item) {
+                try {
+                    await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
+                    loadDirectory(currentPath);
+                } catch (err) {
+                    if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
+                        showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
+                    }
+                }
+                // Next from queue
+                if (window._uploadQueue && window._uploadQueue.length > 0) {
+                    item = window._uploadQueue.shift();
+                    refreshQ();
+                } else {
+                    item = null;
+                }
+            }
+        }
+        drainQueue(first);
+        showMessage('Queued', `${files.length} files queued. Uploading now…`);
     }
+
+    // Reset the file input
+    fileInput.value = '';
 }
 
         // ======================================================================
@@ -1942,6 +1972,294 @@ async function openShareStats(token, name) {
             true /* isHtml */
         );
     } catch(e) { showMessage('Stats error', e.message); }
+}
+
+        // ======================================================================
+        // --- UPLOAD QUEUE PANEL ---
+        // ======================================================================
+/**
+ * Shows a modal panel listing all queued (pending) uploads with the
+ * ability to remove individual items before they start.
+ */
+function openUploadQueuePanel(onClose) {
+    // Remove any existing panel
+    document.getElementById('upload-queue-panel')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'upload-queue-panel';
+    overlay.style.cssText = `
+        position:fixed;top:0;left:0;width:100%;height:100%;
+        background:rgba(0,0,0,0.55);display:flex;align-items:center;
+        justify-content:center;z-index:10000;font-family:Inter,sans-serif;
+    `;
+
+    function buildHTML() {
+        const q = window._uploadQueue || [];
+        const rows = q.length === 0
+            ? `<p style="color:#94a3b8;text-align:center;padding:1.5rem 0">Queue is empty.</p>`
+            : q.map((item, i) => `
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #334155"
+                     data-qi="${i}">
+                    <span style="font-size:18px">📄</span>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+                             title="${escapeHtmlAttr(item.file.name)}">${escapeHtml(item.file.name)}</div>
+                        <div style="font-size:11px;color:#94a3b8">
+                            ${formatBytes(item.file.size)} · ${escapeHtml(item.destRel)}
+                        </div>
+                    </div>
+                    <button class="qp-remove" data-qi="${i}"
+                        style="background:#ef4444;color:white;border:none;border-radius:6px;
+                               padding:4px 10px;cursor:pointer;font-size:12px;flex-shrink:0">
+                        Remove
+                    </button>
+                </div>`).join('');
+
+        return `
+        <div style="background:#0f172a;border-radius:14px;padding:1.5rem;
+                    width:95vw;max-width:560px;max-height:80vh;overflow-y:auto;
+                    color:#e2e8f0;position:relative">
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                        margin-bottom:1rem;border-bottom:1px solid #334155;padding-bottom:.75rem">
+                <span style="font-weight:700;font-size:16px">📋 Upload Queue (${q.length} pending)</span>
+                <button id="qp-close" style="background:rgba(255,255,255,0.1);border:none;color:white;
+                    border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;
+                    display:flex;align-items:center;justify-content:center">✕</button>
+            </div>
+            <div id="qp-list">${rows}</div>
+            ${q.length > 0 ? `<div style="margin-top:1rem;text-align:right">
+                <button id="qp-clear-all"
+                    style="background:#64748b;color:white;border:none;border-radius:7px;
+                           padding:6px 14px;cursor:pointer;font-size:12px">Clear all</button>
+            </div>` : ''}
+        </div>`;
+    }
+
+    function render() {
+        overlay.innerHTML = buildHTML();
+        overlay.querySelector('#qp-close').addEventListener('click', () => {
+            overlay.remove();
+            if (onClose) onClose();
+        });
+        overlay.querySelector('#qp-clear-all')?.addEventListener('click', () => {
+            window._uploadQueue = [];
+            render();
+            if (onClose) onClose();
+        });
+        overlay.querySelectorAll('.qp-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const i = +btn.dataset.qi;
+                window._uploadQueue.splice(i, 1);
+                render();
+                if (onClose) onClose();
+            });
+        });
+        // Close on overlay click
+        overlay.addEventListener('click', ev => {
+            if (ev.target === overlay) { overlay.remove(); if (onClose) onClose(); }
+        });
+    }
+
+    document.body.appendChild(overlay);
+    render();
+}
+
+        // ======================================================================
+        // --- INTERRUPTED UPLOADS MANAGER ---
+        // ======================================================================
+/**
+ * Shows a modal panel listing all interrupted (localStorage-persisted) uploads.
+ * Each item shows filename, size, destination, estimated progress, and offers
+ * Resume (opens file picker for that file) or Discard buttons.
+ */
+function openInterruptedManager(onClose) {
+    document.getElementById('interrupted-manager-panel')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'interrupted-manager-panel';
+    overlay.style.cssText = `
+        position:fixed;top:0;left:0;width:100%;height:100%;
+        background:rgba(0,0,0,0.55);display:flex;align-items:center;
+        justify-content:center;z-index:10000;font-family:Inter,sans-serif;
+    `;
+
+    function buildHTML(pending) {
+        const rows = pending.length === 0
+            ? `<p style="color:#94a3b8;text-align:center;padding:1.5rem 0">No interrupted uploads found.</p>`
+            : pending.map((meta, i) => {
+                const pct = meta.total > 0
+                    ? Math.min(100, Math.round(((meta.nextChunkIdx || 0) * (meta.chunkSize || 1)) / meta.total * 100))
+                    : 0;
+                const progressColor = '#22c55e';
+                return `
+                <div style="padding:12px 0;border-bottom:1px solid #334155" data-im="${i}">
+                    <div style="display:flex;align-items:flex-start;gap:10px">
+                        <span style="font-size:22px;margin-top:2px">📄</span>
+                        <div style="flex:1;min-width:0">
+                            <div style="font-weight:600;white-space:nowrap;overflow:hidden;
+                                        text-overflow:ellipsis;margin-bottom:2px"
+                                 title="${escapeHtmlAttr(meta.filename)}">${escapeHtml(meta.filename)}</div>
+                            <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">
+                                ${formatBytes(meta.total)} · ${escapeHtml(meta.destRel)}
+                            </div>
+                            <div style="background:#1e293b;border-radius:4px;height:6px;margin-bottom:4px">
+                                <div style="background:${progressColor};height:6px;border-radius:4px;width:${pct}%"></div>
+                            </div>
+                            <div style="font-size:11px;color:#64748b">${pct}% uploaded before interruption</div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+                            <button class="im-resume" data-im="${i}"
+                                style="background:#22c55e;color:white;border:none;border-radius:6px;
+                                       padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600">
+                                ▶ Resume
+                            </button>
+                            <button class="im-discard" data-im="${i}"
+                                style="background:#ef4444;color:white;border:none;border-radius:6px;
+                                       padding:5px 12px;cursor:pointer;font-size:12px">
+                                🗑 Discard
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+        return `
+        <div style="background:#0f172a;border-radius:14px;padding:1.5rem;
+                    width:95vw;max-width:600px;max-height:82vh;overflow-y:auto;
+                    color:#e2e8f0;position:relative">
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                        margin-bottom:1rem;border-bottom:1px solid #334155;padding-bottom:.75rem">
+                <span style="font-weight:700;font-size:16px">⟳ Interrupted Uploads (${pending.length})</span>
+                <button id="im-close" style="background:rgba(255,255,255,0.1);border:none;color:white;
+                    border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;
+                    display:flex;align-items:center;justify-content:center">✕</button>
+            </div>
+            <p style="font-size:12px;color:#64748b;margin-bottom:12px">
+                To resume, click <strong style="color:#22c55e">Resume</strong> and select the same file from your computer.
+                The upload will continue from where it left off.
+            </p>
+            <div id="im-list">${rows}</div>
+            ${pending.length > 1 ? `<div style="margin-top:1rem;text-align:right">
+                <button id="im-discard-all"
+                    style="background:#64748b;color:white;border:none;border-radius:7px;
+                           padding:6px 14px;cursor:pointer;font-size:12px">Discard all</button>
+            </div>` : ''}
+        </div>`;
+    }
+
+    async function doResume(meta) {
+        // Ask server for authoritative chunk status first
+        let startIdx = meta.nextChunkIdx || 0;
+        try {
+            const statusRes = await fetchWithFallback(
+                `${API_BASE_URL}/api/v1/upload_session/${meta.uploadToken}/status`,
+                { method: 'GET', headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} }
+            );
+            if (statusRes.ok) {
+                const st = await statusRes.json();
+                if (st.missing_chunks && st.missing_chunks.length > 0) {
+                    startIdx = st.missing_chunks[0];
+                } else if (!st.missing_chunks || st.missing_chunks.length === 0) {
+                    // Already complete on server — just finalize
+                    await fetchWithFallback(
+                        `${API_BASE_URL}/api/v1/upload_session/${meta.uploadToken}/complete`,
+                        { method: 'POST', headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} }
+                    );
+                    removeInterruptedUpload(meta.uploadToken);
+                    if (onClose) onClose();
+                    overlay.remove();
+                    loadDirectory(currentPath);
+                    return;
+                }
+            } else {
+                // Session expired — remove stale record
+                removeInterruptedUpload(meta.uploadToken);
+                if (onClose) onClose();
+                render(getAllInterruptedUploads());
+                showMessage('Session expired', `The upload session for "${meta.filename}" has expired on the server. Please upload the file again.`);
+                return;
+            }
+        } catch { /* proceed with stored chunk index */ }
+
+        // Open file picker for just this file
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.style.display = 'none';
+        document.body.appendChild(fileInput);
+        fileInput.click();
+        fileInput.addEventListener('change', async () => {
+            document.body.removeChild(fileInput);
+            if (!fileInput.files.length) return;
+            const f = fileInput.files[0];
+            if (f.name !== meta.filename || f.size !== meta.total) {
+                showMessage('File mismatch',
+                    `Expected "${meta.filename}" (${formatBytes(meta.total)}) but got "${f.name}" (${formatBytes(f.size)}). Please select the exact same file.`);
+                return;
+            }
+            overlay.remove();
+            uploadChunked(f, meta.destRel, {
+                ownerType:        meta.ownerType,
+                shareToken:       meta.shareToken || '',
+                resumeToken:      meta.uploadToken,
+                resumeFromChunk:  startIdx,
+                resumeChunkSize:  meta.chunkSize,
+                resumeAnonToken:  meta.anonDeviceToken,
+            }).then(() => {
+                loadDirectory(currentPath);
+                if (onClose) onClose();
+            }).catch(err => {
+                if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
+                    showMessage('Resume failed', err.message);
+                }
+                if (onClose) onClose();
+            });
+        });
+    }
+
+    function render(pending) {
+        overlay.innerHTML = buildHTML(pending);
+
+        overlay.querySelector('#im-close').addEventListener('click', () => {
+            overlay.remove(); if (onClose) onClose();
+        });
+        overlay.addEventListener('click', ev => {
+            if (ev.target === overlay) { overlay.remove(); if (onClose) onClose(); }
+        });
+
+        overlay.querySelector('#im-discard-all')?.addEventListener('click', () => {
+            getAllInterruptedUploads().forEach(m => removeInterruptedUpload(m.uploadToken));
+            render(getAllInterruptedUploads());
+            if (onClose) onClose();
+        });
+
+        overlay.querySelectorAll('.im-resume').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const pending = getAllInterruptedUploads();
+                const meta = pending[+btn.dataset.im];
+                if (!meta) return;
+                await doResume(meta);
+            });
+        });
+
+        overlay.querySelectorAll('.im-discard').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const pending = getAllInterruptedUploads();
+                const meta = pending[+btn.dataset.im];
+                if (!meta) return;
+                removeInterruptedUpload(meta.uploadToken);
+                // Best-effort server cancel
+                fetchWithFallback(
+                    `${API_BASE_URL}/api/v1/upload_session/${meta.uploadToken}/cancel`,
+                    { method: 'DELETE', headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} }
+                ).catch(() => {});
+                render(getAllInterruptedUploads());
+                if (onClose) onClose();
+            });
+        });
+    }
+
+    document.body.appendChild(overlay);
+    render(getAllInterruptedUploads());
 }
 
         // ======================================================================

@@ -1,7 +1,7 @@
-# server `v0.9.3`
+# server `v0.9.4`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Proper error message for `/share` without token, auto-redirect `/status` from HTTP(S) hosters to CDN***
+*Release note: **Fix the upload logics, polishing off user-side details***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

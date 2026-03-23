@@ -412,7 +412,7 @@ def init_db():
 # ==============================================================================
 
 # Chunk size and abandoned-session TTL are tunable via env
-UPLOAD_CHUNK_SIZE   = int(os.getenv('UPLOAD_CHUNK_SIZE',   str(25 * 1024 * 1024)))   # 25 MB
+UPLOAD_CHUNK_SIZE   = int(os.getenv('UPLOAD_CHUNK_SIZE',   str(1 * 1024 * 1024)))    # 1 MB
 UPLOAD_SESSION_TTL  = int(os.getenv('UPLOAD_SESSION_TTL',  str(48 * 3600)))           # 48 h
 MAX_JSON_BODY       = int(os.getenv('MAX_JSON_BODY',        str(1  * 1024 * 1024)))   # 1 MB — cap all JSON request bodies
 MAX_UPLOAD_BYTES    = int(os.getenv('MAX_UPLOAD_BYTES',     str(10 * 1024 * 1024 * 1024)))  # 10 GB legacy upload cap
@@ -458,18 +458,45 @@ def _upload_get(token: str) -> dict | None:
     d['chunks_received'] = json.loads(d['chunks_received'] or '[]')
     return d
 
-def _upload_receive_chunk(token: str, chunk_index: int, data: bytes) -> dict:
-    """Write chunk to disk, verify SHA-256, update session. Returns updated session."""
+def _upload_receive_chunk(token: str, chunk_index: int, data: bytes,
+                          expected_size: int | None = None) -> dict:
+    """Write chunk to disk, update session. Returns updated session.
+
+    expected_size: if provided (from Content-Length header), must exactly match
+    len(data).  A mismatch means the TCP connection dropped mid-transfer and the
+    chunk buffer is truncated — we reject it rather than silently storing a
+    partial chunk and later marking it as fully received.
+    """
     session = _upload_get(token)
     if not session:
         raise KeyError('Upload session not found')
     if session['completed']:
         raise ValueError('Session already completed')
 
+    # Reject truncated reads immediately so the client gets a 500 and retries.
+    if expected_size is not None and len(data) != expected_size:
+        raise ValueError(
+            f'Chunk {chunk_index} truncated: received {len(data)} bytes, '
+            f'expected {expected_size}'
+        )
+
     # Write chunk file (safe outside the lock — each index has a unique filename)
     chunk_path = os.path.join(session['tmp_dir'], f'{chunk_index:06d}.chunk')
     with open(chunk_path, 'wb') as f:
         f.write(data)
+
+    # Confirm the data actually landed on disk at the correct size.
+    # stat() after close() is the cheapest way to catch mid-write out-of-space.
+    on_disk = os.path.getsize(chunk_path)
+    if on_disk != len(data):
+        try:
+            os.remove(chunk_path)
+        except OSError:
+            pass
+        raise ValueError(
+            f'Chunk {chunk_index} disk write incomplete: '
+            f'{on_disk} B on disk vs {len(data)} B received'
+        )
 
     # Serialise the read-modify-write so concurrent chunk uploads don't clobber
     # each other's entries in the JSON list.
@@ -493,61 +520,99 @@ def _upload_receive_chunk(token: str, chunk_index: int, data: bytes) -> dict:
             conn.commit()
     return _upload_get(token)
 
-def _upload_assemble(token: str) -> str:
-    """Assemble all chunks into dest_path. Returns dest_path on success."""
+def _upload_assemble(token: str) -> tuple[str, str]:
+    """Assemble all chunks into dest_path.
+
+    Returns (dest_path, sha256_hex).  The SHA-256 is computed *inline* during
+    the streaming copy — callers must NOT re-read the assembled file to hash it.
+    """
     session = _upload_get(token)
     if not session:
         raise KeyError('Upload session not found')
 
-    tmp_dir    = session['tmp_dir']
-    dest_path  = session['dest_path']
+    tmp_dir      = session['tmp_dir']
+    dest_path    = session['dest_path']
     total_chunks = session['total_chunks']
-    received   = set(session['chunks_received'])
+    received     = set(session['chunks_received'])
+    chunk_size   = session['chunk_size']
 
-    # Verify all chunks present
+    # 1. Verify all chunks are recorded as received in the DB.
     if total_chunks > 0:
         missing = [i for i in range(total_chunks) if i not in received]
         if missing:
             raise ValueError(f'Missing chunks: {missing[:10]}{"…" if len(missing)>10 else ""}')
 
+    # 2. Verify each chunk file actually exists on disk and has the right size.
+    #    The last chunk may be smaller than chunk_size (remainder bytes), so we
+    #    only enforce the exact size for all chunks except the last one.
+    total_size = session['total_size']
+    bad_files = []
+    sorted_chunks = sorted(received)
+    for idx in sorted_chunks:
+        chunk_path = os.path.join(tmp_dir, f'{idx:06d}.chunk')
+        if not os.path.exists(chunk_path):
+            bad_files.append(f'chunk {idx} missing from disk')
+            continue
+        on_disk = os.path.getsize(chunk_path)
+        is_last = (idx == sorted_chunks[-1])
+        if is_last:
+            # Last chunk: size = total_size - (chunk_size * idx), but allow ≤ chunk_size
+            expected_last = total_size - chunk_size * idx if total_size > 0 else on_disk
+            if on_disk != expected_last:
+                bad_files.append(
+                    f'chunk {idx} (last) size mismatch: {on_disk} B on disk, {expected_last} B expected'
+                )
+        else:
+            if on_disk != chunk_size:
+                bad_files.append(
+                    f'chunk {idx} size mismatch: {on_disk} B on disk, {chunk_size} B expected'
+                )
+    if bad_files:
+        raise ValueError('Chunk file integrity check failed: ' + '; '.join(bad_files))
+
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
-    # Assemble in order
+    # 3. Stream-copy chunks into the final file while hashing inline.
+    #    Using a 1 MiB read buffer keeps memory flat regardless of chunk size.
+    READ_BUF = 1 * 1024 * 1024
     hasher = hashlib.sha256()
     with open(dest_path, 'wb') as out:
-        for idx in sorted(received):
+        for idx in sorted_chunks:
             chunk_path = os.path.join(tmp_dir, f'{idx:06d}.chunk')
             with open(chunk_path, 'rb') as cf:
                 while True:
-                    block = cf.read(4 * 1024 * 1024)
+                    block = cf.read(READ_BUF)
                     if not block:
                         break
                     out.write(block)
                     hasher.update(block)
 
-    # Verify whole-file SHA-256 if client provided one
+    # 4. Verify whole-file SHA-256 if the client declared one at init time.
     actual_sha256 = hasher.hexdigest()
     if session['sha256_final'] and session['sha256_final'].lower() != actual_sha256:
-        os.remove(dest_path)
+        try:
+            os.remove(dest_path)
+        except OSError:
+            pass
         raise ValueError(
             f'SHA-256 mismatch: expected {session["sha256_final"]}, got {actual_sha256}'
         )
 
-    # Mark complete and clean up chunk dir
+    # 5. Mark complete in DB and clean up tmp chunks.
     with _db_connect() as conn:
         conn.execute(
             'UPDATE upload_sessions SET completed = 1, last_activity = CURRENT_TIMESTAMP WHERE upload_token = ?',
             (token,)
         )
         conn.commit()
-    _release_chunk_lock(token)  # free the per-session lock entry
+    _release_chunk_lock(token)
     try:
         shutil.rmtree(tmp_dir, ignore_errors=True)
     except Exception:
         pass
 
     logging.info(f'Upload assembled: {dest_path} ({actual_sha256[:12]}…)')
-    return dest_path
+    return dest_path, actual_sha256
 
 def _upload_session_status(session: dict) -> dict:
     """Return a client-friendly status dict for a session."""
@@ -2597,7 +2662,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 }))
 
         try:
-            updated = _upload_receive_chunk(upload_token, chunk_index, data)
+            updated = _upload_receive_chunk(upload_token, chunk_index, data,
+                                            expected_size=content_length)
             status  = _upload_session_status(updated)
             logging.info(f'Chunk received: token={upload_token[:12]}… idx={chunk_index} '
                          f'({len(data)//1024}KB) {len(status["chunks_received"])}/{updated["total_chunks"]}')
@@ -2627,7 +2693,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(403, json.dumps({'error': reason}))
 
         try:
-            dest_path = _upload_assemble(upload_token)
+            # _upload_assemble now returns (dest_path, sha256_hex) — the hash is
+            # computed inline during the streaming copy so we never re-read the file.
+            dest_path, assembly_sha256 = _upload_assemble(upload_token)
         except ValueError as e:
             return self._send_response(422, json.dumps({'error': str(e)}))
         except Exception as e:
@@ -2650,10 +2718,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
             file_url = f'https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/FluxDrop/{owner_ref}/{rel}'
 
         size = os.path.getsize(dest_path)
-        with open(dest_path, 'rb') as f:
-            sha256 = hashlib.sha256(f.read()).hexdigest() if size < 500 * 1024 * 1024 else 'skipped (>500MB)'
+        # Re-use the SHA-256 already computed during assembly — no second file read.
+        sha256 = assembly_sha256
 
-        logging.info(f'Upload complete: {dest_path} ({size} bytes) token={upload_token[:12]}…')
+        logging.info(f'Upload complete: {dest_path} ({size} bytes) sha256={sha256[:12]}… token={upload_token[:12]}…')
         return self._send_response(200, json.dumps({'url': file_url, 'sha256': sha256, 'size': size}))
 
     def handle_upload_session_cancel(self, upload_token: str):

@@ -30,6 +30,16 @@ exit /b 1
 echo Using Git Bash: %GIT_BASH%
 echo.
 
+REM Check rsync is available inside Git Bash
+%GIT_BASH% --login -c "command -v rsync" >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: rsync not found inside Git Bash.
+    echo   Download rsync.exe from https://itefix.net/cwrsync and place it in:
+    echo   C:\Program Files\Git\usr\bin\
+    pause
+    exit /b 1
+)
+
 REM Run the shell script — --login ensures $HOME and PATH are set correctly
 %GIT_BASH% --login -c "cd '%~dp0' && bash sync_to_server.sh"
 

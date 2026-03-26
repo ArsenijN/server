@@ -75,6 +75,16 @@ let authToken = localStorage.getItem('fluxdrop_token');
 let currentUsername = localStorage.getItem('fluxdrop_username');
 // Track the currently viewed path in the file browser (always starts at root)
 let currentPath = '/';
+// Sorting state — persisted across page reloads via localStorage
+let currentSort = (() => {
+    try { return JSON.parse(localStorage.getItem('fluxdrop_sort')) || { key: 'name', dir: 'asc' }; }
+    catch { return { key: 'name', dir: 'asc' }; }
+})();
+// Whether folders are sorted together with files (false = folders always first)
+let sortFoldersMixed = (() => {
+    try { return JSON.parse(localStorage.getItem('fluxdrop_sort_mixed')) || false; }
+    catch { return false; }
+})();
 
         // ======================================================================
         // --- UTILITY FUNCTIONS ---
@@ -208,6 +218,7 @@ function renderFileBrowserView() {
                     <button id="btn-refresh" class="btn text-sm">Refresh</button>
                     <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm">New Folder</button>
                     <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm">Browse CDN</button>
+                    <button id="btn-folders-mixed" class="btn text-sm" title="Toggle folders-first vs mixed sorting"></button>
                 </div>
             </div>
 
@@ -249,6 +260,20 @@ function renderFileBrowserView() {
     });
     document.getElementById('btn-create-folder').addEventListener('click', promptCreateFolder);
     document.getElementById('btn-browse-cdn').addEventListener('click', () => { currentPath = '/cdn'; loadDirectory(currentPath); });
+    // Folders-first toggle
+    function updateFoldersMixedBtn() {
+        const btn = document.getElementById('btn-folders-mixed');
+        if (!btn) return;
+        btn.textContent = sortFoldersMixed ? '🔀 Mixed' : '📁 Folders first';
+        btn.style.background = sortFoldersMixed ? '#6b7280' : '#0ea5e9';
+    }
+    updateFoldersMixedBtn();
+    document.getElementById('btn-folders-mixed').addEventListener('click', () => {
+        sortFoldersMixed = !sortFoldersMixed;
+        localStorage.setItem('fluxdrop_sort_mixed', JSON.stringify(sortFoldersMixed));
+        updateFoldersMixedBtn();
+        loadDirectory(currentPath);
+    });
     document.getElementById('upload-form').addEventListener('submit', handleUploadForm);
 
     // ── Upload queue state ──────────────────────────────────────────
@@ -358,23 +383,72 @@ async function loadDirectory(path) {
     if (!path) path = '/';
     if (!path.startsWith('/')) path = '/' + path;
     currentPath = path;
-    breadcrumb.textContent = `Path: ${path}`;
-    // Show skeleton rows immediately so the table shape appears while fetching
-    fileList.innerHTML = `<table style="width:100%;table-layout:fixed;border-collapse:collapse">
+    // Render clickable breadcrumb
+    (function renderBreadcrumb(p) {
+        const segs = p.replace(/\/+$/, '').split('/').filter((_, i) => i === 0 ? true : Boolean(_));
+        // segs[0] is always '' (from leading slash); replace with 'root'
+        let html = '';
+        let built = '';
+        segs.forEach((seg, idx) => {
+            if (idx === 0) {
+                built = '/';
+                html += `<button onclick="loadDirectory('/')" style="background:none;border:none;color:#3b82f6;cursor:pointer;font-weight:600;padding:0 2px">🏠 root</button>`;
+            } else {
+                built = built.endsWith('/') ? built + seg : built + '/' + seg;
+                const bp = built;
+                html += ` <span style="color:#94a3b8">/</span> `;
+                const isLast = idx === segs.length - 1;
+                if (isLast) {
+                    html += `<span style="color:#1e293b;font-weight:600">${escapeHtml(seg)}</span>`;
+                } else {
+                    html += `<button onclick="loadDirectory('${escapeHtmlAttr(bp)}')" style="background:none;border:none;color:#3b82f6;cursor:pointer;padding:0 2px">${escapeHtml(seg)}</button>`;
+                }
+            }
+        });
+        breadcrumb.innerHTML = html;
+    })(path);
+    // Build sortable column headers — shows arrow on the active column
+    function sortHeaders() {
+        const cols = [
+            { key: 'name',  label: 'Name',     align: 'left'  },
+            { key: 'size',  label: 'Size',      align: 'left'  },
+            { key: 'mtime', label: 'Modified',  align: 'left'  },
+        ];
+        const thStyle = (align) =>
+            `padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:${align};` +
+            `user-select:none;white-space:nowrap;`;
+        const btnStyle =
+            `background:none;border:none;cursor:pointer;font-size:12px;font-weight:700;` +
+            `color:#64748b;padding:0;display:inline-flex;align-items:center;gap:3px;`;
+        const ths = cols.map(c => {
+            const arrow = currentSort.key === c.key
+                ? (currentSort.dir === 'asc' ? ' ▲' : ' ▼')
+                : ' ⇅';
+            const activeStyle = currentSort.key === c.key
+                ? 'color:#2563eb;' : '';
+            return `<th style="${thStyle(c.align)}">
+                <button onclick="window._sortBy('${c.key}')"
+                    style="${btnStyle}${activeStyle}">${c.label}<span style="font-size:10px;opacity:.7">${arrow}</span></button>
+            </th>`;
+        }).join('');
+        return `<thead><tr style="border-bottom:2px solid #e2e8f0">
+            ${ths}
+            <th style="${thStyle('right')}">Actions</th>
+        </tr></thead>`;
+    }
+
+    const TABLE_WRAP = `<table style="width:100%;table-layout:fixed;border-collapse:collapse">
         <colgroup>
             <col style="width:42%">
             <col style="width:10%">
             <col style="width:18%">
             <col style="width:30%">
-        </colgroup>
-        <thead><tr style="border-bottom:2px solid #e2e8f0">
-            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Name</th>
-            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Size</th>
-            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Modified</th>
-            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:right">Actions</th>
-        </tr></thead>
-            <tbody>${skeletonRows(7)}</tbody>
-        </table>`;
+        </colgroup>`;
+
+    // Show skeleton rows immediately so the table shape appears while fetching
+    fileList.innerHTML = TABLE_WRAP + sortHeaders() +
+        `<tbody>${skeletonRows(7)}</tbody></table>`;
+
     try {
         const endpoint = path === '/' ? '/api/v1/list/' : `/api/v1/list${encodePath(path)}`;
         const data = await apiCall(endpoint, 'GET', null, true);
@@ -383,27 +457,53 @@ async function loadDirectory(path) {
             fileList.innerHTML = `<p class="text-sm text-gray-600" style="padding:1rem">(empty)</p>`;
             return;
         }
-        const rows = entries.map(e => renderEntryRow(e)).join('');
-        fileList.innerHTML = `<table style="width:100%;table-layout:fixed;border-collapse:collapse">
-        <colgroup>
-            <col style="width:42%">
-            <col style="width:10%">
-            <col style="width:18%">
-            <col style="width:30%">
-        </colgroup>
-        <thead><tr style="border-bottom:2px solid #e2e8f0">
-            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Name</th>
-            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Size</th>
-            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:left">Modified</th>
-            <th style="padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:right">Actions</th>
-        </tr></thead>
-            <tbody>${rows}</tbody>
-        </table>`;
+        const sorted = sortEntries(entries);
+        const rows = sorted.map(e => renderEntryRow(e)).join('');
+        fileList.innerHTML = TABLE_WRAP + sortHeaders() +
+            `<tbody>${rows}</tbody></table>`;
         attachRowListeners();
     } catch (err) {
         fileList.innerHTML = `<p class="text-sm text-red-600" style="padding:1rem">Failed to load directory: ${err.message}</p>`;
     }
 }
+
+// Sort an array of entry objects according to currentSort + sortFoldersMixed.
+// The original array is not mutated.
+function sortEntries(entries) {
+    const { key, dir } = currentSort;
+    const mul = dir === 'asc' ? 1 : -1;
+
+    function cmp(a, b) {
+        // Folders-first grouping (unless mixed mode)
+        if (!sortFoldersMixed && a.is_dir !== b.is_dir) {
+            return a.is_dir ? -1 : 1;
+        }
+        let va, vb;
+        if (key === 'size') {
+            va = a.is_dir ? -1 : (a.size || 0);
+            vb = b.is_dir ? -1 : (b.size || 0);
+            return mul * (va - vb);
+        } else if (key === 'mtime') {
+            va = a.mtime || '';
+            vb = b.mtime || '';
+            return mul * va.localeCompare(vb);
+        } else { // name
+            return mul * (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        }
+    }
+    return entries.slice().sort(cmp);
+}
+
+// Global handler called by inline onclick in sort headers
+window._sortBy = function(key) {
+    if (currentSort.key === key) {
+        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort = { key, dir: 'asc' };
+    }
+    localStorage.setItem('fluxdrop_sort', JSON.stringify(currentSort));
+    loadDirectory(currentPath);
+};
 
 
 // Compact action button style used inside the file-list table.

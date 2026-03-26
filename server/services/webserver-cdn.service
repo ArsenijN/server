@@ -1,0 +1,17 @@
+[Unit]
+Description=Web Server HTTPS
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=arsen
+WorkingDirectory=/home/arsen/servers/self-host/site/Web
+ExecStart=/opt/venvs/site_web/bin/python server_cdn.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

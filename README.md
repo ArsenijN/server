@@ -1,7 +1,7 @@
-# server `v0.9.5`
+# server `v0.9.6`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **UI fixes, internet offline message, cached page, no jumpy UI***
+*Release note: **Deployment notes, clean the old files***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
@@ -45,3 +45,90 @@ files.
 
 This makes the repository safe to sync or publish; no actual credentials should 
 appear in the tracked files.
+
+## Installation
+
+### Prerequisites
+- Python 3.14+ (developed and tested on 3.14.3)
+- `pip`
+- ImageMagick (`sudo apt install imagemagick libmagickwand-dev`) — for email icon embedding
+- Node.js + npm — for rebuilding Tailwind CSS if you modify the frontend
+
+### 1. Clone and enter the repository
+```bash
+git clone <your-repo-url>
+cd <repo-name>/server/Web
+```
+
+### 2. Create and activate a virtual environment
+```bash
+python3.14 -m venv /opt/venvs/site_web   # matches the path in the .service files
+source /opt/venvs/site_web/bin/activate
+```
+Or use any path you prefer — just update `ExecStart=` in the `.service` files accordingly.
+
+### 3. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configure secrets
+Copy the sample files and fill in your values:
+```bash
+cp secrets_samples/credentials_local.env.sample secrets/credentials_local.env
+cp secrets_samples/smtp.env.sample               secrets/smtp.env
+cp secrets_samples/myCA.pem.sample               secrets/myCA.pem   # replace with real cert
+cp secrets_samples/myCA.key.sample               secrets/myCA.key   # replace with real key
+cp secrets_samples/blklst.txt.sample             secrets/blklst.txt
+```
+
+Key environment variables (set in `secrets/vars.env`):
+| Variable | Description | Example |
+|---|---|---|
+| `PUBLIC_DOMAIN` | Your public hostname | `example.com` |
+| `SERVE_ROOT` | Root of the CDN/media volume | `/srv/fluxdrop/cdn` |
+| `SERVE_DIRECTORY` | Root of the static web files | `/srv/fluxdrop/site/TestWeb` |
+| `UPLOAD_TMP_DIR` | Temp dir for chunked uploads (should be on the same volume as `SERVE_ROOT`) | `/srv/fluxdrop/cdn/.upload_sessions` |
+| `HTTP_PORT` | HTTP listen port | `63512` |
+| `HTTPS_PORT` | HTTPS listen port | `64800` |
+
+### 5. Install and enable systemd services
+```bash
+# Edit the service files first — update User=, WorkingDirectory=, ExecStart= to match your paths
+sudo cp ../services/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now webserver-http webserver-https webserver-cdn
+```
+
+### 6. Check logs
+```bash
+journalctl -u webserver-cdn -f
+journalctl -u webserver-https -f
+```
+
+
+
+## Keeping the server up to date
+
+The `sync_to_server.sh` script performs a one-way mirror from your local
+`./server` tree to the Debian host and restarts all three services automatically:
+```bash
+./sync_to_server.sh
+```
+
+It uses SSH `ControlMaster` multiplexing, so your passphrase is only asked once
+regardless of how many rsync invocations run.
+
+The `secrets/` directory is **always excluded** from sync — live credentials and
+the SQLite database on the server are never overwritten by a deploy.
+
+If you prefer not to be prompted for a sudo password each time, either:
+- Configure passwordless sudo on the remote for `systemctl restart` only, or
+- Set `NO_SUDO_PROMPT=1` before running (uses `sudo` without `-S`, so you'll
+  need an active sudo session on the remote already)
+
+To verify the deployed version after a sync, check the server's log or the
+`/status` page:
+```
+https://<your-domain>/status
+```

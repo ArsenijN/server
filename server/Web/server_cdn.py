@@ -35,6 +35,15 @@ def _load_snippet(filename: str) -> str:
     with open(os.path.join(_SNIPPETS_DIR, filename), encoding='utf-8') as f:
         return f.read()
 
+def _read_version() -> str:
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'VERSION'), encoding='utf-8') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return 'unknown'
+
+SERVER_VERSION = _read_version()
+
 def _render_snippet(filename: str, **kwargs) -> str:
     """Load a snippet and substitute {PLACEHOLDER} tokens safely.
 
@@ -1990,6 +1999,8 @@ def _build_status_page() -> str:
         sys_uptime_str=sys_uptime_str,
         srv_uptime_h=str(srv_h),
         srv_start_str=srv_start_str,
+        # server version
+        SERVER_VERSION=SERVER_VERSION,
         # db stats
         user_count=user_count,
         active_sessions=active_sessions,

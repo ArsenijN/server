@@ -17,7 +17,6 @@ __pycache__/
 # To avoid possible data leakage for now:
 scripts/
 .cache/
-services/
 
 .vscode/
 

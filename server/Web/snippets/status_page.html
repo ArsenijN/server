@@ -668,6 +668,11 @@ footer a:hover { text-decoration: underline; }
   <div class="logo">
     <div class="logo-icon">⚡</div>
     <div class="logo-text">Flux<span>Drop</span> Status</div>
+    <span style="font-size:10px;font-weight:600;letter-spacing:1px;color:var(--muted);
+                 background:var(--surface);border:1px solid var(--border);
+                 padding:2px 8px;border-radius:4px;font-family:var(--mono)">
+      v{SERVER_VERSION}
+    </span>
   </div>
   <div class="header-right">
     <div class="overall-status {overall_class}">
@@ -991,7 +996,7 @@ footer a:hover { text-decoration: underline; }
 </div>
 
 <footer>
-  <span>FluxDrop CDN · <a href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/">Go to app</a></span>
+  <span>FluxDrop CDN v{SERVER_VERSION} · <a href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/">Go to app</a></span>
   <span>Live data — AJAX refresh every 30 s, no page reload</span>
 </footer>
 <!-- ── DAY DETAIL MODAL ── -->

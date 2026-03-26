@@ -32,3 +32,6 @@ package-lock.json
 
 # Built CSS is committed (it's the deployment artifact)
 # server/TestWeb/fluxdrop_pp/styles.css  ← do NOT ignore this
+
+# Local sync variables are excluded
+deploy.env

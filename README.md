@@ -1,7 +1,7 @@
-# server `v0.9.6.1`
+# server `v0.9.6.2`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Change services***
+*Release note: **Change deployment***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

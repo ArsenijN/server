@@ -1,6 +1,3 @@
-.backup/
-src/src.zip
-
 # Ignore secrets directory (contains keys, DBs, audit logs)
 server/Web/secrets
 !server/Web/secrets/samples
@@ -16,12 +13,11 @@ __pycache__/
 
 # To avoid possible data leakage for now:
 scripts/
+# Scripts are currently isn't updated to the latest code, so they doesn't work. WIP.
 .cache/
+.backup/
 
 .vscode/
-
-# Temporarely keep FluxDrop out of scope due to some quality reasons
-src/FluxDrop site/
 
 # not sure
 .venv/

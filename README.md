@@ -1,7 +1,7 @@
-# server `v0.9.6.2`
+# server `v0.9.6.3`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Change deployment***
+*Release note: **Note about services, wiki and `.gitignore` in Readme***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
@@ -9,6 +9,8 @@ Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
 Accessible at: https://arseniusgen.uk.to
 
 FluxDrop accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
+
+Wiki page is pending: https://github.com/ArsenijN/server/wiki
 
 ## FluxDrop relations to this server
 
@@ -45,6 +47,10 @@ files.
 
 This makes the repository safe to sync or publish; no actual credentials should 
 appear in the tracked files.
+
+### Services
+
+The `.service` files use `User=arsen` and `WorkingDirectory=/home/arsen/...` which match the author's server. Before running `systemctl enable`, edit these to match your own username and deploy path, or set `REMOTE_SERVICE_USER` in `deploy.env` (a future deploy step can patch them automatically).
 
 ## Installation
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Web Server HTTPS
+Description=Web Server CDN
 After=network.target
 Wants=network.target
 
@@ -7,6 +7,7 @@ Wants=network.target
 Type=simple
 User=arsen
 WorkingDirectory=/home/arsen/servers/self-host/site/Web
+# Use the virtualenv Python created by the installer. Update this path if your venv is different.
 ExecStart=/opt/venvs/site_web/bin/python server_cdn.py
 Restart=always
 RestartSec=5

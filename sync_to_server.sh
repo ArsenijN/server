@@ -30,7 +30,6 @@ while IFS='=' read -r key val; do
     val="${val%"${val##*[![:space:]]}"}"
     # expand $HOME and ~ so paths work on all platforms
     val="${val/\$\{HOME\}/$HOME}"
-    val="${val/\~/}"
     val="${val/#\~/$HOME}"
     # only set if key is a valid identifier and not already in env
     if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then

@@ -24,20 +24,21 @@ user feedback or ideas for future development.
   - [ ] **Folder size** in directory listings (sum of contained file sizes)
     for quota display.
 
-- [ ] Add sorting in file manager (by name, size, date of modify; folders first, treat folders as files (sorting))
-- [ ] Improve user iterations by adding auto-reconnect on dropped connection (e.g. switched networks)
+- [ ] Auto-login on token expiry
+- [ ] Add variable chunk sizes for different internet speeds and optimizations
+- [ ] `Done` in link creation tool will close the window if clicked
+- [x] Add sorting in file manager (by name, size, date of modify; folders first, treat folders as files (sorting))
+- [ ] Improve user iterations by adding auto-reconnect on dropped connection (e.g. switched networks) - this means semi-constant pings to the server on download or/and upload
 - [ ] Add file info modal
   - [ ] Basics (file modify, size)
   - [ ] Hash sums (do it via `nice` so it will execute when server isn't fully utilized, or as background thing)
     - [ ] Use those hashes as filechecks for background activity
       - [ ] Add parchives to avoid file damages
       - [ ] Add some kind of messages if files got corrupted on server side and was unrecoverable 
-- [ ] Auto-login on token expiry
 - [ ] Sand off the UI and textes, fix small inconsistences in UI (like on rename function)
 - [ ] i18n support (language changes)
-- [ ] Add handler to show when internet connection drops (upload/download)
-- [ ] Shares that will work after file move/folder rename/file rename
-- [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
+- [ ] Add handler to show when internet connection drops mid upload/download in the status bar/ETA
+- [ ] Shares that will work after file/folder move or rename
 - [ ] Fix every FluxDrop snippet and site (UIs) to work properly with mobile and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Improve server download speeds by use of multithreaded function
@@ -53,6 +54,7 @@ user feedback or ideas for future development.
 - [ ] Add .zip, .tar.gz, and so on support for previews (at least file table)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
 - [ ] Make special player with "video preview support", aka "slow internet mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce bandwidth and resolution)
+- [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
 
 - [ ] Add landing page for FluxDrop
 - [ ] Add ToS and PP docs
@@ -61,3 +63,8 @@ user feedback or ideas for future development.
 - [ ] Add autoupdate "agreement" (when newer ToS or PP appears - user must accept it within)
 - [ ] Discover ways to build own page via modules (zero-code; not necessary since I can just remember CSS and HTML, and do that by hands)
 - [ ] Add "proper" loading wheels (1 second as least amount of time for the "apply" and other important features, more pleasant loadings for the file manager)
+
+- [ ] Make easier instructions for setup of the server
+- [ ] Use buiding station + server logics in the instructions
+
+- [ ] Make HTTP and HTTPS hosters work properly as standalone utilities without any FluxDrop and CDN

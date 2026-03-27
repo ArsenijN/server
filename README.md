@@ -1,7 +1,8 @@
-# server `v0.9.6.3`
+# server `v0.9.7`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Note about services, wiki and `.gitignore` in Readme***
+*Release note: **Add sources link on main page, some updates to the setup 
+instructions, fix the sync scripts, etc.***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
@@ -50,28 +51,33 @@ appear in the tracked files.
 
 ### Services
 
-The `.service` files use `User=arsen` and `WorkingDirectory=/home/arsen/...` which match the author's server. Before running `systemctl enable`, edit these to match your own username and deploy path, or set `REMOTE_SERVICE_USER` in `deploy.env` (a future deploy step can patch them automatically).
+The `.service` files use `User=arsen` and `WorkingDirectory=/home/arsen/...` 
+which match the author's server. Before running `systemctl enable`, edit these 
+to match your own username and deploy path, or set `REMOTE_SERVICE_USER` in 
+`deploy.env` (a future deploy step can patch them automatically).
 
 ## Installation
 
 ### Prerequisites
 - Python 3.14+ (developed and tested on 3.14.3)
 - `pip`
-- ImageMagick (`sudo apt install imagemagick libmagickwand-dev`) — for email icon embedding
+- ImageMagick (`sudo apt install imagemagick libmagickwand-dev`) — for email 
+icon embedding
 - Node.js + npm — for rebuilding Tailwind CSS if you modify the frontend
 
-### 1. Clone and enter the repository
+### 1. Clone and enter the repository on building station
 ```bash
-git clone <your-repo-url>
-cd <repo-name>/server/Web
+git clone https://github.com/ArsenijN/server
+cd serevr/server/Web
 ```
 
-### 2. Create and activate a virtual environment
+### 2. Create and activate a virtual environment on remote server
 ```bash
 python3.14 -m venv /opt/venvs/site_web   # matches the path in the .service files
 source /opt/venvs/site_web/bin/activate
 ```
-Or use any path you prefer — just update `ExecStart=` in the `.service` files accordingly.
+Or use any path you prefer — just update `ExecStart=` in the `.service` files 
+accordingly.
 
 ### 3. Install dependencies
 ```bash

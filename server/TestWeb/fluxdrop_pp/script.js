@@ -73,6 +73,7 @@ const authControls = document.getElementById('auth-controls');
 
 let authToken = localStorage.getItem('fluxdrop_token');
 let currentUsername = localStorage.getItem('fluxdrop_username');
+let isAdmin = localStorage.getItem('fluxdrop_is_admin') === '1';
 // Track the currently viewed path in the file browser (always starts at root)
 let currentPath = '/';
 // Sorting state — persisted across page reloads via localStorage
@@ -113,23 +114,28 @@ async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = tru
         if (!authToken) throw new Error("Authentication token not found.");
         headers.set('Authorization', `Bearer ${authToken}`);
     }
-
     const options = { method, headers };
     if (body) options.body = JSON.stringify(body);
-
     try {
-        // Use the helper which can automatically fall back to HTTP when
-        // running from an insecure page and the HTTPS server isn't
-        // reachable.  This also ensures we don't accidentally hit a
-        // mixed‑content block in the browser.
         const response = await fetchWithFallback(`${API_BASE_URL}${endpoint}`, options);
         const responseData = await response.json();
         if (!response.ok) {
+            // Token expired or invalidated — force re-login
+            if (response.status === 401 && requiresAuth) {
+                authToken = null;
+                currentUsername = null;
+                localStorage.removeItem('fluxdrop_token');
+                localStorage.removeItem('fluxdrop_username');
+                renderApp('login');
+                // Show a gentle notice instead of a raw error
+                showMessage('Session expired', 'Your session has expired. Please log in again.');
+                throw new Error('SESSION_EXPIRED');
+            }
             throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
         }
         return responseData;
     } catch (error) {
-        console.error('API Call Error:', error);
+        if (error.message !== 'SESSION_EXPIRED') console.error('API Call Error:', error);
         throw error;
     }
 }
@@ -549,12 +555,11 @@ function renderEntryRow(e) {
     const btnPreview  = _ab('Preview',  'preview-btn',  '#f59e0b', p);
     const btnShare    = _ab('Share',    'share-btn',    '#8b5cf6', pd);
     const btnDelete   = _ab('Delete',   'delete-btn',   '#ef4444', p);
-    const btnRename   = _ab('Rename',   'rename-btn',   '#94a3b8', p);
+    const btnMove     = _ab('Move/Rename', 'move-btn',  '#64748b', p);
 
     const actionBtns = e.is_dir
-        ? [btnOpen, btnShare, btnDelete, btnRename].join(' ')
-        : [btnDl, btnPreview, btnShare, btnDelete, btnRename].join(' ');
-
+        ? [btnOpen, btnShare, btnDelete, btnMove].join(' ')
+        : [btnDl, btnPreview, btnShare, btnDelete, btnMove].join(' ');
     const TD_COMMON = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
     const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap;text-align:right"';
 
@@ -962,8 +967,8 @@ function attachRowListeners() {
     document.querySelectorAll('#file-list .delete-btn').forEach(btn => {
         btn.addEventListener('click', () => deleteItem(btn.dataset.path));
     });
-    document.querySelectorAll('#file-list .rename-btn').forEach(btn => {
-        btn.addEventListener('click', () => promptRename(btn.dataset.path));
+    document.querySelectorAll('#file-list .move-btn').forEach(btn => {
+        btn.addEventListener('click', () => openMoveDialog(btn.dataset.path));
     });
     document.querySelectorAll('#file-list .share-btn').forEach(btn => {
         btn.addEventListener('click', () => openShareDialog(btn.dataset.path, btn.dataset.isdir === '1'));
@@ -982,11 +987,318 @@ window.deleteItem = async function(path) {
     }
 }
 
-window.promptRename = function(path) {
-    const disp = stripInternalPrefix(path);
-    const newName = prompt('New name (relative to same folder):', disp);
-    if (!newName) return;
-    apiCall('/api/v1/rename', 'POST', { old: path, new: newName }).then(() => { showMessage('Renamed', ''); loadDirectory(currentPath); }).catch(e => showMessage('Rename failed', e.message));
+window.promptRename = function(path) { openMoveDialog(path); }
+
+// ======================================================================
+// --- MOVE / RENAME / COPY DIALOG ---
+// ======================================================================
+async function openMoveDialog(srcPath) {
+    const srcName  = srcPath.split('/').pop() || srcPath;
+    const srcDir   = srcPath.includes('/') ? srcPath.slice(0, srcPath.lastIndexOf('/')) || '/' : '/';
+
+    // Inject styles once
+    if (!document.getElementById('fd-move-style')) {
+        const st = document.createElement('style');
+        st.id = 'fd-move-style';
+        st.textContent = `
+            .mv-tree-row{display:flex;align-items:center;gap:0;cursor:pointer;border-radius:6px;
+                padding:3px 6px;font-size:13px;user-select:none;white-space:nowrap}
+            .mv-tree-row:hover{background:#f1f5f9}
+            .mv-tree-row.mv-selected{background:#dbeafe;font-weight:600}
+            .mv-tree-row.mv-selected:hover{background:#bfdbfe}
+            .mv-expand-btn{background:none;border:none;cursor:pointer;padding:0 2px;
+                font-size:11px;width:18px;text-align:center;color:#64748b;flex-shrink:0}
+            .mv-expand-btn:hover{color:#1e293b}
+            .mv-tree-label{overflow:hidden;text-overflow:ellipsis}
+            #mv-name-input{width:100%;padding:7px 10px;border:1px solid #e2e8f0;border-radius:8px;
+                font-size:14px;font-family:Inter,sans-serif;outline:none;box-sizing:border-box}
+            #mv-name-input:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.15)}
+            .mv-tab{padding:6px 14px;border:none;border-radius:6px;font-size:13px;font-weight:600;
+                cursor:pointer;background:none;color:#64748b;transition:background .15s,color .15s}
+            .mv-tab.mv-active{background:#3b82f6;color:#fff}
+            .mv-tab:not(.mv-active):hover{background:#f1f5f9;color:#1e293b}
+        `;
+        document.head.appendChild(st);
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'mv-dialog-overlay';
+    overlay.innerHTML = `
+        <div class="modal-content" style="max-width:560px;width:95vw;padding:0;overflow:hidden;border-radius:14px">
+            <!-- Header -->
+            <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
+                <div>
+                    <div style="color:white;font-weight:700;font-size:16px">📁 Move / Rename / Copy</div>
+                    <div style="color:rgba(255,255,255,.75);font-size:12px;margin-top:2px;max-width:380px;
+                        overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtmlAttr(srcPath)}">${escapeHtml(srcPath)}</div>
+                </div>
+                <button id="mv-close" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;
+                    width:30px;height:30px;color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+            </div>
+
+            <!-- Tabs -->
+            <div style="display:flex;gap:6px;padding:14px 20px 0">
+                <button class="mv-tab mv-active" data-tab="move">✂️ Move</button>
+                <button class="mv-tab" data-tab="rename">✏️ Rename</button>
+                <button class="mv-tab" data-tab="copy">📋 Copy</button>
+            </div>
+
+            <!-- Move/Copy tab body -->
+            <div id="mv-tab-move" style="padding:14px 20px 20px">
+                <div style="font-size:13px;color:#64748b;margin-bottom:8px">
+                    Select destination folder — then confirm below.
+                </div>
+                <!-- New folder shortcut -->
+                <div style="display:flex;gap:6px;margin-bottom:8px">
+                    <input id="mv-new-folder-input" placeholder="New subfolder name…" style="flex:1;padding:5px 9px;border:1px solid #e2e8f0;border-radius:7px;font-size:13px;font-family:Inter,sans-serif;outline:none">
+                    <button id="mv-new-folder-btn" style="background:#0ea5e9;color:white;border:none;border-radius:7px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">+ Folder</button>
+                </div>
+                <!-- Tree -->
+                <div id="mv-tree" style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;
+                    height:240px;overflow-y:auto;padding:6px 4px"></div>
+                <!-- Selected path display -->
+                <div style="margin-top:8px;font-size:12px;color:#64748b">
+                    Destination: <span id="mv-dest-label" style="font-weight:600;color:#1e293b">/</span>
+                </div>
+            </div>
+
+            <!-- Rename tab body -->
+            <div id="mv-tab-rename" style="display:none;padding:14px 20px 20px">
+                <label style="display:block;font-size:13px;color:#64748b;margin-bottom:6px">New name (filename only, no slashes):</label>
+                <input id="mv-name-input" type="text" value="${escapeHtmlAttr(srcName)}" spellcheck="false" autocomplete="off">
+                <div style="font-size:12px;color:#94a3b8;margin-top:6px">The file stays in its current folder. To also move it, use the Move tab.</div>
+            </div>
+
+            <!-- Footer -->
+            <div style="padding:12px 20px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #f1f5f9">
+                <button id="mv-cancel-btn" class="btn" style="background:#e2e8f0;color:#1e293b">Cancel</button>
+                <button id="mv-confirm-btn" class="btn" style="background:#3b82f6;min-width:110px">Move here</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    // ── State ──────────────────────────────────────────────────────────────
+    let activeTab   = 'move';
+    let destFolder  = srcDir;  // currently selected destination for move/copy
+    // tree: path → { children: Map, loaded: bool, expanded: bool }
+    const treeData  = new Map();
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    const $ = id => overlay.querySelector('#' + id);
+
+    function setTab(tab) {
+        activeTab = tab;
+        overlay.querySelectorAll('.mv-tab').forEach(b => {
+            b.classList.toggle('mv-active', b.dataset.tab === tab);
+        });
+        $('mv-tab-move').style.display   = (tab === 'move' || tab === 'copy') ? '' : 'none';
+        $('mv-tab-rename').style.display = (tab === 'rename') ? '' : 'none';
+        const confirmBtn = $('mv-confirm-btn');
+        if (tab === 'move')   { confirmBtn.textContent = 'Move here';    confirmBtn.style.background = '#3b82f6'; }
+        if (tab === 'copy')   { confirmBtn.textContent = 'Copy here';    confirmBtn.style.background = '#0ea5e9'; }
+        if (tab === 'rename') { confirmBtn.textContent = 'Rename';       confirmBtn.style.background = '#8b5cf6'; }
+    }
+
+    function updateDestLabel() {
+        $('mv-dest-label').textContent = destFolder || '/';
+    }
+
+    // ── Tree rendering ─────────────────────────────────────────────────────
+    function getNode(path) {
+        if (!treeData.has(path)) treeData.set(path, { children: [], loaded: false, expanded: false, loading: false });
+        return treeData.get(path);
+    }
+
+    async function loadChildren(path) {
+        const node = getNode(path);
+        if (node.loaded || node.loading) return;
+        node.loading = true;
+        try {
+            const ep = path === '/' ? '/api/v1/list/' : `/api/v1/list${encodePath(path)}`;
+            const data = await apiCall(ep, 'GET', null, true);
+            node.children = (data.entries || [])
+                .filter(e => e.is_dir)
+                .map(e => e.path)
+                .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+            node.loaded = true;
+        } catch {
+            node.children = [];
+            node.loaded = true;
+        }
+        node.loading = false;
+    }
+
+    function buildTreeHTML(paths, depth) {
+        return paths.map(p => {
+            const node     = getNode(p);
+            const label    = p.split('/').pop() || p;
+            const isSelected = p === destFolder;
+            const hasKids  = node.loaded ? node.children.length > 0 : true; // assume expandable until loaded
+            const expandIcon = node.loading ? '⟳'
+                : !hasKids && node.loaded ? '·'
+                : node.expanded ? '▾' : '▸';
+            return `<div class="mv-tree-row${isSelected ? ' mv-selected' : ''}"
+                        data-path="${escapeHtmlAttr(p)}"
+                        style="padding-left:${8 + depth * 16}px">
+                    <button class="mv-expand-btn" data-expand="${escapeHtmlAttr(p)}">${expandIcon}</button>
+                    <span class="mv-tree-label" title="${escapeHtmlAttr(p)}">📁 ${escapeHtml(label)}</span>
+                </div>
+                ${node.expanded && node.children.length > 0 ? buildTreeHTML(node.children, depth + 1) : ''}`;
+        }).join('');
+    }
+
+    async function renderTree() {
+        const treeEl = $('mv-tree');
+        if (!treeEl) return;
+        const root = getNode('/');
+        if (!root.loaded) {
+            treeEl.innerHTML = '<div style="padding:12px;color:#64748b;font-size:13px">Loading…</div>';
+            await loadChildren('/');
+            root.expanded = true;
+        }
+        // Also auto-expand the path to srcDir so the user can see where they are
+        treeEl.innerHTML = `
+            <div class="mv-tree-row${destFolder === '/' ? ' mv-selected' : ''}" data-path="/"
+                style="padding-left:8px;font-weight:600">
+                <button class="mv-expand-btn" data-expand="/">▾</button>
+                <span class="mv-tree-label">🏠 / (root)</span>
+            </div>
+            ${buildTreeHTML(root.children, 1)}`;
+        attachTreeListeners();
+    }
+
+    function attachTreeListeners() {
+        const treeEl = $('mv-tree');
+        if (!treeEl) return;
+        // Row select
+        treeEl.querySelectorAll('.mv-tree-row').forEach(row => {
+            row.addEventListener('click', e => {
+                if (e.target.classList.contains('mv-expand-btn')) return;
+                destFolder = row.dataset.path;
+                updateDestLabel();
+                renderTree();
+            });
+        });
+        // Expand toggle
+        treeEl.querySelectorAll('.mv-expand-btn').forEach(btn => {
+            btn.addEventListener('click', async e => {
+                e.stopPropagation();
+                const p    = btn.dataset.expand;
+                const node = getNode(p);
+                if (!node.loaded) {
+                    await loadChildren(p);
+                    node.expanded = true;
+                } else {
+                    node.expanded = !node.expanded;
+                }
+                renderTree();
+            });
+        });
+    }
+
+    // ── New folder creation inside tree ───────────────────────────────────
+    $('mv-new-folder-btn').addEventListener('click', async () => {
+        const nameInput = $('mv-new-folder-input');
+        const name = nameInput.value.trim();
+        if (!name) return;
+        const newPath = (destFolder.endsWith('/') ? destFolder : destFolder + '/') + name;
+        try {
+            await apiCall('/api/v1/mkdir', 'POST', { path: newPath }, true);
+            nameInput.value = '';
+            // Invalidate parent so it reloads
+            const node = getNode(destFolder);
+            node.loaded = false;
+            node.expanded = true;
+            await loadChildren(destFolder);
+            // Select the new folder
+            destFolder = newPath;
+            updateDestLabel();
+            renderTree();
+        } catch (err) {
+            showMessage('Create folder failed', err.message);
+        }
+    });
+    $('mv-new-folder-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') $('mv-new-folder-btn').click();
+    });
+
+    // ── Tab switching ──────────────────────────────────────────────────────
+    overlay.querySelectorAll('.mv-tab').forEach(btn => {
+        btn.addEventListener('click', () => setTab(btn.dataset.tab));
+    });
+
+    // ── Confirm ────────────────────────────────────────────────────────────
+    $('mv-confirm-btn').addEventListener('click', async () => {
+        const confirmBtn = $('mv-confirm-btn');
+        if (!overlay.isConnected) return;
+
+        if (activeTab === 'rename') {
+            const newName = $('mv-name-input').value.trim();
+            if (!newName || newName.includes('/')) {
+                showMessage('Invalid name', 'Name cannot be empty or contain slashes.'); return;
+            }
+            const newPath = srcDir === '/' ? '/' + newName : srcDir + '/' + newName;
+            confirmBtn.disabled = true; confirmBtn.textContent = 'Renaming…';
+            try {
+                await apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath });
+                overlay.remove(); loadDirectory(currentPath);
+            } catch (err) {
+                confirmBtn.disabled = false; confirmBtn.textContent = 'Rename';
+                if (err.message !== 'SESSION_EXPIRED') showMessage('Rename failed', err.message);
+            }
+            return;
+        }
+
+        // Move or Copy
+        if (!destFolder) { showMessage('No destination', 'Please select a destination folder.'); return; }
+        const newPath = (destFolder.endsWith('/') ? destFolder : destFolder + '/') + srcName;
+        if (activeTab === 'move') {
+            if (newPath === srcPath) { showMessage('Same location', 'The destination is the same as the source.'); return; }
+            confirmBtn.disabled = true; confirmBtn.textContent = 'Moving…';
+            try {
+                await apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath });
+                overlay.remove(); loadDirectory(currentPath);
+            } catch (err) {
+                confirmBtn.disabled = false; confirmBtn.textContent = 'Move here';
+                if (err.message !== 'SESSION_EXPIRED') showMessage('Move failed', err.message);
+            }
+        } else {
+            // Copy — use copy endpoint if available, else show message
+            if (newPath === srcPath) { showMessage('Same location', 'The destination is the same as the source.'); return; }
+            confirmBtn.disabled = true; confirmBtn.textContent = 'Copying…';
+            try {
+                await apiCall('/api/v1/copy', 'POST', { src: srcPath, dest: newPath });
+                overlay.remove(); loadDirectory(currentPath);
+            } catch (err) {
+                confirmBtn.disabled = false; confirmBtn.textContent = 'Copy here';
+                if (err.message !== 'SESSION_EXPIRED') showMessage('Copy failed', err.message);
+            }
+        }
+    });
+
+    // ── Close / cancel ─────────────────────────────────────────────────────
+    $('mv-cancel-btn').addEventListener('click', () => overlay.remove());
+    $('mv-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    // ── Initial render ─────────────────────────────────────────────────────
+    updateDestLabel();
+    // Pre-expand the path to the source file's parent for convenience
+    async function preExpand(targetDir) {
+        // Walk segments and load each
+        const segments = targetDir.split('/').filter(Boolean);
+        let cur = '/';
+        getNode('/').expanded = true;
+        await loadChildren('/');
+        for (const seg of segments) {
+            cur = cur === '/' ? '/' + seg : cur + '/' + seg;
+            const node = getNode(cur);
+            node.expanded = true;
+            await loadChildren(cur);
+        }
+    }
+    preExpand(srcDir).then(() => renderTree());
 }
 
 async function promptCreateFolder() {
@@ -1863,7 +2175,9 @@ async function handleLogin(e) {
         const data = await apiCall('/auth/login', 'POST', { username, password }, false);
         authToken = data.token;
         currentUsername = data.username;
+        isAdmin = !!data.is_admin;
         localStorage.setItem('fluxdrop_token', authToken);
+        localStorage.setItem('fluxdrop_is_admin', data.is_admin ? '1' : '0');
         localStorage.setItem('fluxdrop_username', currentUsername);
         renderApp(); // Re-render the app in its logged-in state
     } catch (error) {
@@ -1879,7 +2193,9 @@ async function handleLogout() {
     } finally {
         authToken = null;
         currentUsername = null;
+        isAdmin = false;
         localStorage.removeItem('fluxdrop_token');
+        localStorage.removeItem('fluxdrop_is_admin');
         localStorage.removeItem('fluxdrop_username');
         renderApp();
     }
@@ -1908,6 +2224,7 @@ function openProfileMenu() {
             <div style="padding:8px 0">
                 <button class="profile-menu-item" id="pm-shares">🔗 Manage Shared Links</button>
                 <div style="height:1px;background:#f1f5f9;margin:4px 0"></div>
+                ${isAdmin ? '<button class="profile-menu-item" id="pm-admin">⚙️ Admin Panel</button>' : ''}
                 <button class="profile-menu-item" id="pm-logout" style="color:#ef4444">🚪 Logout</button>
             </div>
         </div>`;
@@ -1923,6 +2240,266 @@ function openProfileMenu() {
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
     document.getElementById('pm-shares').addEventListener('click', () => { overlay.remove(); openShareManager(); });
     document.getElementById('pm-logout').addEventListener('click', () => { overlay.remove(); handleLogout(); });
+    if (isAdmin) document.getElementById('pm-admin')?.addEventListener('click', () => { overlay.remove(); openAdminPanel(); });
+}
+
+        // ======================================================================
+        // --- ADMIN PANEL ---
+        // ======================================================================
+async function openAdminPanel() {
+    const existing = document.getElementById('admin-panel-overlay');
+    if (existing) { existing.remove(); return; }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'admin-panel-overlay';
+    overlay.style.zIndex = '9000';
+    overlay.innerHTML = `
+        <div style="background:white;border-radius:16px;width:95vw;max-width:860px;
+                    max-height:88vh;display:flex;flex-direction:column;overflow:hidden;
+                    box-shadow:0 20px 60px rgba(0,0,0,0.3)">
+            <div style="background:linear-gradient(135deg,#1e293b,#334155);padding:18px 24px;
+                        display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+                <div>
+                    <div style="color:white;font-weight:700;font-size:18px">⚙️ Admin Panel</div>
+                    <div style="color:rgba(255,255,255,.55);font-size:12px;margin-top:2px">FluxDrop user management</div>
+                </div>
+                <button id="ap-close" style="background:rgba(255,255,255,.15);border:none;border-radius:50%;
+                    width:32px;height:32px;color:white;font-size:18px;cursor:pointer;
+                    display:flex;align-items:center;justify-content:center">✕</button>
+            </div>
+            <div id="ap-stats" style="background:#f8fafc;border-bottom:1px solid #e2e8f0;
+                padding:10px 24px;display:flex;gap:24px;flex-shrink:0;flex-wrap:wrap"></div>
+            <div style="overflow-y:auto;flex:1;padding:16px 24px">
+                <div id="ap-body">
+                    <div style="color:#64748b;font-size:14px;padding:20px 0">Loading users…</div>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('ap-close').addEventListener('click', () => overlay.remove());
+
+    await _apLoadUsers();
+}
+
+async function _apLoadUsers() {
+    const body = document.getElementById('ap-body');
+    const statsBar = document.getElementById('ap-stats');
+    if (!body) return;
+
+    try {
+        const data = await apiCall('/api/v1/admin/users', 'GET');
+        const users = data.users || [];
+
+        const totalUsage = users.reduce((s, u) => s + (u.usage_bytes || 0), 0);
+        const adminCount = users.filter(u => u.is_admin).length;
+        if (statsBar) statsBar.innerHTML = [
+            `<span style="font-size:13px;color:#475569"><strong style="color:#1e293b">${users.length}</strong> users</span>`,
+            `<span style="font-size:13px;color:#475569"><strong style="color:#1e293b">${adminCount}</strong> admin(s)</span>`,
+            `<span style="font-size:13px;color:#475569">Total used: <strong style="color:#1e293b">${_apFmtBytes(totalUsage)}</strong></span>`,
+        ].join('<span style="color:#cbd5e1;margin:0 4px">|</span>');
+
+        if (users.length === 0) {
+            body.innerHTML = '<p style="color:#64748b;font-size:14px;padding:20px 0">No users found.</p>';
+            return;
+        }
+
+        if (!document.getElementById('ap-style')) {
+            const st = document.createElement('style');
+            st.id = 'ap-style';
+            st.textContent = `
+                .ap-row{display:grid;grid-template-columns:1fr 90px 140px 100px;gap:12px;
+                    align-items:center;padding:10px 12px;border-radius:8px;transition:background .12s}
+                .ap-row:hover{background:#f8fafc}
+                .ap-row+.ap-row{border-top:1px solid #f1f5f9}
+                .ap-bar-wrap{background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden}
+                .ap-bar-fill{height:100%;border-radius:4px;transition:width .3s}
+                .ap-badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600}
+                .ap-btn{border:none;border-radius:6px;padding:4px 10px;font-size:12px;
+                    font-weight:600;cursor:pointer;transition:opacity .15s}
+                .ap-btn:hover{opacity:.85}
+            `;
+            document.head.appendChild(st);
+        }
+
+        body.innerHTML = `
+            <div class="ap-row" style="font-size:12px;font-weight:700;color:#94a3b8;
+                border-bottom:2px solid #e2e8f0;border-radius:0;padding-bottom:6px">
+                <span>User</span><span>Usage</span><span>Quota</span>
+                <span style="text-align:right">Actions</span>
+            </div>` + users.map(u => _apRenderRow(u)).join('');
+
+        body.querySelectorAll('.ap-edit-btn').forEach(btn => {
+            btn.addEventListener('click', () => _apOpenEditModal(+btn.dataset.id, users));
+        });
+        body.querySelectorAll('.ap-del-btn').forEach(btn => {
+            btn.addEventListener('click', () => _apDeleteUser(+btn.dataset.id, btn.dataset.name));
+        });
+
+    } catch (err) {
+        const b = document.getElementById('ap-body');
+        if (err.message !== 'SESSION_EXPIRED' && b) {
+            b.innerHTML = `<p style="color:#ef4444;font-size:14px;padding:20px 0">Failed to load: ${escapeHtml(err.message)}</p>`;
+        }
+    }
+}
+
+function _apFmtBytes(b) {
+    if (b >= 1073741824) return (b / 1073741824).toFixed(1) + ' GB';
+    if (b >= 1048576)    return (b / 1048576).toFixed(1) + ' MB';
+    if (b >= 1024)       return (b / 1024).toFixed(0) + ' KB';
+    return b + ' B';
+}
+
+function _apRenderRow(u) {
+    const pct = u.quota_bytes > 0 ? Math.min(100, (u.usage_bytes / u.quota_bytes) * 100) : 0;
+    const barColor = pct >= 95 ? '#ef4444' : pct >= 75 ? '#f59e0b' : '#22c55e';
+    const adminBadge = u.is_admin
+        ? `<span class="ap-badge" style="background:#fef3c7;color:#92400e">admin</span> ` : '';
+    return `<div class="ap-row">
+        <div>
+            <div style="font-size:14px;font-weight:600;color:#1e293b">${adminBadge}${escapeHtml(u.username)}</div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:1px">${escapeHtml(u.nickname||'')} · ${escapeHtml(u.email||'')}</div>
+            <div style="font-size:11px;color:#cbd5e1;margin-top:1px">ID ${u.id} · joined ${(u.created_at||'').slice(0,10)}</div>
+        </div>
+        <div>
+            <div style="font-size:12px;color:#475569;margin-bottom:3px">${_apFmtBytes(u.usage_bytes||0)}</div>
+            <div class="ap-bar-wrap"><div class="ap-bar-fill" style="width:${pct.toFixed(1)}%;background:${barColor}"></div></div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:2px">${pct.toFixed(0)}%</div>
+        </div>
+        <div>
+            <div style="font-size:12px;color:#475569">${_apFmtBytes(u.quota_bytes||0)}</div>
+            ${u.quota_override
+                ? '<div style="font-size:10px;color:#6366f1;margin-top:1px">📌 pinned</div>'
+                : '<div style="font-size:10px;color:#94a3b8;margin-top:1px">dynamic</div>'}
+        </div>
+        <div style="display:flex;gap:5px;justify-content:flex-end">
+            <button class="ap-btn ap-edit-btn" data-id="${u.id}"
+                style="background:#3b82f6;color:white">Edit</button>
+            <button class="ap-btn ap-del-btn" data-id="${u.id}" data-name="${escapeHtmlAttr(u.username)}"
+                style="background:#ef4444;color:white">Del</button>
+        </div>
+    </div>`;
+}
+
+function _apOpenEditModal(userId, users) {
+    const u = users.find(x => x.id === userId);
+    if (!u) return;
+
+    const existing = document.getElementById('ap-edit-overlay');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'ap-edit-overlay';
+    modal.style.zIndex = '9500';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:14px;width:95vw;max-width:460px;
+                    overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.35)">
+            <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:16px 20px;
+                        display:flex;align-items:center;justify-content:space-between">
+                <div style="color:white;font-weight:700;font-size:16px">Edit: ${escapeHtml(u.username)}</div>
+                <button id="ap-edit-close" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;
+                    width:28px;height:28px;color:white;font-size:16px;cursor:pointer;
+                    display:flex;align-items:center;justify-content:center">✕</button>
+            </div>
+            <div style="padding:20px;display:grid;gap:12px">
+                <label style="font-size:13px;font-weight:600;color:#374151">Username (login)
+                    <input id="ape-username" type="text" value="${escapeHtmlAttr(u.username)}"
+                        style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                               border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                               box-sizing:border-box;font-family:Inter,sans-serif">
+                </label>
+                <label style="font-size:13px;font-weight:600;color:#374151">Nickname (display)
+                    <input id="ape-nickname" type="text" value="${escapeHtmlAttr(u.nickname||'')}"
+                        style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                               border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                               box-sizing:border-box;font-family:Inter,sans-serif">
+                </label>
+                <label style="font-size:13px;font-weight:600;color:#374151">Email
+                    <input id="ape-email" type="email" value="${escapeHtmlAttr(u.email||'')}"
+                        style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                               border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                               box-sizing:border-box;font-family:Inter,sans-serif">
+                </label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <label style="font-size:13px;font-weight:600;color:#374151">Quota (GB)
+                        <input id="ape-quota" type="number" min="1" step="1"
+                            value="${Math.round((u.quota_bytes||0)/(1024**3))}"
+                            style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                                   border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                                   box-sizing:border-box;font-family:Inter,sans-serif">
+                    </label>
+                    <label style="font-size:13px;font-weight:600;color:#374151;display:flex;flex-direction:column">
+                        <span>Flags</span>
+                        <span style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+                            <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
+                                <input type="checkbox" id="ape-is-admin" ${u.is_admin?'checked':''}> Admin
+                            </label>
+                            <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
+                                <input type="checkbox" id="ape-quota-override" ${u.quota_override?'checked':''}> Pin quota
+                            </label>
+                        </span>
+                    </label>
+                </div>
+                <div id="ape-error" style="display:none;color:#ef4444;font-size:13px;
+                    background:#fef2f2;border-radius:6px;padding:6px 10px"></div>
+            </div>
+            <div style="padding:12px 20px 18px;display:flex;gap:8px;justify-content:flex-end;
+                        border-top:1px solid #f1f5f9">
+                <button id="ape-cancel" class="btn" style="background:#e2e8f0;color:#1e293b">Cancel</button>
+                <button id="ape-save" class="btn" style="background:#3b82f6;min-width:80px">Save</button>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    modal.querySelector('#ap-edit-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('#ape-cancel').addEventListener('click', () => modal.remove());
+
+    modal.querySelector('#ape-save').addEventListener('click', async () => {
+        if (!modal.isConnected) return;
+        const saveBtn = modal.querySelector('#ape-save');
+        const errEl   = modal.querySelector('#ape-error');
+        const quotaGb = parseFloat(modal.querySelector('#ape-quota').value);
+        if (isNaN(quotaGb) || quotaGb < 1) {
+            errEl.textContent = 'Quota must be at least 1 GB.';
+            errEl.style.display = 'block'; return;
+        }
+        errEl.style.display = 'none';
+        saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+        try {
+            await apiCall(`/api/v1/admin/users/${userId}`, 'PATCH', {
+                username:       modal.querySelector('#ape-username').value.trim(),
+                nickname:       modal.querySelector('#ape-nickname').value.trim(),
+                email:          modal.querySelector('#ape-email').value.trim(),
+                quota_bytes:    Math.round(quotaGb * 1024 ** 3),
+                is_admin:       modal.querySelector('#ape-is-admin').checked ? 1 : 0,
+                quota_override: modal.querySelector('#ape-quota-override').checked ? 1 : 0,
+            });
+            modal.remove();
+            await _apLoadUsers();
+        } catch (err) {
+            if (!modal.isConnected) return;
+            saveBtn.disabled = false; saveBtn.textContent = 'Save';
+            if (err.message !== 'SESSION_EXPIRED') {
+                errEl.textContent = err.message;
+                errEl.style.display = 'block';
+            }
+        }
+    });
+}
+
+async function _apDeleteUser(userId, username) {
+    if (!confirm(`Delete user "${username}"?\n\nAccount and sessions will be removed. Files on disk are kept.`)) return;
+    try {
+        await apiCall(`/api/v1/admin/users/${userId}`, 'DELETE');
+        await _apLoadUsers();
+    } catch (err) {
+        if (err.message !== 'SESSION_EXPIRED') showMessage('Delete failed', err.message);
+    }
 }
 
         // ======================================================================
@@ -2020,56 +2597,71 @@ async function openShareDialog(path, isDir) {
         return d.toISOString();
     }
 
-    document.getElementById('sh-cancel-btn').addEventListener('click', () => overlay.remove());
-    document.getElementById('sh-create-btn').addEventListener('click', async () => {
-        const btn = document.getElementById('sh-create-btn');
-        btn.disabled = true;
-        btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px">' +
+    // Capture all element references immediately — before any async gap —
+    // so we don't re-query after the overlay may have been removed.
+    const shCancelBtn = overlay.querySelector('#sh-cancel-btn');
+    const shCreateBtn = overlay.querySelector('#sh-create-btn');
+    const shResult    = overlay.querySelector('#sh-result');
+    const shLinkBox   = overlay.querySelector('#sh-link-box');
+    const shCopyBtn   = overlay.querySelector('#sh-copy-btn');
+
+    shCancelBtn.addEventListener('click', () => overlay.remove());
+    shCreateBtn.addEventListener('click', async () => {
+        // Guard: if overlay was removed (e.g. Cancel clicked) before the
+        // async chain settles, bail out silently.
+        if (!overlay.isConnected) return;
+
+        shCreateBtn.disabled = true;
+        shCreateBtn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px">' +
             '<svg style="animation:spin 0.8s linear infinite;width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>' +
             'Creating…</span>';
-        // inject spin keyframe once
         if (!document.getElementById('fd-spin-style')) {
             const st = document.createElement('style');
             st.id = 'fd-spin-style';
             st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
             document.head.appendChild(st);
         }
+        // Snapshot all form values synchronously before the await
+        const reqBody = {
+            path,
+            is_dir: isDir,
+            require_account: overlay.querySelector('#sh-require-account')?.checked ?? false,
+            track_stats:     overlay.querySelector('#sh-stats')?.checked ?? false,
+            allow_anon_upload: isDir ? (overlay.querySelector('#sh-anon-upload')?.checked ?? false) : false,
+            allow_auth_upload: isDir ? (overlay.querySelector('#sh-auth-upload')?.checked ?? false) : false,
+            allow_preview:   overlay.querySelector('#sh-allow-preview')?.checked ?? false,
+            allow_cdn_embed: !isDir ? (overlay.querySelector('#sh-cdn-embed')?.checked ?? false) : false,
+            expires_at: resolveExpiry(),
+        };
         try {
-            const body = {
-                path,
-                is_dir: isDir,
-                require_account: document.getElementById('sh-require-account').checked,
-                track_stats: document.getElementById('sh-stats').checked,
-                allow_anon_upload: isDir && document.getElementById('sh-anon-upload') ? document.getElementById('sh-anon-upload').checked : false,
-                allow_auth_upload: isDir && document.getElementById('sh-auth-upload') ? document.getElementById('sh-auth-upload').checked : false,
-                allow_preview: document.getElementById('sh-allow-preview') ? document.getElementById('sh-allow-preview').checked : false,
-                allow_cdn_embed: !isDir && document.getElementById('sh-cdn-embed') ? document.getElementById('sh-cdn-embed').checked : false,
-                expires_at: resolveExpiry(),
-            };
-            const data = await apiCall('/api/v1/shares', 'POST', body);
-            const shareUrl = `${window.location.origin}/share/${data.token}`;
-            document.getElementById('sh-result').style.display = 'block';
-            document.getElementById('sh-link-box').value = shareUrl;
+            const data = await apiCall('/api/v1/shares', 'POST', reqBody);
 
-            // Auto-copy to clipboard immediately on creation
-            const copyBtn = document.getElementById('sh-copy-btn');
+            // Overlay might have been closed while the request was in-flight
+            if (!overlay.isConnected) return;
+
+            const shareUrl = `${window.location.origin}/share/${data.token}`;
+            shResult.style.display = 'block';
+            shLinkBox.value = shareUrl;
+
             function doCopy() {
                 navigator.clipboard.writeText(shareUrl).then(() => {
-                    copyBtn.textContent = '✓ Copied!';
-                    copyBtn.style.background = '#15803d';
-                    setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.style.background = '#16a34a'; }, 2000);
-                }).catch(() => {
-                    // Fallback: select the input so the user can Ctrl+C
-                    document.getElementById('sh-link-box').select();
-                });
+                    shCopyBtn.textContent = '✓ Copied!';
+                    shCopyBtn.style.background = '#15803d';
+                    setTimeout(() => { shCopyBtn.textContent = 'Copy'; shCopyBtn.style.background = '#16a34a'; }, 2000);
+                }).catch(() => { shLinkBox.select(); });
             }
-            copyBtn.addEventListener('click', doCopy);
-            doCopy(); // auto-copy on creation
+            shCopyBtn.addEventListener('click', doCopy);
+            doCopy();
 
-            btn.textContent = 'Done ✓'; btn.style.background = '#16a34a';
+            shCreateBtn.textContent = 'Done ✓';
+            shCreateBtn.style.background = '#16a34a';
+            shCreateBtn.disabled = false;
+            shCreateBtn.addEventListener('click', () => overlay.remove(), { once: true });
         } catch (err) {
-            btn.disabled = false; btn.textContent = 'Create Share Link';
-            showMessage('Share failed', err.message);
+            if (!overlay.isConnected) return; // session expired, DOM gone — stay silent
+            shCreateBtn.disabled = false;
+            shCreateBtn.textContent = 'Create Share Link';
+            if (err.message !== 'SESSION_EXPIRED') showMessage('Share failed', err.message);
         }
     });
 }
@@ -2686,10 +3278,26 @@ document.addEventListener('DOMContentLoaded', () => {
         goOffline();
     }
 
+    // Replace the existing keydown listener (around line 2689 in original):
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') {
-            if (!document.getElementById('preview-modal').classList.contains('hidden')) closePreview();
-            else hideModal('message-modal');
+        if (e.key !== 'Escape') return;
+        // Priority order: preview → move dialog → share dialog → share manager → message modal
+        if (!document.getElementById('preview-modal').classList.contains('hidden')) {
+            closePreview();
+        } else if (document.getElementById('mv-dialog-overlay')) {
+            document.getElementById('mv-dialog-overlay').remove();
+        } else if (document.getElementById('share-dialog-overlay')) {
+            document.getElementById('share-dialog-overlay').remove();
+        } else if (document.getElementById('ap-edit-overlay')) {
+            document.getElementById('ap-edit-overlay').remove();
+        } else if (document.getElementById('admin-panel-overlay')) {
+            document.getElementById('admin-panel-overlay').remove();
+        } else if (document.getElementById('share-manager-overlay')) {
+            document.getElementById('share-manager-overlay').remove();
+        } else if (document.getElementById('profile-menu-modal')) {
+            document.getElementById('profile-menu-modal').remove();
+        } else {
+            hideModal('message-modal');
         }
     });
     // Check if user was redirected from a verification link

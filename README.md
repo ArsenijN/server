@@ -1,8 +1,7 @@
-# server `v0.9.7`
+# server `v0.9.8`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Add sources link on main page, some updates to the setup 
-instructions, fix the sync scripts, etc.***
+*Release note: **Added a lot of features***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

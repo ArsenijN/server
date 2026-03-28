@@ -317,17 +317,17 @@ def init_db():
                 FOREIGN KEY (owner_id) REFERENCES users (id)
             )
         ''')
-        # Migrations: add columns that may be missing in older DBs
-        for _col, _default in [
-            ('expires_at', 'NULL'),
-            ('allow_preview', '0'),
-            ('allow_cdn_embed', '0'),
-        ]:
+        # In _init_db(), add these to the users table migration block:
+        _admin_cols = {
+            'is_admin':    'INTEGER DEFAULT 0',
+            'quota_bytes': 'INTEGER DEFAULT NULL',  # NULL = use dynamic default
+            'quota_override': 'INTEGER DEFAULT 0',  # 1 = never auto-adjust this user
+        }
+        for _col, _def in _admin_cols.items():
             try:
-                cursor.execute(f"ALTER TABLE shared_links ADD COLUMN {_col} {'TIMESTAMP DEFAULT NULL' if _col == 'expires_at' else 'INTEGER DEFAULT ' + _default}")
-                conn.commit()
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {_col} {_def}")
             except Exception:
-                pass  # column already exists
+                pass  # already exists
         # Per-access audit log for shared links.
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS share_access_log (
@@ -2621,6 +2621,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(400, json.dumps({'error': 'Invalid dest_path.'}))
             owner_ref = str(user_id)
 
+            _user_quota_row = None
+            with _db_connect() as conn:
+                _user_quota_row = conn.execute(
+                    'SELECT quota_bytes FROM users WHERE id = ?', (user_id,)
+                ).fetchone()
+            _quota = (_user_quota_row[0] if _user_quota_row and _user_quota_row[0] else _compute_dynamic_quota())
+            _usage = _get_user_disk_usage(user_id)
+            if _usage >= _quota:
+                return self._send_response(507, json.dumps({
+                    'error': f'Storage quota exceeded ({_usage // (1024**2)} MB used of {_quota // (1024**2)} MB). '
+                             f'Existing files are kept. New uploads are paused until quota increases.'
+                }))
+
         elif owner_type == 'share':
             share = _get_share(share_token)
             if not share or not share['is_dir']:
@@ -3014,6 +3027,22 @@ class AuthHandler(SimpleHTTPRequestHandler):
         flux_match = self.fluxdrop_api_pattern.match(parsed_url.path)
         if flux_match:
             return self.handle_fluxdrop_api_get(flux_match)
+        
+        if parsed_url.path == '/api/v1/admin/users':
+            admin = self._check_admin_auth()
+            if not admin: return
+            with _db_connect() as conn:
+                rows = conn.execute(
+                    'SELECT id, username, nickname, email, is_admin, quota_bytes, quota_override, created_at FROM users ORDER BY id'
+                ).fetchall()
+            out = []
+            for r in rows:
+                uid, uname, nick, email, adm, quota, qover, created = r
+                eff_quota = quota if quota else _compute_dynamic_quota()
+                out.append({'id': uid, 'username': uname, 'nickname': nick, 'email': email,
+                            'is_admin': bool(adm), 'quota_bytes': eff_quota, 'quota_override': bool(qover),
+                            'usage_bytes': _get_user_disk_usage(uid), 'created_at': created})
+            return self._send_response(200, json.dumps({'users': out}))
 
         # For any other GET request, assume it's a static file.
         # Patch end_headers to include CORS and Accept-Ranges, then call base handler.
@@ -3133,6 +3162,26 @@ class AuthHandler(SimpleHTTPRequestHandler):
         item_match = self.shares_item_pattern.match(parsed_url.path)
         if item_match:
             return self.handle_share_update(item_match.group(2))
+        _admin_user = re.match(r'^/api/v1/admin/users/(\d+)$', parsed_url.path)
+        if _admin_user:
+            admin = self._check_admin_auth()
+            if not admin: return
+            target_id = int(_admin_user.group(1))
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                data = json.loads(self.rfile.read(length))
+            except Exception:
+                return self._send_response(400, json.dumps({'error': 'Invalid JSON'}))
+            allowed = {'username', 'nickname', 'email', 'is_admin', 'quota_bytes', 'quota_override'}
+            updates = {k: v for k, v in data.items() if k in allowed}
+            if not updates:
+                return self._send_response(400, json.dumps({'error': 'Nothing to update'}))
+            parts = ', '.join(f'{k} = ?' for k in updates)
+            vals  = list(updates.values()) + [target_id]
+            with _db_connect() as conn:
+                conn.execute(f'UPDATE users SET {parts} WHERE id = ?', vals)
+                conn.commit()
+            return self._send_response(200, json.dumps({'message': 'Updated'}))
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     def do_DELETE(self):
@@ -3151,6 +3200,20 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _board_del = re.match(r'^/api/v1/board/(\d+)$', parsed_url.path)
         if _board_del:
             return self._handle_board_delete(_board_del.group(1))
+        _admin_user_del = re.match(r'^/api/v1/admin/users/(\d+)$', parsed_url.path)
+        if _admin_user_del:
+            admin = self._check_admin_auth()
+            if not admin: return
+            target_id = int(_admin_user_del.group(1))
+            if target_id == admin['id']:
+                return self._send_response(400, json.dumps({'error': 'Cannot delete your own account'}))
+            # Note: user files on disk are NOT deleted here intentionally.
+            # Manual cleanup via filesystem if needed: SERVE_ROOT/FluxDrop/<user_id>/
+            with _db_connect() as conn:
+                conn.execute('DELETE FROM sessions WHERE user_id = ?', (target_id,))
+                conn.execute('DELETE FROM users WHERE id = ?', (target_id,))
+                conn.commit()
+            return self._send_response(200, json.dumps({'message': 'User deleted'}))
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     # --- Auth API Handlers ---
@@ -3313,7 +3376,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
             conn.execute("DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP")
             conn.commit()
 
-        return self._send_response(200, json.dumps({"message": "Login successful.", "token": session_token, "username": username}))
+        with _db_connect() as conn:
+            _adm = conn.execute('SELECT is_admin FROM users WHERE id = ?', (user_id,)).fetchone()
+        _is_admin = bool(_adm[0]) if _adm else False
+        return self._send_response(200, json.dumps({
+            "message": "Login successful.", "token": session_token,
+            "username": username, "is_admin": _is_admin
+        }))
 
     def handle_auth_logout(self):
         """Handles user logout by deleting the session token."""
@@ -4427,6 +4496,38 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
                 os.makedirs(os.path.dirname(new_path), exist_ok=True)
                 os.rename(old_path, new_path)
+
+                # Update any share links whose path starts with the old path.
+                # This covers both a direct file share and any shares for
+                # folders that contain the renamed item.
+                old_rel = '/' + old.lstrip('/')
+                new_rel = '/' + new.lstrip('/')
+                try:
+                    with _db_connect() as conn:
+                        # Exact match (file or folder share pointing at the moved item)
+                        conn.execute(
+                            "UPDATE shared_links SET path = ? WHERE owner_id = ? AND path = ?",
+                            (new_rel, user_id, old_rel)
+                        )
+                        # Prefix match (shares for items *inside* a renamed folder)
+                        prefix = old_rel.rstrip('/') + '/'
+                        new_prefix = new_rel.rstrip('/') + '/'
+                        cur = conn.execute(
+                            "SELECT token, path FROM shared_links WHERE owner_id = ? AND path LIKE ?",
+                            (user_id, prefix + '%')
+                        )
+                        rows = cur.fetchall()
+                        for row in rows:
+                            updated = new_prefix + row[1][len(prefix):]
+                            conn.execute(
+                                "UPDATE shared_links SET path = ? WHERE token = ?",
+                                (updated, row[0])
+                            )
+                        conn.commit()
+                except Exception:
+                    logging.exception("Failed to update share paths after rename — shares may be stale")
+                    # Non-fatal: the rename itself succeeded
+
                 return self._send_response(200, json.dumps({"message": "Renamed"}))
             except Exception as e:
                 logging.exception("FluxDrop rename failed")
@@ -4754,6 +4855,73 @@ def _token_purge_worker():
                 f"TokenPurge: DB unavailable, next retry in {interval // 60} min."
             )
 
+def _require_admin(handler_method):
+    """Decorator for request handler methods that require admin privileges."""
+    def wrapper(self, *args, **kwargs):
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Authentication required'}))
+        with _db_connect() as conn:
+            row = conn.execute('SELECT is_admin FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not row or not row[0]:
+            return self._send_response(403, json.dumps({'error': 'Admin access required'}))
+        return handler_method(self, user_id, *args, **kwargs)
+    return wrapper
+
+def _get_user_disk_usage(user_id: int) -> int:
+    """Return total bytes used by a user across their upload directory."""
+    user_dir = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+    total = 0
+    try:
+        for dirpath, _, filenames in os.walk(user_dir):
+            for f in filenames:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+def _get_server_free_bytes() -> int:
+    import shutil
+    stat = shutil.disk_usage(SERVE_ROOT)
+    return stat.free
+
+DEFAULT_QUOTA_BYTES = 50 * 1024 ** 3  # 50 GB
+QUOTA_MIN_BYTES     = 10 * 1024 ** 3  # floor: never drop below 10 GB
+QUOTA_MAX_BYTES     = 100 * 1024 ** 3 # ceiling: never exceed 100 GB
+
+def _compute_dynamic_quota() -> int:
+    """
+    Scale the default quota based on free disk space.
+    Free > 500 GB  → 100 GB quota
+    Free 200–500   → 50 GB  (default)
+    Free 100–200   → 35 GB
+    Free < 100     → 10 GB  (floor)
+    """
+    free = _get_server_free_bytes()
+    gb = free / (1024 ** 3)
+    if gb >= 500:   return QUOTA_MAX_BYTES
+    if gb >= 200:   return DEFAULT_QUOTA_BYTES
+    if gb >= 100:   return 35 * 1024 ** 3
+    return QUOTA_MIN_BYTES
+
+def _quota_updater_thread(interval_seconds=3600):
+    """Hourly: recalculate and store dynamic quota for all non-override users."""
+    while True:
+        time.sleep(interval_seconds)
+        try:
+            new_quota = _compute_dynamic_quota()
+            with _db_connect() as conn:
+                conn.execute(
+                    'UPDATE users SET quota_bytes = ? WHERE quota_override = 0 OR quota_bytes IS NULL',
+                    (new_quota,)
+                )
+                conn.commit()
+            logging.info(f'Quota updated: {new_quota // (1024**3)} GB per user')
+        except Exception:
+            logging.exception('Quota updater failed')
 
 if __name__ == '__main__':
     # --- Pre-flight Checks & Setup ---
@@ -4785,6 +4953,9 @@ if __name__ == '__main__':
 
     net_mon_thread = threading.Thread(target=_net_monitor_worker, name="NetMonitor", daemon=True)
     net_mon_thread.start()
+
+    quota_thread = threading.Thread(target=_quota_updater_thread, name="QuotaUpdater", daemon=True)
+    quota_thread.start()
 
     # --- Start Server Threads ---
     http_thread = threading.Thread(target=run_server, args=(HTTP_PORT, False), name="HTTP-Thread", daemon=True)

@@ -24,29 +24,32 @@ user feedback or ideas for future development.
   - [ ] **Folder size** in directory listings (sum of contained file sizes)
     for quota display.
 
-- [ ] Auto-login on token expiry
+- [x] Add modal for copy, move and rename for folders and files
+- [x] `Esc` key will exit modal/screen same as close button
+- [ ] Audit: question about expose of the temp chunks at CDN
+- [x] Auto-login on token expiry
+- [ ] Add dark theme switch, or at least make addons work properly (and test them)
 - [ ] Add variable chunk sizes for different internet speeds and optimizations
-- [ ] `Done` in link creation tool will close the window if clicked
-- [x] Add sorting in file manager (by name, size, date of modify; folders first, treat folders as files (sorting))
+- [x] `Done` in link creation tool will close the window if clicked
 - [ ] Improve user iterations by adding auto-reconnect on dropped connection (e.g. switched networks) - this means semi-constant pings to the server on download or/and upload
+- [ ] Add handler to show when internet connection drops mid upload/download in the status bar/ETA
 - [ ] Add file info modal
-  - [ ] Basics (file modify, size)
-  - [ ] Hash sums (do it via `nice` so it will execute when server isn't fully utilized, or as background thing)
-    - [ ] Use those hashes as filechecks for background activity
+  - [ ] Basics (file modify time, size, etc.)
+  - [ ] Background hashsums (do it via `nice` so it will execute when server isn't fully utilized, as background thing)
+    - [ ] Use those hashes for silent file check activity in background
       - [ ] Add parchives to avoid file damages
       - [ ] Add some kind of messages if files got corrupted on server side and was unrecoverable 
 - [ ] Sand off the UI and textes, fix small inconsistences in UI (like on rename function)
 - [ ] i18n support (language changes)
-- [ ] Add handler to show when internet connection drops mid upload/download in the status bar/ETA
-- [ ] Shares that will work after file/folder move or rename
+- [x] Shares that will work after file/folder move or rename
 - [ ] Fix every FluxDrop snippet and site (UIs) to work properly with mobile and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Improve server download speeds by use of multithreaded function
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports for more ideal links and simplicity
-- [ ] Add usable space quota for user
+- [x] Add usable space quota for user
 - [ ] Add "profile" to check current used quota, subscribtion info, change of the password, etc.
 - [ ] Add quota info to mini-profile menu
-- [ ] Add more settings that can be managed via site with admin account
+- [x] Add more settings that can be managed via site with admin account
 - [ ] Add the HEIC, AVIF support for previews
 - [ ] Add PDF preview
 - [ ] Add plain text preview (.ini already there)
@@ -56,7 +59,7 @@ user feedback or ideas for future development.
 - [ ] Make special player with "video preview support", aka "slow internet mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce bandwidth and resolution)
 - [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
 
-- [ ] Add landing page for FluxDrop
+- [ ] Add landing page for FluxDrop - I really want start to draft it out
 - [ ] Add ToS and PP docs
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Make an mobile version of the FluxDrop as an app or as an installable app via Chrome

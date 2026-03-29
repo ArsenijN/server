@@ -3028,6 +3028,28 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if flux_match:
             return self.handle_fluxdrop_api_get(flux_match)
         
+        # User profile / quota info
+        if parsed_url.path == '/api/v1/me':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Authentication required.'}))
+            with _db_connect() as conn:
+                row = conn.execute(
+                    'SELECT id, username, nickname, email, is_admin, quota_bytes, quota_override, created_at FROM users WHERE id = ?',
+                    (user_id,)
+                ).fetchone()
+            if not row:
+                return self._send_response(404, json.dumps({'error': 'User not found.'}))
+            uid, uname, nick, email, adm, quota, qover, created = row
+            eff_quota = quota if quota else _compute_dynamic_quota()
+            usage = _get_user_disk_usage(uid)
+            return self._send_response(200, json.dumps({
+                'id': uid, 'username': uname, 'nickname': nick, 'email': email,
+                'is_admin': bool(adm), 'quota_bytes': eff_quota,
+                'quota_override': bool(qover), 'usage_bytes': usage,
+                'created_at': created,
+            }))
+
         if parsed_url.path == '/api/v1/admin/users':
             admin = self._check_admin_auth()
             if not admin: return
@@ -3162,6 +3184,59 @@ class AuthHandler(SimpleHTTPRequestHandler):
         item_match = self.shares_item_pattern.match(parsed_url.path)
         if item_match:
             return self.handle_share_update(item_match.group(2))
+        # User self-update: PATCH /api/v1/me  {nickname?, email?}
+        if parsed_url.path == '/api/v1/me':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Authentication required.'}))
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                data = json.loads(self.rfile.read(length))
+            except Exception:
+                return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
+            allowed = {'nickname', 'email'}
+            updates = {k: v for k, v in data.items() if k in allowed and isinstance(v, str) and v.strip()}
+            if not updates:
+                return self._send_response(400, json.dumps({'error': 'Nothing to update. Allowed fields: nickname, email.'}))
+            parts = ', '.join(f'{k} = ?' for k in updates)
+            vals  = [v.strip() for v in updates.values()] + [user_id]
+            with _db_connect() as conn:
+                conn.execute(f'UPDATE users SET {parts} WHERE id = ?', vals)
+                conn.commit()
+            return self._send_response(200, json.dumps({'message': 'Profile updated.'}))
+
+        # Password change: PATCH /api/v1/me/password  {current_password, new_password}
+        if parsed_url.path == '/api/v1/me/password':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Authentication required.'}))
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                data = json.loads(self.rfile.read(length))
+            except Exception:
+                return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
+            cur_pw  = data.get('current_password', '')
+            new_pw  = data.get('new_password', '')
+            if not cur_pw or not new_pw:
+                return self._send_response(400, json.dumps({'error': 'current_password and new_password required.'}))
+            if len(new_pw) < 8:
+                return self._send_response(400, json.dumps({'error': 'New password must be at least 8 characters.'}))
+            if len(new_pw) > 1024:
+                return self._send_response(400, json.dumps({'error': 'New password too long.'}))
+            with _db_connect() as conn:
+                row = conn.execute('SELECT password_hash FROM users WHERE id = ?', (user_id,)).fetchone()
+                if not row:
+                    return self._send_response(404, json.dumps({'error': 'User not found.'}))
+                stored_hash = row[0]
+                if not bcrypt.checkpw(cur_pw.encode('utf-8'), stored_hash.encode('utf-8')):
+                    return self._send_response(401, json.dumps({'error': 'Current password is incorrect.'}))
+                new_hash, _ = hash_password(new_pw)
+                conn.execute('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?', (new_hash, '', user_id))
+                # Invalidate all existing sessions so other devices are logged out
+                conn.execute('DELETE FROM sessions WHERE user_id = ? AND session_token != (SELECT session_token FROM sessions WHERE user_id = ? ORDER BY expires_at DESC LIMIT 1)', (user_id, user_id))
+                conn.commit()
+            return self._send_response(200, json.dumps({'message': 'Password changed. Other sessions have been logged out.'}))
+
         _admin_user = re.match(r'^/api/v1/admin/users/(\d+)$', parsed_url.path)
         if _admin_user:
             admin = self._check_admin_auth()

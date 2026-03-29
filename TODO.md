@@ -24,13 +24,11 @@ user feedback or ideas for future development.
   - [ ] **Folder size** in directory listings (sum of contained file sizes)
     for quota display.
 
-- [x] Add modal for copy, move and rename for folders and files
-- [x] `Esc` key will exit modal/screen same as close button
+- [x] Allow upload of folders as-is
+- [ ] Auto negotiation of upload type (folder or file)
 - [ ] Audit: question about expose of the temp chunks at CDN
-- [x] Auto-login on token expiry
 - [ ] Add dark theme switch, or at least make addons work properly (and test them)
 - [ ] Add variable chunk sizes for different internet speeds and optimizations
-- [x] `Done` in link creation tool will close the window if clicked
 - [ ] Improve user iterations by adding auto-reconnect on dropped connection (e.g. switched networks) - this means semi-constant pings to the server on download or/and upload
 - [ ] Add handler to show when internet connection drops mid upload/download in the status bar/ETA
 - [ ] Add file info modal
@@ -41,15 +39,12 @@ user feedback or ideas for future development.
       - [ ] Add some kind of messages if files got corrupted on server side and was unrecoverable 
 - [ ] Sand off the UI and textes, fix small inconsistences in UI (like on rename function)
 - [ ] i18n support (language changes)
-- [x] Shares that will work after file/folder move or rename
 - [ ] Fix every FluxDrop snippet and site (UIs) to work properly with mobile and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Improve server download speeds by use of multithreaded function
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports for more ideal links and simplicity
-- [x] Add usable space quota for user
-- [ ] Add "profile" to check current used quota, subscribtion info, change of the password, etc.
-- [ ] Add quota info to mini-profile menu
-- [x] Add more settings that can be managed via site with admin account
+- [x] Add "profile" to check current used quota, subscribtion info, change of the password, etc.
+- [x] Add quota info to mini-profile menu
 - [ ] Add the HEIC, AVIF support for previews
 - [ ] Add PDF preview
 - [ ] Add plain text preview (.ini already there)

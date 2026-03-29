@@ -1,7 +1,8 @@
-# server `v0.9.8`
+# server `v0.9.9`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Added a lot of features***
+*Release note: **Added user-management settings, quota infos into the account 
+info, other things***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

@@ -233,6 +233,8 @@ function renderFileBrowserView() {
             <div class="mb-4">
                 <form id="upload-form" class="flex gap-2 items-center flex-wrap">
                     <input type="file" id="upload-file" class="p-2 border rounded" multiple />
+                    <button type="button" id="btn-folder-toggle" class="btn text-sm"
+                        style="background:#0ea5e9" title="Switch to folder upload mode">📁 Folder</button>
                     <label class="text-sm"><input type="checkbox" id="upload-protected" /> Protected</label>
                     <button class="btn" type="submit">Upload</button>
                     <button type="button" id="btn-show-queue"
@@ -281,6 +283,30 @@ function renderFileBrowserView() {
         loadDirectory(currentPath);
     });
     document.getElementById('upload-form').addEventListener('submit', handleUploadForm);
+
+    // Folder upload toggle — switches the file input between file-mode and directory-mode
+    let _folderMode = false;
+    const _folderBtn = document.getElementById('btn-folder-toggle');
+    const _fileInput = document.getElementById('upload-file');
+    _folderBtn.addEventListener('click', () => {
+        _folderMode = !_folderMode;
+        if (_folderMode) {
+            _fileInput.setAttribute('webkitdirectory', '');
+            _fileInput.setAttribute('mozdirectory', '');
+            _fileInput.removeAttribute('multiple');
+            _folderBtn.textContent = '📄 Files';
+            _folderBtn.style.background = '#6366f1';
+            _folderBtn.title = 'Switch back to file upload mode';
+        } else {
+            _fileInput.removeAttribute('webkitdirectory');
+            _fileInput.removeAttribute('mozdirectory');
+            _fileInput.setAttribute('multiple', '');
+            _folderBtn.textContent = '📁 Folder';
+            _folderBtn.style.background = '#0ea5e9';
+            _folderBtn.title = 'Switch to folder upload mode';
+        }
+        _fileInput.value = '';
+    });
 
     // ── Upload queue state ──────────────────────────────────────────
     // Holds { file, destRel, ownerType, isProtected } waiting to upload.
@@ -1797,13 +1823,15 @@ async function handleUploadForm(e) {
     const isProtected = document.getElementById('upload-protected').checked;
     const ownerType = currentPath.startsWith('/cdn') ? 'catbox' : 'user';
 
-    // Build queue items for all selected files
-    const items = files.map(f => ({
-        file: f,
-        destRel: (currentPath.endsWith('/') ? currentPath : currentPath + '/') + f.name,
-        ownerType,
-        isProtected,
-    }));
+    // Build queue items for all selected files.
+    // When using webkitdirectory, f.webkitRelativePath gives the full relative path
+    // including the folder name (e.g. "MyFolder/sub/file.txt"). We use that to
+    // preserve the original directory structure under currentPath.
+    const basePath = currentPath.endsWith('/') ? currentPath : currentPath + '/';
+    const items = files.map(f => {
+        const rel = f.webkitRelativePath || f.name;
+        return { file: f, destRel: basePath + rel, ownerType, isProtected };
+    });
 
     if (items.length === 1) {
         // Single file: start immediately
@@ -2213,7 +2241,7 @@ function openProfileMenu() {
     overlay.id = 'profile-menu-modal';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:8000;display:flex;align-items:flex-start;justify-content:flex-end;padding:70px 1rem 0 0';
     overlay.innerHTML = `
-        <div id="profile-menu-panel" style="background:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.18);min-width:240px;overflow:hidden;animation:fadeSlideDown .15s ease">
+        <div id="profile-menu-panel" style="background:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.18);min-width:260px;overflow:hidden;animation:fadeSlideDown .15s ease">
             <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:18px 20px;display:flex;align-items:center;gap:12px">
                 <div style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:22px">👤</div>
                 <div>
@@ -2221,8 +2249,15 @@ function openProfileMenu() {
                     <div style="color:rgba(255,255,255,0.75);font-size:12px">FluxDrop account</div>
                 </div>
             </div>
+            <div id="pm-quota-bar" style="padding:10px 16px 6px;border-bottom:1px solid #f1f5f9">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Storage — loading…</div>
+                <div style="background:#e2e8f0;border-radius:4px;height:5px;overflow:hidden">
+                    <div id="pm-quota-fill" style="height:100%;border-radius:4px;background:#3b82f6;width:0%;transition:width .4s"></div>
+                </div>
+            </div>
             <div style="padding:8px 0">
-                <button class="profile-menu-item" id="pm-shares">🔗 Manage Shared Links</button>
+                <button class="profile-menu-item" id="pm-profile">👤 My Profile</button>
+                <button class="profile-menu-item" id="pm-shares">🔗 Shared Links</button>
                 <div style="height:1px;background:#f1f5f9;margin:4px 0"></div>
                 ${isAdmin ? '<button class="profile-menu-item" id="pm-admin">⚙️ Admin Panel</button>' : ''}
                 <button class="profile-menu-item" id="pm-logout" style="color:#ef4444">🚪 Logout</button>
@@ -2238,9 +2273,225 @@ function openProfileMenu() {
     document.body.appendChild(overlay);
 
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('pm-profile').addEventListener('click', () => { overlay.remove(); openProfilePanel(); });
     document.getElementById('pm-shares').addEventListener('click', () => { overlay.remove(); openShareManager(); });
     document.getElementById('pm-logout').addEventListener('click', () => { overlay.remove(); handleLogout(); });
     if (isAdmin) document.getElementById('pm-admin')?.addEventListener('click', () => { overlay.remove(); openAdminPanel(); });
+
+    // Load quota info asynchronously — don't block menu opening
+    apiCall('/api/v1/me', 'GET').then(me => {
+        const bar  = document.getElementById('pm-quota-bar');
+        const fill = document.getElementById('pm-quota-fill');
+        if (!bar || !fill) return;
+        const used  = me.usage_bytes  || 0;
+        const quota = me.quota_bytes  || 1;
+        const pct   = Math.min(100, (used / quota) * 100);
+        const color = pct >= 95 ? '#ef4444' : pct >= 75 ? '#f59e0b' : '#3b82f6';
+        const fmt   = b => b >= 1073741824 ? (b/1073741824).toFixed(1)+' GB'
+                         : b >= 1048576    ? (b/1048576).toFixed(1)+' MB'
+                         : (b/1024).toFixed(0)+' KB';
+        bar.querySelector('div').textContent = `Storage — ${fmt(used)} of ${fmt(quota)} used (${pct.toFixed(0)}%)`;
+        fill.style.width   = pct.toFixed(1) + '%';
+        fill.style.background = color;
+    }).catch(() => {
+        const bar = document.getElementById('pm-quota-bar');
+        if (bar) bar.querySelector('div').textContent = 'Storage — unavailable';
+    });
+}
+
+        // ======================================================================
+        // --- PROFILE PANEL ---
+        // ======================================================================
+async function openProfilePanel() {
+    const existing = document.getElementById('profile-panel-overlay');
+    if (existing) { existing.remove(); return; }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'profile-panel-overlay';
+    overlay.style.zIndex = '9000';
+    overlay.innerHTML = `
+        <div style="background:white;border-radius:16px;width:95vw;max-width:500px;
+                    overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;max-height:90vh">
+            <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:18px 24px;
+                        display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+                <div style="color:white;font-weight:700;font-size:18px">👤 My Profile</div>
+                <button id="pp-close" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;
+                    width:32px;height:32px;color:white;font-size:18px;cursor:pointer;
+                    display:flex;align-items:center;justify-content:center">✕</button>
+            </div>
+            <div style="overflow-y:auto;flex:1;padding:20px 24px;display:grid;gap:20px">
+                <!-- Quota card -->
+                <div id="pp-quota-card" style="background:#f8fafc;border-radius:10px;padding:14px 16px">
+                    <div style="font-size:13px;color:#64748b;margin-bottom:8px">Loading storage info…</div>
+                </div>
+
+                <!-- Edit profile section -->
+                <div>
+                    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;
+                                text-transform:uppercase;letter-spacing:.05em">Profile info</div>
+                    <div style="display:grid;gap:10px">
+                        <label style="font-size:13px;font-weight:600;color:#374151">Nickname (display name)
+                            <input id="pp-nickname" type="text" placeholder="Loading…"
+                                style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                                       border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                                       box-sizing:border-box;font-family:Inter,sans-serif">
+                        </label>
+                        <label style="font-size:13px;font-weight:600;color:#374151">Email
+                            <input id="pp-email" type="email" placeholder="Loading…"
+                                style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                                       border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                                       box-sizing:border-box;font-family:Inter,sans-serif">
+                        </label>
+                        <div id="pp-profile-msg" style="display:none;font-size:13px;border-radius:6px;padding:6px 10px"></div>
+                        <button id="pp-save-profile" class="btn" style="justify-self:end;padding:.5rem 1.25rem">Save changes</button>
+                    </div>
+                </div>
+
+                <hr style="border:none;border-top:1px solid #e2e8f0;margin:0">
+
+                <!-- Change password section -->
+                <div>
+                    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;
+                                text-transform:uppercase;letter-spacing:.05em">Change password</div>
+                    <div style="display:grid;gap:10px">
+                        <label style="font-size:13px;font-weight:600;color:#374151">Current password
+                            <input id="pp-cur-pw" type="password" autocomplete="current-password"
+                                style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                                       border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                                       box-sizing:border-box;font-family:Inter,sans-serif">
+                        </label>
+                        <label style="font-size:13px;font-weight:600;color:#374151">New password
+                            <input id="pp-new-pw" type="password" autocomplete="new-password"
+                                style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                                       border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                                       box-sizing:border-box;font-family:Inter,sans-serif">
+                        </label>
+                        <label style="font-size:13px;font-weight:600;color:#374151">Confirm new password
+                            <input id="pp-confirm-pw" type="password" autocomplete="new-password"
+                                style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                                       border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
+                                       box-sizing:border-box;font-family:Inter,sans-serif">
+                        </label>
+                        <div id="pp-pw-msg" style="display:none;font-size:13px;border-radius:6px;padding:6px 10px"></div>
+                        <button id="pp-change-pw" class="btn" style="justify-self:end;padding:.5rem 1.25rem;background:#6366f1">Change password</button>
+                    </div>
+                </div>
+
+                <!-- Account info footer -->
+                <div id="pp-account-info" style="font-size:12px;color:#94a3b8;padding-bottom:4px"></div>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    overlay.querySelector('#pp-close').addEventListener('click', () => overlay.remove());
+
+    // Helper: show message in a field's msg element
+    function ppMsg(elId, text, isError) {
+        const el = overlay.querySelector('#' + elId);
+        if (!el) return;
+        el.textContent = text;
+        el.style.display = text ? 'block' : 'none';
+        el.style.background = isError ? '#fef2f2' : '#f0fdf4';
+        el.style.color = isError ? '#ef4444' : '#16a34a';
+    }
+
+    // Load user info
+    try {
+        const me = await apiCall('/api/v1/me', 'GET');
+        if (!overlay.isConnected) return;
+
+        // Quota card
+        const used  = me.usage_bytes  || 0;
+        const quota = me.quota_bytes  || 1;
+        const pct   = Math.min(100, (used / quota) * 100);
+        const barColor = pct >= 95 ? '#ef4444' : pct >= 75 ? '#f59e0b' : '#22c55e';
+        const fmt = b => b >= 1073741824 ? (b/1073741824).toFixed(2)+' GB'
+                       : b >= 1048576    ? (b/1048576).toFixed(1)+' MB'
+                       : (b/1024).toFixed(0)+' KB';
+        const pinNote = me.quota_override
+            ? '<span style="color:#6366f1;font-size:11px;margin-left:6px">📌 pinned by admin</span>'
+            : '<span style="color:#94a3b8;font-size:11px;margin-left:6px">adjusts with server load</span>';
+        overlay.querySelector('#pp-quota-card').innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+                <span style="font-size:13px;font-weight:600;color:#374151">Storage quota</span>
+                <span style="font-size:13px;color:#475569">${fmt(used)} <span style="color:#94a3b8">of</span> ${fmt(quota)}</span>
+            </div>
+            <div style="background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden;margin-bottom:6px">
+                <div style="height:100%;border-radius:6px;background:${barColor};width:${pct.toFixed(1)}%;transition:width .4s"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <span style="font-size:12px;color:#64748b">${pct.toFixed(1)}% used — ${fmt(quota - used)} free${pinNote}</span>
+                ${pct >= 95 ? '<span style="font-size:12px;color:#ef4444;font-weight:600">⚠ Quota nearly full</span>' : ''}
+            </div>`;
+
+        // Fill in editable fields
+        overlay.querySelector('#pp-nickname').value = me.nickname || '';
+        overlay.querySelector('#pp-email').value    = me.email    || '';
+
+        // Account info footer
+        overlay.querySelector('#pp-account-info').innerHTML =
+            `ID ${me.id} · username: <strong>${escapeHtml(me.username)}</strong> · joined ${(me.created_at||'').slice(0,10)}` +
+            (me.is_admin ? ' · <span style="color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:999px;font-weight:600">admin</span>' : '');
+
+    } catch (err) {
+        if (!overlay.isConnected) return;
+        overlay.querySelector('#pp-quota-card').innerHTML =
+            `<div style="color:#ef4444;font-size:13px">Failed to load profile: ${escapeHtml(err.message)}</div>`;
+    }
+
+    // Save profile info
+    overlay.querySelector('#pp-save-profile').addEventListener('click', async () => {
+        const btn      = overlay.querySelector('#pp-save-profile');
+        const nickname = overlay.querySelector('#pp-nickname').value.trim();
+        const email    = overlay.querySelector('#pp-email').value.trim();
+        if (!nickname && !email) { ppMsg('pp-profile-msg', 'Nothing to save.', true); return; }
+        ppMsg('pp-profile-msg', '', false);
+        btn.disabled = true; btn.textContent = 'Saving…';
+        try {
+            await apiCall('/api/v1/me', 'PATCH', { nickname, email });
+            ppMsg('pp-profile-msg', 'Saved!', false);
+        } catch (err) {
+            if (!overlay.isConnected) return;
+            ppMsg('pp-profile-msg', err.message, true);
+        } finally {
+            if (overlay.isConnected) { btn.disabled = false; btn.textContent = 'Save changes'; }
+        }
+    });
+
+    // Change password
+    overlay.querySelector('#pp-change-pw').addEventListener('click', async () => {
+        const btn       = overlay.querySelector('#pp-change-pw');
+        const curPw     = overlay.querySelector('#pp-cur-pw').value;
+        const newPw     = overlay.querySelector('#pp-new-pw').value;
+        const confirmPw = overlay.querySelector('#pp-confirm-pw').value;
+        if (!curPw || !newPw || !confirmPw) {
+            ppMsg('pp-pw-msg', 'All three fields are required.', true); return;
+        }
+        if (newPw !== confirmPw) {
+            ppMsg('pp-pw-msg', 'New passwords do not match.', true); return;
+        }
+        if (newPw.length < 8) {
+            ppMsg('pp-pw-msg', 'New password must be at least 8 characters.', true); return;
+        }
+        ppMsg('pp-pw-msg', '', false);
+        btn.disabled = true; btn.textContent = 'Changing…';
+        try {
+            const res = await apiCall('/api/v1/me/password', 'PATCH', {
+                current_password: curPw, new_password: newPw,
+            });
+            ppMsg('pp-pw-msg', res.message || 'Password changed!', false);
+            overlay.querySelector('#pp-cur-pw').value     = '';
+            overlay.querySelector('#pp-new-pw').value     = '';
+            overlay.querySelector('#pp-confirm-pw').value = '';
+        } catch (err) {
+            if (!overlay.isConnected) return;
+            ppMsg('pp-pw-msg', err.message, true);
+        } finally {
+            if (overlay.isConnected) { btn.disabled = false; btn.textContent = 'Change password'; }
+        }
+    });
 }
 
         // ======================================================================
@@ -3292,6 +3543,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('ap-edit-overlay').remove();
         } else if (document.getElementById('admin-panel-overlay')) {
             document.getElementById('admin-panel-overlay').remove();
+        } else if (document.getElementById('profile-panel-overlay')) {
+            document.getElementById('profile-panel-overlay').remove();
         } else if (document.getElementById('share-manager-overlay')) {
             document.getElementById('share-manager-overlay').remove();
         } else if (document.getElementById('profile-menu-modal')) {

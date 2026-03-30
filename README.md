@@ -1,7 +1,7 @@
-# server `v0.9.11`
+# server `v0.9.11.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Add IP beaconing for specific usage***
+*Release note: **Update site build, added new ToDo's***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

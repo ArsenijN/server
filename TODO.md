@@ -23,6 +23,9 @@ user feedback or ideas for future development.
   - [x] **Folder size** in directory listings (sum of contained file sizes)
     for quota display.
 
+- [ ] Add folder downloads and size to the share snippet
+- [ ] Check why checksums of uploaded files on server is slow
+- [ ] Add trash bin
 - [ ] Auto negotiation of upload type (folder or file)
 - [ ] Audit: question about expose of the temp chunks at CDN
 - [ ] Add dark theme switch, or at least make addons work properly (and test them)

@@ -2577,6 +2577,7 @@ function openProfileMenu() {
             <div style="padding:8px 0">
                 <button class="profile-menu-item" id="pm-profile">👤 My Profile</button>
                 <button class="profile-menu-item" id="pm-shares">🔗 Shared Links</button>
+                <button class="profile-menu-item" id="pm-beacon">📡 IP Beacon</button>
                 <div style="height:1px;background:#f1f5f9;margin:4px 0"></div>
                 ${isAdmin ? '<button class="profile-menu-item" id="pm-admin">⚙️ Admin Panel</button>' : ''}
                 <button class="profile-menu-item" id="pm-logout" style="color:#ef4444">🚪 Logout</button>
@@ -2594,6 +2595,13 @@ function openProfileMenu() {
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
     document.getElementById('pm-profile').addEventListener('click', () => { overlay.remove(); openProfilePanel(); });
     document.getElementById('pm-shares').addEventListener('click', () => { overlay.remove(); openShareManager(); });
+    document.getElementById('pm-beacon').addEventListener('click', () => {
+        overlay.remove();
+        // Open IP Beacon in the same tab — the page is session-gated and
+        // history.back() will return here.  Pass the token as a query param
+        // so the server can validate it even before any JS runs.
+        window.location.href = '/beacon/ui?token=' + encodeURIComponent(authToken || '');
+    });
     document.getElementById('pm-logout').addEventListener('click', () => { overlay.remove(); handleLogout(); });
     if (isAdmin) document.getElementById('pm-admin')?.addEventListener('click', () => { overlay.remove(); openAdminPanel(); });
 

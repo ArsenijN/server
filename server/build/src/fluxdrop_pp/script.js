@@ -471,10 +471,10 @@ async function loadDirectory(path) {
 
     const TABLE_WRAP = `<table style="width:100%;table-layout:fixed;border-collapse:collapse">
         <colgroup>
-            <col style="width:42%">
+            <col style="width:36%">
             <col style="width:10%">
-            <col style="width:18%">
-            <col style="width:30%">
+            <col style="width:16%">
+            <col style="width:38%">
         </colgroup>`;
 
     // Show skeleton rows immediately so the table shape appears while fetching
@@ -544,7 +544,7 @@ function _ab(label, cls, color, dataAttrs) {
     const attrs = Object.entries(dataAttrs).map(([k,v]) => `data-${k}="${v}"`).join(' ');
     return `<button class="${cls}"
         style="background:${color};color:white;border:none;border-radius:6px;
-               padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer;
+               padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;
                white-space:nowrap;line-height:1.6"
         ${attrs}>${label}</button>`;
 }
@@ -553,7 +553,10 @@ function renderEntryRow(e) {
     const nameEsc    = escapeHtml(e.name);
     const path       = e.path;
     const safePA     = escapeHtmlAttr(path);
-    const sizeStr    = e.is_dir ? '—' : formatBytes(e.size);
+    // Folders show '—' initially; size is loaded lazily via loadFolderSize()
+    const sizeStr    = e.is_dir
+        ? `<span class="folder-size-cell" data-path="${safePA}" style="color:#94a3b8">…</span>`
+        : formatBytes(e.size);
 
     // Name cell: plain <button> instead of <a> — no href, no status-bar tooltip in any browser
     const TD_NAME = 'style="padding:9px 8px;vertical-align:middle;overflow:hidden"';
@@ -578,16 +581,17 @@ function renderEntryRow(e) {
     const pd = { path: safePA, isdir: e.is_dir ? '1' : '0' };
     const btnOpen     = _ab('Open',     'open-btn',     '#3b82f6', p);
     const btnDl       = _ab('Download', 'download-btn', '#3b82f6', p);
+    const btnZip      = _ab('⬇ ZIP',   'zip-btn',      '#0891b2', p);
     const btnPreview  = _ab('Preview',  'preview-btn',  '#f59e0b', p);
     const btnShare    = _ab('Share',    'share-btn',    '#8b5cf6', pd);
     const btnDelete   = _ab('Delete',   'delete-btn',   '#ef4444', p);
     const btnMove     = _ab('Move/Rename', 'move-btn',  '#64748b', p);
 
     const actionBtns = e.is_dir
-        ? [btnOpen, btnShare, btnDelete, btnMove].join(' ')
+        ? [btnOpen, btnZip, btnShare, btnDelete, btnMove].join(' ')
         : [btnDl, btnPreview, btnShare, btnDelete, btnMove].join(' ');
-    const TD_COMMON = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
-    const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap;text-align:right"';
+    const TD_COMMON  = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
+    const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;text-align:right;min-width:220px"';
 
     return `<tr class="border-t" style="transition:background 0.12s" onmouseenter="this.style.background='#f8fafc'" onmouseleave="this.style.background=''">
         <td ${TD_NAME}>${nameBtn}${uploaderLine}</td>
@@ -909,18 +913,61 @@ window.cancelDownload = function(path) {
         // ======================================================================
         // --- MEDIA PREVIEW ---
         // ======================================================================
-const EXT_IMAGE = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico','avif','tiff','tif', 'heic']);
-const EXT_VIDEO = new Set(['mp4','webm','ogg','ogv','mov','m4v','mkv','avi']);
-const EXT_AUDIO = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus','weba']);
-const EXT_TEXT  = new Set(['txt','md','js','ts','jsx','tsx','py','sh','bash','json','xml','yaml','yml','toml','ini','cfg','conf','html','htm','css','scss','less','csv','log','env','rs','go','c','cpp','h','java','rb','php','swift','kt','sql','r','lua']);
+const EXT_IMAGE   = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico','avif','tiff','tif']);
+const EXT_IMAGE_HEIC = new Set(['heic','heif']);  // decoded client-side via heic2any
+const EXT_VIDEO   = new Set(['mp4','webm','ogg','ogv','mov','m4v','mkv','avi']);
+const EXT_AUDIO   = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus','weba']);
+const EXT_TEXT    = new Set(['txt','md','js','ts','jsx','tsx','py','sh','bash','json','xml','yaml','yml','toml','ini','cfg','conf','html','htm','css','scss','less','csv','log','env','rs','go','c','cpp','h','java','rb','php','swift','kt','sql','r','lua']);
+const EXT_ARCHIVE = new Set(['zip','tar','gz','tgz','bz2','tbz2','xz','txz']);
 
 function fileCategory(path) {
     const ext = (path.split('.').pop() || '').toLowerCase();
-    if (EXT_IMAGE.has(ext)) return 'image';
-    if (EXT_VIDEO.has(ext)) return 'video';
-    if (EXT_AUDIO.has(ext)) return 'audio';
-    if (EXT_TEXT.has(ext))  return 'text';
+    if (EXT_IMAGE.has(ext))      return 'image';
+    if (EXT_IMAGE_HEIC.has(ext)) return 'heic';
+    if (EXT_VIDEO.has(ext))      return 'video';
+    if (EXT_AUDIO.has(ext))      return 'audio';
+    if (EXT_TEXT.has(ext))       return 'text';
+    if (EXT_ARCHIVE.has(ext))    return 'archive';
     return 'binary';
+}
+
+// Load heic2any lazily (only when a HEIC file is previewed)
+let _heic2anyLoaded = false;
+function _loadHeic2any() {
+    if (_heic2anyLoaded) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js';
+        s.onload  = () => { _heic2anyLoaded = true; resolve(); };
+        s.onerror = () => reject(new Error('Failed to load heic2any'));
+        document.head.appendChild(s);
+    });
+}
+
+// Load JSZip lazily (only when a ZIP file is previewed)
+let _jszipLoaded = false;
+function _loadJSZip() {
+    if (_jszipLoaded) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        s.onload  = () => { _jszipLoaded = true; resolve(); };
+        s.onerror = () => reject(new Error('Failed to load JSZip'));
+        document.head.appendChild(s);
+    });
+}
+
+// Load js-untar lazily (for .tar / .tar.gz / .tgz / .bz2 files)
+let _untarLoaded = false;
+function _loadUntar() {
+    if (_untarLoaded) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/js-untar/2.0.0/untar.min.js';
+        s.onload  = () => { _untarLoaded = true; resolve(); };
+        s.onerror = () => reject(new Error('Failed to load js-untar'));
+        document.head.appendChild(s);
+    });
 }
 
 window.closePreview = function() {
@@ -931,6 +978,81 @@ window.closePreview = function() {
     body.innerHTML = '';
     document.getElementById('preview-download-btn').style.display = 'none';
 };
+
+// Render a read-only archive file tree inside the preview body element.
+// entries: array of { name, size, isDir }  (normalised by each format handler)
+function _renderArchiveTree(bodyEl, entries, archiveName) {
+    if (!entries.length) {
+        bodyEl.innerHTML = '<div style="padding:2rem;text-align:center;color:#94a3b8">Archive is empty.</div>';
+        return;
+    }
+
+    // Build a tree structure from flat paths
+    function buildTree(entries) {
+        const root = { children: {}, files: [] };
+        for (const e of entries) {
+            const parts = e.name.replace(/\\/g, '/').replace(/\/$/, '').split('/');
+            if (e.isDir || parts.length > 1) {
+                // directory node — walk/create path
+                let node = root;
+                const dirParts = e.isDir ? parts : parts.slice(0, -1);
+                for (const part of dirParts) {
+                    if (!node.children[part]) node.children[part] = { children: {}, files: [] };
+                    node = node.children[part];
+                }
+                if (!e.isDir) node.files.push({ name: parts[parts.length - 1], size: e.size });
+            } else {
+                root.files.push({ name: e.name, size: e.size });
+            }
+        }
+        return root;
+    }
+
+    function renderNode(node, depth) {
+        let html = '';
+        const pad = depth * 16;
+        // Directories first
+        for (const [name, child] of Object.entries(node.children).sort(([a],[b]) => a.localeCompare(b))) {
+            html += `<div style="display:flex;align-items:center;gap:6px;padding:3px 8px 3px ${8+pad}px;
+                         border-radius:5px;cursor:default" class="arc-dir-row"
+                         onmouseenter="this.style.background='rgba(255,255,255,.05)'"
+                         onmouseleave="this.style.background=''">
+                <span style="font-size:13px;flex-shrink:0">📁</span>
+                <span style="font-size:13px;color:#93c5fd;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(name)}</span>
+            </div>
+            ${renderNode(child, depth + 1)}`;
+        }
+        // Files
+        for (const f of node.files.sort((a,b) => a.name.localeCompare(b.name))) {
+            const sz = f.size != null ? `<span style="font-size:11px;color:#64748b;flex-shrink:0;margin-left:auto;padding-left:8px">${formatBytes(f.size)}</span>` : '';
+            html += `<div style="display:flex;align-items:center;gap:6px;padding:3px 8px 3px ${8+pad}px;
+                         border-radius:5px;cursor:default"
+                         onmouseenter="this.style.background='rgba(255,255,255,.05)'"
+                         onmouseleave="this.style.background=''">
+                <span style="font-size:13px;flex-shrink:0">📄</span>
+                <span style="font-size:13px;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(f.name)}</span>
+                ${sz}
+            </div>`;
+        }
+        return html;
+    }
+
+    const tree = buildTree(entries);
+    const totalFiles = entries.filter(e => !e.isDir).length;
+    const totalDirs  = entries.filter(e => e.isDir).length;
+
+    bodyEl.innerHTML = `
+        <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);
+                    display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:12px;color:#94a3b8">
+                ${totalFiles} file${totalFiles!==1?'s':''} · ${totalDirs} folder${totalDirs!==1?'s':''}
+            </span>
+            <span style="font-size:11px;color:#475569">read-only preview</span>
+        </div>
+        <div style="overflow:auto;max-height:60vh;padding:6px 4px;font-family:ui-monospace,monospace">
+            ${renderNode(tree, 0)}
+        </div>`;
+}
 
 window.previewFile = async function(path) {
     const filename = path.split('/').pop();
@@ -953,19 +1075,118 @@ window.previewFile = async function(path) {
         if (cat === 'image') {
             bodyEl.innerHTML = `<img src="${dlUrl}" alt="${escapeHtml(filename)}" style="max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto">`;
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+
+        } else if (cat === 'heic') {
+            bodyEl.innerHTML = '<p style="color:#94a3b8;padding:2rem;text-align:center">Decoding HEIC…</p>';
+            await _loadHeic2any();
+            const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const blob = await resp.blob();
+            // heic2any converts to JPEG blob (or PNG if toType specified)
+            const jpegBlob = await heic2any({ blob, toType: 'image/jpeg', quality: 0.85 });
+            const objUrl = URL.createObjectURL(jpegBlob);
+            bodyEl.innerHTML = `<img src="${objUrl}" alt="${escapeHtml(filename)}"
+                style="max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto">`;
+            // Revoke when preview is closed
+            const origClose = window.closePreview;
+            window.closePreview = function() { URL.revokeObjectURL(objUrl); window.closePreview = origClose; origClose(); };
+            dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+
         } else if (cat === 'video') {
             bodyEl.innerHTML = `<video controls autoplay style="max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto;background:#000"><source src="${dlUrl}">Your browser doesn't support this video format.</video>`;
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+
         } else if (cat === 'audio') {
             bodyEl.innerHTML = `<div style="padding:2rem 1rem;text-align:center"><div style="font-size:4rem;margin-bottom:1rem">🎵</div><div style="color:#94a3b8;margin-bottom:1.5rem;font-size:15px">${escapeHtml(filename)}</div><audio controls autoplay style="width:100%"><source src="${dlUrl}">Your browser doesn't support audio playback.</audio></div>`;
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+
         } else if (cat === 'text') {
-            const resp = await fetch(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+            const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const text = await resp.text();
             const ext = (path.split('.').pop() || '').toLowerCase();
             bodyEl.innerHTML = `<pre class="lang-${ext}">${escapeHtml(text.slice(0, 50000))}${text.length > 50000 ? '\n\n… (truncated)' : ''}</pre>`;
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+
+        } else if (cat === 'archive') {
+            const ext = (path.split('.').pop() || '').toLowerCase();
+            bodyEl.innerHTML = '<p style="color:#94a3b8;padding:2rem;text-align:center">Reading archive…</p>';
+
+            const isZip  = ext === 'zip';
+            const isTar  = ['tar','gz','tgz','bz2','tbz2','xz','txz'].includes(ext);
+
+            if (isZip) {
+                await _loadJSZip();
+                const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const buf = await resp.arrayBuffer();
+                const zip = await JSZip.loadAsync(buf);
+                const entries = [];
+                zip.forEach((relPath, zipEntry) => {
+                    entries.push({
+                        name:  relPath,
+                        size:  zipEntry.dir ? null : (zipEntry._data ? zipEntry._data.uncompressedSize : null),
+                        isDir: zipEntry.dir,
+                    });
+                });
+                _renderArchiveTree(bodyEl, entries, filename);
+
+            } else if (isTar) {
+                // js-untar handles .tar; for .gz/.tgz the browser DecompressionStream
+                // unwraps gzip first, then js-untar reads the .tar inside.
+                // For .bz2/.xz we show an unsupported message (no WASM-free JS decoder).
+                if (['bz2','tbz2','xz','txz'].includes(ext)) {
+                    bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
+                        <div style="font-size:3rem;margin-bottom:1rem">🗜</div>
+                        <div style="color:#94a3b8">${escapeHtml(filename)}</div>
+                        <p style="color:#64748b;font-size:14px;margin-top:8px">
+                            .${ext} preview isn't supported in browser.<br>Download and extract locally.
+                        </p></div>`;
+                    dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
+                } else {
+                    await _loadUntar();
+                    const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+                    let tarBuffer;
+                    if (['gz','tgz'].includes(ext) && typeof DecompressionStream !== 'undefined') {
+                        // Decompress gzip in-browser, then untar
+                        const ds = new DecompressionStream('gzip');
+                        const decompressed = resp.body.pipeThrough(ds);
+                        const reader = decompressed.getReader();
+                        const chunks = [];
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            chunks.push(value);
+                        }
+                        const total = chunks.reduce((s, c) => s + c.byteLength, 0);
+                        const buf = new Uint8Array(total);
+                        let off = 0;
+                        for (const c of chunks) { buf.set(c, off); off += c.byteLength; }
+                        tarBuffer = buf.buffer;
+                    } else {
+                        tarBuffer = await resp.arrayBuffer();
+                    }
+
+                    const tarFiles = await untar(tarBuffer);
+                    const entries = tarFiles.map(f => ({
+                        name:  f.name,
+                        size:  f.size || null,
+                        isDir: f.type === '5' || f.name.endsWith('/'),
+                    }));
+                    _renderArchiveTree(bodyEl, entries, filename);
+                }
+            } else {
+                bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
+                    <div style="font-size:3.5rem;margin-bottom:1rem">📦</div>
+                    <div style="color:#94a3b8;margin-bottom:1rem">${escapeHtml(filename)}</div>
+                    <p style="color:#64748b;font-size:14px">No preview available for this archive type.</p>
+                </div>`;
+                dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
+            }
+            dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+
         } else {
             bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center"><div style="font-size:3.5rem;margin-bottom:1rem">📄</div><div style="color:#94a3b8;margin-bottom:1rem">${escapeHtml(filename)}</div><p style="color:#64748b;font-size:14px">No preview available for this file type.</p></div>`;
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
@@ -987,6 +1208,9 @@ function attachRowListeners() {
     document.querySelectorAll('#file-list .download-btn').forEach(btn => {
         btn.addEventListener('click', () => downloadFile(btn.dataset.path));
     });
+    document.querySelectorAll('#file-list .zip-btn').forEach(btn => {
+        btn.addEventListener('click', () => downloadFolderZip(btn.dataset.path));
+    });
     document.querySelectorAll('#file-list .preview-btn').forEach(btn => {
         btn.addEventListener('click', (e) => { e.preventDefault(); previewFile(btn.dataset.path); });
     });
@@ -999,6 +1223,101 @@ function attachRowListeners() {
     document.querySelectorAll('#file-list .share-btn').forEach(btn => {
         btn.addEventListener('click', () => openShareDialog(btn.dataset.path, btn.dataset.isdir === '1'));
     });
+
+    // Lazy folder sizes — fire requests after the table is visible
+    // Use staggered setTimeout to avoid hammering the server for large listings
+    document.querySelectorAll('#file-list .folder-size-cell').forEach((cell, idx) => {
+        setTimeout(() => loadFolderSize(cell), idx * 80);
+    });
+}
+
+async function loadFolderSize(cell) {
+    const path = cell.dataset.path;
+    if (!path || !authToken) return;
+    try {
+        const ep = `/api/v1/foldersize${encodePath(path)}`;
+        const data = await apiCall(ep, 'GET', null, true);
+        if (cell.isConnected) {  // row may have been replaced by a re-render
+            cell.textContent = formatBytes(data.size);
+            cell.title = `${data.file_count} file${data.file_count !== 1 ? 's' : ''}`;
+            cell.style.color = '';
+        }
+    } catch {
+        if (cell.isConnected) { cell.textContent = '—'; cell.style.color = '#94a3b8'; }
+    }
+}
+
+// Stream-download a folder as ZIP using the existing download tray.
+// The server sends Content-Length so progress works just like a file download.
+window.downloadFolderZip = async function(path) {
+    const zipPath = '__zip__' + path;  // synthetic key so it doesn't collide with file paths
+    if (activeDownloads.has(zipPath)) { renderDownloadTray(); return; }
+    const folderName = path.split('/').filter(Boolean).pop() || 'download';
+    const filename   = folderName + '.zip';
+    try {
+        // We don't use mintDownloadToken for ZIP — the session token in the
+        // Authorization header is sufficient (Bearer sent by fetchWithFallback).
+        const dl = {
+            dlToken: null,       // not used — ZIP endpoint accepts session auth
+            totalSize: null,
+            bytesReceived: 0,
+            chunks: [],
+            filename,
+            status: 'downloading',
+            abortController: null,
+            error: null,
+            speed: null,
+            eta: null,
+        };
+        activeDownloads.set(zipPath, dl);
+        renderDownloadTray();
+
+        const zipUrl = `${API_BASE_URL}/api/v1/zip${encodePath(path)}`;
+        dl.abortController = new AbortController();
+        const resp = await fetchWithFallback(zipUrl, {
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+            signal: dl.abortController.signal,
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+            throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        const cl = resp.headers.get('Content-Length');
+        if (cl) dl.totalSize = parseInt(cl);
+        renderDownloadTray();
+
+        const reader = resp.body.getReader();
+        let lastLoaded = 0, lastTime = Date.now();
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            dl.chunks.push(value);
+            dl.bytesReceived += value.byteLength;
+            const now = Date.now(), dt = (now - lastTime) / 1000;
+            if (dt >= 0.3) {
+                dl.speed = (dl.bytesReceived - lastLoaded) / dt;
+                dl.eta   = (dl.speed > 0 && dl.totalSize)
+                    ? (dl.totalSize - dl.bytesReceived) / dl.speed : null;
+                lastLoaded = dl.bytesReceived; lastTime = now;
+            }
+            renderDownloadTray();
+        }
+        const blob = new Blob(dl.chunks, { type: 'application/zip' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+        URL.revokeObjectURL(a.href);
+        dl.status = 'done';
+        renderDownloadTray();
+    } catch (err) {
+        const dl = activeDownloads.get(zipPath);
+        if (dl) {
+            if (err.name === 'AbortError') { dl.status = 'paused'; }
+            else { dl.status = 'error'; dl.error = err.message; }
+            renderDownloadTray();
+        } else {
+            showMessage('ZIP download failed', err.message);
+        }
+    }
 }
 
 window.deleteItem = async function(path) {

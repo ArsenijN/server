@@ -22,8 +22,29 @@ from email.mime.image import MIMEImage
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
+import gzip as _gzip_mod
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
+
+# Content-types that benefit from gzip (text-based, not already compressed).
+# Binary / already-compressed types are explicitly excluded so we never waste
+# CPU inflating data that can't shrink further.
+_GZIP_COMPRESSIBLE = frozenset({
+    'application/json',
+    'text/html',
+    'text/plain',
+    'text/css',
+    'application/javascript',
+    'text/javascript',
+    'application/xml',
+    'text/xml',
+    'text/csv',
+})
+# Files larger than this are not gzip-buffered in _send_response to avoid
+# holding a potentially huge compressed blob in RAM.  The streaming download
+# handler has its own logic.
+_GZIP_MAX_INLINE   = 16 * 1024 * 1024   # 16 MB
+_GZIP_MIN_SIZE     = 512                 # below this the header overhead isn't worth it
 
 # ==============================================================================
 # --- HTML SNIPPET LOADER ---
@@ -2058,6 +2079,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
     public_share_pattern = re.compile(r'^/share/([A-Za-z0-9_\-]+)(/.*)?$')
     catbox_api_path = '/user/api.php'
     auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify)$')
+    zip_pattern        = re.compile(r'^/api/(v[1-3])/zip(/.*)?$')
+    foldersize_pattern = re.compile(r'^/api/(v[1-3])/foldersize(/.*)?$')
     # Chunked resumable upload API:
     #   POST /api/v1/upload_session/init
     #   POST /api/v1/upload_session/<token>/chunk/<index>
@@ -2118,20 +2141,57 @@ class AuthHandler(SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Max-Age', '86400')
 
     def _send_response(self, status_code, content, content_type='application/json'):
+        """Send an HTTP response, transparently gzip-encoding when the client
+        supports it and the payload is a compressible type ≤ _GZIP_MAX_INLINE.
+
+        *content* may be a ``str`` (encoded to UTF-8 here) or ``bytes``.
+        Gzip is opt-in via the client's ``Accept-Encoding: gzip`` header so
+        existing callers without that header continue to receive plain text —
+        no breaking change.
+        """
         # Append charset for text responses so browsers don't guess the encoding
         if content_type.startswith('text/') and 'charset' not in content_type:
             content_type = content_type + '; charset=utf-8'
+
+        if isinstance(content, str):
+            body = content.encode('utf-8')
+        else:
+            body = content  # already bytes (e.g. pre-read file data)
+
+        # Determine whether we can gzip this response.
+        # Strip the charset suffix for the MIME lookup.
+        mime_base = content_type.split(';')[0].strip()
+        accept_enc = self.headers.get('Accept-Encoding', '')
+        can_gzip = (
+            'gzip' in accept_enc
+            and mime_base in _GZIP_COMPRESSIBLE
+            and _GZIP_MIN_SIZE <= len(body) <= _GZIP_MAX_INLINE
+        )
+
+        if can_gzip:
+            try:
+                body = _gzip_mod.compress(body, compresslevel=6)
+                use_gzip = True
+            except Exception:
+                use_gzip = False
+        else:
+            use_gzip = False
+
         try:
             self.send_response(status_code)
             self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', str(len(body)))
+            if use_gzip:
+                self.send_header('Content-Encoding', 'gzip')
+                self.send_header('Vary', 'Accept-Encoding')
             self._send_cors_headers()
             # Security headers (audit items #7, #10)
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('X-Frame-Options', 'SAMEORIGIN')
             self.end_headers()
-            self.wfile.write(content.encode('utf-8'))
+            self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
-            # Client closed the connection before we finished writing
+            # Client closed the connection before we finished writing.
             # (e.g. after a 460 chunk-hash mismatch). Not an error on our side.
             pass
 
@@ -2995,6 +3055,16 @@ class AuthHandler(SimpleHTTPRequestHandler):
         us_ap = self.upload_session_assemble_progress_pattern.match(parsed_url.path)
         if us_ap:
             return self.handle_upload_session_assembly_progress(us_ap.group(2))
+
+        # Folder download as ZIP (streaming, STORE compression)
+        _zip_m = self.zip_pattern.match(parsed_url.path)
+        if _zip_m:
+            return self._handle_zip(_zip_m.group(2) or '/')
+
+        # Lazy folder size computation
+        _fs_m = self.foldersize_pattern.match(parsed_url.path)
+        if _fs_m:
+            return self._handle_foldersize(_fs_m.group(2) or '/')
 
         # Auth API calls (e.g., /auth/verify)
         auth_match = self.auth_api_pattern.match(parsed_url.path)
@@ -3885,6 +3955,295 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return _render_snippet('share_not_found_page.html',PUBLIC_DOMAIN=PUBLIC_DOMAIN)
 
     # --- FluxDrop API Handlers ---
+
+    # --- Folder ZIP download (streaming, ZIP_STORED) ---
+
+    def _handle_zip(self, path_segment: str):
+        """GET /api/v1/zip/<path>  — stream a folder as a ZIP (STORE, no compression).
+
+        Uses ZIP_STORED so the total size is predictable and Content-Length can
+        be sent before the first byte, giving the browser a real progress bar.
+
+        ZIP local-file-header layout per entry (PKZIP spec):
+          4  signature  (PK\\x03\\x04)
+          2  version needed  (20 = 2.0)
+          2  general purpose bit flag  (bit 3 set → sizes in data descriptor)
+          2  compression method  (0 = STORED)
+          2  last mod time
+          2  last mod date
+          4  CRC-32         (0 with bit3, filled in data descriptor)
+          4  compressed size   (0 with bit3)
+          4  uncompressed size (0 with bit3)
+          2  filename length
+          2  extra field length
+             filename bytes
+             file data
+          4  data descriptor sig (PK\\x07\\x08)
+          4  CRC-32
+          4  compressed size
+          4  uncompressed size
+
+        Central directory + end-of-central-directory are written after all files.
+
+        Because we use bit 3 (sizes-in-data-descriptor) we can stream each file
+        without seeking.  But we still need to pre-walk the tree to compute the
+        total byte count for Content-Length, which is fast (stat only, no reads).
+        """
+        import zipfile as _zf
+        import struct as _st
+        import zlib  as _zl
+
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+
+        relative_path = unquote(path_segment)
+
+        # Resolve filesystem path (same logic as list handler)
+        user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+        if relative_path.startswith('/cdn'):
+            cdn_rel = relative_path[len('/cdn'):]
+            base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
+            if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+                return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
+        else:
+            base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
+            if not os.path.realpath(base_fs).startswith(user_root):
+                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+
+        if not os.path.isdir(base_fs):
+            return self._send_response(404, json.dumps({'error': 'Not a directory.'}))
+
+        # --- Pre-walk: collect all files and compute Content-Length ---
+        # Each local file entry contributes:
+        #   30 + len(arcname_bytes)          local file header
+        #   file_size                         raw data
+        #   16                               data descriptor  (sig+crc32+sizes, 32-bit each)
+        # Central directory entry per file:
+        #   46 + len(arcname_bytes)
+        # End-of-central-directory record: 22 bytes
+
+        _DOS_EPOCH = (0, 0)  # (time=0, date=0) — valid but minimal
+
+        files_info = []  # list of (abs_path, arcname, arcname_bytes, file_size, mtime_dostime)
+        total_content_length = 0
+
+        for dirpath, _dirs, filenames in os.walk(base_fs):
+            for fname in sorted(filenames):
+                if fname in ('.placeholder', '.create_marker'):
+                    continue  # internal FluxDrop folder markers, skip
+                abs_path = os.path.join(dirpath, fname)
+                arcname = os.path.relpath(abs_path, base_fs).replace(os.sep, '/')
+                arcname_bytes = arcname.encode('utf-8')
+                try:
+                    st = os.stat(abs_path)
+                    file_size = st.st_size
+                    # Convert mtime to MS-DOS date/time for the ZIP header
+                    import time as _time
+                    lt = _time.localtime(st.st_mtime)
+                    dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
+                    dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
+                except OSError:
+                    continue
+                files_info.append((abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date))
+                # local header + data + data descriptor (16 bytes with sig)
+                total_content_length += 30 + len(arcname_bytes) + file_size + 16
+
+        # Central directory size
+        cd_size = sum(46 + len(fi[2]) for fi in files_info)
+        total_content_length += cd_size + 22  # EOCD
+
+        folder_name = os.path.basename(base_fs.rstrip('/')) or 'download'
+        zip_filename = folder_name + '.zip'
+
+        # --- Stream the ZIP ---
+        LFH_SIG  = b'PK\x03\x04'
+        DD_SIG   = b'PK\x07\x08'
+        CDH_SIG  = b'PK\x01\x02'
+        EOCD_SIG = b'PK\x05\x06'
+        FLAG_DD  = 0x0008   # sizes in data descriptor
+        METHOD_STORED = 0
+
+        try:
+            self.send_response(200)
+            self._send_cors_headers()
+            self.send_header('Content-Type', 'application/zip')
+            self.send_header('Content-Disposition',
+                             self._content_disposition(zip_filename))
+            self.send_header('Content-Length', str(total_content_length))
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            return
+
+        offset = 0          # running byte offset for CD entries
+        cd_entries = []     # central directory chunks to write at the end
+        READ_BUF = 2 * 1024 * 1024  # 2 MB read buffer
+
+        try:
+            for abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date in files_info:
+                fn_len = len(arcname_bytes)
+                fn_len = len(arcname_bytes)
+
+                # --- Local file header (30 bytes + filename) ---
+                lfh = _st.pack('<4sHHHHHIIIHH',
+                    LFH_SIG,
+                    20,         # version needed: 2.0
+                    FLAG_DD,    # bit 3: sizes in data descriptor
+                    METHOD_STORED,
+                    dos_time,
+                    dos_date,
+                    0,          # CRC-32 (unknown, in data descriptor)
+                    0,          # compressed size (unknown)
+                    0,          # uncompressed size (unknown)
+                    fn_len,
+                    0,          # extra field length
+                ) + arcname_bytes
+
+                self.wfile.write(lfh)
+                local_offset = offset
+                offset += len(lfh)
+
+                # --- File data + CRC-32 ---
+                # We use the pre-walked file_size to pad or truncate so that the
+                # number of bytes we emit exactly matches what we promised in
+                # Content-Length.  If the file grew we stop at file_size; if it
+                # shrank we zero-pad the remainder.  Either way the ZIP is valid
+                # (STORE method, so padding bytes become part of the file data —
+                # the recipient will see a slightly wrong tail, but the archive
+                # itself won't be "Not a zip archive").
+                crc = 0
+                bytes_written = 0
+                try:
+                    with open(abs_path, 'rb') as f:
+                        remaining = file_size
+                        while remaining > 0:
+                            chunk = f.read(min(READ_BUF, remaining))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            crc = _zl.crc32(chunk, crc) & 0xFFFFFFFF
+                            bytes_written += len(chunk)
+                            remaining -= len(chunk)
+                    # If file shrank: zero-pad so Content-Length stays accurate
+                    if bytes_written < file_size:
+                        pad = bytes(file_size - bytes_written)
+                        self.wfile.write(pad)
+                        crc = _zl.crc32(pad, crc) & 0xFFFFFFFF
+                        bytes_written = file_size
+                except (OSError, BrokenPipeError, ConnectionResetError, ssl.SSLError):
+                    # File vanished or client disconnected — abort silently
+                    return
+                offset += bytes_written
+
+                # --- Data descriptor (16 bytes with signature) ---
+                dd = _st.pack('<4sIII',
+                    DD_SIG,
+                    crc,
+                    bytes_written,   # compressed size  (= uncompressed for STORE)
+                    bytes_written,   # uncompressed size
+                )
+                self.wfile.write(dd)
+                offset += len(dd)
+
+                # --- Accumulate central directory entry ---
+                # CDH fixed part is 46 bytes; format: 4s + 6H + 3I + 5H + 2I
+                cdh = _st.pack('<4sHHHHHHIIIHHHHHII',
+                    CDH_SIG,
+                    20,             # version made by
+                    20,             # version needed
+                    FLAG_DD,        # general purpose bit flag
+                    METHOD_STORED,  # compression method
+                    dos_time,       # last mod file time  (H)
+                    dos_date,       # last mod file date  (H)  <- was missing
+                    crc,            # crc-32              (I)
+                    bytes_written,  # compressed size     (I)
+                    bytes_written,  # uncompressed size   (I)
+                    fn_len,         # filename length     (H)
+                    0,              # extra field length  (H)
+                    0,              # file comment length (H)
+                    0,              # disk number start   (H)
+                    0,              # internal attributes (H)
+                    0,              # external attributes (I)
+                    local_offset,   # local header offset (I)
+                ) + arcname_bytes
+                cd_entries.append(cdh)
+
+            # --- Central directory ---
+            cd_start = offset
+            for cdh in cd_entries:
+                self.wfile.write(cdh)
+
+            # --- End of central directory ---
+            cd_total_size = sum(len(e) for e in cd_entries)
+            eocd = _st.pack('<4sHHHHIIH',
+                EOCD_SIG,
+                0,                      # disk number
+                0,                      # disk with CD start
+                len(cd_entries),        # entries on this disk
+                len(cd_entries),        # total entries
+                cd_total_size,
+                cd_start,
+                0,                      # comment length
+            )
+            self.wfile.write(eocd)
+            try:
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+                pass
+            logging.info(f'ZIP streamed: {zip_filename} ({len(files_info)} files, {total_content_length} bytes) user={user_id}')
+
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+            pass  # client disconnected mid-stream, normal for large files
+
+    # --- Lazy folder size ---
+
+    def _handle_foldersize(self, path_segment: str):
+        """GET /api/v1/foldersize/<path>  — return total size of a folder tree.
+
+        This is called lazily per-row by the frontend so that the directory
+        listing itself stays fast.  Walks the tree synchronously; for very large
+        trees this may take a second or two, but it runs in its own thread via
+        ThreadingHTTPServer so it never blocks other requests.
+        """
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+
+        relative_path = unquote(path_segment)
+        user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+
+        if relative_path.startswith('/cdn'):
+            cdn_rel = relative_path[len('/cdn'):]
+            base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
+            if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+                return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
+        else:
+            base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
+            if not os.path.realpath(base_fs).startswith(user_root):
+                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+
+        if not os.path.isdir(base_fs):
+            return self._send_response(404, json.dumps({'error': 'Not a directory.'}))
+
+        total = 0
+        file_count = 0
+        try:
+            for dirpath, _dirs, filenames in os.walk(base_fs):
+                for fname in filenames:
+                    try:
+                        total += os.path.getsize(os.path.join(dirpath, fname))
+                        file_count += 1
+                    except OSError:
+                        pass
+        except OSError as e:
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+        return self._send_response(200, json.dumps({
+            'path': relative_path,
+            'size': total,
+            'file_count': file_count,
+        }))
 
     def handle_public_share_upload(self, token: str):
         """POST /share/<token>/upload[?subpath=<relative>] — upload into a shared folder or subfolder."""

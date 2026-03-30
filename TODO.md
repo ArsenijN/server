@@ -18,13 +18,14 @@ user feedback or ideas for future development.
   download shared files without JavaScript enabled.
 
 - [ ] **Misc future ideas**
-  - [ ] Per-user quotas and storage statistics.
+  - [x] Per-user quotas and storage statistics.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
   - [ ] **Folder size** in directory listings (sum of contained file sizes)
     for quota display.
 
-- [x] Allow upload of folders as-is
+- [x] Add `gzip` for some parts of the site (snippets, files, etc.)
+- [x] Fix zips have only one (first) file from folder: `I noticed why: zip included only one file into it, but it's the first one from the folder `
 - [ ] Auto negotiation of upload type (folder or file)
 - [ ] Audit: question about expose of the temp chunks at CDN
 - [ ] Add dark theme switch, or at least make addons work properly (and test them)
@@ -43,8 +44,6 @@ user feedback or ideas for future development.
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Improve server download speeds by use of multithreaded function
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports for more ideal links and simplicity
-- [x] Add "profile" to check current used quota, subscribtion info, change of the password, etc.
-- [x] Add quota info to mini-profile menu
 - [ ] Add the HEIC, AVIF support for previews
 - [ ] Add PDF preview
 - [ ] Add plain text preview (.ini already there)

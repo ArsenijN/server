@@ -1,7 +1,7 @@
-# server `v0.9.10`
+# server `v0.9.11`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix `zip`ping of the folders***
+*Release note: **Add IP beaconing for specific usage***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

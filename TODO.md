@@ -5,7 +5,7 @@ user feedback or ideas for future development.
 
 ---
 
-- [ ] **Tree download** — allow downloading an entire folder as a `.zip`
+- [x] **Tree download** — allow downloading an entire folder as a `.zip`
   archive from the API.
 
 - [ ] **Family/Group accounts**
@@ -18,14 +18,11 @@ user feedback or ideas for future development.
   download shared files without JavaScript enabled.
 
 - [ ] **Misc future ideas**
-  - [x] Per-user quotas and storage statistics.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
-  - [ ] **Folder size** in directory listings (sum of contained file sizes)
+  - [x] **Folder size** in directory listings (sum of contained file sizes)
     for quota display.
 
-- [x] Add `gzip` for some parts of the site (snippets, files, etc.)
-- [x] Fix zips have only one (first) file from folder: `I noticed why: zip included only one file into it, but it's the first one from the folder `
 - [ ] Auto negotiation of upload type (folder or file)
 - [ ] Audit: question about expose of the temp chunks at CDN
 - [ ] Add dark theme switch, or at least make addons work properly (and test them)
@@ -48,7 +45,8 @@ user feedback or ideas for future development.
 - [ ] Add PDF preview
 - [ ] Add plain text preview (.ini already there)
 - [ ] Add Markdown previews with proper formatting
-- [ ] Add .zip, .tar.gz, and so on support for previews (at least file table)
+- [x] Add .zip, .tar.gz, and so on support for previews (at least file table)
+- [ ] Add `.7z` and `.rar` for file table previews (and other ones)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
 - [ ] Make special player with "video preview support", aka "slow internet mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce bandwidth and resolution)
 - [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS

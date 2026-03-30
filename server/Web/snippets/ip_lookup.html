@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FluxDrop — IP Beacon Lookup</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0a0c10;
+  --surface:   #111318;
+  --border:    #1e2130;
+  --border2:   #252a3a;
+  --text:      #e2e8f0;
+  --muted:     #5a6480;
+  --accent:    #3b82f6;
+  --accent2:   #60a5fa;
+  --green:     #22c55e;
+  --yellow:    #eab308;
+  --red:       #ef4444;
+  --orange:    #f97316;
+  --mono:      'IBM Plex Mono', monospace;
+  --display:   'Syne', sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+body{
+  font-family:var(--mono);
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* scanlines */
+body::before{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px);
+  pointer-events:none;z-index:1000;
+}
+
+.topbar{height:3px;background:linear-gradient(90deg,var(--accent) 0%,#8b5cf6 50%,var(--accent2) 100%)}
+
+header{
+  padding:28px 40px 20px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{
+  width:36px;height:36px;
+  background:linear-gradient(135deg,var(--accent),#8b5cf6);
+  border-radius:8px;display:grid;place-items:center;font-size:18px;
+}
+.logo-name{font-family:var(--display);font-size:20px;font-weight:800;color:#fff;letter-spacing:-.5px}
+.logo-sub{font-size:11px;color:var(--muted);margin-left:4px;font-weight:400}
+
+main{max-width:760px;margin:0 auto;padding:40px 24px}
+
+.section-label{
+  font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--muted);margin-bottom:12px;
+}
+
+/* lookup card */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:28px;
+  margin-bottom:24px;
+}
+.card-title{
+  font-family:var(--display);font-size:15px;font-weight:700;
+  color:var(--accent2);margin-bottom:20px;display:flex;align-items:center;gap:8px;
+}
+
+/* input + button row */
+.lookup-row{display:flex;gap:10px;flex-wrap:wrap}
+input[type=text]{
+  flex:1;min-width:0;
+  background:#0d1017;
+  border:1px solid var(--border2);
+  border-radius:8px;
+  color:var(--text);
+  font-family:var(--mono);font-size:13px;
+  padding:10px 14px;
+  outline:none;
+  transition:border .15s;
+}
+input[type=text]:focus{border-color:var(--accent)}
+input[type=text]::placeholder{color:var(--muted)}
+
+.btn{
+  background:var(--accent);
+  border:none;border-radius:8px;
+  color:#fff;font-family:var(--mono);font-size:13px;font-weight:600;
+  padding:10px 22px;cursor:pointer;transition:background .15s;
+  white-space:nowrap;
+}
+.btn:hover{background:#2563eb}
+.btn:disabled{background:var(--muted);cursor:default}
+.btn-ghost{background:transparent;border:1px solid var(--border2);color:var(--muted)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent);background:transparent}
+
+/* result block */
+#result{display:none;margin-top:24px}
+
+.status-pill{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;
+  padding:3px 10px;border-radius:999px;
+}
+.pill-online {background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.25)}
+.pill-offline{background:rgba(239,68,68,.10);color:var(--red);border:1px solid rgba(239,68,68,.20)}
+
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.dot-green{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot-red  {background:var(--red)}
+
+.info-grid{display:grid;grid-template-columns:140px 1fr;gap:0;margin-top:16px}
+.info-row{
+  display:contents;
+}
+.info-row > *{
+  padding:9px 0;
+  border-bottom:1px solid var(--border);
+  font-size:13px;
+}
+.info-row:last-child > *{border-bottom:none}
+.info-key{color:var(--muted);padding-right:16px}
+.info-val{
+  color:var(--text);word-break:break-all;
+  display:flex;align-items:center;gap:8px;
+}
+
+.ip-display{
+  font-size:28px;font-weight:700;font-family:var(--display);
+  color:#fff;letter-spacing:-1px;margin:16px 0 6px;
+}
+
+.copy-btn{
+  background:transparent;border:1px solid var(--border2);
+  color:var(--muted);font-family:var(--mono);font-size:11px;
+  padding:2px 8px;border-radius:5px;cursor:pointer;
+  transition:all .15s;
+}
+.copy-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* read tokens sub-section */
+.tokens-list{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.token-row{
+  display:flex;align-items:center;gap:8px;
+  background:#0d1017;border:1px solid var(--border);
+  border-radius:7px;padding:7px 12px;
+  font-size:12px;color:var(--muted);word-break:break-all;
+}
+.token-row span{flex:1}
+
+/* error */
+.err-box{
+  margin-top:16px;
+  background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);
+  border-radius:8px;padding:14px;color:var(--red);font-size:13px;display:none;
+}
+
+/* new-read-token form */
+.sub-card{
+  background:#0d1017;border:1px solid var(--border);
+  border-radius:8px;padding:16px;margin-top:16px;
+}
+.sub-card-title{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px}
+
+footer{
+  padding:24px 40px;border-top:1px solid var(--border);
+  font-size:11px;color:var(--muted);text-align:center;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+footer a{color:var(--accent2);text-decoration:none}
+footer a:hover{text-decoration:underline}
+
+@media(max-width:500px){
+  header{padding:20px 16px 16px}
+  main{padding:24px 12px}
+  .card{padding:18px}
+  .lookup-row{flex-direction:column}
+  .btn{width:100%}
+  .info-grid{grid-template-columns:110px 1fr}
+}
+</style>
+</head>
+<body>
+<div class="topbar"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">📡</div>
+    <div>
+      <span class="logo-name">FluxDrop<span class="logo-sub">/ IP Beacon</span></span>
+    </div>
+  </div>
+  <a href="javascript:void(0)" onclick="history.length>1?history.back():location.href='/'" style="color:var(--muted);font-size:12px;text-decoration:none">
+    ← Back to FluxDrop
+  </a>
+</header>
+
+<main>
+
+  <div class="section-label">Device lookup</div>
+
+  <div class="card">
+    <div class="card-title">🔍 Lookup device IP by token</div>
+
+    <div class="lookup-row">
+      <input type="text" id="token-input"
+        placeholder="Enter primary or read token…"
+        autocomplete="off" spellcheck="false"
+        onkeydown="if(event.key==='Enter')doLookup()">
+      <button class="btn" id="lookup-btn" onclick="doLookup()">Lookup</button>
+    </div>
+
+    <div class="err-box" id="err-box"></div>
+
+    <div id="result">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <div class="ip-display" id="res-ip">—</div>
+        <span class="status-pill" id="res-pill">
+          <span class="dot" id="res-dot"></span>
+          <span id="res-status-text"></span>
+        </span>
+      </div>
+
+      <div class="info-grid" id="res-grid"></div>
+
+      <!-- read tokens (owner view) -->
+      <div id="owner-section" style="display:none">
+        <div class="sub-card" style="margin-top:20px">
+          <div class="sub-card-title">Read tokens (shareable links)</div>
+          <div class="tokens-list" id="read-tokens-list"></div>
+          <button class="btn btn-ghost" style="margin-top:12px;font-size:12px"
+            onclick="createReadToken()">+ Generate new read token</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Registration helper -->
+  <div class="section-label" style="margin-top:8px">Register a new device</div>
+  <div class="card">
+    <div class="card-title">➕ Register this device</div>
+    <p style="color:var(--muted);font-size:13px;line-height:1.7;margin-bottom:18px">
+      Use the command-line beacon on the device you want to track, then paste the
+      generated tokens above to look it up.  Or register via API below.
+    </p>
+
+    <div class="lookup-row" style="margin-bottom:10px">
+      <input type="text" id="reg-label" placeholder="Device label (e.g. Home Server)" style="flex:1">
+      <button class="btn" onclick="doRegister()">Register</button>
+    </div>
+    <div class="err-box" id="reg-err"></div>
+    <div id="reg-result" style="display:none;margin-top:16px">
+      <div class="sub-card">
+        <div class="sub-card-title">Your new tokens — save these now!</div>
+        <div class="tokens-list" id="reg-tokens-list"></div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:10px;line-height:1.6">
+        The <span style="color:var(--accent2)">primary token</span> goes in your beacon config.
+        The <span style="color:#a78bfa">read token</span> can be shared with anyone who needs to look up the IP.
+      </p>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Powered by <a href="/">FluxDrop</a>
+  &nbsp;·&nbsp; IP Beacon
+</footer>
+
+<script>
+// ── Config ─────────────────────────────────────────────────────────────────
+// When served as a snippet from /beacon/ui the page is already on the CDN
+// origin, so we use window.location.origin to avoid hardcoding the port.
+const CDN = window.location.origin;
+
+// Pick up the FluxDrop session token so the register endpoint (which calls
+// back to the same server) can be called without re-typing credentials.
+const _FD_TOKEN = localStorage.getItem('fluxdrop_token') || '';
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function _escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+function _tsToRelative(unix){
+  if(!unix) return '—';
+  const diff = Date.now()/1000 - unix;
+  if(diff < 60)   return Math.round(diff) + 's ago';
+  if(diff < 3600) return Math.round(diff/60) + 'm ago';
+  if(diff < 86400)return Math.round(diff/3600) + 'h ago';
+  return new Date(unix*1000).toLocaleString();
+}
+
+function _tsToFull(unix){
+  if(!unix) return '—';
+  return new Date(unix*1000).toLocaleString();
+}
+
+function _copyText(text, btn){
+  navigator.clipboard.writeText(text).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = 'copied!';
+    setTimeout(()=>btn.textContent=orig, 1500);
+  }).catch(()=>{ btn.textContent='failed'; });
+}
+
+function _tokenRow(tok, colorClass){
+  return `
+  <div class="token-row">
+    <span style="color:${colorClass||'var(--text)'}">${_escHtml(tok)}</span>
+    <button class="copy-btn" onclick="_copyText('${_escHtml(tok)}',this)">copy</button>
+  </div>`;
+}
+
+// ── Lookup ──────────────────────────────────────────────────────────────────
+let _currentPrimaryToken = null;
+
+async function doLookup(){
+  const token = document.getElementById('token-input').value.trim();
+  if(!token) return;
+
+  const btn = document.getElementById('lookup-btn');
+  const err = document.getElementById('err-box');
+  const res = document.getElementById('result');
+
+  btn.disabled = true; btn.textContent = 'Looking up…';
+  err.style.display = 'none';
+  res.style.display  = 'none';
+  _currentPrimaryToken = null;
+
+  try {
+    const r = await fetch(`${CDN}/beacon/lookup?token=${encodeURIComponent(token)}`);
+    const d = await r.json();
+    if(!r.ok){ err.textContent = d.error || 'Lookup failed.'; err.style.display='block'; return; }
+
+    // ── IP + status pill ────────────────────────────────────────────────
+    document.getElementById('res-ip').textContent = d.ip || '(no IP yet)';
+    const online = d.online;
+    const pill   = document.getElementById('res-pill');
+    const dot    = document.getElementById('res-dot');
+    const stxt   = document.getElementById('res-status-text');
+    pill.className = 'status-pill ' + (online ? 'pill-online' : 'pill-offline');
+    dot.className  = 'dot ' + (online ? 'dot-green' : 'dot-red');
+    stxt.textContent = online ? 'ONLINE' : 'OFFLINE';
+
+    // ── Info grid ───────────────────────────────────────────────────────
+    const grid = document.getElementById('res-grid');
+    const rows = [
+      ['Label',       _escHtml(d.label || '—')],
+      ['Last seen',   `${_tsToRelative(d.last_seen)} <span style="color:var(--muted);font-size:11px">(${_tsToFull(d.last_seen)})</span>`],
+      ['Registered',  _tsToFull(d.created_at)],
+      ['User-agent',  `<span style="font-size:11px;color:var(--muted)">${_escHtml(d.user_agent||'—')}</span>`],
+    ];
+    grid.innerHTML = rows.map(([k,v])=>`
+      <div class="info-row">
+        <div class="info-key">${_escHtml(k)}</div>
+        <div class="info-val">
+          ${v}
+          ${k==='Label'&&d.ip?`<button class="copy-btn" onclick="_copyText('${_escHtml(d.ip)}',this)">copy IP</button>`:''}
+        </div>
+      </div>`).join('');
+
+    // ── Owner view: read tokens ─────────────────────────────────────────
+    const ownerSection = document.getElementById('owner-section');
+    if(d.primary_token){
+      _currentPrimaryToken = d.primary_token;
+      _renderReadTokens(d.read_tokens || []);
+      ownerSection.style.display = 'block';
+    } else {
+      ownerSection.style.display = 'none';
+    }
+
+    res.style.display = 'block';
+
+  } catch(e){
+    err.textContent = 'Network error: ' + e.message;
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Lookup';
+  }
+}
+
+function _renderReadTokens(tokens){
+  const list = document.getElementById('read-tokens-list');
+  if(!tokens.length){ list.innerHTML='<div style="color:var(--muted);font-size:12px">No read tokens yet.</div>'; return; }
+  list.innerHTML = tokens.map(t=>_tokenRow(t,'#a78bfa')).join('');
+}
+
+async function createReadToken(){
+  if(!_currentPrimaryToken){ alert('Primary token unknown.'); return; }
+  try{
+    const r = await fetch(`${CDN}/beacon/read_token`,{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_currentPrimaryToken}
+    });
+    const d = await r.json();
+    if(!r.ok){ alert(d.error||'Failed'); return; }
+    // Re-lookup to refresh list
+    await doLookup();
+  }catch(e){ alert('Network error: '+e.message); }
+}
+
+// ── Register ────────────────────────────────────────────────────────────────
+async function doRegister(){
+  const label = document.getElementById('reg-label').value.trim();
+  const err   = document.getElementById('reg-err');
+  const res   = document.getElementById('reg-result');
+  err.style.display = 'none';
+  res.style.display = 'none';
+
+  try{
+    const regHeaders = {'Content-Type':'application/json'};
+    if(_FD_TOKEN) regHeaders['Authorization'] = 'Bearer ' + _FD_TOKEN;
+    const r = await fetch(`${CDN}/beacon/register`,{
+      method:'POST',
+      headers: regHeaders,
+      body: JSON.stringify({label})
+    });
+    const d = await r.json();
+    if(!r.ok){ err.textContent = d.error||'Registration failed.'; err.style.display='block'; return; }
+
+    const list = document.getElementById('reg-tokens-list');
+    list.innerHTML =
+      `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Primary token (keep secret)</div>` +
+      _tokenRow(d.primary_token, 'var(--accent2)') +
+      `<div style="font-size:11px;color:var(--muted);margin:10px 0 4px">Read token (shareable)</div>` +
+      _tokenRow(d.read_token, '#a78bfa');
+    res.style.display = 'block';
+
+    // Pre-fill lookup
+    document.getElementById('token-input').value = d.primary_token;
+  }catch(e){
+    err.textContent = 'Network error: '+e.message;
+    err.style.display = 'block';
+  }
+}
+
+// Auto-lookup if token is in URL query string (?token=...)
+(function(){
+  const p = new URLSearchParams(location.search);
+  const t = p.get('token');
+  if(t){ document.getElementById('token-input').value = t; doLookup(); }
+})();
+</script>
+</body>
+</html>

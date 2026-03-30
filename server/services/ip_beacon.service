@@ -1,0 +1,70 @@
+# ─── ip_beacon.service ───────────────────────────────────────────────────────
+# Drop this file at: /etc/systemd/system/ip_beacon.service
+# (or ~/.config/systemd/user/ip_beacon.service for a per-user unit)
+#
+# Edit the ExecStart line to match your server URL and token file path.
+#
+# Enable & start:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ip_beacon.service
+#
+# Check status:
+#   sudo systemctl status ip_beacon.service
+#   journalctl -u ip_beacon -f
+# ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=FluxDrop IP Beacon — keeps the server updated with this device's IP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ── Change these to match your setup ──
+ExecStart=/usr/bin/python3 /opt/fluxdrop_beacon/ip_beacon.py \
+    --server https://arseniusgen.uk.to:64800 \
+    --insecure \
+    --interval 60
+# ───────────────────────────────────────
+WorkingDirectory=/opt/fluxdrop_beacon
+# Token file is stored here; directory must be writable by the service user
+Environment=HOME=/opt/fluxdrop_beacon
+Restart=on-failure
+RestartSec=30s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
+
+# ─── Alternative: systemd timer (runs beacon once per minute via cron-style) ──
+# If you prefer a timer over a long-running service, use these two files instead.
+
+# /etc/systemd/system/ip_beacon_once.service
+# ------------------------------------------
+# [Unit]
+# Description=FluxDrop IP Beacon — single ping
+# After=network-online.target
+#
+# [Service]
+# Type=oneshot
+# ExecStart=/usr/bin/python3 /opt/fluxdrop_beacon/ip_beacon.py \
+#     --server https://arseniusgen.uk.to:64800 \
+#     --insecure \
+#     --once
+# WorkingDirectory=/opt/fluxdrop_beacon
+# Environment=HOME=/opt/fluxdrop_beacon
+
+# /etc/systemd/system/ip_beacon_once.timer
+# -----------------------------------------
+# [Unit]
+# Description=FluxDrop IP Beacon timer
+#
+# [Timer]
+# OnBootSec=30s
+# OnUnitActiveSec=1min
+# AccuracySec=10s
+#
+# [Install]
+# WantedBy=timers.target

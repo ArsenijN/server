@@ -441,6 +441,26 @@ def init_db():
                 confirmed_external INTEGER DEFAULT 0
             )
         ''')
+        # IP Beacon — device registration and IP tracking
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS beacon_devices (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                primary_token TEXT    NOT NULL UNIQUE,
+                label         TEXT    NOT NULL DEFAULT '',
+                ip            TEXT    NOT NULL DEFAULT '',
+                user_agent    TEXT    NOT NULL DEFAULT '',
+                last_seen     REAL    NOT NULL DEFAULT 0,
+                created_at    REAL    NOT NULL DEFAULT 0
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS beacon_read_tokens (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                read_token    TEXT    NOT NULL UNIQUE,
+                device_id     INTEGER NOT NULL REFERENCES beacon_devices(id) ON DELETE CASCADE,
+                created_at    REAL    NOT NULL DEFAULT 0
+            )
+        ''')
         conn.commit()
 
     # ── Schema migrations (safe to run on every startup) ──────────────────
@@ -3022,6 +3042,150 @@ class AuthHandler(SimpleHTTPRequestHandler):
         finally:
             self.end_headers = old_end_headers
 
+    # ── IP Beacon handlers ────────────────────────────────────────────────────
+
+    def _handle_beacon_register(self):
+        """POST /beacon/register  — register a new device, return both tokens."""
+        length = int(self.headers.get('Content-Length', 0))
+        body   = self.rfile.read(length) if length else b''
+        try:
+            data = json.loads(body) if body else {}
+        except Exception:
+            data = {}
+        label         = str(data.get('label', '')).strip()[:120]
+        primary_token = secrets.token_urlsafe(32)
+        read_token    = secrets.token_urlsafe(24)
+        now           = time.time()
+        with _db_connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO beacon_devices (primary_token, label, created_at, last_seen) VALUES (?,?,?,?)",
+                (primary_token, label, now, now)
+            )
+            conn.execute(
+                "INSERT INTO beacon_read_tokens (read_token, device_id, created_at) VALUES (?,?,?)",
+                (read_token, cur.lastrowid, now)
+            )
+            conn.commit()
+        return self._send_response(200, json.dumps({
+            'primary_token': primary_token,
+            'read_token':    read_token,
+            'label':         label,
+        }), 'application/json')
+
+    def _handle_beacon_ping(self):
+        """POST /beacon/ping  — update IP for a registered device (auth: Bearer primary_token)."""
+        auth  = self.headers.get('Authorization', '')
+        token = auth.removeprefix('Bearer ').strip()
+        if not token:
+            return self._send_response(401, json.dumps({'error': 'Missing token'}), 'application/json')
+        length = int(self.headers.get('Content-Length', 0))
+        body   = self.rfile.read(length) if length else b''
+        try:
+            data = json.loads(body) if body else {}
+        except Exception:
+            data = {}
+        forwarded = self.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+        ip  = forwarded or self.client_address[0]
+        ua  = self.headers.get('User-Agent', '')[:256]
+        now = time.time()
+        with _db_connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM beacon_devices WHERE primary_token = ?", (token,)
+            ).fetchone()
+            if not row:
+                return self._send_response(403, json.dumps({'error': 'Unknown token'}), 'application/json')
+            updates = {'ip': ip, 'user_agent': ua, 'last_seen': now}
+            if data.get('label') and str(data['label']).strip():
+                updates['label'] = str(data['label']).strip()[:120]
+            set_clause = ', '.join(f"{k} = ?" for k in updates)
+            conn.execute(
+                f"UPDATE beacon_devices SET {set_clause} WHERE id = ?",
+                (*updates.values(), row[0])
+            )
+            conn.commit()
+        return self._send_response(200, json.dumps({'ok': True, 'ip': ip}), 'application/json')
+
+    def _handle_beacon_lookup(self):
+        """GET /beacon/lookup?token=<primary_or_read_token>  — look up device info."""
+        qs    = parse_qs(urlparse(self.path).query)
+        token = (qs.get('token') or [''])[0].strip()
+        if not token:
+            return self._send_response(400, json.dumps({'error': 'token required'}), 'application/json')
+        with _db_connect() as conn:
+            row = conn.execute(
+                "SELECT id, label, ip, user_agent, last_seen, created_at, primary_token "
+                "FROM beacon_devices WHERE primary_token = ?", (token,)
+            ).fetchone()
+            is_owner = row is not None
+            if not row:
+                row = conn.execute(
+                    """SELECT d.id, d.label, d.ip, d.user_agent, d.last_seen,
+                              d.created_at, d.primary_token
+                       FROM beacon_devices d
+                       JOIN beacon_read_tokens r ON r.device_id = d.id
+                       WHERE r.read_token = ?""", (token,)
+                ).fetchone()
+            if not row:
+                return self._send_response(404, json.dumps({'error': 'Token not found'}), 'application/json')
+            payload = {
+                'label':      row[1],
+                'ip':         row[2],
+                'user_agent': row[3],
+                'last_seen':  row[4],
+                'created_at': row[5],
+                'online':     (time.time() - row[4]) < 180,
+            }
+            if is_owner:
+                read_tokens = [r[0] for r in conn.execute(
+                    "SELECT read_token FROM beacon_read_tokens WHERE device_id = ?", (row[0],)
+                ).fetchall()]
+                payload['read_tokens']    = read_tokens
+                payload['primary_token']  = row[6]
+        return self._send_response(200, json.dumps(payload), 'application/json')
+
+    def _handle_beacon_ui(self):
+        """GET /beacon/ui  — serve the IP Beacon lookup page (requires valid FluxDrop session)."""
+        # Accept token from Authorization header OR ?token= query param (same as _check_token_auth)
+        user_id = self._check_token_auth()
+        if not user_id:
+            # Return a minimal redirect page that sends the user to FluxDrop to log in
+            html = (
+                '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+                '<meta http-equiv="refresh" content="0;url=/">'
+                '<title>Login required</title></head>'
+                '<body style="font-family:sans-serif;padding:2rem;text-align:center">'
+                '<p style="color:#64748b">You must be logged in to use IP Beacon. '
+                '<a href="/" style="color:#3b82f6">Go to FluxDrop</a></p>'
+                '</body></html>'
+            )
+            return self._send_response(401, html, 'text/html')
+        return self._send_response(
+            200,
+            _render_snippet('ip_lookup.html', PUBLIC_DOMAIN=PUBLIC_DOMAIN),
+            'text/html'
+        )
+
+    def _handle_beacon_new_read_token(self):
+        """POST /beacon/read_token  — mint a new read token (auth: Bearer primary_token)."""
+        auth  = self.headers.get('Authorization', '')
+        token = auth.removeprefix('Bearer ').strip()
+        if not token:
+            return self._send_response(401, json.dumps({'error': 'Missing token'}), 'application/json')
+        now = time.time()
+        with _db_connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM beacon_devices WHERE primary_token = ?", (token,)
+            ).fetchone()
+            if not row:
+                return self._send_response(403, json.dumps({'error': 'Unknown token'}), 'application/json')
+            new_rt = secrets.token_urlsafe(24)
+            conn.execute(
+                "INSERT INTO beacon_read_tokens (read_token, device_id, created_at) VALUES (?,?,?)",
+                (new_rt, row[0], now)
+            )
+            conn.commit()
+        return self._send_response(200, json.dumps({'read_token': new_rt}), 'application/json')
+
     def do_GET(self):
         """Routes GET requests to the appropriate handler or serves static files."""
         with blacklist_lock:
@@ -3136,6 +3300,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             'usage_bytes': _get_user_disk_usage(uid), 'created_at': created})
             return self._send_response(200, json.dumps({'users': out}))
 
+        # Beacon IP lookup (JSON API)
+        if parsed_url.path == '/beacon/lookup':
+            return self._handle_beacon_lookup()
+
+        # Beacon UI (session-gated HTML page)
+        if parsed_url.path == '/beacon/ui':
+            return self._handle_beacon_ui()
+
         # For any other GET request, assume it's a static file.
         # Patch end_headers to include CORS and Accept-Ranges, then call base handler.
         def patched_end_headers():
@@ -3242,6 +3414,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # Admin: manual incident creation
         if parsed_url.path == '/api/v1/incident':
             return self._handle_incident_create()
+
+        # Beacon IP tracking endpoints
+        if parsed_url.path == '/beacon/register':
+            return self._handle_beacon_register()
+        if parsed_url.path == '/beacon/ping':
+            return self._handle_beacon_ping()
+        if parsed_url.path == '/beacon/read_token':
+            return self._handle_beacon_new_read_token()
 
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 

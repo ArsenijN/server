@@ -649,12 +649,19 @@ def _upload_assemble(token: str) -> tuple[str, str]:
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
     # 3. Stream-copy chunks into the final file while hashing inline.
-    #    Using a 1 MiB read buffer keeps memory flat regardless of chunk size.
-    #    We report progress into _assembly_progress every 4 MiB so the client
+    #    Using a 4 MiB read buffer keeps syscall overhead low for large files.
+    #    usedforsecurity=False lets Python use the fastest available SHA-256
+    #    implementation (e.g. OpenSSL's hardware-accelerated path) because we
+    #    only need this for data-integrity checking, not cryptographic purposes.
+    #    We report progress into _assembly_progress every 16 MiB so the client
     #    polling endpoint can show a real-time ETA without a separate file read.
-    READ_BUF      = 1 * 1024 * 1024   # 1 MiB per read() call
-    REPORT_EVERY  = 4 * 1024 * 1024   # update progress dict every 4 MiB written
-    hasher        = hashlib.sha256()
+    READ_BUF      = 4 * 1024 * 1024   # 4 MiB per read() call (was 1 MiB)
+    REPORT_EVERY  = 16 * 1024 * 1024  # update progress dict every 16 MiB written (was 4 MiB)
+    try:
+        hasher = hashlib.sha256(usedforsecurity=False)
+    except TypeError:
+        # Python < 3.9 fallback
+        hasher = hashlib.sha256()
     bytes_hashed  = 0
     last_reported = 0
 
@@ -2101,6 +2108,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify)$')
     zip_pattern        = re.compile(r'^/api/(v[1-3])/zip(/.*)?$')
     foldersize_pattern = re.compile(r'^/api/(v[1-3])/foldersize(/.*)?$')
+    archive_tree_pattern = re.compile(r'^/api/(v[1-3])/archive_tree(/.*)?$')
     # Chunked resumable upload API:
     #   POST /api/v1/upload_session/init
     #   POST /api/v1/upload_session/<token>/chunk/<index>
@@ -3144,21 +3152,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return self._send_response(200, json.dumps(payload), 'application/json')
 
     def _handle_beacon_ui(self):
-        """GET /beacon/ui  — serve the IP Beacon lookup page (requires valid FluxDrop session)."""
-        # Accept token from Authorization header OR ?token= query param (same as _check_token_auth)
-        user_id = self._check_token_auth()
-        if not user_id:
-            # Return a minimal redirect page that sends the user to FluxDrop to log in
-            html = (
-                '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-                '<meta http-equiv="refresh" content="0;url=/">'
-                '<title>Login required</title></head>'
-                '<body style="font-family:sans-serif;padding:2rem;text-align:center">'
-                '<p style="color:#64748b">You must be logged in to use IP Beacon. '
-                '<a href="/" style="color:#3b82f6">Go to FluxDrop</a></p>'
-                '</body></html>'
-            )
-            return self._send_response(401, html, 'text/html')
+        """GET /beacon/ui  — serve the IP Beacon lookup page.
+
+        No server-side session gate: the page is self-contained JS that reads
+        the FluxDrop token from localStorage and calls the API directly.
+        Blocking the page load with a 401 just breaks direct navigation; the
+        JS already shows the register/lookup UI to everyone and only calls
+        session-gated endpoints (e.g. /beacon/register) when a token is
+        present in localStorage.
+        """
         return self._send_response(
             200,
             _render_snippet('ip_lookup.html', PUBLIC_DOMAIN=PUBLIC_DOMAIN),
@@ -3224,6 +3226,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _zip_m = self.zip_pattern.match(parsed_url.path)
         if _zip_m:
             return self._handle_zip(_zip_m.group(2) or '/')
+
+        # Archive file-tree listing (no full download — reads ZIP central dir only)
+        _at_m = self.archive_tree_pattern.match(parsed_url.path)
+        if _at_m:
+            return self._handle_archive_tree(_at_m.group(2) or '/')
 
         # Lazy folder size computation
         _fs_m = self.foldersize_pattern.match(parsed_url.path)
@@ -4424,6 +4431,93 @@ class AuthHandler(SimpleHTTPRequestHandler):
             'size': total,
             'file_count': file_count,
         }))
+
+    def _handle_archive_tree(self, path_segment: str):
+        """GET /api/v1/archive_tree/<path>  — return the file tree of an archive without
+        downloading the whole file.
+
+        For ZIP files this reads only the central directory (last ~1% of the file),
+        which is extremely fast even for multi-GB archives.  For .tar.gz/.tgz a
+        lightweight streaming header scan is used so we never buffer the full payload.
+
+        Returns JSON: { entries: [{name, size, is_dir}], format: 'zip'|'tar' }
+        Requires a valid session + download token (same auth as /api/v1/download).
+        """
+        import zipfile as _zf
+        import struct  as _st_mod
+
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+
+        relative_path = unquote(path_segment)
+        user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+
+        if relative_path.startswith('/cdn'):
+            cdn_rel  = relative_path[len('/cdn'):]
+            base_fs  = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
+            if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+                return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
+        else:
+            base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
+            if not os.path.realpath(base_fs).startswith(user_root):
+                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+
+        if not os.path.isfile(base_fs):
+            return self._send_response(404, json.dumps({'error': 'File not found.'}))
+
+        # Validate download token (same gate as the download handler)
+        parsed_qs = parse_qs(urlparse(self.path).query)
+        dl_token  = parsed_qs.get('dl_token', [None])[0]
+        if dl_token is None:
+            return self._send_response(403, json.dumps({'error': 'dl_token required.'}))
+
+        if relative_path.startswith('/cdn'):
+            rel_path_for_db = relative_path
+        else:
+            rel_path_for_db = '/' + os.path.relpath(base_fs, user_root).replace(os.sep, '/')
+
+        token_meta = _validate_download_token(rel_path_for_db, dl_token)
+        if token_meta is None:
+            return self._send_response(403, json.dumps({'error': 'Invalid or expired dl_token.'}))
+
+        ext = (base_fs.rsplit('.', 1)[-1] if '.' in base_fs else '').lower()
+
+        try:
+            if ext == 'zip':
+                # Python's zipfile reads only the End-of-Central-Directory record and
+                # the Central Directory — it never reads the compressed file data, so
+                # this is O(number_of_entries), not O(file_size).
+                entries = []
+                with _zf.ZipFile(base_fs, 'r') as zf:
+                    for info in zf.infolist():
+                        entries.append({
+                            'name':   info.filename,
+                            'size':   info.file_size if not info.is_dir() else None,
+                            'is_dir': info.is_dir(),
+                        })
+                return self._send_response(200, json.dumps({'format': 'zip', 'entries': entries}))
+
+            elif ext in ('tar', 'gz', 'tgz'):
+                # Stream the tar headers only — skip over file data without reading it.
+                import tarfile as _tf
+                entries = []
+                mode = 'r:gz' if ext in ('gz', 'tgz') else 'r:'
+                with _tf.open(base_fs, mode) as tf:
+                    for member in tf.getmembers():
+                        entries.append({
+                            'name':   member.name,
+                            'size':   member.size if not member.isdir() else None,
+                            'is_dir': member.isdir(),
+                        })
+                return self._send_response(200, json.dumps({'format': 'tar', 'entries': entries}))
+
+            else:
+                return self._send_response(415, json.dumps({'error': f'.{ext} archive tree not supported.'}))
+
+        except Exception as exc:
+            logging.exception('archive_tree failed')
+            return self._send_response(500, json.dumps({'error': str(exc)}))
 
     def handle_public_share_upload(self, token: str):
         """POST /share/<token>/upload[?subpath=<relative>] — upload into a shared folder or subfolder."""

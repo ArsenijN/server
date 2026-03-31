@@ -1112,70 +1112,44 @@ window.previewFile = async function(path) {
             const ext = (path.split('.').pop() || '').toLowerCase();
             bodyEl.innerHTML = '<p style="color:#94a3b8;padding:2rem;text-align:center">Reading archive…</p>';
 
-            const isZip  = ext === 'zip';
-            const isTar  = ['tar','gz','tgz','bz2','tbz2','xz','txz'].includes(ext);
+            const isZip = ext === 'zip';
+            const isTar = ['tar', 'gz', 'tgz'].includes(ext);
+            const noPreview = ['bz2', 'tbz2', 'xz', 'txz'].includes(ext);
 
-            if (isZip) {
-                await _loadJSZip();
-                const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const buf = await resp.arrayBuffer();
-                const zip = await JSZip.loadAsync(buf);
-                const entries = [];
-                zip.forEach((relPath, zipEntry) => {
-                    entries.push({
-                        name:  relPath,
-                        size:  zipEntry.dir ? null : (zipEntry._data ? zipEntry._data.uncompressedSize : null),
-                        isDir: zipEntry.dir,
+            if (noPreview) {
+                bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
+                    <div style="font-size:3rem;margin-bottom:1rem">🗜</div>
+                    <div style="color:#94a3b8">${escapeHtml(filename)}</div>
+                    <p style="color:#64748b;font-size:14px;margin-top:8px">
+                        .${ext} preview isn't supported in browser.<br>Download and extract locally.
+                    </p></div>`;
+                dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
+            } else if (isZip || isTar) {
+                // Use the server-side archive_tree endpoint — reads only the central
+                // directory / tar headers, never the compressed file data.
+                // This is O(entry-count) rather than O(file-size).
+                try {
+                    // Mint a download token for the archive_tree endpoint (same auth flow as downloads)
+                    const tokenResp = await apiCall('/api/v1/download_token', 'POST', { path }, true);
+                    const dlToken   = tokenResp.download_token;
+
+                    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+                    const treeUrl = `${API_BASE_URL}/api/v1/archive_tree${encodedPath}?dl_token=${encodeURIComponent(dlToken)}`;
+                    const treeResp = await fetchWithFallback(treeUrl, {
+                        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
                     });
-                });
-                _renderArchiveTree(bodyEl, entries, filename);
-
-            } else if (isTar) {
-                // js-untar handles .tar; for .gz/.tgz the browser DecompressionStream
-                // unwraps gzip first, then js-untar reads the .tar inside.
-                // For .bz2/.xz we show an unsupported message (no WASM-free JS decoder).
-                if (['bz2','tbz2','xz','txz'].includes(ext)) {
-                    bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
-                        <div style="font-size:3rem;margin-bottom:1rem">🗜</div>
-                        <div style="color:#94a3b8">${escapeHtml(filename)}</div>
-                        <p style="color:#64748b;font-size:14px;margin-top:8px">
-                            .${ext} preview isn't supported in browser.<br>Download and extract locally.
-                        </p></div>`;
-                    dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
-                } else {
-                    await _loadUntar();
-                    const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
-                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-                    let tarBuffer;
-                    if (['gz','tgz'].includes(ext) && typeof DecompressionStream !== 'undefined') {
-                        // Decompress gzip in-browser, then untar
-                        const ds = new DecompressionStream('gzip');
-                        const decompressed = resp.body.pipeThrough(ds);
-                        const reader = decompressed.getReader();
-                        const chunks = [];
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            chunks.push(value);
-                        }
-                        const total = chunks.reduce((s, c) => s + c.byteLength, 0);
-                        const buf = new Uint8Array(total);
-                        let off = 0;
-                        for (const c of chunks) { buf.set(c, off); off += c.byteLength; }
-                        tarBuffer = buf.buffer;
-                    } else {
-                        tarBuffer = await resp.arrayBuffer();
-                    }
-
-                    const tarFiles = await untar(tarBuffer);
-                    const entries = tarFiles.map(f => ({
-                        name:  f.name,
-                        size:  f.size || null,
-                        isDir: f.type === '5' || f.name.endsWith('/'),
+                    if (!treeResp.ok) throw new Error(`HTTP ${treeResp.status}`);
+                    const treeData = await treeResp.json();
+                    // Server uses snake_case (is_dir); _renderArchiveTree expects isDir
+                    const entries = treeData.entries.map(e => ({
+                        name:  e.name,
+                        size:  e.size,
+                        isDir: e.is_dir,
                     }));
                     _renderArchiveTree(bodyEl, entries, filename);
+                } catch (treeErr) {
+                    bodyEl.innerHTML = `<p style="color:#ef4444;padding:2rem;text-align:center">
+                        Archive preview failed: ${escapeHtml(String(treeErr))}</p>`;
                 }
             } else {
                 bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
@@ -2597,10 +2571,11 @@ function openProfileMenu() {
     document.getElementById('pm-shares').addEventListener('click', () => { overlay.remove(); openShareManager(); });
     document.getElementById('pm-beacon').addEventListener('click', () => {
         overlay.remove();
-        // Open IP Beacon in the same tab — the page is session-gated and
-        // history.back() will return here.  Pass the token as a query param
-        // so the server can validate it even before any JS runs.
-        window.location.href = '/beacon/ui?token=' + encodeURIComponent(authToken || '');
+        // Open IP Beacon — session validation is handled server-side via the
+        // FluxDrop cookie/header.  Do NOT pass authToken as ?token= because
+        // that query param is consumed by ip_lookup.html as a beacon lookup
+        // token (primary/read), which is a completely different credential.
+        window.location.href = '/beacon/ui';
     });
     document.getElementById('pm-logout').addEventListener('click', () => { overlay.remove(); handleLogout(); });
     if (isAdmin) document.getElementById('pm-admin')?.addEventListener('click', () => { overlay.remove(); openAdminPanel(); });

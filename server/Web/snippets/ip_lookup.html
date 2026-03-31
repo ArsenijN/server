@@ -173,6 +173,19 @@ input[type=text]::placeholder{color:var(--muted)}
 }
 .sub-card-title{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px}
 
+/* saved device rows */
+.saved-device-row{
+  display:flex;align-items:center;gap:8px;
+  background:#0d1017;border:1px solid var(--border);
+  border-radius:7px;padding:8px 12px;
+  font-size:12px;cursor:pointer;transition:border .15s;
+}
+.saved-device-row:hover{border-color:var(--accent)}
+.saved-device-label{flex:1;color:var(--accent2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.saved-device-tok{flex:2;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.saved-device-del{background:transparent;border:1px solid var(--border2);color:var(--red);font-size:11px;padding:2px 7px;border-radius:5px;cursor:pointer;white-space:nowrap}
+.saved-device-del:hover{border-color:var(--red);background:rgba(239,68,68,.08)}
+
 footer{
   padding:24px 40px;border-top:1px solid var(--border);
   font-size:11px;color:var(--muted);text-align:center;
@@ -246,6 +259,22 @@ footer a:hover{text-decoration:underline}
     </div>
   </div>
 
+  <!-- Saved devices -->
+  <div class="section-label" style="margin-top:8px">Saved devices</div>
+  <div class="card" id="saved-devices-card">
+    <div class="card-title">📋 Device list</div>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:14px">
+      Save tokens from multiple devices for quick access. Stored locally in your browser.
+    </p>
+    <div class="tokens-list" id="saved-devices-list"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <input type="text" id="save-token-input" placeholder="Paste primary or read token…" style="flex:1;min-width:0">
+      <input type="text" id="save-label-input" placeholder="Label (e.g. Home Server)" style="flex:1;min-width:0">
+      <button class="btn" onclick="saveDevice()">Save</button>
+    </div>
+    <div class="err-box" id="save-err"></div>
+  </div>
+
   <!-- Registration helper -->
   <div class="section-label" style="margin-top:8px">Register a new device</div>
   <div class="card">
@@ -281,12 +310,13 @@ footer a:hover{text-decoration:underline}
 
 <script>
 // ── Config ─────────────────────────────────────────────────────────────────
-// When served as a snippet from /beacon/ui the page is already on the CDN
-// origin, so we use window.location.origin to avoid hardcoding the port.
+// When served from /beacon/ui the page is already on the CDN origin, so we
+// use window.location.origin — no hardcoded port needed.
 const CDN = window.location.origin;
 
-// Pick up the FluxDrop session token so the register endpoint (which calls
-// back to the same server) can be called without re-typing credentials.
+// FluxDrop session token (used only for /beacon/register which is session-gated).
+// NOTE: this is NOT passed as ?token= in the URL because that param is reserved
+// exclusively for beacon primary/read tokens used by doLookup().
 const _FD_TOKEN = localStorage.getItem('fluxdrop_token') || '';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -320,6 +350,70 @@ function _tokenRow(tok, colorClass){
     <span style="color:${colorClass||'var(--text)'}">${_escHtml(tok)}</span>
     <button class="copy-btn" onclick="_copyText('${_escHtml(tok)}',this)">copy</button>
   </div>`;
+}
+
+// ── Saved device list (localStorage) ───────────────────────────────────────
+// Schema: localStorage key 'beacon_devices' → JSON array of
+//   { id: string, label: string, token: string, addedAt: number }
+const _STORAGE_KEY = 'beacon_devices';
+
+function _loadDevices(){
+  try { return JSON.parse(localStorage.getItem(_STORAGE_KEY) || '[]'); }
+  catch{ return []; }
+}
+
+function _saveDevices(arr){
+  localStorage.setItem(_STORAGE_KEY, JSON.stringify(arr));
+}
+
+function renderSavedDevices(){
+  const list = document.getElementById('saved-devices-list');
+  const devices = _loadDevices();
+  if(!devices.length){
+    list.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:4px 0">No saved devices yet. Add one below.</div>';
+    return;
+  }
+  list.innerHTML = devices.map(d => `
+    <div class="saved-device-row" onclick="loadDevice('${_escHtml(d.token)}')">
+      <span class="saved-device-label">${_escHtml(d.label || 'Unnamed')}</span>
+      <span class="saved-device-tok">${_escHtml(d.token)}</span>
+      <button class="saved-device-del" onclick="event.stopPropagation();removeDevice('${_escHtml(d.id)}')">✕</button>
+    </div>`).join('');
+}
+
+function loadDevice(token){
+  document.getElementById('token-input').value = token;
+  // Scroll to lookup card and run lookup
+  document.getElementById('token-input').closest('.card').scrollIntoView({behavior:'smooth', block:'start'});
+  doLookup();
+}
+
+function saveDevice(){
+  const tokenInput = document.getElementById('save-token-input');
+  const labelInput = document.getElementById('save-label-input');
+  const err        = document.getElementById('save-err');
+  const token = tokenInput.value.trim();
+  const label = labelInput.value.trim();
+  err.style.display = 'none';
+
+  if(!token){ err.textContent = 'Please enter a token.'; err.style.display = 'block'; return; }
+
+  const devices = _loadDevices();
+  // Prevent duplicates
+  if(devices.some(d => d.token === token)){
+    err.textContent = 'This token is already saved.'; err.style.display = 'block'; return;
+  }
+
+  devices.push({ id: crypto.randomUUID(), label: label || token.slice(0,12)+'…', token, addedAt: Date.now() });
+  _saveDevices(devices);
+  tokenInput.value = '';
+  labelInput.value = '';
+  renderSavedDevices();
+}
+
+function removeDevice(id){
+  _saveDevices(_loadDevices().filter(d => d.id !== id));
+  renderSavedDevices();
 }
 
 // ── Lookup ──────────────────────────────────────────────────────────────────
@@ -405,7 +499,6 @@ async function createReadToken(){
     });
     const d = await r.json();
     if(!r.ok){ alert(d.error||'Failed'); return; }
-    // Re-lookup to refresh list
     await doLookup();
   }catch(e){ alert('Network error: '+e.message); }
 }
@@ -437,19 +530,34 @@ async function doRegister(){
       _tokenRow(d.read_token, '#a78bfa');
     res.style.display = 'block';
 
-    // Pre-fill lookup
+    // Pre-fill lookup input and auto-save to device list
     document.getElementById('token-input').value = d.primary_token;
+    const devices = _loadDevices();
+    if(!devices.some(dev => dev.token === d.primary_token)){
+      devices.push({ id: crypto.randomUUID(), label: label || 'New device', token: d.primary_token, addedAt: Date.now() });
+      _saveDevices(devices);
+      renderSavedDevices();
+    }
   }catch(e){
     err.textContent = 'Network error: '+e.message;
     err.style.display = 'block';
   }
 }
 
-// Auto-lookup if token is in URL query string (?token=...)
+// ── Init ────────────────────────────────────────────────────────────────────
+// Render saved device list on page load.
+renderSavedDevices();
+
+// Auto-lookup only if ?token= is present in the URL AND it looks like a
+// beacon token (not a FluxDrop session JWT).  A beacon token is a plain
+// hex/alphanumeric string; a FluxDrop JWT starts with "eyJ".
 (function(){
   const p = new URLSearchParams(location.search);
   const t = p.get('token');
-  if(t){ document.getElementById('token-input').value = t; doLookup(); }
+  if(t && !t.startsWith('eyJ')){
+    document.getElementById('token-input').value = t;
+    doLookup();
+  }
 })();
 </script>
 </body>

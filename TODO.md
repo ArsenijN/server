@@ -5,9 +5,6 @@ user feedback or ideas for future development.
 
 ---
 
-- [x] **Tree download** — allow downloading an entire folder as a `.zip`
-  archive from the API.
-
 - [ ] **Family/Group accounts**
   - [ ] Let two or more usernames share a common root directory with mutual
     read/write privileges.
@@ -20,11 +17,17 @@ user feedback or ideas for future development.
 - [ ] **Misc future ideas**
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
-  - [x] **Folder size** in directory listings (sum of contained file sizes)
-    for quota display.
 
-- [ ] Add folder downloads and size to the share snippet
-- [ ] Check why checksums of uploaded files on server is slow
+- [ ] Auto-delete the unused/abandoned IP Beacon tokens after 7 (or even 1)/30 days
+- [x] ~~Add auto-cancel background archive download on modal close when using archive file tree preview~~ -- kinda resolved via making proper archive preview
+- [x] Fix preview of the archives doesn't use partial content, leading to full archive download (meaning 2+ times usage of internet)
+- [ ] Add loading wheel to the right of "Upload" button between prep and upload states
+- [ ] Add image placeholders between image download and display
+- [ ] Add multi-file choice for uploads (and maybe downloads, like add the selector for files and folders to do the tasks with few elements at the time instead of 1 element at the time)
+- [ ] Feature: re-push the chunk if server isn't responding (unchoking)
+- [ ] Auto-scroll in the `Uploads` and `Downloads` 
+- [ ] Add folder downloads and size to the `share` snippet
+- [x] Check why checksums of uploaded files on server is slow
 - [ ] Add trash bin
 - [ ] Auto negotiation of upload type (folder or file)
 - [ ] Audit: question about expose of the temp chunks at CDN
@@ -44,11 +47,10 @@ user feedback or ideas for future development.
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Improve server download speeds by use of multithreaded function
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports for more ideal links and simplicity
-- [ ] Add the HEIC, AVIF support for previews
+- [x] Add the HEIC, AVIF support for previews
 - [ ] Add PDF preview
-- [ ] Add plain text preview (.ini already there)
+- [x] Add plain text preview (.ini already there) -- already made?
 - [ ] Add Markdown previews with proper formatting
-- [x] Add .zip, .tar.gz, and so on support for previews (at least file table)
 - [ ] Add `.7z` and `.rar` for file table previews (and other ones)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
 - [ ] Make special player with "video preview support", aka "slow internet mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce bandwidth and resolution)
@@ -66,3 +68,7 @@ user feedback or ideas for future development.
 - [ ] Use buiding station + server logics in the instructions
 
 - [ ] Make HTTP and HTTPS hosters work properly as standalone utilities without any FluxDrop and CDN
+
+- [ ] Migration to other host platform for HTTP and HTTPS efficiency and optimizations (Python)
+
+- [ ] Custom right-click menu

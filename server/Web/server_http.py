@@ -97,6 +97,15 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
+        # --- /beacon/* redirect → CDN (all beacon endpoints live on the CDN server) ---
+        if requested_path.split('?')[0].startswith('/beacon'):
+            _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
+            _path = requested_path.split('?')[0]
+            self.send_response(302)
+            self.send_header('Location', f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}{_path}{_qs}")
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
 
         with blacklist_lock:
             if client_ip in current_blacklist:

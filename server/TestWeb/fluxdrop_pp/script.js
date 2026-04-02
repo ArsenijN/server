@@ -224,6 +224,7 @@ function renderFileBrowserView() {
                     <button id="btn-refresh" class="btn text-sm">Refresh</button>
                     <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm">New Folder</button>
                     <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm">Browse CDN</button>
+                    <button id="btn-trash" class="btn text-sm" style="background:#dc2626;color:#fff" title="Trash bin">🗑 Trash</button>
                     <button id="btn-folders-mixed" class="btn text-sm" title="Toggle folders-first vs mixed sorting"></button>
                 </div>
             </div>
@@ -236,7 +237,8 @@ function renderFileBrowserView() {
                     <button type="button" id="btn-folder-toggle" class="btn text-sm"
                         style="background:#0ea5e9" title="Switch to folder upload mode">📁 Folder</button>
                     <label class="text-sm"><input type="checkbox" id="upload-protected" /> Protected</label>
-                    <button class="btn" type="submit">Upload</button>
+                    <button class="btn" id="btn-upload-submit" type="submit">Upload</button>
+                    <span id="upload-spinner" style="display:none;font-size:18px;animation:spin 0.8s linear infinite">⏳</span>
                     <button type="button" id="btn-show-queue"
                         class="btn text-sm hidden"
                         style="background:#6366f1"
@@ -268,6 +270,7 @@ function renderFileBrowserView() {
     });
     document.getElementById('btn-create-folder').addEventListener('click', promptCreateFolder);
     document.getElementById('btn-browse-cdn').addEventListener('click', () => { currentPath = '/cdn'; loadDirectory(currentPath); });
+    document.getElementById('btn-trash').addEventListener('click', openTrashView);
     // Folders-first toggle
     function updateFoldersMixedBtn() {
         const btn = document.getElementById('btn-folders-mixed');
@@ -584,12 +587,12 @@ function renderEntryRow(e) {
     const btnZip      = _ab('⬇ ZIP',   'zip-btn',      '#0891b2', p);
     const btnPreview  = _ab('Preview',  'preview-btn',  '#f59e0b', p);
     const btnShare    = _ab('Share',    'share-btn',    '#8b5cf6', pd);
-    const btnDelete   = _ab('Delete',   'delete-btn',   '#ef4444', p);
+    const btnTrash    = _ab('🗑',        'delete-btn',   '#dc2626', p);
     const btnMove     = _ab('Move/Rename', 'move-btn',  '#64748b', p);
 
     const actionBtns = e.is_dir
-        ? [btnOpen, btnZip, btnShare, btnDelete, btnMove].join(' ')
-        : [btnDl, btnPreview, btnShare, btnDelete, btnMove].join(' ');
+        ? [btnOpen, btnZip, btnShare, btnTrash, btnMove].join(' ')
+        : [btnDl, btnPreview, btnShare, btnTrash, btnMove].join(' ');
     const TD_COMMON  = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
     const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;text-align:right;min-width:220px"';
 
@@ -684,6 +687,7 @@ function renderDownloadTray() {
                     <div class="dl-actions"></div>
                 </div>`;
             tray.appendChild(row);
+            tray.scrollTop = tray.scrollHeight;  // auto-scroll to newest entry
 
             // Wire up stable button references stored on the row element
             const actionsDiv = row.querySelector('.dl-actions');
@@ -1112,44 +1116,70 @@ window.previewFile = async function(path) {
             const ext = (path.split('.').pop() || '').toLowerCase();
             bodyEl.innerHTML = '<p style="color:#94a3b8;padding:2rem;text-align:center">Reading archive…</p>';
 
-            const isZip = ext === 'zip';
-            const isTar = ['tar', 'gz', 'tgz'].includes(ext);
-            const noPreview = ['bz2', 'tbz2', 'xz', 'txz'].includes(ext);
+            const isZip  = ext === 'zip';
+            const isTar  = ['tar','gz','tgz','bz2','tbz2','xz','txz'].includes(ext);
 
-            if (noPreview) {
-                bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
-                    <div style="font-size:3rem;margin-bottom:1rem">🗜</div>
-                    <div style="color:#94a3b8">${escapeHtml(filename)}</div>
-                    <p style="color:#64748b;font-size:14px;margin-top:8px">
-                        .${ext} preview isn't supported in browser.<br>Download and extract locally.
-                    </p></div>`;
-                dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
-            } else if (isZip || isTar) {
-                // Use the server-side archive_tree endpoint — reads only the central
-                // directory / tar headers, never the compressed file data.
-                // This is O(entry-count) rather than O(file-size).
-                try {
-                    // Mint a download token for the archive_tree endpoint (same auth flow as downloads)
-                    const tokenResp = await apiCall('/api/v1/download_token', 'POST', { path }, true);
-                    const dlToken   = tokenResp.download_token;
-
-                    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
-                    const treeUrl = `${API_BASE_URL}/api/v1/archive_tree${encodedPath}?dl_token=${encodeURIComponent(dlToken)}`;
-                    const treeResp = await fetchWithFallback(treeUrl, {
-                        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+            if (isZip) {
+                await _loadJSZip();
+                const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const buf = await resp.arrayBuffer();
+                const zip = await JSZip.loadAsync(buf);
+                const entries = [];
+                zip.forEach((relPath, zipEntry) => {
+                    entries.push({
+                        name:  relPath,
+                        size:  zipEntry.dir ? null : (zipEntry._data ? zipEntry._data.uncompressedSize : null),
+                        isDir: zipEntry.dir,
                     });
-                    if (!treeResp.ok) throw new Error(`HTTP ${treeResp.status}`);
-                    const treeData = await treeResp.json();
-                    // Server uses snake_case (is_dir); _renderArchiveTree expects isDir
-                    const entries = treeData.entries.map(e => ({
-                        name:  e.name,
-                        size:  e.size,
-                        isDir: e.is_dir,
+                });
+                _renderArchiveTree(bodyEl, entries, filename);
+
+            } else if (isTar) {
+                // js-untar handles .tar; for .gz/.tgz the browser DecompressionStream
+                // unwraps gzip first, then js-untar reads the .tar inside.
+                // For .bz2/.xz we show an unsupported message (no WASM-free JS decoder).
+                if (['bz2','tbz2','xz','txz'].includes(ext)) {
+                    bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
+                        <div style="font-size:3rem;margin-bottom:1rem">🗜</div>
+                        <div style="color:#94a3b8">${escapeHtml(filename)}</div>
+                        <p style="color:#64748b;font-size:14px;margin-top:8px">
+                            .${ext} preview isn't supported in browser.<br>Download and extract locally.
+                        </p></div>`;
+                    dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
+                } else {
+                    await _loadUntar();
+                    const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+                    let tarBuffer;
+                    if (['gz','tgz'].includes(ext) && typeof DecompressionStream !== 'undefined') {
+                        // Decompress gzip in-browser, then untar
+                        const ds = new DecompressionStream('gzip');
+                        const decompressed = resp.body.pipeThrough(ds);
+                        const reader = decompressed.getReader();
+                        const chunks = [];
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            chunks.push(value);
+                        }
+                        const total = chunks.reduce((s, c) => s + c.byteLength, 0);
+                        const buf = new Uint8Array(total);
+                        let off = 0;
+                        for (const c of chunks) { buf.set(c, off); off += c.byteLength; }
+                        tarBuffer = buf.buffer;
+                    } else {
+                        tarBuffer = await resp.arrayBuffer();
+                    }
+
+                    const tarFiles = await untar(tarBuffer);
+                    const entries = tarFiles.map(f => ({
+                        name:  f.name,
+                        size:  f.size || null,
+                        isDir: f.type === '5' || f.name.endsWith('/'),
                     }));
                     _renderArchiveTree(bodyEl, entries, filename);
-                } catch (treeErr) {
-                    bodyEl.innerHTML = `<p style="color:#ef4444;padding:2rem;text-align:center">
-                        Archive preview failed: ${escapeHtml(String(treeErr))}</p>`;
                 }
             } else {
                 bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
@@ -1296,15 +1326,200 @@ window.downloadFolderZip = async function(path) {
 
 window.deleteItem = async function(path) {
     const disp = stripInternalPrefix(path);
-    if (!confirm('Delete ' + disp + '?')) return;
+    if (!confirm('Move to Trash: ' + disp + '?')) return;
     try {
-        await apiCall('/api/v1/delete', 'POST', { paths: [path] });
-        showMessage('Deleted', disp);
+        const res = await apiCall('/api/v1/trash', 'POST', { path });
+        const days = res.retention_days || 30;
+        showMessage('Moved to Trash',
+            disp + ' was moved to Trash and will be kept for ' + days + ' days.\n'
+            + 'Open Trash (🗑) to restore or permanently delete it.');
         loadDirectory(currentPath);
     } catch (err) {
-        showMessage('Delete failed', err.message);
+        showMessage('Failed', err.message);
     }
 }
+
+// ======================================================================
+// --- TRASH BIN VIEW ---
+// ======================================================================
+
+// Inject spin keyframe once
+;(function() {
+    if (document.getElementById('_fd-spin-style')) return;
+    const s = document.createElement('style');
+    s.id = '_fd-spin-style';
+    s.textContent = '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+    document.head.appendChild(s);
+})();
+
+async function openTrashView() {
+    // Remove any existing trash overlay
+    document.getElementById('trash-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'trash-overlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal-content" style="max-width:680px;width:95vw;padding:0;overflow:hidden;border-radius:14px">
+            <div style="background:linear-gradient(135deg,#dc2626,#b91c1c);padding:16px 20px;
+                        display:flex;align-items:center;justify-content:space-between">
+                <div>
+                    <div style="color:white;font-weight:700;font-size:16px">🗑 Trash</div>
+                    <div id="trash-subtitle" style="color:rgba(255,255,255,.75);font-size:12px;margin-top:2px"></div>
+                </div>
+                <button onclick="document.getElementById('trash-overlay').remove()"
+                    style="background:rgba(255,255,255,.15);border:none;color:white;
+                           border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px">✕</button>
+            </div>
+            <div id="trash-notice" style="display:none;padding:8px 20px;background:#fef3c7;
+                border-bottom:1px solid #fde68a;font-size:12px;color:#92400e"></div>
+            <div style="padding:12px 20px;border-bottom:1px solid #e2e8f0;display:flex;
+                        justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-size:12px;color:#64748b">
+                    Files are automatically deleted after their retention period.
+                    Trash does not count toward your storage quota.
+                </span>
+                <button id="trash-empty-btn"
+                    style="background:#ef4444;color:white;border:none;border-radius:7px;
+                           padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;
+                           white-space:nowrap">
+                    Empty Trash
+                </button>
+            </div>
+            <div id="trash-body" style="max-height:55vh;overflow-y:auto;padding:8px 0">
+                <div style="padding:24px;text-align:center;color:#94a3b8">Loading…</div>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    await _refreshTrashView();
+
+    document.getElementById('trash-empty-btn').addEventListener('click', async () => {
+        if (!confirm('Permanently delete everything in Trash? This cannot be undone.')) return;
+        try {
+            await apiCall('/api/v1/trash', 'DELETE');
+            await _refreshTrashView();
+        } catch (err) {
+            alert('Failed to empty trash: ' + err.message);
+        }
+    });
+}
+
+async function _refreshTrashView() {
+    const body     = document.getElementById('trash-body');
+    const subtitle = document.getElementById('trash-subtitle');
+    const notice   = document.getElementById('trash-notice');
+    if (!body) return;
+
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:#94a3b8">Loading…</div>';
+
+    let data;
+    try {
+        data = await apiCall('/api/v1/trash', 'GET');
+    } catch (err) {
+        body.innerHTML = `<div style="padding:24px;text-align:center;color:#ef4444">Failed: ${escapeHtml(err.message)}</div>`;
+        return;
+    }
+
+    const items = data.items || [];
+    subtitle.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+
+    if (data.notice && notice) {
+        notice.textContent = '⚠ ' + data.notice;
+        notice.style.display = 'block';
+    } else if (notice) {
+        notice.style.display = 'none';
+    }
+
+    if (!items.length) {
+        body.innerHTML = '<div style="padding:40px;text-align:center;color:#94a3b8;font-size:15px">🗑 Trash is empty</div>';
+        return;
+    }
+
+    function fmtDate(ts) {
+        if (!ts) return '—';
+        return new Date(ts * 1000).toLocaleString();
+    }
+    function fmtBytes(b) {
+        if (b < 1024) return b + ' B';
+        if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+        if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+        return (b/1073741824).toFixed(2) + ' GB';
+    }
+    function daysLeft(expiresAt) {
+        const d = Math.ceil((expiresAt - Date.now()/1000) / 86400);
+        if (d <= 0) return '<span style="color:#ef4444">Expiring soon</span>';
+        if (d === 1) return '<span style="color:#f59e0b">1 day left</span>';
+        if (d <= 3) return `<span style="color:#f59e0b">${d} days left</span>`;
+        return `<span style="color:#64748b">${d} days left</span>`;
+    }
+
+    body.innerHTML = items.map(item => `
+        <div class="trash-row" data-id="${item.id}"
+             style="display:flex;align-items:center;gap:10px;padding:10px 20px;
+                    border-bottom:1px solid #f1f5f9;transition:background .12s"
+             onmouseenter="this.style.background='#f8fafc'"
+             onmouseleave="this.style.background=''">
+            <span style="font-size:18px;flex-shrink:0">${item.is_dir ? '📁' : '📄'}</span>
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;
+                            white-space:nowrap" title="${escapeHtmlAttr(item.original_path)}">
+                    ${escapeHtml(item.name)}
+                </div>
+                <div style="font-size:11px;color:#94a3b8;margin-top:2px">
+                    ${escapeHtml(item.original_path)} &nbsp;·&nbsp;
+                    ${fmtBytes(item.size_bytes)} &nbsp;·&nbsp;
+                    Deleted ${fmtDate(item.deleted_at)}
+                </div>
+            </div>
+            <div style="flex-shrink:0;font-size:11px;text-align:right;min-width:70px">
+                ${daysLeft(item.expires_at)}
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0">
+                <button class="trash-restore-btn" data-id="${item.id}"
+                    style="background:#22c55e;color:white;border:none;border-radius:6px;
+                           padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600">
+                    Restore
+                </button>
+                <button class="trash-del-btn" data-id="${item.id}"
+                    style="background:#ef4444;color:white;border:none;border-radius:6px;
+                           padding:4px 10px;cursor:pointer;font-size:12px">
+                    Delete
+                </button>
+            </div>
+        </div>`).join('');
+
+    // Attach listeners
+    body.querySelectorAll('.trash-restore-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = +btn.dataset.id;
+            try {
+                const res = await apiCall(`/api/v1/trash/${id}/restore`, 'POST');
+                loadDirectory(currentPath);
+                await _refreshTrashView();
+            } catch (err) {
+                alert('Restore failed: ' + err.message);
+            }
+        });
+    });
+
+    body.querySelectorAll('.trash-del-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = +btn.dataset.id;
+            const row = body.querySelector(`.trash-row[data-id="${id}"]`);
+            const name = row?.querySelector('div > div')?.textContent?.trim() || 'this item';
+            if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
+            try {
+                await apiCall(`/api/v1/trash/${id}`, 'DELETE');
+                await _refreshTrashView();
+            } catch (err) {
+                alert('Delete failed: ' + err.message);
+            }
+        });
+    });
+}
+
 
 window.promptRename = function(path) { openMoveDialog(path); }
 
@@ -2116,6 +2331,19 @@ async function handleUploadForm(e) {
     const isProtected = document.getElementById('upload-protected').checked;
     const ownerType = currentPath.startsWith('/cdn') ? 'catbox' : 'user';
 
+    // Show spinner between button press and first tray update
+    const _ubtn = document.getElementById('btn-upload-submit');
+    const _uspinner = document.getElementById('upload-spinner');
+    function _showUploadSpinner() {
+        if (_ubtn) { _ubtn.disabled = true; _ubtn.style.opacity = '0.6'; }
+        if (_uspinner) _uspinner.style.display = 'inline';
+    }
+    function _hideUploadSpinner() {
+        if (_ubtn) { _ubtn.disabled = false; _ubtn.style.opacity = ''; }
+        if (_uspinner) _uspinner.style.display = 'none';
+    }
+    _showUploadSpinner();
+
     // Build queue items for all selected files.
     // When using webkitdirectory, f.webkitRelativePath gives the full relative path
     // including the folder name (e.g. "MyFolder/sub/file.txt"). We use that to
@@ -2129,10 +2357,15 @@ async function handleUploadForm(e) {
     if (items.length === 1) {
         // Single file: start immediately
         try {
-            await uploadChunked(items[0].file, items[0].destRel, { ownerType });
+            const _p = uploadChunked(items[0].file, items[0].destRel, { ownerType });
+            // Hide spinner as soon as the tray row is created (first renderUploadTray call)
+            setTimeout(_hideUploadSpinner, 600);
+            await _p;
+            _hideUploadSpinner();
             showMessage('Upload successful', `${items[0].file.name} uploaded successfully.`);
             loadDirectory(currentPath);
         } catch (err) {
+            _hideUploadSpinner();
             if (err.name === 'PauseSignal' || err.message === 'Upload cancelled') return;
             showMessage('Upload failed', err.message || String(err));
         }
@@ -2151,6 +2384,8 @@ async function handleUploadForm(e) {
         };
         refreshQ();
 
+        // Hide spinner as soon as queuing is done
+        setTimeout(_hideUploadSpinner, 400);
         // Start first immediately, then drain queue sequentially
         async function drainQueue(startItem) {
             let item = startItem;
@@ -2261,6 +2496,7 @@ function renderUploadTray() {
                     <div class="ul-actions"></div>
                 </div>`;
             tray.appendChild(row);
+            tray.scrollTop = tray.scrollHeight;  // auto-scroll to newest entry
 
             const actionsDiv = row.querySelector('.ul-actions');
 

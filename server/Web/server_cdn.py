@@ -461,6 +461,25 @@ def init_db():
                 created_at    REAL    NOT NULL DEFAULT 0
             )
         ''')
+        # Trash bin — soft-deleted files/folders.
+        # original_path : user-relative path before deletion (e.g. /docs/report.pdf)
+        # trash_path    : absolute path to the moved file inside the trash dir
+        # deleted_at    : unix timestamp of deletion
+        # size_bytes    : pre-computed size (so quota math doesn't need a walk)
+        # is_dir        : whether the entry was a directory
+        # retention_days: effective retention at deletion time (30 normal / 7 reduced)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trash_items (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                original_path   TEXT    NOT NULL,
+                trash_path      TEXT    NOT NULL UNIQUE,
+                deleted_at      REAL    NOT NULL DEFAULT 0,
+                size_bytes      INTEGER NOT NULL DEFAULT 0,
+                is_dir          INTEGER NOT NULL DEFAULT 0,
+                retention_days  INTEGER NOT NULL DEFAULT 30
+            )
+        ''')
         conn.commit()
 
     # ── Schema migrations (safe to run on every startup) ──────────────────
@@ -649,19 +668,12 @@ def _upload_assemble(token: str) -> tuple[str, str]:
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
     # 3. Stream-copy chunks into the final file while hashing inline.
-    #    Using a 4 MiB read buffer keeps syscall overhead low for large files.
-    #    usedforsecurity=False lets Python use the fastest available SHA-256
-    #    implementation (e.g. OpenSSL's hardware-accelerated path) because we
-    #    only need this for data-integrity checking, not cryptographic purposes.
-    #    We report progress into _assembly_progress every 16 MiB so the client
+    #    Using a 1 MiB read buffer keeps memory flat regardless of chunk size.
+    #    We report progress into _assembly_progress every 4 MiB so the client
     #    polling endpoint can show a real-time ETA without a separate file read.
-    READ_BUF      = 4 * 1024 * 1024   # 4 MiB per read() call (was 1 MiB)
-    REPORT_EVERY  = 16 * 1024 * 1024  # update progress dict every 16 MiB written (was 4 MiB)
-    try:
-        hasher = hashlib.sha256(usedforsecurity=False)
-    except TypeError:
-        # Python < 3.9 fallback
-        hasher = hashlib.sha256()
+    READ_BUF      = 1 * 1024 * 1024   # 1 MiB per read() call
+    REPORT_EVERY  = 4 * 1024 * 1024   # update progress dict every 4 MiB written
+    hasher        = hashlib.sha256()
     bytes_hashed  = 0
     last_reported = 0
 
@@ -1402,6 +1414,160 @@ def _get_share_stats(token: str, owner_id: int) -> list | None:
         return [dict(r) for r in cur.fetchall()]
 
 
+
+# ==============================================================================
+# --- TRASH BIN HELPERS ---
+# ==============================================================================
+
+def _user_trash_root(user_id: int) -> str:
+    return os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id), '.trash')
+
+_TRASH_PRESSURE_THRESHOLD = 0.80
+
+def _trash_retention_days() -> int:
+    try:
+        st = os.statvfs(SERVE_ROOT)
+        used_frac = 1 - (st.f_bavail / st.f_blocks) if st.f_blocks else 0
+        return 7 if used_frac >= _TRASH_PRESSURE_THRESHOLD else 30
+    except Exception:
+        return 30
+
+def _trash_size_for(path: str) -> int:
+    if os.path.isfile(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+    total = 0
+    try:
+        for dp, _, fnames in os.walk(path):
+            for fn in fnames:
+                try:
+                    total += os.path.getsize(os.path.join(dp, fn))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+def _move_to_trash(user_id: int, fs_path: str, original_path: str) -> dict:
+    trash_root = _user_trash_root(user_id)
+    os.makedirs(trash_root, exist_ok=True)
+    size_bytes = _trash_size_for(fs_path)
+    is_dir     = 1 if os.path.isdir(fs_path) else 0
+    name       = os.path.basename(fs_path)
+    uid_suffix = secrets.token_hex(4)
+    trash_name = f"{name}__{uid_suffix}"
+    trash_path = os.path.join(trash_root, trash_name)
+    os.rename(fs_path, trash_path)
+    retention  = _trash_retention_days()
+    now        = time.time()
+    return {
+        'user_id':       user_id,
+        'original_path': original_path,
+        'trash_path':    trash_path,
+        'deleted_at':    now,
+        'size_bytes':    size_bytes,
+        'is_dir':        is_dir,
+        'retention_days': retention,
+    }
+
+def _trash_list(user_id: int) -> list:
+    with _db_connect() as conn:
+        rows = conn.execute(
+            "SELECT id, original_path, trash_path, deleted_at, size_bytes, is_dir, retention_days"
+            " FROM trash_items WHERE user_id = ? ORDER BY deleted_at DESC",
+            (user_id,)
+        ).fetchall()
+    items = []
+    for row in rows:
+        tid, orig, tpath, deleted_at, size, is_dir, ret = row
+        expires_at = deleted_at + ret * 86400
+        items.append({
+            'id':            tid,
+            'original_path': orig,
+            'name':          os.path.basename(orig),
+            'deleted_at':    deleted_at,
+            'expires_at':    expires_at,
+            'size_bytes':    size,
+            'is_dir':        bool(is_dir),
+            'retention_days': ret,
+        })
+    return items
+
+def _trash_restore(user_id: int, item_id: int) -> str:
+    with _db_connect() as conn:
+        row = conn.execute(
+            "SELECT original_path, trash_path, is_dir FROM trash_items WHERE id = ? AND user_id = ?",
+            (item_id, user_id)
+        ).fetchone()
+        if not row:
+            raise RuntimeError('Trash item not found.')
+        orig, tpath, is_dir = row
+        user_root = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+        dest = os.path.join(user_root, orig.lstrip('/'))
+        if os.path.exists(dest):
+            raise RuntimeError(f'Cannot restore: {orig!r} already exists. Rename the existing file first.')
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        os.rename(tpath, dest)
+        conn.execute('DELETE FROM trash_items WHERE id = ?', (item_id,))
+        conn.commit()
+    return orig
+
+def _trash_delete_permanent(user_id: int, item_id: int) -> None:
+    with _db_connect() as conn:
+        row = conn.execute(
+            "SELECT trash_path FROM trash_items WHERE id = ? AND user_id = ?",
+            (item_id, user_id)
+        ).fetchone()
+        if not row:
+            raise RuntimeError('Trash item not found.')
+        tpath = row[0]
+        if os.path.isdir(tpath):
+            shutil.rmtree(tpath, ignore_errors=True)
+        elif os.path.exists(tpath):
+            os.remove(tpath)
+        conn.execute('DELETE FROM trash_items WHERE id = ?', (item_id,))
+        conn.commit()
+
+def _trash_purge_expired() -> int:
+    now = time.time()
+    purged = 0
+    try:
+        with _db_connect() as conn:
+            rows = conn.execute(
+                "SELECT id, trash_path, is_dir FROM trash_items"
+                " WHERE (deleted_at + retention_days * 86400) <= ?",
+                (now,)
+            ).fetchall()
+            for tid, tpath, is_d in rows:
+                try:
+                    if is_d:
+                        shutil.rmtree(tpath, ignore_errors=True)
+                    elif os.path.exists(tpath):
+                        os.remove(tpath)
+                except Exception:
+                    pass
+                conn.execute('DELETE FROM trash_items WHERE id = ?', (tid,))
+                purged += 1
+            if purged:
+                conn.commit()
+    except Exception:
+        logging.exception('trash_purge_expired failed')
+    return purged
+
+def _trash_size_used(user_id: int) -> int:
+    try:
+        with _db_connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(size_bytes),0) FROM trash_items WHERE user_id = ?",
+                (user_id,)
+            ).fetchone()
+            return row[0] if row else 0
+    except Exception:
+        return 0
+
+
 def _is_file_protected(relative_path):
     """Returns True if the file (relative to SERVE_ROOT, leading slash) is marked protected."""
     with _db_connect() as conn:
@@ -2108,7 +2274,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
     auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify)$')
     zip_pattern        = re.compile(r'^/api/(v[1-3])/zip(/.*)?$')
     foldersize_pattern = re.compile(r'^/api/(v[1-3])/foldersize(/.*)?$')
-    archive_tree_pattern = re.compile(r'^/api/(v[1-3])/archive_tree(/.*)?$')
     # Chunked resumable upload API:
     #   POST /api/v1/upload_session/init
     #   POST /api/v1/upload_session/<token>/chunk/<index>
@@ -2125,6 +2290,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
     board_list_pattern  = re.compile(r'^/api/(v[1-3])/board$')
     board_item_pattern  = re.compile(r'^/api/(v[1-3])/board/(\d+)$')
     incident_pattern    = re.compile(r'^/api/(v[1-3])/incident$')
+    trash_list_pattern   = re.compile(r'^/api/(v[1-3])/trash$')
+    trash_item_pattern   = re.compile(r'^/api/(v[1-3])/trash/(\d+)$')
+    trash_restore_pattern= re.compile(r'^/api/(v[1-3])/trash/(\d+)/restore$')
 
     def __init__(self, *args, **kwargs):
         # This is crucial for SimpleHTTPRequestHandler to serve files from the correct directory
@@ -3152,15 +3320,21 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return self._send_response(200, json.dumps(payload), 'application/json')
 
     def _handle_beacon_ui(self):
-        """GET /beacon/ui  — serve the IP Beacon lookup page.
-
-        No server-side session gate: the page is self-contained JS that reads
-        the FluxDrop token from localStorage and calls the API directly.
-        Blocking the page load with a 401 just breaks direct navigation; the
-        JS already shows the register/lookup UI to everyone and only calls
-        session-gated endpoints (e.g. /beacon/register) when a token is
-        present in localStorage.
-        """
+        """GET /beacon/ui  — serve the IP Beacon lookup page (requires valid FluxDrop session)."""
+        # Accept token from Authorization header OR ?token= query param (same as _check_token_auth)
+        user_id = self._check_token_auth()
+        if not user_id:
+            # Return a minimal redirect page that sends the user to FluxDrop to log in
+            html = (
+                '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+                '<meta http-equiv="refresh" content="0;url=/">'
+                '<title>Login required</title></head>'
+                '<body style="font-family:sans-serif;padding:2rem;text-align:center">'
+                '<p style="color:#64748b">You must be logged in to use IP Beacon. '
+                '<a href="/" style="color:#3b82f6">Go to FluxDrop</a></p>'
+                '</body></html>'
+            )
+            return self._send_response(401, html, 'text/html')
         return self._send_response(
             200,
             _render_snippet('ip_lookup.html', PUBLIC_DOMAIN=PUBLIC_DOMAIN),
@@ -3227,11 +3401,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if _zip_m:
             return self._handle_zip(_zip_m.group(2) or '/')
 
-        # Archive file-tree listing (no full download — reads ZIP central dir only)
-        _at_m = self.archive_tree_pattern.match(parsed_url.path)
-        if _at_m:
-            return self._handle_archive_tree(_at_m.group(2) or '/')
-
         # Lazy folder size computation
         _fs_m = self.foldersize_pattern.match(parsed_url.path)
         if _fs_m:
@@ -3264,6 +3433,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if pub_match:
             return self.handle_public_share(pub_match.group(1), pub_match.group(2), parsed_url)
 
+        # Trash bin list
+        if self.trash_list_pattern.match(parsed_url.path):
+            return self._handle_trash_list()
+
         # FluxDrop API calls
         flux_match = self.fluxdrop_api_pattern.match(parsed_url.path)
         if flux_match:
@@ -3284,10 +3457,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
             uid, uname, nick, email, adm, quota, qover, created = row
             eff_quota = quota if quota else _compute_dynamic_quota()
             usage = _get_user_disk_usage(uid)
+            trash_bytes = _trash_size_used(uid)
             return self._send_response(200, json.dumps({
                 'id': uid, 'username': uname, 'nickname': nick, 'email': email,
                 'is_admin': bool(adm), 'quota_bytes': eff_quota,
                 'quota_override': bool(qover), 'usage_bytes': usage,
+                'trash_bytes': trash_bytes,
                 'created_at': created,
             }))
 
@@ -3408,6 +3583,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
         flux_match = self.fluxdrop_api_pattern.match(parsed_url.path)
         if flux_match:
             return self.handle_fluxdrop_api_post(flux_match)
+
+        # Trash bin: move to trash
+        if self.trash_list_pattern.match(parsed_url.path):
+            return self._handle_trash_move()
+
+        # Trash bin: restore item
+        _tr_restore = self.trash_restore_pattern.match(parsed_url.path)
+        if _tr_restore:
+            return self._handle_trash_restore(int(_tr_restore.group(2)))
 
         # Net outage note
         _note_m = re.match(r'^/api/v1/net_outage/(\d+)/note$', parsed_url.path)
@@ -3546,6 +3730,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 conn.execute('DELETE FROM users WHERE id = ?', (target_id,))
                 conn.commit()
             return self._send_response(200, json.dumps({'message': 'User deleted'}))
+        # Trash bin: permanently delete one item or empty entire trash
+        _tr_item = self.trash_item_pattern.match(parsed_url.path)
+        if _tr_item:
+            return self._handle_trash_delete(int(_tr_item.group(2)))
+        if self.trash_list_pattern.match(parsed_url.path):
+            return self._handle_trash_empty()
+
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     # --- Auth API Handlers ---
@@ -4145,6 +4336,120 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     # --- Folder ZIP download (streaming, ZIP_STORED) ---
 
+    # ── Trash bin API handlers ────────────────────────────────────────────────
+
+    def _handle_trash_list(self):
+        """GET /api/v1/trash — list the authenticated user's trash items."""
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        items = _trash_list(user_id)
+        retention = _trash_retention_days()
+        notice = None
+        if retention == 7:
+            notice = ('Due to server capacity demand, new items are kept for 7 days. '
+                      'Retention will return to 30 days once space is freed.')
+        return self._send_response(200, json.dumps({
+            'items': items,
+            'retention_days': retention,
+            'notice': notice,
+        }))
+
+    def _handle_trash_move(self):
+        """POST /api/v1/trash  {path}  — soft-delete a file/folder into the trash."""
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            data   = json.loads(self.rfile.read(length) if length else b'{}')
+        except Exception:
+            return self._send_response(400, json.dumps({'error': 'Invalid JSON'}))
+        path = data.get('path', '').strip()
+        if not path:
+            return self._send_response(400, json.dumps({'error': 'path required'}))
+        # Resolve to filesystem path (user-relative)
+        user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+        if path.startswith('/FluxDrop/'):
+            parts = path.lstrip('/').split('/', 2)
+            if len(parts) < 2 or parts[1] != str(user_id):
+                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+            sub = parts[2] if len(parts) > 2 else ''
+            fs_path  = os.path.normpath(os.path.join(user_root, sub))
+            orig_rel = '/' + sub if sub else '/'
+        else:
+            fs_path  = os.path.normpath(os.path.join(user_root, path.lstrip('/')))
+            orig_rel = '/' + path.lstrip('/')
+        if not os.path.realpath(fs_path).startswith(user_root):
+            return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+        if not os.path.exists(fs_path):
+            return self._send_response(404, json.dumps({'error': 'Path not found'}))
+        try:
+            row = _move_to_trash(user_id, fs_path, orig_rel)
+            with _db_connect() as conn:
+                conn.execute(
+                    'INSERT INTO trash_items (user_id, original_path, trash_path,'
+                    ' deleted_at, size_bytes, is_dir, retention_days)'
+                    ' VALUES (?,?,?,?,?,?,?)',
+                    (row['user_id'], row['original_path'], row['trash_path'],
+                     row['deleted_at'], row['size_bytes'], row['is_dir'],
+                     row['retention_days'])
+                )
+                conn.commit()
+            return self._send_response(200, json.dumps({
+                'message': 'Moved to trash',
+                'retention_days': row['retention_days'],
+            }))
+        except Exception as e:
+            logging.exception('_handle_trash_move failed')
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+    def _handle_trash_restore(self, item_id: int):
+        """POST /api/v1/trash/<id>/restore — restore a trash item to its original path."""
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        try:
+            orig = _trash_restore(user_id, item_id)
+            return self._send_response(200, json.dumps({'message': 'Restored', 'path': orig}))
+        except RuntimeError as e:
+            return self._send_response(409, json.dumps({'error': str(e)}))
+        except Exception as e:
+            logging.exception('_handle_trash_restore failed')
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+    def _handle_trash_delete(self, item_id: int):
+        """DELETE /api/v1/trash/<id> — permanently delete one trash item."""
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        try:
+            _trash_delete_permanent(user_id, item_id)
+            return self._send_response(200, json.dumps({'message': 'Permanently deleted'}))
+        except RuntimeError as e:
+            return self._send_response(404, json.dumps({'error': str(e)}))
+        except Exception as e:
+            logging.exception('_handle_trash_delete failed')
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+    def _handle_trash_empty(self):
+        """DELETE /api/v1/trash — permanently delete ALL trash items for the user."""
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        try:
+            items = _trash_list(user_id)
+            for item in items:
+                try:
+                    _trash_delete_permanent(user_id, item['id'])
+                except Exception:
+                    pass
+            return self._send_response(200, json.dumps({'message': f'Emptied {len(items)} item(s)'}))
+        except Exception as e:
+            logging.exception('_handle_trash_empty failed')
+            return self._send_response(500, json.dumps({'error': str(e)}))
+
+
     def _handle_zip(self, path_segment: str):
         """GET /api/v1/zip/<path>  — stream a folder as a ZIP (STORE, no compression).
 
@@ -4431,93 +4736,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
             'size': total,
             'file_count': file_count,
         }))
-
-    def _handle_archive_tree(self, path_segment: str):
-        """GET /api/v1/archive_tree/<path>  — return the file tree of an archive without
-        downloading the whole file.
-
-        For ZIP files this reads only the central directory (last ~1% of the file),
-        which is extremely fast even for multi-GB archives.  For .tar.gz/.tgz a
-        lightweight streaming header scan is used so we never buffer the full payload.
-
-        Returns JSON: { entries: [{name, size, is_dir}], format: 'zip'|'tar' }
-        Requires a valid session + download token (same auth as /api/v1/download).
-        """
-        import zipfile as _zf
-        import struct  as _st_mod
-
-        user_id = self._check_token_auth()
-        if not user_id:
-            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
-
-        relative_path = unquote(path_segment)
-        user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
-
-        if relative_path.startswith('/cdn'):
-            cdn_rel  = relative_path[len('/cdn'):]
-            base_fs  = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
-            if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
-                return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
-        else:
-            base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
-            if not os.path.realpath(base_fs).startswith(user_root):
-                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
-
-        if not os.path.isfile(base_fs):
-            return self._send_response(404, json.dumps({'error': 'File not found.'}))
-
-        # Validate download token (same gate as the download handler)
-        parsed_qs = parse_qs(urlparse(self.path).query)
-        dl_token  = parsed_qs.get('dl_token', [None])[0]
-        if dl_token is None:
-            return self._send_response(403, json.dumps({'error': 'dl_token required.'}))
-
-        if relative_path.startswith('/cdn'):
-            rel_path_for_db = relative_path
-        else:
-            rel_path_for_db = '/' + os.path.relpath(base_fs, user_root).replace(os.sep, '/')
-
-        token_meta = _validate_download_token(rel_path_for_db, dl_token)
-        if token_meta is None:
-            return self._send_response(403, json.dumps({'error': 'Invalid or expired dl_token.'}))
-
-        ext = (base_fs.rsplit('.', 1)[-1] if '.' in base_fs else '').lower()
-
-        try:
-            if ext == 'zip':
-                # Python's zipfile reads only the End-of-Central-Directory record and
-                # the Central Directory — it never reads the compressed file data, so
-                # this is O(number_of_entries), not O(file_size).
-                entries = []
-                with _zf.ZipFile(base_fs, 'r') as zf:
-                    for info in zf.infolist():
-                        entries.append({
-                            'name':   info.filename,
-                            'size':   info.file_size if not info.is_dir() else None,
-                            'is_dir': info.is_dir(),
-                        })
-                return self._send_response(200, json.dumps({'format': 'zip', 'entries': entries}))
-
-            elif ext in ('tar', 'gz', 'tgz'):
-                # Stream the tar headers only — skip over file data without reading it.
-                import tarfile as _tf
-                entries = []
-                mode = 'r:gz' if ext in ('gz', 'tgz') else 'r:'
-                with _tf.open(base_fs, mode) as tf:
-                    for member in tf.getmembers():
-                        entries.append({
-                            'name':   member.name,
-                            'size':   member.size if not member.isdir() else None,
-                            'is_dir': member.isdir(),
-                        })
-                return self._send_response(200, json.dumps({'format': 'tar', 'entries': entries}))
-
-            else:
-                return self._send_response(415, json.dumps({'error': f'.{ext} archive tree not supported.'}))
-
-        except Exception as exc:
-            logging.exception('archive_tree failed')
-            return self._send_response(500, json.dumps({'error': str(exc)}))
 
     def handle_public_share_upload(self, token: str):
         """POST /share/<token>/upload[?subpath=<relative>] — upload into a shared folder or subfolder."""
@@ -5145,6 +5363,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         return p[len('/cdn'):]
                     return p
 
+                # CDN files are hard-deleted immediately (no trash for shared area).
+                # Per-user files go into the trash bin (soft delete).
+                is_cdn = relative_path.startswith('/cdn')
                 for p in paths:
                     p_clean = strip_prefix(p)
                     target = os.path.normpath(os.path.join(base_fs, p_clean.lstrip('/')))
@@ -5152,18 +5373,37 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         errors.append(p)
                         continue
                     try:
-                        if os.path.isfile(target):
-                            os.remove(target)
-                        elif os.path.isdir(target):
-                            shutil.rmtree(target)
+                        if is_cdn:
+                            # CDN: immediate removal as before
+                            if os.path.isfile(target):
+                                os.remove(target)
+                            elif os.path.isdir(target):
+                                shutil.rmtree(target)
+                            else:
+                                errors.append(p)
                         else:
-                            errors.append(p)
+                            # User file: soft-delete into trash
+                            if not os.path.exists(target):
+                                errors.append(p)
+                                continue
+                            orig_rel = '/' + os.path.relpath(target, base_fs).replace(os.sep, '/')
+                            row = _move_to_trash(user_id, target, orig_rel)
+                            with _db_connect() as _tc:
+                                _tc.execute(
+                                    'INSERT INTO trash_items (user_id, original_path, trash_path,'
+                                    ' deleted_at, size_bytes, is_dir, retention_days)'
+                                    ' VALUES (?,?,?,?,?,?,?)',
+                                    (row['user_id'], row['original_path'], row['trash_path'],
+                                     row['deleted_at'], row['size_bytes'], row['is_dir'],
+                                     row['retention_days'])
+                                )
+                                _tc.commit()
                     except Exception as e:
-                        logging.exception(f"Delete failed for {target}")
+                        logging.exception(f"Delete/trash failed for {target}")
                         errors.append(p)
                 if errors:
                     return self._send_response(500, json.dumps({"error": "Some deletes failed", "failed": errors}))
-                return self._send_response(200, json.dumps({"message": "Deleted"}))
+                return self._send_response(200, json.dumps({"message": "Moved to trash"}))
             except Exception as e:
                 logging.exception("FluxDrop delete failed")
                 return self._send_response(500, json.dumps({"error": str(e)}))
@@ -5517,6 +5757,33 @@ def _token_purge_worker():
         except Exception:
             logging.exception('TokenPurge: failed to prune net_outages/incident_log')
 
+        # Purge expired trash items
+        try:
+            n = _trash_purge_expired()
+            if n:
+                logging.info(f'TokenPurge: purged {n} expired trash item(s)')
+        except Exception:
+            logging.exception('TokenPurge: trash purge failed')
+
+        # Purge stale IP Beacon entries:
+        #   - devices not seen for > 30 days
+        #   - read tokens older than 7 days (they're lightweight shareable links;
+        #     owners can regenerate via the UI)
+        try:
+            with _db_connect() as conn:
+                now_ts = time.time()
+                conn.execute(
+                    'DELETE FROM beacon_devices WHERE last_seen < ?',
+                    (now_ts - 30 * 86400,)
+                )
+                conn.execute(
+                    'DELETE FROM beacon_read_tokens WHERE created_at < ?',
+                    (now_ts - 7 * 86400,)
+                )
+                conn.commit()
+        except Exception:
+            logging.exception('TokenPurge: beacon purge failed')
+
         # ── Record a status snapshot for uptime history ──────────────────
         try:
             import socket as _ss
@@ -5577,11 +5844,16 @@ def _require_admin(handler_method):
     return wrapper
 
 def _get_user_disk_usage(user_id: int) -> int:
-    """Return total bytes used by a user across their upload directory."""
-    user_dir = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+    """Return total bytes used by a user (excluding .trash — trash is free quota)."""
+    user_dir   = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+    trash_root = os.path.realpath(_user_trash_root(user_id))
     total = 0
     try:
-        for dirpath, _, filenames in os.walk(user_dir):
+        for dirpath, dirs, filenames in os.walk(user_dir):
+            # Skip .trash subtree so trash bytes don't count against quota
+            if os.path.realpath(dirpath).startswith(trash_root):
+                dirs[:] = []  # prune walk
+                continue
             for f in filenames:
                 try:
                     total += os.path.getsize(os.path.join(dirpath, f))

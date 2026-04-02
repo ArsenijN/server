@@ -1,7 +1,7 @@
-# server `v0.9.12`
+# server `v0.9.13`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix the IP Beacon forwarding and usage, fix the archive preview, added new ideas***
+*Release note: **Add trash bin, make some ToDos***
 
 Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

@@ -1,4 +1,4 @@
-# Changelog
+# Changelog (outdated, see the git commits and ToDo entries)
 
 **FluxDrop / Self-Host Server** — changes since last commit
 

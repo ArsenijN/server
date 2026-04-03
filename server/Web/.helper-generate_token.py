@@ -1,84 +1,95 @@
 #!/usr/bin/env python3
-"""
-Simple CLI to generate or set an access token for a protected file.
-Usage:
-    python generate_token.py --file <filename> --username <user> --password <pw>
-Options:
-    --file: path relative to SERVE_ROOT (e.g. "/FluxDrop/1/foo.txt") or a CDN
-             path (use "/cdn/..." or just a filename to target a file under the
-             CDN upload directory).
-    --token: optionally provide a token; if omitted a random token is generated and printed.
+"""Generate a file-scoped download token for a given user and path.
 
-This tool verifies the provided username/password against the users table before allowing token creation.
+Useful for minting a token via CLI, for example to share a protected file
+without going through the web UI.
+
+Usage:
+    python _helper-generate_token.py <username> <password> <relative_file_path>
+
+    relative_file_path -- path relative to SERVE_ROOT, starting with /
+                          e.g. /FluxDrop/3/documents/report.pdf
+
+The token is printed to stdout. It is valid for DOWNLOAD_TOKEN_TTL_SECONDS
+(default 1 hour).
+
+Exit codes:
+    0 -- token printed successfully
+    1 -- authentication failure
+    2 -- usage / environment error
 """
-import os
 import sys
-import argparse
 import sqlite3
 import hashlib
-import secrets
-from config import DB_FILE, CDN_UPLOAD_DIR, SERVE_DIRECTORY
+import secrets as _secrets
+from datetime import datetime, timedelta
+
+try:
+    from config import DB_FILE
+except ImportError:
+    print("ERROR: Could not import config.py. Run this script from the Web/ directory.", file=sys.stderr)
+    sys.exit(2)
+
+try:
+    import bcrypt
+except ImportError:
+    print("ERROR: bcrypt not installed. Activate the venv first.", file=sys.stderr)
+    sys.exit(2)
+
+DOWNLOAD_TOKEN_TTL_SECONDS = 3600  # 1 hour, mirrors server_cdn.py default
 
 
-def main():
-    ap = argparse.ArgumentParser(description='Generate/set access token for a protected file')
-    ap.add_argument('--file', '-f', required=True, help='File path (relative to SERVE_ROOT) or filename in CDN upload dir')
-    ap.add_argument('--username', '-u', required=True, help='Username (must exist in users table)')
-    ap.add_argument('--password', '-p', required=True, help='Password for the username')
-    ap.add_argument('--token', help='Optional token value to set. If omitted one will be generated and printed.')
-    args = ap.parse_args()
+def _verify_credentials(username: str, password: str, conn: sqlite3.Connection):
+    """Return user_id if credentials are valid, else None."""
+    row = conn.execute(
+        "SELECT id, password_hash, salt FROM users WHERE username = ?", (username,)
+    ).fetchone()
+    if not row:
+        return None
 
-    # Normalize relative path
-    candidate = args.file
-    if candidate.startswith('/'):
-        rel = candidate
-        # if user passed an absolute filesystem path pointing inside the CDN upload
-        # directory, convert it to the API-friendly "/cdn" form
-        if os.path.commonpath([os.path.abspath(rel), os.path.abspath(CDN_UPLOAD_DIR)]) == os.path.abspath(CDN_UPLOAD_DIR):
-            # strip the physical CDN_UPLOAD_DIR prefix and replace with '/cdn'
-            rel = '/cdn' + rel[len(os.path.abspath(CDN_UPLOAD_DIR)):]
+    user_id, stored_hash, salt = row
+
+    if stored_hash.startswith('$2b$') or stored_hash.startswith('$2a$'):
+        ok = bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8'))
     else:
-        # assume it's a filename or relative path under CDN_UPLOAD_DIR
-        rel = '/cdn/' + candidate.lstrip('/')
+        # Legacy SHA-256 path
+        candidate = hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
+        ok = _secrets.compare_digest(candidate, stored_hash)
 
-    # Verify credentials
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, password_hash, salt FROM users WHERE username = ?', (args.username,))
-        row = cursor.fetchone()
-        if not row:
-            print('ERROR: user not found')
-            sys.exit(2)
-        user_id, stored_hash, salt = row
-        # compute hash same as server
-        candidate_hash = hashlib.sha256((salt + args.password).encode('utf-8')).hexdigest()
-        if candidate_hash != stored_hash:
-            print('ERROR: invalid credentials')
-            sys.exit(3)
+    return user_id if ok else None
 
-        # Generate or use provided token
-        token = args.token if args.token else secrets.token_urlsafe(16)
-        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
 
-        # Upsert into protected_files
-        try:
-            cursor.execute(
-                "INSERT INTO protected_files (relative_path, protected, token_hash, created_by) VALUES (?, 1, ?, ?) "
-                "ON CONFLICT(relative_path) DO UPDATE SET token_hash=excluded.token_hash, protected=1, created_by=excluded.created_by",
-                (rel, token_hash, user_id)
-            )
-            conn.commit()
-        except Exception as e:
-            print('ERROR: failed to store token in DB:', e)
-            sys.exit(4)
+def generate_token(username: str, password: str, relative_path: str) -> str:
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        user_id = _verify_credentials(username, password, conn)
+        if user_id is None:
+            print("ERROR: Invalid credentials.", file=sys.stderr)
+            sys.exit(1)
 
-    print('SUCCESS')
-    print('file:', rel)
-    print('username:', args.username)
-    print('token:', token)
-    print('\nDistribute the token (shown above) to trusted viewers. They can view the file by visiting:')
-    print(f"https://<your-domain>[:port]{rel}?token={token}")
+        raw = _secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw.encode('utf-8')).hexdigest()
+        expires_at = (datetime.now() + timedelta(seconds=DOWNLOAD_TOKEN_TTL_SECONDS)).isoformat()
+
+        conn.execute(
+            "INSERT INTO download_tokens "
+            "(token_hash, relative_path, user_id, expires_at, bytes_confirmed) "
+            "VALUES (?, ?, ?, ?, 0)",
+            (token_hash, relative_path, user_id, expires_at)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return raw
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) != 4:
+        print(f"Usage: {sys.argv[0]} <username> <password> <relative_file_path>", file=sys.stderr)
+        sys.exit(2)
+
+    username, password, rel_path = sys.argv[1], sys.argv[2], sys.argv[3]
+    token = generate_token(username, password, rel_path)
+    print(token)
+    print(f"(expires in {DOWNLOAD_TOKEN_TTL_SECONDS // 60} minutes)", file=sys.stderr)

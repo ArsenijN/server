@@ -1,34 +1,72 @@
 #!/usr/bin/env python3
+"""Check whether a plaintext password matches a stored hash for a given user.
+
+Usage:
+    python _helper-check_user_password.py <username> <password>
+
+Exit codes:
+    0 — password matches
+    1 — password does not match or user not found
+    2 — usage / environment error
 """
-Check a username/password against the users table using the server's hashing.
-Usage: python check_user_password.py --username USER --password PASS [--db path]
-"""
-import argparse
+import sys
 import sqlite3
 import hashlib
-from server_cdn import hash_password
-from config import DB_FILE
+import secrets as _secrets
 
-ap = argparse.ArgumentParser()
-ap.add_argument('--username', '-u', required=True)
-ap.add_argument('--password', '-p', required=True)
-ap.add_argument('--db', help='Path to DB file', default=DB_FILE)
-args = ap.parse_args()
+# ---------------------------------------------------------------------------
+# Bootstrap: load config so we find the DB regardless of working directory
+# ---------------------------------------------------------------------------
+try:
+    from config import DB_FILE
+except ImportError:
+    print("ERROR: Could not import config.py. Run this script from the Web/ directory.", file=sys.stderr)
+    sys.exit(2)
 
-with sqlite3.connect(args.db) as conn:
-    c = conn.cursor()
-    c.execute('SELECT id, password_hash, salt FROM users WHERE username = ?', (args.username,))
-    row = c.fetchone()
+try:
+    import bcrypt
+except ImportError:
+    print("ERROR: bcrypt not installed. Activate the venv first.", file=sys.stderr)
+    sys.exit(2)
+
+
+def _sha256_check(password: str, salt: str, stored_hash: str) -> bool:
+    """Legacy SHA-256 verification path."""
+    candidate = hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
+    return _secrets.compare_digest(candidate, stored_hash)
+
+
+def check_password(username: str, password: str) -> bool:
+    conn = sqlite3.connect(DB_FILE, timeout=10)
+    try:
+        row = conn.execute(
+            "SELECT password_hash, salt FROM users WHERE username = ?", (username,)
+        ).fetchone()
+    finally:
+        conn.close()
+
     if not row:
-        print('User not found')
-        raise SystemExit(2)
-    user_id, stored_hash, salt = row
-    computed_hash, _ = hash_password(args.password, salt)
-    print('user_id:', user_id)
-    print('stored_hash:', stored_hash)
-    print('salt:', salt)
-    print('computed_hash:', computed_hash)
-    if computed_hash == stored_hash:
-        print('MATCH: password is correct')
+        print(f"User '{username}' not found.", file=sys.stderr)
+        return False
+
+    stored_hash, salt = row
+
+    if stored_hash.startswith('$2b$') or stored_hash.startswith('$2a$'):
+        # bcrypt path
+        result = bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8'))
     else:
-        print('NO MATCH: password incorrect')
+        # Legacy SHA-256 path
+        result = _sha256_check(password, salt, stored_hash)
+
+    return result
+
+
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <username> <password>", file=sys.stderr)
+        sys.exit(2)
+
+    username, password = sys.argv[1], sys.argv[2]
+    match = check_password(username, password)
+    print("MATCH" if match else "NO MATCH")
+    sys.exit(0 if match else 1)

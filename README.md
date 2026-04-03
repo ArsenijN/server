@@ -1,10 +1,14 @@
-# server `v0.9.13.1`
+# server `v0.10.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Hotfix: add missing patches***
+*Release note: **Major and critical security improvements, reworked audit, 
+preparation for the public deployment***
 
-Currently, server is **NOT production-ready!!!** (see: [FluxDrop 
+Currently, server is **almost production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
+
+Because of that, FluxDrop will become available for public (via Google Search 
+engine) after full security checks and user interaction improvements
 
 Accessible at: https://arseniusgen.uk.to
 

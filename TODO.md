@@ -5,6 +5,11 @@ user feedback or ideas for future development.
 
 ---
 
+- [ ] Fix plain text password and login (!!!)
+###### key to key password to server 
+
+---
+
 - [ ] **Family/Group accounts**
   - [ ] Let two or more usernames share a common root directory with mutual
     read/write privileges.
@@ -18,7 +23,6 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
-- [x] Fix `.zip` archives again
 - [ ] Add loading wheel to the right of "Upload" button between prep and upload states - make it appear before new entry in `Uploads` or `Downloads` appears, also, bring the label to the static part so it will not scroll
 - [ ] Add image placeholders between image download and display
 - [ ] Feature: re-push the chunk if server isn't responding (unchoking)
@@ -65,3 +69,13 @@ user feedback or ideas for future development.
 - [ ] Migration to other host platform for HTTP and HTTPS efficiency and optimizations (Python)
 
 - [ ] Custom right-click menu
+
+
+
+Note for myself: the realistic "safe to deploy publicly" checklist, in order of importance:
+
+1. Fix B7 — force HTTPS for all auth/API paths. This is the single most important one.
+2. Fix B2 — hash session tokens before storing. One DB backup or misconfigured file permission undoes all your auth work otherwise.
+3. Fix B8 — add HSTS so browsers remember to always use HTTPS for your domain.
+4. Add B9 (CSP) before you add any of the preview features from your TODO — PDF, Markdown, and archive previews are XSS-heavy territory and you want the CSP in place first.
+5. Fix B6 — login length caps, to prevent the bcrypt DoS from distributed sources.

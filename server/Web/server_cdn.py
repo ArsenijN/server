@@ -509,7 +509,8 @@ def init_db():
 # Chunk size and abandoned-session TTL are tunable via env
 UPLOAD_CHUNK_SIZE   = int(os.getenv('UPLOAD_CHUNK_SIZE',   str(1 * 1024 * 1024)))    # 1 MB
 UPLOAD_SESSION_TTL  = int(os.getenv('UPLOAD_SESSION_TTL',  str(48 * 3600)))           # 48 h
-MAX_JSON_BODY       = int(os.getenv('MAX_JSON_BODY',        str(1  * 1024 * 1024)))   # 1 MB — cap all JSON request bodies
+MAX_JSON_BODY            = int(os.getenv('MAX_JSON_BODY',            str(1  * 1024 * 1024)))   # 1 MB — cap all JSON request bodies
+MAX_SHARE_UPLOAD_BYTES   = int(os.getenv('MAX_SHARE_UPLOAD_BYTES',   str(500 * 1024 * 1024)))  # 500 MB — cap anonymous share uploads
 MAX_UPLOAD_BYTES    = int(os.getenv('MAX_UPLOAD_BYTES',     str(10 * 1024 * 1024 * 1024)))  # 10 GB legacy upload cap
 # Temp chunks land on the CDN drive itself, avoiding /tmp exhaustion
 UPLOAD_TMP_DIR      = os.getenv('UPLOAD_TMP_DIR', os.path.join(
@@ -895,11 +896,15 @@ def _rate_limit(ip: str, bucket: str = "auth", max_hits: int | None = None) -> b
     key   = f"{bucket}:{ip}"
     now   = time.monotonic()
     with _rl_lock:
-        ts = _rl_attempts[key]
-        _rl_attempts[key] = [t for t in ts if now - t < _RL_WINDOW]
-        if len(_rl_attempts[key]) >= limit:
+        recent = [t for t in _rl_attempts.get(key, []) if now - t < _RL_WINDOW]
+        if len(recent) >= limit:
+            if recent:
+                _rl_attempts[key] = recent
+            else:
+                _rl_attempts.pop(key, None)
             return False
-        _rl_attempts[key].append(now)
+        recent.append(now)
+        _rl_attempts[key] = recent
         return True
 
 
@@ -2422,7 +2427,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             cursor.execute("SELECT user_id FROM sessions WHERE session_token = ? AND expires_at > CURRENT_TIMESTAMP", (token,))
             result = cursor.fetchone()
             if result:
-                logging.info(f"Token auth success for user_id '{result[0]}'")
+                logging.debug(f"Token auth success for user_id '{result[0]}'")
                 return result[0] # Return user_id
 
         logging.warning(f"Token auth failed for token '{token[:8]}…'")
@@ -2856,6 +2861,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         user_id = self._check_token_auth()
         try:
             length = int(self.headers.get('Content-Length', 0))
+            if length <= 0 or length > MAX_JSON_BODY:
+                return self._send_response(400, json.dumps({'error': 'Invalid or missing request body.'}))
             data   = json.loads(self.rfile.read(length))
         except Exception:
             return self._send_response(400, json.dumps({'error': 'Invalid JSON body.'}))
@@ -4254,7 +4261,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 <script>
                 const _UPLOAD_URL = '/share/{token}/upload?subpath={encoded_subpath}';
                 const _MKDIR_URL  = '/share/{token}/mkdir';
-                const _CURRENT_SUBPATH = {repr(sub_path_clean)};
+                const _CURRENT_SUBPATH = {json.dumps(sub_path_clean)};
 
                 async function uploadFiles(){{
                     const files = document.getElementById('upload-file').files;
@@ -4879,9 +4886,18 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(400, json.dumps({"error": "Invalid filename."}))
 
             with open(save_path, "wb") as f:
+                written = 0
                 while True:
                     chunk = file_item.stream.read(1 * 1024 * 1024)
                     if not chunk: break
+                    written += len(chunk)
+                    if written > MAX_SHARE_UPLOAD_BYTES:
+                        f.close()
+                        try:
+                            os.remove(save_path)
+                        except OSError:
+                            pass
+                        return self._send_response(413, json.dumps({"error": "File too large."}))
                     f.write(chunk)
 
             if share["track_stats"]:
@@ -5832,6 +5848,16 @@ def _token_purge_worker():
         except Exception:
             logging.exception('TokenPurge: failed to purge pending_verifications')
 
+        # A2: Prune share_access_log (keep 90 days, consistent with status_snapshots retention)
+        try:
+            with _db_connect() as conn:
+                conn.execute(
+                    "DELETE FROM share_access_log WHERE accessed_at < datetime('now', '-90 days')"
+                )
+                conn.commit()
+        except Exception:
+            logging.exception('TokenPurge: failed to prune share_access_log')
+
         # N6: Prune net_outages (keep 180 days) and incident_log (keep newest 200 rows)
         try:
             with _db_connect() as conn:
@@ -5855,6 +5881,17 @@ def _token_purge_worker():
                 logging.info(f'TokenPurge: purged {n} expired trash item(s)')
         except Exception:
             logging.exception('TokenPurge: trash purge failed')
+
+        # A10: Keep only the 100 most recent message_board rows
+        try:
+            with _db_connect() as conn:
+                conn.execute(
+                    "DELETE FROM message_board WHERE id NOT IN "
+                    "(SELECT id FROM message_board ORDER BY id DESC LIMIT 100)"
+                )
+                conn.commit()
+        except Exception:
+            logging.exception('TokenPurge: failed to prune message_board')
 
         # Purge stale IP Beacon entries:
         #   - devices not seen for > 30 days

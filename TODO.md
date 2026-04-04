@@ -23,18 +23,18 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
-- [x] Fix link duplication on create
 - [ ] Add loading wheel to the right of "Upload" button between prep and upload states - make it appear before new entry in `Uploads` or `Downloads` appears, also, bring the label to the static part so it will not scroll
 - [ ] Add image placeholders between image download and display
 - [ ] Feature: re-push the chunk if server isn't responding (unchoking)
-- [ ] Auto-scroll in the `Uploads` and `Downloads`  - fix the current implementation
+- [ ] Auto-scroll in the `Uploads` and `Downloads`  - fix the current implementation since it's not fully scrolled (almost)
 - [ ] Add folder downloads and size to the `share` snippet
 - [ ] Auto negotiation for upload type (folder or file)
-- [ ] Audit: question about expose of the temp chunks at CDN
-- [ ] Add dark theme switch, or at least make addons work properly (and test them)
-- [ ] Add variable chunk sizes for different internet speeds and optimizations
+- [x] Audit: question about expose of the temp chunks at CDN -- marked as for future implementations
+- [ ] Add dark theme switch, or at least make addons work properly and test them
+- [ ] Add variable chunk sizes on demand for different internet speeds and optimizations
 - [ ] Improve user iterations by adding auto-reconnect on dropped connection (e.g. switched networks) - this means semi-constant pings to the server on download or/and upload
-- [ ] Add handler to show when internet connection drops mid upload/download in the status bar/ETA
+- [x] Add handler to show when internet connection drops mid upload/download in the status bar/ETA - kinda made that already, maybe this:
+- [ ] Add handler for dropped connection mid upload/download with relable way to tell it (via pings or continuous connections)
 - [ ] Add file info modal
   - [ ] Basics (file modify time, size, etc.)
   - [ ] Background hashsums (do it via `nice` so it will execute when server isn't fully utilized, as background thing)
@@ -55,19 +55,20 @@ user feedback or ideas for future development.
 - [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
 
 - [ ] Add landing page for FluxDrop - I really want start to draft it out
-- [ ] Add ToS and PP docs
+- [ ] Add ToS and PP docs - WIP
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Make an mobile version of the FluxDrop as an app or as an installable app via Chrome
 - [ ] Add autoupdate "agreement" (when newer ToS or PP appears - user must accept it within)
 - [ ] Discover ways to build own page via modules (zero-code; not necessary since I can just remember CSS and HTML, and do that by hands)
 - [ ] Add "proper" loading wheels (1 second as least amount of time for the "apply" and other important features, more pleasant loadings for the file manager)
 
-- [ ] Make easier instructions for setup of the server
-- [ ] Use buiding station + server logics in the instructions
+- [x] Make easier instructions for setup of the server
+- [x] Use buiding station + server logics in the instructions
 
 - [ ] Make HTTP and HTTPS hosters work properly as standalone utilities without any FluxDrop and CDN
 
-- [ ] Migration to other host platform for HTTP and HTTPS efficiency and optimizations (Python)
+- [ ] Migration to other host platform for HTTP and HTTPS efficiency and optimizations (Python; go to gunicorn or something else)
+- [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper storage media)
 
 - [ ] Custom right-click menu
 

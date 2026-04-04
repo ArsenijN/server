@@ -1,4 +1,4 @@
-        // ======================================================================
+// ======================================================================
         // --- CONFIGURATION ---
         // ======================================================================
 // Prefer HTTPS, but fall back to HTTP if HTTPS is unreachable
@@ -3368,7 +3368,13 @@ async function openShareDialog(path, isDir) {
     const shCopyBtn   = overlay.querySelector('#sh-copy-btn');
 
     shCancelBtn.addEventListener('click', () => overlay.remove());
+
+    let _shareCreated = false;
+
     shCreateBtn.addEventListener('click', async () => {
+        // Fix the duplication of the shared links at specific sequences
+        if (_shareCreated) { overlay.remove(); return; }
+
         // Guard: if overlay was removed (e.g. Cancel clicked) before the
         // async chain settles, bail out silently.
         if (!overlay.isConnected) return;
@@ -3418,7 +3424,8 @@ async function openShareDialog(path, isDir) {
             shCreateBtn.textContent = 'Done ✓';
             shCreateBtn.style.background = '#16a34a';
             shCreateBtn.disabled = false;
-            shCreateBtn.addEventListener('click', () => overlay.remove(), { once: true });
+            _shareCreated = true;
+            // shCreateBtn.addEventListener('click', () => overlay.remove(), { once: true });
         } catch (err) {
             if (!overlay.isConnected) return; // session expired, DOM gone — stay silent
             shCreateBtn.disabled = false;

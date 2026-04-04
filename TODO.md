@@ -23,6 +23,7 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
+- [x] Fix link duplication on create
 - [ ] Add loading wheel to the right of "Upload" button between prep and upload states - make it appear before new entry in `Uploads` or `Downloads` appears, also, bring the label to the static part so it will not scroll
 - [ ] Add image placeholders between image download and display
 - [ ] Feature: re-push the chunk if server isn't responding (unchoking)

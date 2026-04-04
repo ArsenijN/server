@@ -1,7 +1,7 @@
-# server `v0.10.1`
+# server `v0.10.2`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Proper Wiki for the server, updated helpers***
+*Release note: **Fix link duplication on share***
 
 Currently, server is **almost production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

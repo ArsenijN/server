@@ -139,6 +139,11 @@ async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = tru
         throw error;
     }
 }
+// Read dismiss delay from settings (0 = never auto-dismiss)
+function getTrayDismissDelay() {
+    const v = parseInt(localStorage.getItem('fluxdrop_tray_dismiss_ms') || '0', 10);
+    return isNaN(v) ? 0 : v;
+}
 
         // ======================================================================
         // --- UI RENDERING & ROUTING ---
@@ -687,7 +692,7 @@ function renderDownloadTray() {
                     <div class="dl-actions"></div>
                 </div>`;
             tray.appendChild(row);
-            tray.scrollTop = tray.scrollHeight;  // auto-scroll to newest entry
+            requestAnimationFrame(() => { tray.scrollTop = tray.scrollHeight; });  // auto-scroll to newest entry
 
             // Wire up stable button references stored on the row element
             const actionsDiv = row.querySelector('.dl-actions');
@@ -826,6 +831,11 @@ async function streamDownload(path, dl) {
         URL.revokeObjectURL(a.href);
 
         dl.status = 'done';
+        const delay = getTrayDismissDelay();
+        if (delay > 0 && !dl._dismissScheduled) {
+            dl._dismissScheduled = true;
+            setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, delay);
+        }
         renderDownloadTray();
 
     } catch (err) {
@@ -1284,6 +1294,11 @@ window.downloadFolderZip = async function(path) {
         a.href = URL.createObjectURL(blob); a.download = filename; a.click();
         URL.revokeObjectURL(a.href);
         dl.status = 'done';
+        const delay = getTrayDismissDelay();
+        if (delay > 0 && !dl._dismissScheduled) {
+            dl._dismissScheduled = true;
+            setTimeout(() => { activeDownloads.delete(zipPath); renderDownloadTray(); }, delay);
+        }
         renderDownloadTray();
     } catch (err) {
         const dl = activeDownloads.get(zipPath);
@@ -2135,6 +2150,11 @@ async function uploadChunked(file, destRel, opts = {}) {
             if (chunkHash) xhr.setRequestHeader('X-Chunk-SHA256', chunkHash);
             const ah = authHeaders(anonDeviceToken);
             for (const [k, v] of Object.entries(ah)) xhr.setRequestHeader(k, v);
+            xhr.timeout = 90_000;  // 90 s; chunk should never take longer
+            xhr.ontimeout = () => {
+                activeXhrs.delete(idx);
+                reject(new Error(`Chunk ${idx} timed out`));
+            };
             xhr.send(blob);
         });
     }
@@ -2168,20 +2188,28 @@ async function uploadChunked(file, destRel, opts = {}) {
                 await uploadChunk(idx);
             } catch (err) {
                 if (err.name === 'AbortError') {
-                    // Abort triggered by either pause or cancel
                     if (ul.paused && !ul.cancelled) {
-                        // Pause: back up nextIdx to this chunk so it gets re-sent on resume.
-                        // Use min in case multiple workers abort simultaneously.
                         if (idx < nextIdx) nextIdx = idx;
                         return;
                     }
-                    // Cancel
                     ul.cancelled = true;
                     return;
                 }
                 if (ul.cancelled) return;
-                uploadError = err;
-                return;
+                // Retry once on transient errors before giving up
+                if (!err._retried) {
+                    try {
+                        err._retried = true;
+                        await new Promise(r => setTimeout(r, 1500));  // brief back-off
+                        await uploadChunk(idx);
+                    } catch (err2) {
+                        uploadError = err2;
+                        return;
+                    }
+                } else {
+                    uploadError = err;
+                    return;
+                }
             }
         }
     }
@@ -2287,6 +2315,11 @@ async function uploadChunked(file, destRel, opts = {}) {
 
     ul.loaded = file.size;
     ul.status = 'done';
+    const delay = getTrayDismissDelay();
+    if (delay > 0 && !ul._dismissScheduled) {
+        ul._dismissScheduled = true;
+        setTimeout(() => { activeUploads.delete(id); renderUploadTray(); }, delay);
+    }
     ul.speed  = null;
     ul.eta    = null;
     renderUploadTray();
@@ -2469,7 +2502,7 @@ function renderUploadTray() {
                     <div class="ul-actions"></div>
                 </div>`;
             tray.appendChild(row);
-            tray.scrollTop = tray.scrollHeight;  // auto-scroll to newest entry
+            requestAnimationFrame(() => { tray.scrollTop = tray.scrollHeight; });  // auto-scroll to newest entry
 
             const actionsDiv = row.querySelector('.ul-actions');
 
@@ -2623,6 +2656,11 @@ function uploadFormData(endpoint, formData) {
             if (xhr.status >= 200 && xhr.status < 300) {
                 ul.loaded = ul.total;
                 ul.status = 'done';
+                const delay = getTrayDismissDelay();
+                if (delay > 0 && !ul._dismissScheduled) {
+                    ul._dismissScheduled = true;
+                    setTimeout(() => { activeUploads.delete(id); renderUploadTray(); }, delay);
+                }
                 ul.speed = null;
                 ul.eta = null;
                 renderUploadTray();
@@ -2647,6 +2685,11 @@ function uploadFormData(endpoint, formData) {
                 if (xhrFallback.status >= 200 && xhrFallback.status < 300) {
                     ul.loaded = ul.total;
                     ul.status = 'done';
+                    const delay = getTrayDismissDelay();
+                    if (delay > 0 && !ul._dismissScheduled) {
+                        ul._dismissScheduled = true;
+                        setTimeout(() => { activeUploads.delete(id); renderUploadTray(); }, delay);
+                    }
                     ul.speed = null;
                     ul.eta = null;
                     renderUploadTray();
@@ -2889,6 +2932,23 @@ async function openProfilePanel() {
                     </div>
                 </div>
 
+                <!-- Settings card -->
+                <div>
+                    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;
+                                text-transform:uppercase;letter-spacing:.05em">Transfer tray</div>
+                    <label style="font-size:13px;font-weight:600;color:#374151">
+                        Auto-dismiss completed entries after
+                        <select id="pp-dismiss-delay" style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                            border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:Inter,sans-serif">
+                            <option value="0">Never (dismiss manually)</option>
+                            <option value="3000">3 seconds</option>
+                            <option value="5000">5 seconds</option>
+                            <option value="10000">10 seconds</option>
+                            <option value="30000">30 seconds</option>
+                        </select>
+                    </label>
+                </div>
+
                 <!-- Account info footer -->
                 <div id="pp-account-info" style="font-size:12px;color:#94a3b8;padding-bottom:4px"></div>
             </div>
@@ -3003,6 +3063,13 @@ async function openProfilePanel() {
             if (overlay.isConnected) { btn.disabled = false; btn.textContent = 'Change password'; }
         }
     });
+    const dismissSel = overlay.querySelector('#pp-dismiss-delay');
+    if (dismissSel) {
+        dismissSel.value = localStorage.getItem('fluxdrop_tray_dismiss_ms') || '0';
+        dismissSel.addEventListener('change', () => {
+            localStorage.setItem('fluxdrop_tray_dismiss_ms', dismissSel.value);
+        });
+    }
 }
 
         // ======================================================================

@@ -1,7 +1,7 @@
-# server `v0.10.2.1`
+# server `v0.10.3`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Wiki is now fixed, added new (for future) variant of Readme, some new ideas in ToDo***
+*Release note: **Added new ToDos, implemented new features***
 
 Currently, server is **almost production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
@@ -14,7 +14,9 @@ Accessible at: https://arseniusgen.uk.to
 
 FluxDrop accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
 
-Wiki page is pending: https://github.com/ArsenijN/server/wiki
+Wiki page: https://github.com/ArsenijN/server/wiki
+
+New Readme style will be applied when FluxDrop will reach full production-ready state ([current look](./README_newstyle.md))
 
 ## FluxDrop relations to this server
 

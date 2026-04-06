@@ -25,6 +25,7 @@ from urllib.parse import unquote, quote, urlparse, parse_qs
 import gzip as _gzip_mod
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
+import socket as _socket
 
 # Content-types that benefit from gzip (text-based, not already compressed).
 # Binary / already-compressed types are explicitly excluded so we never waste
@@ -2269,6 +2270,17 @@ def _build_status_page() -> str:
 # ==============================================================================
 # --- MAIN REQUEST HANDLER ---
 # ==============================================================================
+class _FastThreadingHTTPServer(ThreadingHTTPServer):
+    # 256 KB write buffer so Python doesn't syscall on every chunk write
+    wbufsize = 256 * 1024
+    # Keep-alive: allow the OS to reuse address immediately on restart
+    allow_reuse_address = True
+
+    def server_bind(self):
+        self.socket.setsockopt(_socket.SOL_SOCKET, _socket.SO_SNDBUF, 4 * 1024 * 1024)
+        super().server_bind()
+
+
 class AuthHandler(SimpleHTTPRequestHandler):
     server_version = "FluxDrop/4.0-Auth"
 
@@ -2989,7 +3001,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(413, json.dumps({'error': 'Chunk too large.'}))
 
         # Read raw chunk directly from socket — no /tmp involved
-        data = self.rfile.read(content_length)
+        try:
+            self.connection.settimeout(120)   # 2-minute hard deadline per chunk
+            data = self.rfile.read(content_length)
+            self.connection.settimeout(None)
+        except (TimeoutError, OSError) as e:
+            logging.warning(f'Chunk {chunk_index} read timeout/error: {e}')
+            return self._send_response(408, json.dumps({'error': 'Chunk read timed out. Please retry.'}))
 
         # Optional per-chunk SHA-256 verification
         expected_sha = self.headers.get('X-Chunk-SHA256', '').strip().lower()
@@ -5262,7 +5280,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             try:
                 file_size = os.path.getsize(base_path)
                 range_header = self.headers.get('Range')
-                bufsize = 2 * 1024 * 1024   # 2 MB chunks
+                bufsize = 4 * 1024 * 1024   # 2 MB chunks
                 progress_interval = 8 * 1024 * 1024  # write DB every 8 MB
 
                 if range_header:
@@ -5802,7 +5820,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 def run_server(port, use_ssl=False):
     """Configures and runs a single server instance (HTTP or HTTPS)."""
     server_address = (HOST, port)
-    server = ThreadingHTTPServer(server_address, AuthHandler)
+    server = _FastThreadingHTTPServer(server_address, AuthHandler)
     proto = 'HTTPS' if use_ssl else 'HTTP'
     if use_ssl:
         if not all(os.path.exists(f) for f in [CERT_FILE, KEY_FILE]):

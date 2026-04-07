@@ -23,10 +23,19 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
+- [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work)
+- [ ] Add ability to navigate the folders via browser's next/previous page 
+(make paths in url)
+- [ ] Add ability to confirm entries via Enter; fix the issue that enter makes 
+interaction with background used object
+- [ ] Add notification ability when upload of files in queue is finished
+- [ ] Fix spaces at the end of folder names causes delete fail - rename works 
+OK with them
+- [ ] Fix 0-bytes files can catch on "Content-Length required." error on folder 
+uploads
 - [ ] Add some kind of file streaming so upload of a folders will be faster 
 (but secure) - one stream, a lot of files
-- [x] Hide completed entries from upload/download modals
-- [ ] Auto HTTPS negotiation from HTTP (HSTS)
+- [x] Auto HTTPS negotiation from HTTP (HSTS)
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
 content)
 - [ ] Add file picker (checkbox-styled)
@@ -44,14 +53,10 @@ even on i5 10400)
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
 any type of file that's supported, thumbs can be included into the quota, or 
 excluded from quota)
-- [x] Feature: re-push the chunk if server isn't responding (unchoking) - fixed 
-the issue with hangs on POST, may resolve that issue also, needs testing
-- [x] Auto-scroll in the `Uploads` and `Downloads`  - fix the current 
-implementation since it's not fully scrolled (almost)
 - [ ] Add folder downloads and size to the `share` snippet
 - [ ] Auto negotiation for upload type (folder or file)
 - [x] Audit: question about expose of the temp chunks at CDN -- marked as for 
-future implementations
+future implementations in audit
 - [ ] Add dark theme switch, or at least make addons work properly and test 
 them
 - [ ] Add variable chunk sizes on demand for different internet speeds and 
@@ -75,12 +80,10 @@ rename function)
 - [ ] Fix every FluxDrop snippet and site (UIs) to work properly with mobile 
 and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
-- [x] Improve server download speeds by use of ~~multithreaded function~~ 
-enhanced code
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports 
 for more ideal links and simplicity
 - [ ] Add PDF preview
-- [ ] Add Markdown previews with proper formatting
+- [x] Add Markdown previews with proper formatting
 - [ ] Add `.7z` and `.rar` for file table previews (and other ones)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
 - [ ] Make special player with "video preview support", aka "slow internet 

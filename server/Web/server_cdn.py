@@ -2359,6 +2359,30 @@ class AuthHandler(SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type, Range, X-Chunk-SHA256, X-Anon-Device-Token')
         self.send_header('Access-Control-Max-Age', '86400')
 
+    # Paths that carry credentials and must never be served over plain HTTP (B7)
+    _HTTPS_ONLY_PREFIXES = ('/auth/', '/api/')
+
+    def _redirect_to_https_if_needed(self) -> bool:
+        """308-redirect auth/API paths from HTTP to HTTPS.
+
+        308 preserves the original HTTP method (POST stays POST, unlike 301).
+        Returns True when a redirect was sent — caller must return immediately.
+        No-ops when the socket is already TLS.
+        """
+        if isinstance(self.server.socket, ssl.SSLSocket):
+            return False  # already on HTTPS, nothing to do
+        parsed = urlparse(self.path)
+        if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
+            host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
+            location = f'https://{host}:{HTTPS_PORT}{self.path}'
+            self.send_response(308)
+            self._send_cors_headers()
+            self.send_header('Location', location)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return True
+        return False
+
     def _send_response(self, status_code, content, content_type='application/json'):
         """Send an HTTP response, transparently gzip-encoding when the client
         supports it and the payload is a compressible type ≤ _GZIP_MAX_INLINE.
@@ -2404,9 +2428,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.send_header('Content-Encoding', 'gzip')
                 self.send_header('Vary', 'Accept-Encoding')
             self._send_cors_headers()
-            # Security headers (audit items #7, #10)
+            # Security headers
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('X-Frame-Options', 'SAMEORIGIN')
+            # HSTS: tell browsers to always use HTTPS for this origin (B8)
+            if isinstance(self.server.socket, ssl.SSLSocket):
+                self.send_header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
@@ -3539,6 +3566,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({"error": "Forbidden"}))
+        if self._redirect_to_https_if_needed():
+            return
         parsed_url = urlparse(self.path)
 
         # Chunked upload session endpoints (before auth so chunk upload works with upload_token)
@@ -3651,6 +3680,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+        if self._redirect_to_https_if_needed():
+            return
         parsed_url = urlparse(self.path)
         item_match = self.shares_item_pattern.match(parsed_url.path)
         if item_match:
@@ -3735,6 +3766,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+        if self._redirect_to_https_if_needed():
+            return
         parsed_url = urlparse(self.path)
         us_cancel = self.upload_session_cancel_pattern.match(parsed_url.path)
         if us_cancel:
@@ -5280,7 +5313,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             try:
                 file_size = os.path.getsize(base_path)
                 range_header = self.headers.get('Range')
-                bufsize = 4 * 1024 * 1024   # 2 MB chunks
+                bufsize = 4 * 1024 * 1024   # 4 MB read buffer
                 progress_interval = 8 * 1024 * 1024  # write DB every 8 MB
 
                 if range_header:

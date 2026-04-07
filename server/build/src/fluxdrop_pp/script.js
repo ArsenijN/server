@@ -931,7 +931,8 @@ const EXT_IMAGE   = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico','
 const EXT_IMAGE_HEIC = new Set(['heic','heif']);  // decoded client-side via heic2any
 const EXT_VIDEO   = new Set(['mp4','webm','ogg','ogv','mov','m4v','mkv','avi']);
 const EXT_AUDIO   = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus','weba']);
-const EXT_TEXT    = new Set(['txt','md','js','ts','jsx','tsx','py','sh','bash','json','xml','yaml','yml','toml','ini','cfg','conf','html','htm','css','scss','less','csv','log','env','rs','go','c','cpp','h','java','rb','php','swift','kt','sql','r','lua']);
+const EXT_TEXT    = new Set(['txt','js','ts','jsx','tsx','py','sh','bash','json','xml','yaml','yml','toml','ini','cfg','conf','html','htm','css','scss','less','csv','log','env','rs','go','c','cpp','h','java','rb','php','swift','kt','sql','r','lua']);
+const EXT_MARKDOWN = new Set(['md','markdown','mdown','mkd']);
 const EXT_ARCHIVE = new Set(['zip','tar','gz','tgz','bz2','tbz2','xz','txz']);
 
 function fileCategory(path) {
@@ -940,6 +941,7 @@ function fileCategory(path) {
     if (EXT_IMAGE_HEIC.has(ext)) return 'heic';
     if (EXT_VIDEO.has(ext))      return 'video';
     if (EXT_AUDIO.has(ext))      return 'audio';
+    if (EXT_MARKDOWN.has(ext))   return 'markdown';
     if (EXT_TEXT.has(ext))       return 'text';
     if (EXT_ARCHIVE.has(ext))    return 'archive';
     return 'binary';
@@ -982,6 +984,111 @@ function _loadUntar() {
         s.onerror = () => reject(new Error('Failed to load js-untar'));
         document.head.appendChild(s);
     });
+}
+
+// Load marked.js lazily (only when a Markdown file is previewed)
+let _markedLoaded = false;
+function _loadMarked() {
+    if (_markedLoaded) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js';
+        s.onload  = () => { _markedLoaded = true; resolve(); };
+        s.onerror = () => reject(new Error('Failed to load marked.js'));
+        document.head.appendChild(s);
+    });
+}
+
+// Render Markdown text safely into bodyEl.
+// - Uses marked for parsing (GFM: tables, fenced code, strikethrough, task lists)
+// - Sanitises every HTML tag that marked emits using a strict allowlist so
+//   user-uploaded .md files cannot inject scripts even without a CSP.
+function _renderMarkdown(bodyEl, rawText) {
+    marked.use({ gfm: true, breaks: true });
+    const rawHtml = marked.parse(rawText);
+
+    // Allowlist sanitiser — strips any tag/attr not on the list.
+    const ALLOWED_TAGS = new Set([
+        'p','br','hr','h1','h2','h3','h4','h5','h6',
+        'strong','em','del','code','pre','blockquote',
+        'ul','ol','li','table','thead','tbody','tr','th','td',
+        'a','img','input',
+    ]);
+    const ALLOWED_ATTRS = {
+        'a':     new Set(['href','title']),
+        'img':   new Set(['src','alt','title','width','height']),
+        'input': new Set(['type','checked','disabled']),
+        'th':    new Set(['align']),
+        'td':    new Set(['align']),
+        'code':  new Set(['class']),
+        'pre':   new Set(['class']),
+    };
+    const SAFE_HREF = /^(https?:|mailto:|#|\/)/i;
+
+    const tmp = document.createElement('div');
+    tmp.innerHTML = rawHtml;
+
+    function sanitise(node) {
+        if (node.nodeType === Node.TEXT_NODE) return;
+        if (node.nodeType !== Node.ELEMENT_NODE) { node.remove(); return; }
+        const tag = node.tagName.toLowerCase();
+        if (!ALLOWED_TAGS.has(tag)) { node.replaceWith(...node.childNodes); return; }
+        const allowed = ALLOWED_ATTRS[tag] || new Set();
+        for (const attr of [...node.attributes]) {
+            if (!allowed.has(attr.name)) { node.removeAttribute(attr.name); continue; }
+            if ((attr.name === 'href' || attr.name === 'src') && !SAFE_HREF.test(attr.value)) {
+                node.removeAttribute(attr.name);
+            }
+        }
+        if (tag === 'a') { node.setAttribute('target','_blank'); node.setAttribute('rel','noopener noreferrer'); }
+        if (tag === 'input') node.setAttribute('disabled', '');
+        node.childNodes.forEach(sanitise);
+    }
+    tmp.childNodes.forEach(sanitise);
+
+    bodyEl.innerHTML = '';
+    const container = document.createElement('div');
+    container.className = 'md-preview';
+    container.style.cssText = 'color:#e2e8f0;font-size:15px;line-height:1.75;padding:1.25rem 1.5rem;overflow-y:auto;max-height:70vh';
+    container.appendChild(tmp);
+
+    if (!document.getElementById('md-preview-style')) {
+        const st = document.createElement('style');
+        st.id = 'md-preview-style';
+        st.textContent = `
+            .md-preview h1,.md-preview h2,.md-preview h3,
+            .md-preview h4,.md-preview h5,.md-preview h6 {
+                color:#93c5fd;font-weight:700;margin:1.25em 0 .5em;
+                border-bottom:1px solid rgba(148,163,184,.2);padding-bottom:.25em }
+            .md-preview h1{font-size:1.6em} .md-preview h2{font-size:1.35em}
+            .md-preview h3{font-size:1.15em}
+            .md-preview p{margin:.6em 0}
+            .md-preview a{color:#60a5fa;text-decoration:underline}
+            .md-preview a:hover{color:#93c5fd}
+            .md-preview strong{color:#f1f5f9;font-weight:700}
+            .md-preview em{color:#cbd5e1;font-style:italic}
+            .md-preview del{color:#64748b}
+            .md-preview code{background:#1e293b;color:#7dd3fc;padding:1px 5px;
+                border-radius:4px;font-family:ui-monospace,monospace;font-size:13px}
+            .md-preview pre{background:#0f172a;border:1px solid #1e293b;border-radius:8px;
+                padding:1rem;overflow-x:auto;margin:.75em 0}
+            .md-preview pre code{background:none;padding:0;color:#e2e8f0;font-size:13px}
+            .md-preview blockquote{border-left:3px solid #3b82f6;margin:.75em 0;
+                padding:.4em .75em .4em 1rem;background:rgba(59,130,246,.08);border-radius:0 6px 6px 0}
+            .md-preview blockquote p{margin:0;color:#94a3b8}
+            .md-preview hr{border:none;border-top:1px solid #334155;margin:1.25em 0}
+            .md-preview ul,.md-preview ol{padding-left:1.5em;margin:.5em 0}
+            .md-preview li{margin:.2em 0}
+            .md-preview li input[type=checkbox]{margin-right:.4em;accent-color:#3b82f6}
+            .md-preview table{border-collapse:collapse;width:100%;margin:.75em 0;font-size:14px}
+            .md-preview th,.md-preview td{border:1px solid #334155;padding:6px 12px;text-align:left}
+            .md-preview th{background:#1e293b;color:#93c5fd;font-weight:600}
+            .md-preview tr:nth-child(even) td{background:rgba(255,255,255,.03)}
+            .md-preview img{max-width:100%;border-radius:6px;margin:.5em 0}
+        `;
+        document.head.appendChild(st);
+    }
+    bodyEl.appendChild(container);
 }
 
 window.closePreview = function() {
@@ -1112,6 +1219,15 @@ window.previewFile = async function(path) {
 
         } else if (cat === 'audio') {
             bodyEl.innerHTML = `<div style="padding:2rem 1rem;text-align:center"><div style="font-size:4rem;margin-bottom:1rem">🎵</div><div style="color:#94a3b8;margin-bottom:1.5rem;font-size:15px">${escapeHtml(filename)}</div><audio controls autoplay style="width:100%"><source src="${dlUrl}">Your browser doesn't support audio playback.</audio></div>`;
+            dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+
+        } else if (cat === 'markdown') {
+            bodyEl.innerHTML = '<p style="color:#94a3b8;padding:2rem;text-align:center">Rendering…</p>';
+            await _loadMarked();
+            const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const text = await resp.text();
+            _renderMarkdown(bodyEl, text);
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
 
         } else if (cat === 'text') {

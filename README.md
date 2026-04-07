@@ -1,7 +1,10 @@
-# server `v0.10.4`
+# server `v0.10.5`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Added new features. Do not use those versions until 0.11.0 is 
+*Release note: **Added ability to make streamed way to send files to server 
+(much faster, less per-file overhead)***
+
+***Do not use those versions until 0.11.0 is 
 released because it will need CSP header for safe Markdown rendering***
 
 Currently, server is **almost production-ready!!!** (see: [FluxDrop 
@@ -18,7 +21,8 @@ FluxDrop accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
 Wiki page: https://github.com/ArsenijN/server/wiki
 
 New Readme style will be applied when FluxDrop will reach full production-ready 
-state ([current look](./README_newstyle.md))
+state ([current look](./README_newstyle.md)). Also, the version will be bumped 
+to 1.0.0
 
 ## FluxDrop relations to this server
 

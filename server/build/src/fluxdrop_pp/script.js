@@ -2047,7 +2047,7 @@ async function uploadChunked(file, destRel, opts = {}) {
         uploadToken     = opts.resumeToken;
         anonDeviceToken = opts.resumeAnonToken || loadAnonDeviceToken(uploadToken) || null;
         chunkSize       = opts.resumeChunkSize || 1 * 1024 * 1024;
-        totalChunks     = Math.ceil(file.size / chunkSize) || 1;
+        totalChunks     = file.size === 0 ? 0 : (Math.ceil(file.size / chunkSize) || 1);
         startIdx        = opts.resumeFromChunk || 0;
     } else {
         // ── Config + speed probe — run in parallel so no sequential wait ──
@@ -2083,7 +2083,7 @@ async function uploadChunked(file, destRel, opts = {}) {
         let serverChunkSize = (cfg && cfg.chunk_size) ? cfg.chunk_size : 1 * 1024 * 1024;
 
         // ── Init session (no blocking whole-file SHA — server verifies after assembly) ──
-        const tentativeTotalChunks = Math.ceil(file.size / serverChunkSize) || 1;
+        const tentativeTotalChunks = file.size === 0 ? 0 : (Math.ceil(file.size / serverChunkSize) || 1);
         const initBody = {
             filename:     file.name,
             dest_path:    destRel,
@@ -2105,7 +2105,7 @@ async function uploadChunked(file, destRel, opts = {}) {
         const initData = await initRes.json();
         uploadToken     = initData.upload_token;
         chunkSize       = initData.chunk_size || serverChunkSize;
-        totalChunks     = Math.ceil(file.size / chunkSize) || 1;
+        totalChunks     = file.size === 0 ? 0 : (Math.ceil(file.size / chunkSize) || 1);
         startIdx        = 0;
         anonDeviceToken = initData.anon_device_token || null;
         if (anonDeviceToken) saveAnonDeviceToken(uploadToken, anonDeviceToken);

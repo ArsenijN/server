@@ -23,6 +23,7 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
+- [ ] Fix beacon token deactivation/deletion even on usage
 - [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work)
 - [ ] Add ability to navigate the folders via browser's next/previous page 
 (make paths in url)
@@ -33,9 +34,9 @@ interaction with background used object
 OK with them
 - [ ] Fix 0-bytes files can catch on "Content-Length required." error on folder 
 uploads
-- [ ] Add some kind of file streaming so upload of a folders will be faster 
+- [x] Add some kind of file streaming so upload of a folders will be faster 
 (but secure) - one stream, a lot of files
-- [x] Auto HTTPS negotiation from HTTP (HSTS)
+  - [ ] Add this feature to site UI
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
 content)
 - [ ] Add file picker (checkbox-styled)
@@ -83,7 +84,6 @@ and non-16:9 screens
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports 
 for more ideal links and simplicity
 - [ ] Add PDF preview
-- [x] Add Markdown previews with proper formatting
 - [ ] Add `.7z` and `.rar` for file table previews (and other ones)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
 - [ ] Make special player with "video preview support", aka "slow internet 

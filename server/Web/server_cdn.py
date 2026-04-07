@@ -481,6 +481,17 @@ def init_db():
                 retention_days  INTEGER NOT NULL DEFAULT 30
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS upload_notifications (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                type        TEXT    NOT NULL DEFAULT 'webhook',   -- 'webhook' | 'email'
+                target      TEXT    NOT NULL,                     -- URL or email address
+                secret      TEXT    DEFAULT NULL,                 -- HMAC secret for webhooks
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                created_at  REAL    NOT NULL DEFAULT 0
+            )
+        ''')
         conn.commit()
 
     # ── Schema migrations (safe to run on every startup) ──────────────────
@@ -502,6 +513,112 @@ def init_db():
 
     logging.info("Database initialized successfully.")
 
+# ==============================================================================
+# --- UPLOAD HELPERS ---
+# ==============================================================================
+
+# ── Upload-complete notification helpers ─────────────────────────────────────
+
+def _get_upload_notifications(user_id: int) -> list:
+    """Return all enabled notification subscriptions for a user."""
+    try:
+        with _db_connect() as conn:
+            rows = conn.execute(
+                "SELECT id, type, target, secret FROM upload_notifications "
+                "WHERE user_id=? AND enabled=1",
+                (user_id,)
+            ).fetchall()
+        return [{"id": r[0], "type": r[1], "target": r[2], "secret": r[3]}
+                for r in rows]
+    except Exception:
+        logging.exception("_get_upload_notifications failed")
+        return []
+
+
+def _fire_upload_notification(user_id: int, path: str, message: str) -> None:
+    """Fire all enabled notifications for user_id in a background thread.
+
+    Supports two delivery types:
+      - webhook: HTTP POST with JSON payload + optional HMAC-SHA256 signature header
+      - email:   SMTP (using the existing send_verification_email infrastructure)
+    """
+    subs = _get_upload_notifications(user_id)
+    if not subs:
+        return
+
+    payload = {
+        "event":   "upload_complete",
+        "user_id": user_id,
+        "path":    path,
+        "message": message,
+        "ts":      time.time(),
+    }
+
+    def _do_fire():
+        import urllib.request as _ur, urllib.error as _ue, hmac as _hmac, hashlib as _hl
+
+        for sub in subs:
+            try:
+                if sub["type"] == "webhook":
+                    body = json.dumps(payload).encode()
+                    req  = _ur.Request(
+                        sub["target"],
+                        data=body,
+                        headers={"Content-Type": "application/json",
+                                 "User-Agent":    "FluxDrop-Notify/1.0"},
+                        method="POST",
+                    )
+                    if sub["secret"]:
+                        sig = _hmac.new(
+                            sub["secret"].encode(), body, _hl.sha256
+                        ).hexdigest()
+                        req.add_header("X-FluxDrop-Signature", f"sha256={sig}")
+                    try:
+                        with _ur.urlopen(req, timeout=10) as resp:
+                            logging.info(
+                                f"Notification sent to webhook {sub['target']!r} "
+                                f"(HTTP {resp.status})"
+                            )
+                    except _ue.HTTPError as e:
+                        logging.warning(
+                            f"Notification webhook {sub['target']!r} returned {e.code}"
+                        )
+                    except Exception as exc:
+                        logging.warning(
+                            f"Notification webhook {sub['target']!r} failed: {exc}"
+                        )
+
+                elif sub["type"] == "email":
+                    # Reuse existing SMTP infrastructure
+                    if not SMTP_SENDER_EMAIL or not SMTP_SENDER_PASSWORD:
+                        logging.warning("SMTP not configured; skipping email notification")
+                        continue
+                    import smtplib as _smtp
+                    from email.mime.text import MIMEText as _MT
+                    msg = _MT(
+                        f"FluxDrop upload notification\\n\\n"
+                        f"Path:    {path}\\n"
+                        f"Message: {message}\\n"
+                        f"Time:    {time.strftime('%Y-%m-%d %H:%M:%S')}\\n",
+                        "plain"
+                    )
+                    msg["Subject"] = "FluxDrop: upload complete"
+                    msg["From"]    = SMTP_SENDER_EMAIL
+                    msg["To"]      = sub["target"]
+                    try:
+                        with _smtp.SMTP(SMTP_SERVER, SMTP_PORT) as srv:
+                            srv.ehlo()
+                            if SMTP_PORT == 587:
+                                srv.starttls(); srv.ehlo()
+                            srv.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
+                            srv.sendmail(SMTP_SENDER_EMAIL, [sub["target"]], msg.as_string())
+                        logging.info(f"Notification email sent to {sub['target']!r}")
+                    except Exception as exc:
+                        logging.warning(f"Notification email to {sub['target']!r} failed: {exc}")
+            except Exception:
+                logging.exception(f"_fire_upload_notification: unexpected error for sub {sub}")
+
+    threading.Thread(target=_do_fire, name="UploadNotify", daemon=True).start()
 
 # ==============================================================================
 # --- RESUMABLE UPLOAD HELPERS ---
@@ -634,10 +751,28 @@ def _upload_assemble(token: str) -> tuple[str, str]:
     chunk_size   = session['chunk_size']
 
     # 1. Verify all chunks are recorded as received in the DB.
+    if total_chunks == 0:
+        # Zero-byte file — skip chunk checks, write an empty file directly.
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        open(dest_path, 'wb').close()
+        with _db_connect() as conn:
+            conn.execute(
+                'UPDATE upload_sessions SET completed=1, last_activity=CURRENT_TIMESTAMP WHERE upload_token=?',
+                (token,)
+            )
+            conn.commit()
+        _release_chunk_lock(token)
+        _assembly_progress_clear(token)
+        try:
+            shutil.rmtree(session['tmp_dir'], ignore_errors=True)
+        except Exception:
+            pass
+        logging.info(f'Upload assembled (zero-byte): {dest_path}')
+        return dest_path, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4825d3a65'  # sha256('')
     if total_chunks > 0:
         missing = [i for i in range(total_chunks) if i not in received]
         if missing:
-            raise ValueError(f'Missing chunks: {missing[:10]}{"…" if len(missing)>10 else ""}')
+            raise ValueError(f'Missing chunks: ...')
 
     # 2. Verify each chunk file actually exists on disk and has the right size.
     #    The last chunk may be smaller than chunk_size (remainder bytes), so we
@@ -2316,6 +2451,313 @@ class AuthHandler(SimpleHTTPRequestHandler):
     trash_list_pattern   = re.compile(r'^/api/(v[1-3])/trash$')
     trash_item_pattern   = re.compile(r'^/api/(v[1-3])/trash/(\d+)$')
     trash_restore_pattern= re.compile(r'^/api/(v[1-3])/trash/(\d+)/restore$')
+    batch_tar_pattern = re.compile(r'^/api/(v[1-3])/upload_session/batch_tar$')
+
+    def handle_batch_tar_upload(self):
+        """POST /api/v1/upload_session/batch_tar
+
+        Accepts an uncompressed tar stream (Content-Type: application/x-tar)
+        and extracts each entry directly to the user\'s FluxDrop directory.
+        No temporary archive file is written — entries land on disk as they
+        stream in, keeping memory usage O(largest_single_file).
+
+        Query / JSON body parameters
+        ----------------------------
+        dest_path  : destination folder relative to the user\'s root (required)
+        mode       : \'write\'  — always overwrite existing files (default)
+                     \'skip\'   — skip files that already exist on disk
+                     \'sync\'   — overwrite only when the on-disk size differs
+                                from the tar entry size; skip identical ones
+        sha256_manifest : optional JSON object {arcname: sha256_hex, ...}
+                         if provided, each extracted file is verified after write
+
+        The server streams a newline-delimited JSON (NDJSON) progress log as it
+        works, one object per line:
+            {"type":"progress","done":N,"total":-1,"name":"path/to/file"}
+            {"type":"skipped","name":"path/to/file","reason":"exists"}
+            {"type":"done","extracted":N,"skipped":N,"errors":N}
+            {"type":"error","name":"path/to/file","msg":"..."}
+
+        Notification
+        ------------
+        On completion a notification is fired (see _fire_upload_notification).
+        """
+        import tarfile as _tf
+        import io as _io
+
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({"error": "Unauthorized"}))
+
+        # --- Parse parameters from query string or a leading JSON preamble ---
+        parsed_qs = parse_qs(urlparse(self.path).query)
+        dest_rel  = unquote(parsed_qs.get("dest_path", [""])[0]).strip("/")
+        mode      = parsed_qs.get("mode", ["write"])[0].lower()
+        if mode not in ("write", "skip", "sync"):
+            mode = "write"
+
+        sha256_manifest: dict = {}
+        manifest_raw = parsed_qs.get("sha256_manifest", [None])[0]
+        if manifest_raw:
+            try:
+                sha256_manifest = json.loads(manifest_raw)
+            except Exception:
+                pass
+
+        # Resolve destination
+        user_root = os.path.normpath(os.path.join(SERVE_ROOT, "FluxDrop", str(user_id)))
+        dest_fs   = os.path.normpath(os.path.join(user_root, dest_rel)) if dest_rel else user_root
+        if not os.path.realpath(dest_fs).startswith(os.path.realpath(user_root)):
+            return self._send_response(400, json.dumps({"error": "Invalid dest_path."}))
+        os.makedirs(dest_fs, exist_ok=True)
+
+        # Quota check (rough: compare current usage vs quota before we start)
+        try:
+            with _db_connect() as _qc:
+                _qrow = _qc.execute("SELECT quota_bytes FROM users WHERE id=?", (user_id,)).fetchone()
+            _quota = (_qrow[0] if _qrow and _qrow[0] else _compute_dynamic_quota())
+            _usage = _get_user_disk_usage(user_id)
+            if _usage >= _quota:
+                return self._send_response(507, json.dumps({"error": "Storage quota exceeded."}))
+        except Exception:
+            logging.exception("batch_tar: quota check failed")
+
+        content_length = int(self.headers.get("Content-Length", -1))
+
+        # Stream the tar directly from the socket
+        # tarfile.open() with fileobj=self.rfile and mode=\'r|\'  (pipe mode)
+        # reads sequentially without seeking — perfect for streaming.
+        self.send_response(200)
+        self._send_cors_headers()
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+
+        def _emit(obj: dict):
+            line = (json.dumps(obj) + "\\n").encode()
+            try:
+                # HTTP/1.1 chunked encoding
+                self.wfile.write(f"{len(line):x}\\r\\n".encode())
+                self.wfile.write(line)
+                self.wfile.write(b"\\r\\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+                pass
+
+        extracted = skipped = errors = 0
+        READ_BUF = 4 * 1024 * 1024
+
+        try:
+            tf = _tf.open(fileobj=self.rfile, mode="r|")  # pipe (streaming) mode
+            for member in tf:
+                name = member.name
+                # Security: prevent path traversal
+                safe_name = os.path.normpath(name).lstrip("/")
+                if safe_name.startswith(".."):
+                    _emit({"type": "error", "name": name, "msg": "path traversal rejected"})
+                    errors += 1
+                    tf.members = []  # skip remaining data for this entry
+                    continue
+
+                dest_file = os.path.normpath(os.path.join(dest_fs, safe_name))
+                if not os.path.realpath(dest_file).startswith(os.path.realpath(dest_fs)):
+                    _emit({"type": "error", "name": name, "msg": "outside dest_path"})
+                    errors += 1
+                    tf.members = []
+                    continue
+
+                if member.isdir():
+                    os.makedirs(dest_file, exist_ok=True)
+                    continue
+
+                if not member.isfile():
+                    continue  # skip symlinks, devices, etc.
+
+                # --- Merge mode logic ---
+                if mode == "skip" and os.path.exists(dest_file):
+                    _emit({"type": "skipped", "name": safe_name, "reason": "exists"})
+                    skipped += 1
+                    tf.members = []  # must consume the entry data
+                    f_obj = tf.extractfile(member)
+                    if f_obj:
+                        while f_obj.read(READ_BUF):
+                            pass
+                    continue
+
+                if mode == "sync" and os.path.exists(dest_file):
+                    try:
+                        on_disk_size = os.path.getsize(dest_file)
+                    except OSError:
+                        on_disk_size = -1
+                    if on_disk_size == member.size:
+                        _emit({"type": "skipped", "name": safe_name, "reason": "same_size"})
+                        skipped += 1
+                        f_obj = tf.extractfile(member)
+                        if f_obj:
+                            while f_obj.read(READ_BUF):
+                                pass
+                        continue
+
+                # --- Extract ---
+                os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                f_obj = tf.extractfile(member)
+                if f_obj is None:
+                    continue  # empty regular file in some tar dialects
+                try:
+                    hasher = None
+                    expected_sha = sha256_manifest.get(name) or sha256_manifest.get(safe_name)
+                    if expected_sha:
+                        import hashlib as _hl
+                        try:
+                            hasher = _hl.sha256(usedforsecurity=False)
+                        except TypeError:
+                            hasher = _hl.sha256()
+
+                    with open(dest_file, "wb") as out:
+                        while True:
+                            chunk = f_obj.read(READ_BUF)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                            if hasher:
+                                hasher.update(chunk)
+
+                    if hasher:
+                        actual = hasher.hexdigest()
+                        if actual.lower() != expected_sha.lower():
+                            os.remove(dest_file)
+                            _emit({"type": "error", "name": safe_name,
+                                   "msg": f"sha256 mismatch: expected {expected_sha[:12]}… got {actual[:12]}…"})
+                            errors += 1
+                            extracted -= 1  # will be corrected below
+                            continue
+
+                    extracted += 1
+                    _emit({"type": "progress", "done": extracted + skipped,
+                           "total": -1, "name": safe_name})
+                except Exception as exc:
+                    logging.exception(f"batch_tar: failed to extract {name}")
+                    _emit({"type": "error", "name": safe_name, "msg": str(exc)})
+                    errors += 1
+                    try:
+                        os.remove(dest_file)
+                    except OSError:
+                        pass
+
+            tf.close()
+        except Exception as exc:
+            logging.exception("batch_tar: tar streaming failed")
+            _emit({"type": "error", "name": "", "msg": f"tar read error: {exc}"})
+            errors += 1
+
+        _emit({"type": "done", "extracted": extracted,
+               "skipped": skipped, "errors": errors})
+
+        # Fire notification
+        _fire_upload_notification(user_id, dest_rel or "/",
+                                  f"Batch upload complete: {extracted} files extracted, "
+                                  f"{skipped} skipped, {errors} errors.")
+
+        # Terminate chunked response
+        try:
+            self.wfile.write(b"0\\r\\n\\r\\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            pass
+
+        logging.info(
+            f"batch_tar: user={user_id} dest={dest_rel!r} mode={mode} "
+            f"extracted={extracted} skipped={skipped} errors={errors}"
+        )
+
+    def _handle_notifications_list(self):
+        """GET /api/v1/notifications — list the caller\'s notification subscriptions."""
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({"error": "Unauthorized"}))
+        try:
+            with _db_connect() as conn:
+                rows = conn.execute(
+                    "SELECT id, type, target, enabled, created_at "
+                    "FROM upload_notifications WHERE user_id=? ORDER BY id DESC",
+                    (user_id,)
+                ).fetchall()
+            result = [
+                {"id": r[0], "type": r[1],
+                 "target": r[2], "enabled": bool(r[3]), "created_at": r[4]}
+                for r in rows
+            ]
+            return self._send_response(200, json.dumps({"notifications": result}))
+        except Exception as exc:
+            logging.exception("notifications_list failed")
+            return self._send_response(500, json.dumps({"error": str(exc)}))
+
+    def _handle_notifications_subscribe(self):
+        """POST /api/v1/notifications
+        Body JSON: { type: "webhook"|"email", target: "<url_or_email>", secret?: "..." }
+        Creates a new subscription.  Max 10 per user.
+        """
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({"error": "Unauthorized"}))
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0 or length > MAX_JSON_BODY:
+                return self._send_response(400, json.dumps({"error": "Invalid body."}))
+            data = json.loads(self.rfile.read(length))
+        except Exception:
+            return self._send_response(400, json.dumps({"error": "Invalid JSON."}))
+
+        notif_type = str(data.get("type", "")).strip()
+        target     = str(data.get("target", "")).strip()
+        secret     = str(data.get("secret", "") or "").strip() or None
+
+        if notif_type not in ("webhook", "email"):
+            return self._send_response(400, json.dumps({"error": "type must be 'webhook' or 'email'."}))
+        if not target:
+            return self._send_response(400, json.dumps({"error": "target is required."}))
+        if len(target) > 512:
+            return self._send_response(400, json.dumps({"error": "target too long."}))
+        if notif_type == "webhook" and not target.startswith(("http://", "https://")):
+            return self._send_response(400, json.dumps({"error": "Webhook target must be an http/https URL."}))
+
+        try:
+            with _db_connect() as conn:
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM upload_notifications WHERE user_id=?", (user_id,)
+                ).fetchone()[0]
+                if count >= 10:
+                    return self._send_response(409, json.dumps({"error": "Max 10 notification subscriptions per user."}))
+                cur = conn.execute(
+                    "INSERT INTO upload_notifications (user_id, type, target, secret, created_at) "
+                    "VALUES (?,?,?,?,?)",
+                    (user_id, notif_type, target, secret, time.time())
+                )
+                conn.commit()
+                new_id = cur.lastrowid
+            return self._send_response(201, json.dumps({"id": new_id, "type": notif_type, "target": target}))
+        except Exception as exc:
+            logging.exception("notifications_subscribe failed")
+            return self._send_response(500, json.dumps({"error": str(exc)}))
+
+    def _handle_notifications_delete(self, notif_id: int):
+        """DELETE /api/v1/notifications/<id> — remove a subscription."""
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({"error": "Unauthorized"}))
+        try:
+            with _db_connect() as conn:
+                cur = conn.execute(
+                    "DELETE FROM upload_notifications WHERE id=? AND user_id=?",
+                    (notif_id, user_id)
+                )
+                conn.commit()
+            if cur.rowcount == 0:
+                return self._send_response(404, json.dumps({"error": "Not found."}))
+            return self._send_response(200, json.dumps({"ok": True}))
+        except Exception as exc:
+            logging.exception("notifications_delete failed")
+            return self._send_response(500, json.dumps({"error": str(exc)}))
 
     def __init__(self, *args, **kwargs):
         # This is crucial for SimpleHTTPRequestHandler to serve files from the correct directory
@@ -2914,8 +3356,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         owner_type   = data.get('owner_type', 'user')
         share_token  = data.get('share_token', '')
 
-        if not filename or not dest_rel or total_chunks < 1:
+        if not filename or not dest_rel or total_chunks < 0:
             return self._send_response(400, json.dumps({'error': 'filename, dest_path, total_chunks required.'}))
+            # total_chunks == 0 is valid for zero-byte files; we special-case assembly below.
 
         anon_device_token: str | None = None
 
@@ -3022,8 +3465,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(400, json.dumps({'error': f'chunk_index {chunk_index} out of range.'}))
 
         content_length = int(self.headers.get('Content-Length', 0))
-        if content_length <= 0:
+        if content_length < 0:
             return self._send_response(400, json.dumps({'error': 'Content-Length required.'}))
+        if content_length == 0:
+            # Zero-byte chunk — valid only when the whole file is 0 bytes.
+            # Write an empty chunk file so the session can be assembled normally.
+            pass
+        elif content_length > UPLOAD_CHUNK_SIZE * 2:
+            return self._send_response(413, json.dumps({'error': 'Chunk too large.'}))
+
         if content_length > UPLOAD_CHUNK_SIZE * 2:
             return self._send_response(413, json.dumps({'error': 'Chunk too large.'}))
 
@@ -3107,6 +3557,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         sha256 = assembly_sha256
 
         logging.info(f'Upload complete: {dest_path} ({size} bytes) sha256={sha256[:12]}… token={upload_token[:12]}…')
+        _fire_upload_notification(
+            int(session['owner_ref']) if session['owner_type'] == 'user' else 0,
+            rel,
+            f"Upload of '{session['filename']}' ({size} bytes) completed."
+        )
         return self._send_response(200, json.dumps({'url': file_url, 'sha256': sha256, 'size': size}))
 
     def handle_upload_session_cancel(self, upload_token: str):
@@ -3547,6 +4002,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if parsed_url.path == '/beacon/ui':
             return self._handle_beacon_ui()
 
+        if parsed_url.path == '/api/v1/notifications':
+            return self._handle_notifications_list()
+
         # For any other GET request, assume it's a static file.
         # Patch end_headers to include CORS and Accept-Ranges, then call base handler.
         def patched_end_headers():
@@ -3638,6 +4096,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if parsed_url.path == self.catbox_api_path:
             return self.handle_catbox_api()
 
+        # Batch tar streaming upload
+        if self.batch_tar_pattern.match(parsed_url.path):
+            return self.handle_batch_tar_upload()
+
         # FluxDrop API
         flux_match = self.fluxdrop_api_pattern.match(parsed_url.path)
         if flux_match:
@@ -3672,6 +4134,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._handle_beacon_ping()
         if parsed_url.path == '/beacon/read_token':
             return self._handle_beacon_new_read_token()
+
+        if parsed_url.path == '/api/v1/notifications':
+            return self._handle_notifications_subscribe()
 
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
@@ -3799,6 +4264,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._handle_trash_delete(int(_tr_item.group(2)))
         if self.trash_list_pattern.match(parsed_url.path):
             return self._handle_trash_empty()
+
+        _notif_del = re.match(r'^/api/v1/notifications/(\\d+)$', parsed_url.path)
+        if _notif_del:
+            return self._handle_notifications_delete(int(_notif_del.group(1)))
 
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 

@@ -31,3 +31,6 @@ package-lock.json
 
 # Local sync variables are excluded
 deploy.env
+
+# this file is used for applying patches and can be safely ignored
+temp.py

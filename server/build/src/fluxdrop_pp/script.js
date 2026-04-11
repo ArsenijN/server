@@ -64,7 +64,39 @@ async function fetchWithFallback(url, options) {
     }
 }
 
+// P9: New version banner ─────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.type === 'SW_UPDATED') {
+            _showUpdateBanner();
+        }
+    });
+}
 
+function _showUpdateBanner() {
+    if (document.getElementById('fd-update-banner')) return; // already shown
+    const banner = document.createElement('div');
+    banner.id = 'fd-update-banner';
+    banner.style.cssText = [
+        'position:fixed', 'bottom:1rem', 'left:50%', 'transform:translateX(-50%)',
+        'background:#1e40af', 'color:#fff', 'padding:0.6rem 1.2rem',
+        'border-radius:0.75rem', 'font-size:0.9rem', 'z-index:99999',
+        'display:flex', 'align-items:center', 'gap:0.75rem',
+        'box-shadow:0 4px 12px rgba(0,0,0,0.25)'
+    ].join(';');
+    banner.innerHTML = `
+        <span>🔄 A new version of FluxDrop is available.</span>
+        <button onclick="location.reload()" style="
+            background:#fff;color:#1e40af;border:none;border-radius:0.5rem;
+            padding:0.3rem 0.8rem;font-weight:600;cursor:pointer;">
+            Reload
+        </button>
+        <button onclick="this.parentElement.remove()" style="
+            background:none;border:none;color:#fff;cursor:pointer;font-size:1.1rem;">
+            ✕
+        </button>`;
+    document.body.appendChild(banner);
+}
         // ======================================================================
         // --- GLOBAL STATE & DOM ELEMENTS ---
         // ======================================================================
@@ -76,6 +108,31 @@ let currentUsername = localStorage.getItem('fluxdrop_username');
 let isAdmin = localStorage.getItem('fluxdrop_is_admin') === '1';
 // Track the currently viewed path in the file browser (always starts at root)
 let currentPath = '/';
+// P11: URL-path navigation ────────────────────────────────────────────────
+
+// Push a new folder path into the browser history and navigate to it.
+function navigateTo(path) {
+    if (path === currentPath) return;
+    currentPath = path;
+    const urlPath = '/files' + (path === '/' ? '' : encodePath(path));
+    history.pushState({ fdPath: path }, '', urlPath);
+    renderFileManager(path);   // replace with whatever your folder-render function is called
+}
+
+// Replace the current history entry (used on initial load, not for user clicks).
+function _syncUrlToPath(path) {
+    const urlPath = '/files' + (path === '/' ? '' : encodePath(path));
+    history.replaceState({ fdPath: path }, '', urlPath);
+}
+
+// Restore path when user clicks Back/Forward
+window.addEventListener('popstate', event => {
+    const path = (event.state && event.state.fdPath) ? event.state.fdPath : '/';
+    currentPath = path;
+    renderFileManager(path);
+});
+
+
 // Sorting state — persisted across page reloads via localStorage
 let currentSort = (() => {
     try { return JSON.parse(localStorage.getItem('fluxdrop_sort')) || { key: 'name', dir: 'asc' }; }
@@ -145,6 +202,23 @@ function getTrayDismissDelay() {
     return isNaN(v) ? 0 : v;
 }
 
+// P10: Upload-finished notification ──────────────────────────────────────
+function _requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+}
+
+function _notifyUploadDone(fileCount) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (document.hasFocus()) return; // user is watching — no need for OS notification
+    new Notification('FluxDrop — Upload complete', {
+        body: `${fileCount} file${fileCount !== 1 ? 's' : ''} uploaded successfully.`,
+        icon: '/icon.svg',
+        tag: 'fluxdrop-upload-done',  // replaces previous notification if still showing
+    });
+}
+
         // ======================================================================
         // --- UI RENDERING & ROUTING ---
         // ======================================================================
@@ -183,6 +257,7 @@ function renderApp(route = 'login') {
         else renderLoginView();
         return;
     }
+_requestNotificationPermission();  // P10 — ask once when the user is active
 // If authenticated, render the main app view (file browser)
 renderFileBrowserView();
 
@@ -2526,6 +2601,7 @@ async function handleUploadForm(e) {
                     refreshQ();
                 } else {
                     item = null;
+                    _notifyUploadDone(_lastUploadBatchCount);   // P10
                 }
             }
         }

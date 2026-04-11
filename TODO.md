@@ -23,6 +23,16 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
+- [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
+dynamic insufficient space at the CDN drive?)
+- [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
+will display what files takes the most, where and what)
+- [ ] Fix Markdown "intended support for new lines" (80 bytes line agreement)
+- [ ] Fix issues with resuming the download (in FluxDrop file manager at least)
+- [ ] Make download work as chunked-based in FluxDrop UI, keeping the regular 
+octet-stream for legacy usage
+- [ ] Add self-resume on network switch (offline handler shows and hides, but 
+download doesn't continue)
 - [ ] Fix beacon token deactivation/deletion even on usage
 - [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work)
 - [ ] Add ability to navigate the folders via browser's next/previous page 
@@ -133,3 +143,8 @@ PDF, Markdown, and archive previews are XSS-heavy territory and you want the
 CSP in place first.
 5. Fix B6 — login length caps, to prevent the bcrypt DoS from distributed 
 sources.
+
+
+
+> **HSTS rollout plan:** Deploy with `max-age=300` first. Test that HTTPS works perfectly from a fresh browser. Then increase to `max-age=31536000`. Once set to a large value browsers will *always* use HTTPS for your domain — reversing it is hard, so confirm everything works first.
+> 💡 Once you move inline scripts to `script.js` and inline styles to `tailwindcss.css`, you can drop `'unsafe-inline'` from both `script-src` and `style-src` for a significantly stronger policy.

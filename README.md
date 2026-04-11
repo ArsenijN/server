@@ -1,11 +1,14 @@
-# server `v0.10.5`
+# server `v0.11.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Added ability to make streamed way to send files to server 
-(much faster, less per-file overhead)***
+*Release note: **Huge overall updates to the code. Now NOT ready for public 
+testing {pre-release changes; commit as checkpoint}***
 
-***Do not use those versions until 0.11.0 is 
+***Do not use those versions until 0.12.0\* is 
 released because it will need CSP header for safe Markdown rendering***
+
+*(changed version because right now, I need to make checkpoints since code 
+changes are huge to be iterated safely without regressions)*
 
 Currently, server is **almost production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

@@ -84,3 +84,8 @@ UPLOAD_CHUNK_SIZE = os.getenv('UPLOAD_CHUNK_SIZE', str(1 * 1024 * 1024)) #defaul
 # Ensure that ports are provided from configs also
 HTTP_PORT = int(os.getenv('HTTP_PORT', '8080'))
 HTTPS_PORT = int(os.getenv('HTTPS_PORT', '8443'))
+
+UPLOAD_TMP_DIR = os.getenv(                                   # ← P8
+    'UPLOAD_TMP_DIR',
+    '/tmp/fluxdrop_upload_sessions'
+)

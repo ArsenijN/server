@@ -26,6 +26,7 @@ import gzip as _gzip_mod
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 import socket as _socket
+import base64 as _base64
 
 # Content-types that benefit from gzip (text-based, not already compressed).
 # Binary / already-compressed types are explicitly excluded so we never waste
@@ -634,6 +635,11 @@ MAX_UPLOAD_BYTES    = int(os.getenv('MAX_UPLOAD_BYTES',     str(10 * 1024 * 1024
 UPLOAD_TMP_DIR      = os.getenv('UPLOAD_TMP_DIR', os.path.join(
     '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028', '.upload_sessions'
 ))
+# In future, can be changed to this code for accomodance for P8 patch:
+# UPLOAD_TMP_DIR = os.getenv(                                   # ← P8
+#     'UPLOAD_TMP_DIR',
+#     '/tmp/fluxdrop_upload_sessions'
+# )
 
 def _upload_init(filename: str, dest_path: str, total_size: int,
                  total_chunks: int, sha256_final: str | None,
@@ -1856,7 +1862,7 @@ def hash_password(password: str, salt=None) -> tuple[str, str]:
     Returns ``(hashed, '')`` so callers that unpack two values still work;
     the empty string signals "no external salt".
     """
-    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12))
+    hashed = bcrypt.hashpw(_prepare_password(password), bcrypt.gensalt(rounds=12))   # ← P6
     return hashed.decode('utf-8'), ''
 
 def send_verification_email(email, token, username):
@@ -2403,6 +2409,24 @@ def _build_status_page() -> str:
     )
 
 # ==============================================================================
+# --- OTHER HANDLERS AND UTILITIES ---
+# ==============================================================================
+# ── P1: Session token hashing ────────────────────────────────────────────
+def _hash_session_token(raw: str) -> str:
+    """SHA-256 hash a raw session token for safe DB storage.
+    The raw token is returned to the client; only the hash is persisted."""
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+# ── P6: bcrypt safe wrapper ───────────────────────────────────────────────
+def _prepare_password(password: str) -> bytes:
+    """SHA-256 + base64-encode so bcrypt always receives exactly 44 bytes.
+    bcrypt truncates at 72 bytes; pre-hashing avoids silent collision for
+    passwords whose first 72 bytes are identical."""
+    digest = hashlib.sha256(password.encode('utf-8')).digest()
+    return _base64.b64encode(digest)   # always 44 bytes, well under the 72-byte limit
+
+
+# ==============================================================================
 # --- MAIN REQUEST HANDLER ---
 # ==============================================================================
 class _FastThreadingHTTPServer(ThreadingHTTPServer):
@@ -2452,6 +2476,25 @@ class AuthHandler(SimpleHTTPRequestHandler):
     trash_item_pattern   = re.compile(r'^/api/(v[1-3])/trash/(\d+)$')
     trash_restore_pattern= re.compile(r'^/api/(v[1-3])/trash/(\d+)/restore$')
     batch_tar_pattern = re.compile(r'^/api/(v[1-3])/upload_session/batch_tar$')
+    
+    # ── P2: Force HTTPS for sensitive paths ──────────────────────────────────
+    _HTTPS_ONLY_PREFIXES = ('/auth/', '/api/')
+
+    def _redirect_to_https_if_needed(self) -> bool:
+        """If this socket is plain HTTP and the path is auth/API, 308-redirect to HTTPS.
+        Returns True when a redirect was sent — caller must return immediately."""
+        if isinstance(self.server.socket, ssl.SSLSocket):
+            return False  # already HTTPS
+        parsed = urlparse(self.path)
+        if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
+            host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
+            location = f"https://{host}:{HTTPS_PORT}{self.path}"
+            self.send_response(308)          # 308 preserves POST/PATCH/DELETE method
+            self.send_header('Location', location)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return True
+        return False
 
     def handle_batch_tar_upload(self):
         """POST /api/v1/upload_session/batch_tar
@@ -2825,6 +2868,27 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return True
         return False
 
+    # ── P3: Universal security headers ───────────────────────────────────────
+    def end_headers(self):
+        self.send_header('X-Frame-Options', 'SAMEORIGIN')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        if isinstance(self.server.socket, ssl.SSLSocket):
+            self.send_header('Strict-Transport-Security',
+                            'max-age=300; includeSubDomains')
+        # P7: Content-Security-Policy
+        # 'unsafe-inline' is needed because the share snippet pages use inline <script>/<style>.
+        # Remove it once those are moved to external files.
+        self.send_header(
+            'Content-Security-Policy',
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self';"
+        )
+        super().end_headers()
+
     def _send_response(self, status_code, content, content_type='application/json'):
         """Send an HTTP response, transparently gzip-encoding when the client
         supports it and the payload is a compressible type ≤ _GZIP_MAX_INLINE.
@@ -2870,9 +2934,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.send_header('Content-Encoding', 'gzip')
                 self.send_header('Vary', 'Accept-Encoding')
             self._send_cors_headers()
-            # Security headers
-            self.send_header('X-Content-Type-Options', 'nosniff')
-            self.send_header('X-Frame-Options', 'SAMEORIGIN')
+            # Security headers are now send via end_headers() override
             # HSTS: tell browsers to always use HTTPS for this origin (B8)
             if isinstance(self.server.socket, ssl.SSLSocket):
                 self.send_header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
@@ -2905,7 +2967,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         with _db_connect() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT user_id FROM sessions WHERE session_token = ? AND expires_at > CURRENT_TIMESTAMP", (token,))
+            cursor.execute(
+                "SELECT user_id FROM sessions WHERE session_token = ? AND expires_at > CURRENT_TIMESTAMP",
+                (_hash_session_token(token),)    # ← P1: compare hash, not raw
+            )
             result = cursor.fetchone()
             if result:
                 logging.debug(f"Token auth success for user_id '{result[0]}'")
@@ -3871,6 +3936,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         """Routes GET requests to the appropriate handler or serves static files."""
+        # Just in case: add the function
+        if self._redirect_to_https_if_needed():   # ← P2
+            return
+
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({"error": "Forbidden"}))
@@ -4021,6 +4090,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         """Routes POST requests to the appropriate handler."""
+        if self._redirect_to_https_if_needed():   # ← P2
+            return
+
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({"error": "Forbidden"}))
@@ -4142,6 +4214,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def do_PATCH(self):
         """Routes PATCH requests (used to update share settings)."""
+        if self._redirect_to_https_if_needed():   # ← P2
+            return
+
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
@@ -4174,11 +4249,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # Password change: PATCH /api/v1/me/password  {current_password, new_password}
         if parsed_url.path == '/api/v1/me/password':
+            # P4a: rate-limit — same bucket as login to prevent brute-forcing current_password
+            client_ip = self.client_address[0]
+            if not _rate_limit(client_ip, "auth"):
+                return self._send_response(429, json.dumps({'error': 'Too many attempts. Please wait.'}))
+
             user_id = self._check_token_auth()
             if not user_id:
-                return self._send_response(401, json.dumps({'error': 'Authentication required.'}))
+                return self._send_response(401, json.dumps({'error': 'Authentication required'}))
             try:
+                # P4b: body size cap (mirrors the A4 fix already applied to upload_session_init)
                 length = int(self.headers.get('Content-Length', 0))
+                if length <= 0 or length > MAX_JSON_BODY:
+                    return self._send_response(400, json.dumps({'error': 'Invalid or missing request body.'}))
                 data = json.loads(self.rfile.read(length))
             except Exception:
                 return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
@@ -4195,7 +4278,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 if not row:
                     return self._send_response(404, json.dumps({'error': 'User not found.'}))
                 stored_hash = row[0]
-                if not bcrypt.checkpw(cur_pw.encode('utf-8'), stored_hash.encode('utf-8')):
+                if not bcrypt.checkpw(_prepare_password(cur_pw), stored_hash.encode('utf-8')):  # ← P6
                     return self._send_response(401, json.dumps({'error': 'Current password is incorrect.'}))
                 new_hash, _ = hash_password(new_pw)
                 conn.execute('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?', (new_hash, '', user_id))
@@ -4228,6 +4311,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         """Routes DELETE requests (used to revoke shares and cancel upload sessions)."""
+        if self._redirect_to_https_if_needed():   # ← P2
+            return
+
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
@@ -4379,11 +4465,17 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not _rate_limit(client_ip, "auth"):
             logging.warning(f"Rate limit hit on login from {client_ip}")
             return self._send_response(429, json.dumps({"error": "Too many login attempts. Please wait a minute."}))
-        username = data.get('username')
-        password = data.get('password')
+        username = data.get('username', '')
+        password = data.get('password', '')
+        if not username or not password:
+            return self._send_response(400, json.dumps({'error': 'Username and password required.'}))
 
-        if not all([username, password]):
-            return self._send_response(400, json.dumps({"error": "Missing username or password."}))
+        # P5: Mirror the registration caps to prevent bcrypt DoS on the login path
+        _MAX_USERNAME_LOGIN = 64
+        _MAX_PASSWORD_LOGIN = 1024
+        if len(username) > _MAX_USERNAME_LOGIN or len(password) > _MAX_PASSWORD_LOGIN:
+            # Return 401, not 400 — avoids leaking that the *length* was the problem
+            return self._send_response(401, json.dumps({'error': 'Invalid credentials.'}))
 
         with _db_connect() as conn:
             cursor = conn.cursor()
@@ -4403,9 +4495,16 @@ class AuthHandler(SimpleHTTPRequestHandler):
             #   user migrates silently on their next successful login.
             if stored_hash.startswith('$2b$'):
                 # bcrypt path — timing-safe by design
-                if not bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
-                    logging.info(f"Login failed for user_id={user_id} (username={username}): bcrypt mismatch")
-                    return self._send_response(401, json.dumps({"error": "Invalid credentials."}))
+                if not bcrypt.checkpw(_prepare_password(password), stored_hash.encode('utf-8')):  # ← P6
+                    # Legacy check — user has a pre-P6 hash
+                    if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
+                        # Upgrade their hash transparently
+                        new_hash = bcrypt.hashpw(_prepare_password(password), bcrypt.gensalt(rounds=12))
+                        conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', (new_hash.decode(), user_id))
+                        conn.commit()
+                        # login proceeds normally
+                    else:
+                        return self._send_response(401, json.dumps({'error': 'Invalid credentials.'}))
             else:
                 # Legacy SHA-256 path
                 legacy_hash, _ = _sha256_hash(password, salt)
@@ -4422,10 +4521,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
             # Issue a new session token
             session_token = secrets.token_urlsafe(32)
+            _token_hash   = _hash_session_token(session_token)   # ← P1
             expires_at = datetime.now() + timedelta(days=7) # Session expires in 7 days
             cursor.execute(
                 "INSERT INTO sessions (user_id, session_token, expires_at) VALUES (?, ?, ?)",
-                (user_id, session_token, expires_at)
+                (user_id, _token_hash, expires_at)               # ← store hash
             )
             conn.commit()
             conn.execute("DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP")
@@ -4448,7 +4548,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         token = auth_header.split(' ', 1)[1]
         with _db_connect() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM sessions WHERE session_token = ?", (token,))
+            cursor.execute("DELETE FROM sessions WHERE session_token = ?",
+               (_hash_session_token(token),))    # ← P1
             conn.commit()
 
         return self._send_response(200, json.dumps({"message": "Logout successful."}))
@@ -5095,7 +5196,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Disposition',
                              self._content_disposition(zip_filename))
             self.send_header('Content-Length', str(total_content_length))
-            self.send_header('X-Content-Type-Options', 'nosniff')
+            # REMOVE: self.send_header('X-Content-Type-Options', 'nosniff')
             self.end_headers()
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             return

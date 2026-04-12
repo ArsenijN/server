@@ -23,7 +23,17 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
-- [ ] Fix CSP making bad things to the snippets (I assume)
+- [ ] Add server ability to push the additional data before client will request 
+them (pre-caching, like folder structures or file properties or something else)
+- [ ] Fix `/files` duplication in folder-in-link (non-breaking but enormous)
+- [x] Add message for HTML if styles are not loaded (aka "Loading styles... 
+Stuck there for long time? Check the internet, try reloading the page and check 
+console for errors")
+  - [ ] Make it appear also in plain HTML without need in `<script>`
+- [x] Fix folder-in-link forwarding (paths in URL) working only when clicked on 
+`path-breadcrumb`, but not when on `open-btn` in `border-t`
+- [ ] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
+least)
 - [ ] Fix admin panel not working
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
 dynamic insufficient space at the CDN drive?)
@@ -36,15 +46,16 @@ octet-stream for legacy usage
 - [ ] Add self-resume on network switch (offline handler shows and hides, but 
 download doesn't continue)
 - [ ] Fix beacon token deactivation/deletion even on usage
-- [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work)
-- [ ] Add ability to navigate the folders via browser's next/previous page 
+- [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
+means http to https on cdn 9file manager)?
+- [x] Add ability to navigate the folders via browser's next/previous page 
 (make paths in url)
-- [ ] Add ability to confirm entries via Enter; fix the issue that enter makes 
+- [x] Add ability to confirm entries via Enter; fix the issue that enter makes 
 interaction with background used object
-- [ ] Add notification ability when upload of files in queue is finished
+- [x] Add notification ability when upload of files in queue is finished
 - [ ] Fix spaces at the end of folder names causes delete fail - rename works 
 OK with them
-- [ ] Fix 0-bytes files can catch on "Content-Length required." error on folder 
+- [x] Fix 0-bytes files can catch on "Content-Length required." error on folder 
 uploads
 - [x] Add some kind of file streaming so upload of a folders will be faster 
 (but secure) - one stream, a lot of files
@@ -68,8 +79,6 @@ any type of file that's supported, thumbs can be included into the quota, or
 excluded from quota)
 - [ ] Add folder downloads and size to the `share` snippet
 - [ ] Auto negotiation for upload type (folder or file)
-- [x] Audit: question about expose of the temp chunks at CDN -- marked as for 
-future implementations in audit
 - [ ] Add dark theme switch, or at least make addons work properly and test 
 them
 - [ ] Add variable chunk sizes on demand for different internet speeds and 

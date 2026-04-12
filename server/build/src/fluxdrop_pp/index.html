@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <base href="/fluxdrop_pp/">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FluxDrop</title>
@@ -45,6 +46,38 @@
             </div>
         </div>
     </div>
-    <script src="script.js"></script>
+    <script src="/fluxdrop_pp/script.js"></script>
+
+    <!-- Style-load fallback: shown only if CSS hasn't applied within 4 s -->
+    <div id="fd-style-fallback" style="display:none;position:fixed;top:0;left:0;
+         width:100%;padding:1.25rem 1.5rem;background:#fef3c7;color:#92400e;
+         font-family:sans-serif;font-size:14px;line-height:1.6;z-index:99999;
+         border-bottom:2px solid #fde68a;box-shadow:0 2px 8px rgba(0,0,0,.1)">
+        <strong>⚠ Styles are taking a while to load.</strong>
+        Check your internet connection and try reloading the page.
+        If the problem persists, open the browser console (F12) and look for
+        network errors on <code>tailwindcss.css</code>.
+        <button onclick="document.getElementById('fd-style-fallback').style.display='none'"
+            style="margin-left:1rem;padding:3px 10px;border:1px solid #d97706;
+                   border-radius:6px;background:white;cursor:pointer;font-size:13px">
+            Dismiss
+        </button>
+    </div>
+    <script>
+        // Show the fallback banner if the .card CSS class hasn't been applied after 4 s.
+        // The banner hides itself automatically if the app root gets populated (styles loaded).
+        setTimeout(function () {
+            var probe = document.createElement('div');
+            probe.className = 'card';
+            probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none';
+            document.body.appendChild(probe);
+            var styled = getComputedStyle(probe).borderRadius !== '' &&
+                         getComputedStyle(probe).borderRadius !== '0px';
+            document.body.removeChild(probe);
+            if (!styled) {
+                document.getElementById('fd-style-fallback').style.display = 'block';
+            }
+        }, 4000);
+    </script>
 </body>
 </html>

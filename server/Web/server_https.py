@@ -160,11 +160,28 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # P11: SPA deep-link support — serve the app shell for any .../files[/...] path
         # so the browser history API can restore the correct folder on direct load or refresh.
         # Works whether the app is at root or a subdirectory (e.g. /fluxdrop_pp/).
+        #
+        # IMPORTANT: only rewrite when the segment immediately after '/files' is
+        # end-of-string, '/', or '?' — i.e. it looks like a folder navigation URL.
+        # Without this guard the rewrite also matches asset requests that happen
+        # to contain '/files' in their path (e.g. /fluxdrop_pp/files/script.js),
+        # causing the server to return index.html with Content-Type text/html for
+        # those assets, which the browser then rejects as invalid JS/CSS.
         _clean_path = requested_path.split('?')[0]
         _files_idx  = _clean_path.find('/files')
         if _files_idx != -1:
             _after = _clean_path[_files_idx + 6:]   # chars after '/files'
-            if _after == '' or _after.startswith('/'):
+            # Only rewrite SPA navigation paths, never asset files.
+            # A real navigation path ends here, continues with '/', or has a query string.
+            # An asset file continues with a non-slash character (e.g. '/files/script.js').
+            _is_nav = (_after == '' or _after.startswith('/') or _after.startswith('?'))
+            # Extra safety: don't rewrite if the path ends with a known static extension.
+            import posixpath as _pp
+            _ext = _pp.splitext(_clean_path)[1].lower()
+            _static_exts = {'.js', '.css', '.html', '.svg', '.png', '.ico',
+                            '.jpg', '.jpeg', '.gif', '.webp', '.woff', '.woff2',
+                            '.ttf', '.eot', '.map', '.json', '.txt'}
+            if _is_nav and _ext not in _static_exts:
                 # Rewrite to index.html in the same directory as the app
                 _app_dir  = _clean_path[:_files_idx]   # e.g. '' or '/fluxdrop_pp'
                 self.path = _app_dir + '/index.html'

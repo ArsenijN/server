@@ -742,8 +742,9 @@ function renderEntryRow(e) {
 
 // Expose some functions globally for callers; listeners will invoke these.
 window.enterDir = function(path) {
-    // Navigate into a directory and update currentPath
-    loadDirectory(path);
+    // Navigate into a directory, update currentPath AND push a browser history
+    // entry so the URL reflects the folder and F5 / back-button work correctly.
+    navigateTo(path);
 }
 
 

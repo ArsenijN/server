@@ -1,13 +1,14 @@
-# server `v0.11.1`
+# server `v0.11.2`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release note: **Huge overall updates to the code. Now NOT ready for public 
-testing {pre-release changes; commit as checkpoint} Fixed some code problems***
+testing {pre-release changes; commit as checkpoint} Fixing some issues with 
+usability***
 
 ***Do not use those versions until 0.12.0\* is released because it will need 
 CSP header for safe Markdown rendering***
 
-*(changed version because right now, I need to make checkpoints since code 
+*(changed the version because right now, I need to make checkpoints since code 
 changes are huge to be iterated safely without regressions)*
 
 Currently, server is **almost production-ready!!!** (see: [FluxDrop 
@@ -23,9 +24,9 @@ FluxDrop accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
 
 Wiki page: https://github.com/ArsenijN/server/wiki
 
-New Readme style will be applied when FluxDrop will reach full production-ready 
-state ([current look](./README_newstyle.md)). Also, the version will be bumped 
-to 1.0.0
+New Readme style will be applied or merged with current when FluxDrop will 
+reach full production-ready state ([current look](./README_newstyle.md)). 
+Also, the version will be bumped to 1.0.0
 
 ## FluxDrop relations to this server
 

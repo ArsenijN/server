@@ -64,7 +64,39 @@ async function fetchWithFallback(url, options) {
     }
 }
 
+// P9: New version banner ─────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.type === 'SW_UPDATED') {
+            _showUpdateBanner();
+        }
+    });
+}
 
+function _showUpdateBanner() {
+    if (document.getElementById('fd-update-banner')) return; // already shown
+    const banner = document.createElement('div');
+    banner.id = 'fd-update-banner';
+    banner.style.cssText = [
+        'position:fixed', 'bottom:1rem', 'left:50%', 'transform:translateX(-50%)',
+        'background:#1e40af', 'color:#fff', 'padding:0.6rem 1.2rem',
+        'border-radius:0.75rem', 'font-size:0.9rem', 'z-index:99999',
+        'display:flex', 'align-items:center', 'gap:0.75rem',
+        'box-shadow:0 4px 12px rgba(0,0,0,0.25)'
+    ].join(';');
+    banner.innerHTML = `
+        <span>🔄 A new version of FluxDrop is available.</span>
+        <button onclick="location.reload()" style="
+            background:#fff;color:#1e40af;border:none;border-radius:0.5rem;
+            padding:0.3rem 0.8rem;font-weight:600;cursor:pointer;">
+            Reload
+        </button>
+        <button onclick="this.parentElement.remove()" style="
+            background:none;border:none;color:#fff;cursor:pointer;font-size:1.1rem;">
+            ✕
+        </button>`;
+    document.body.appendChild(banner);
+}
         // ======================================================================
         // --- GLOBAL STATE & DOM ELEMENTS ---
         // ======================================================================
@@ -76,6 +108,41 @@ let currentUsername = localStorage.getItem('fluxdrop_username');
 let isAdmin = localStorage.getItem('fluxdrop_is_admin') === '1';
 // Track the currently viewed path in the file browser (always starts at root)
 let currentPath = '/';
+let _lastUploadBatchCount = 0;  // P10: tracks file count in the current upload batch
+// P11: URL-path navigation ────────────────────────────────────────────────
+
+// P11: Derive the app's base directory from the current page URL at runtime.
+// Works whether the app lives at "/" or "/fluxdrop_pp/" or any other subpath —
+// no hardcoded path needed. Strips "index.html" if present.
+const _APP_BASE = (() => {
+    let base = window.location.pathname.replace(/\/index\.html$/, '');
+    // Ensure no trailing slash (we add one when building URLs below)
+    return base.endsWith('/') ? base.slice(0, -1) : base;
+})();
+
+// Push a new folder path into the browser history and navigate to it.
+function navigateTo(path) {
+    if (path === currentPath) return;
+    currentPath = path;
+    const urlPath = _APP_BASE + '/files' + (path === '/' ? '' : encodePath(path));
+    history.pushState({ fdPath: path }, '', urlPath);
+    loadDirectory(path);
+}
+
+// Replace the current history entry (used on initial load, not for user clicks).
+function _syncUrlToPath(path) {
+    const urlPath = _APP_BASE + '/files' + (path === '/' ? '' : encodePath(path));
+    history.replaceState({ fdPath: path }, '', urlPath);
+}
+
+// Restore path when user clicks Back/Forward
+window.addEventListener('popstate', event => {
+    const path = (event.state && event.state.fdPath) ? event.state.fdPath : '/';
+    currentPath = path;
+    loadDirectory(path);
+});
+
+
 // Sorting state — persisted across page reloads via localStorage
 let currentSort = (() => {
     try { return JSON.parse(localStorage.getItem('fluxdrop_sort')) || { key: 'name', dir: 'asc' }; }
@@ -91,7 +158,39 @@ let sortFoldersMixed = (() => {
         // --- UTILITY FUNCTIONS ---
         // ======================================================================
 function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
+function hideModal(id) {
+    document.getElementById(id).classList.add('hidden');
+    _detachModalKeys();   // P12: always clean up keyboard handler on close
+}
+
+// P12: Enter confirms / Escape cancels any open modal.
+// capture:true intercepts the keydown before it reaches background list rows.
+let _modalKeyHandler = null;
+
+function _attachModalKeys(confirmFn, cancelFn) {
+    _detachModalKeys();
+    _modalKeyHandler = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            _detachModalKeys();
+            if (confirmFn) confirmFn();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            _detachModalKeys();
+            if (cancelFn) cancelFn();
+        }
+    };
+    document.addEventListener('keydown', _modalKeyHandler, true);
+}
+
+function _detachModalKeys() {
+    if (_modalKeyHandler) {
+        document.removeEventListener('keydown', _modalKeyHandler, true);
+        _modalKeyHandler = null;
+    }
+}
 
 function stripInternalPrefix(path) {
     return path.replace(/^\/FluxDrop\/\d+\//, '/');
@@ -106,6 +205,11 @@ function showMessage(title, content, isHtml = false) {
     const el = document.getElementById('message-modal-content');
     if (isHtml) { el.innerHTML = content; } else { el.textContent = content; }
     showModal('message-modal');
+    // P12: Enter or Escape both dismiss the OK-only message modal
+    _attachModalKeys(
+        () => hideModal('message-modal'),
+        () => hideModal('message-modal')
+    );
 }
 
 async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = true) {
@@ -143,6 +247,23 @@ async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = tru
 function getTrayDismissDelay() {
     const v = parseInt(localStorage.getItem('fluxdrop_tray_dismiss_ms') || '0', 10);
     return isNaN(v) ? 0 : v;
+}
+
+// P10: Upload-finished notification ──────────────────────────────────────
+function _requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+}
+
+function _notifyUploadDone(fileCount) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (document.hasFocus()) return; // user is watching — no need for OS notification
+    new Notification('FluxDrop — Upload complete', {
+        body: `${fileCount} file${fileCount !== 1 ? 's' : ''} uploaded successfully.`,
+        icon: '/icon.svg',
+        tag: 'fluxdrop-upload-done',  // replaces previous notification if still showing
+    });
 }
 
         // ======================================================================
@@ -183,6 +304,7 @@ function renderApp(route = 'login') {
         else renderLoginView();
         return;
     }
+_requestNotificationPermission();  // P10 — ask once when the user is active
 // If authenticated, render the main app view (file browser)
 renderFileBrowserView();
 
@@ -270,11 +392,10 @@ function renderFileBrowserView() {
         let p = currentPath.replace(/\/+$/, '');
         let idx = p.lastIndexOf('/');
         if (idx <= 0) p = '/'; else p = p.slice(0, idx);
-        currentPath = p;
-        loadDirectory(currentPath);
+        navigateTo(p);   // P11: push history entry
     });
     document.getElementById('btn-create-folder').addEventListener('click', promptCreateFolder);
-    document.getElementById('btn-browse-cdn').addEventListener('click', () => { currentPath = '/cdn'; loadDirectory(currentPath); });
+    document.getElementById('btn-browse-cdn').addEventListener('click', () => navigateTo('/cdn'));  // P11
     document.getElementById('btn-trash').addEventListener('click', openTrashView);
     // Folders-first toggle
     function updateFoldersMixedBtn() {
@@ -352,6 +473,16 @@ function renderFileBrowserView() {
         openInterruptedManager(refreshInterruptedBtn);
     });
 
+    // P11: parse path from URL if arriving via deep-link or back-navigation.
+    // Matches  <_APP_BASE>/files  or  <_APP_BASE>/files/<subpath>
+    (function _initPathFromUrl() {
+        const escapedBase = _APP_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const match = window.location.pathname.match(
+            new RegExp('^' + escapedBase + '\/files(\/.*)?$')
+        );
+        if (match) currentPath = match[1] || '/';
+        _syncUrlToPath(currentPath);
+    })();
     // Initial load
     loadDirectory(currentPath);
 }
@@ -432,7 +563,7 @@ async function loadDirectory(path) {
         segs.forEach((seg, idx) => {
             if (idx === 0) {
                 built = '/';
-                html += `<button onclick="loadDirectory('/')" style="background:none;border:none;color:#3b82f6;cursor:pointer;font-weight:600;padding:0 2px">🏠 root</button>`;
+                html += `<button onclick="navigateTo('/')" style="background:none;border:none;color:#3b82f6;cursor:pointer;font-weight:600;padding:0 2px">🏠 root</button>`;
             } else {
                 built = built.endsWith('/') ? built + seg : built + '/' + seg;
                 const bp = built;
@@ -441,7 +572,7 @@ async function loadDirectory(path) {
                 if (isLast) {
                     html += `<span style="color:#1e293b;font-weight:600">${escapeHtml(seg)}</span>`;
                 } else {
-                    html += `<button onclick="loadDirectory('${escapeHtmlAttr(bp)}')" style="background:none;border:none;color:#3b82f6;cursor:pointer;padding:0 2px">${escapeHtml(seg)}</button>`;
+                    html += `<button onclick="navigateTo('${escapeHtmlAttr(bp)}')" style="background:none;border:none;color:#3b82f6;cursor:pointer;padding:0 2px">${escapeHtml(seg)}</button>`;
                 }
             }
         });
@@ -1916,8 +2047,27 @@ async function openMoveDialog(srcPath) {
     });
 
     // ── Close / cancel ─────────────────────────────────────────────────────
-    $('mv-cancel-btn').addEventListener('click', () => overlay.remove());
-    $('mv-close').addEventListener('click', () => overlay.remove());
+    const _mvClose = () => { overlay.remove(); _detachModalKeys(); };
+    $('mv-cancel-btn').addEventListener('click', _mvClose);
+    $('mv-close').addEventListener('click', _mvClose);
+
+    // P12: Enter confirms the active tab action; Escape closes the dialog.
+    // Re-attach whenever the tab changes so the correct action fires.
+    function _attachMvKeys() {
+        _attachModalKeys(
+            () => { if (overlay.isConnected) $('mv-confirm-btn').click(); },
+            _mvClose
+        );
+    }
+    overlay.querySelectorAll('.mv-tab').forEach(btn => {
+        btn.addEventListener('click', () => _attachMvKeys());
+    });
+    _attachMvKeys();   // attach immediately on open
+
+    // Also let Enter submit the rename input directly (feels natural)
+    $('mv-name-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); $('mv-confirm-btn').click(); }
+    });
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
     // ── Initial render ─────────────────────────────────────────────────────
@@ -2484,6 +2634,7 @@ async function handleUploadForm(e) {
             setTimeout(_hideUploadSpinner, 600);
             await _p;
             _hideUploadSpinner();
+            _notifyUploadDone(1);   // P10
             showMessage('Upload successful', `${items[0].file.name} uploaded successfully.`);
             loadDirectory(currentPath);
         } catch (err) {
@@ -2508,6 +2659,7 @@ async function handleUploadForm(e) {
 
         // Hide spinner as soon as queuing is done
         setTimeout(_hideUploadSpinner, 400);
+        _lastUploadBatchCount += items.length;   // P10: count this batch
         // Start first immediately, then drain queue sequentially
         async function drainQueue(startItem) {
             let item = startItem;
@@ -2526,6 +2678,8 @@ async function handleUploadForm(e) {
                     refreshQ();
                 } else {
                     item = null;
+                    _notifyUploadDone(_lastUploadBatchCount);   // P10
+                    _lastUploadBatchCount = 0;                  // P10: reset for next batch
                 }
             }
         }

@@ -157,6 +157,19 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             return
 
+        # P11: SPA deep-link support — serve the app shell for any .../files[/...] path
+        # so the browser history API can restore the correct folder on direct load or refresh.
+        # Works whether the app is at root or a subdirectory (e.g. /fluxdrop_pp/).
+        _clean_path = requested_path.split('?')[0]
+        _files_idx  = _clean_path.find('/files')
+        if _files_idx != -1:
+            _after = _clean_path[_files_idx + 6:]   # chars after '/files'
+            if _after == '' or _after.startswith('/'):
+                # Rewrite to index.html in the same directory as the app
+                _app_dir  = _clean_path[:_files_idx]   # e.g. '' or '/fluxdrop_pp'
+                self.path = _app_dir + '/index.html'
+                # fall through to the normal static-file handler below
+
         with blacklist_lock:
             if client_ip in current_blacklist:
                 self.send_response(403)

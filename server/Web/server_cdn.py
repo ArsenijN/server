@@ -2934,10 +2934,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.send_header('Content-Encoding', 'gzip')
                 self.send_header('Vary', 'Accept-Encoding')
             self._send_cors_headers()
-            # Security headers are now send via end_headers() override
-            # HSTS: tell browsers to always use HTTPS for this origin (B8)
-            if isinstance(self.server.socket, ssl.SSLSocket):
-                self.send_header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+            # Security headers (X-Frame-Options, HSTS, CSP, etc.) are sent
+            # automatically by the end_headers() override — no duplicates needed here.
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):

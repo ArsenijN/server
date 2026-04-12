@@ -23,6 +23,8 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
+- [ ] Fix CSP making bad things to the snippets (I assume)
+- [ ] Fix admin panel not working
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
 dynamic insufficient space at the CDN drive?)
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 

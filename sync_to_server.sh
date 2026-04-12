@@ -3,7 +3,8 @@
 # remote host.  Configuration lives in deploy.env (gitignored); copy
 # deploy.env.sample to deploy.env and fill in your values before running.
 #
-# Works on Linux, macOS, and Windows Git Bash (needs rsync in PATH).
+# Works on Linux, macOS, and Windows Git Bash (needs rsync in PATH, somewhere 
+# in Wiki should be explained already HowTo).
 # On Windows, run:  bash sync_to_server.sh
 set -euo pipefail
 

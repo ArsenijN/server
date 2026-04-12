@@ -1,9 +1,9 @@
-# server `v0.11.2`
+# server `v0.11.2.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Huge overall updates to the code. Now NOT ready for public 
-testing {pre-release changes; commit as checkpoint} Fixing some issues with 
-usability***
+*Release note: **Huge overall updates to the code. For now NOT ready for public 
+testing {pre-release changes; commit-as-checkpoint style} Changed encoding in 
+files and added a comment about the probable explanatory in Wiki***
 
 ***Do not use those versions until 0.12.0\* is released because it will need 
 CSP header for safe Markdown rendering***

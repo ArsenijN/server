@@ -108,6 +108,12 @@ for more ideal links and simplicity
 mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
 bandwidth and resolution)
 - [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
+- [ ] Delete "CDN" path as it serves no purpose and doesn't work (line 5718 in 
+`server_cdn.py`). Seems like it was made to make "shared" folder for any user 
+of FluxDrop, but true usage is unknown since it's seems like undocumented and 
+was introduced in one of the edit sessions without need to be made
+- [ ] Test the dynamic quota with larger drive for CDN (after server config 
+upgrade; line 6621)
 
 
 - [ ] Add landing page for FluxDrop - I really want start to draft it out

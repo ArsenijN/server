@@ -46,7 +46,7 @@ _GZIP_COMPRESSIBLE = frozenset({
 # holding a potentially huge compressed blob in RAM.  The streaming download
 # handler has its own logic.
 _GZIP_MAX_INLINE   = 16 * 1024 * 1024   # 16 MB
-_GZIP_MIN_SIZE     = 512                 # below this the header overhead isn't worth it
+_GZIP_MIN_SIZE     = 512                # below this the header overhead isn't worth it
 
 # ==============================================================================
 # --- HTML SNIPPET LOADER ---
@@ -100,7 +100,7 @@ HTTPS_PORT = int(os.getenv('HTTPS_PORT', '64800'))
 
 # Public domain and serve root
 PUBLIC_DOMAIN = os.getenv('PUBLIC_DOMAIN', _CONFIG_PUBLIC_DOMAIN)
-# Default server root for CDN: use the larger media volume rather than the TestWeb SSD.
+# Default server root for CDN: use the larger media volume rather than the server's SSD (in most cases).
 SERVE_ROOT = os.path.abspath(os.getenv('SERVE_ROOT', '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028'))
 CATBOX_UPLOAD_DIR = os.getenv('CATBOX_UPLOAD_DIR', 'CB_uploads')
 
@@ -432,7 +432,7 @@ def init_db():
             )
         ''')
         # Network connectivity outage log.
-        # Записується при кожному збої та відновленні інтернет-з'єднання.
+        # Writes on every outage and internet connection recovery.
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS net_outages (
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -626,16 +626,16 @@ def _fire_upload_notification(user_id: int, path: str, message: str) -> None:
 # ==============================================================================
 
 # Chunk size and abandoned-session TTL are tunable via env
-UPLOAD_CHUNK_SIZE   = int(os.getenv('UPLOAD_CHUNK_SIZE',   str(1 * 1024 * 1024)))    # 1 MB
-UPLOAD_SESSION_TTL  = int(os.getenv('UPLOAD_SESSION_TTL',  str(48 * 3600)))           # 48 h
-MAX_JSON_BODY            = int(os.getenv('MAX_JSON_BODY',            str(1  * 1024 * 1024)))   # 1 MB — cap all JSON request bodies
-MAX_SHARE_UPLOAD_BYTES   = int(os.getenv('MAX_SHARE_UPLOAD_BYTES',   str(500 * 1024 * 1024)))  # 500 MB — cap anonymous share uploads
-MAX_UPLOAD_BYTES    = int(os.getenv('MAX_UPLOAD_BYTES',     str(10 * 1024 * 1024 * 1024)))  # 10 GB legacy upload cap
+UPLOAD_CHUNK_SIZE        = int(os.getenv('UPLOAD_CHUNK_SIZE',       str(1 * 1024 * 1024)))          # 1 MB
+UPLOAD_SESSION_TTL       = int(os.getenv('UPLOAD_SESSION_TTL',      str(48 * 3600)))                # 48 h
+MAX_JSON_BODY            = int(os.getenv('MAX_JSON_BODY',           str(1  * 1024 * 1024)))         # 1 MB — cap all JSON request bodies
+MAX_SHARE_UPLOAD_BYTES   = int(os.getenv('MAX_SHARE_UPLOAD_BYTES',  str(500 * 1024 * 1024)))        # 500 MB — cap anonymous share uploads
+MAX_UPLOAD_BYTES         = int(os.getenv('MAX_UPLOAD_BYTES',        str(10 * 1024 * 1024 * 1024)))  # 10 GB legacy upload cap
 # Temp chunks land on the CDN drive itself, avoiding /tmp exhaustion
-UPLOAD_TMP_DIR      = os.getenv('UPLOAD_TMP_DIR', os.path.join(
+UPLOAD_TMP_DIR           = os.getenv('UPLOAD_TMP_DIR', os.path.join(
     '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028', '.upload_sessions'
 ))
-# In future, can be changed to this code for accomodance for P8 patch:
+# In future, can be changed to this code for accomodance for P8 patch with removing the chunks from being exposed on the CDN:
 # UPLOAD_TMP_DIR = os.getenv(                                   # ← P8
 #     'UPLOAD_TMP_DIR',
 #     '/tmp/fluxdrop_upload_sessions'
@@ -1012,7 +1012,7 @@ _NET_PROBE_HOSTS = [
     ('8.8.8.8', 53,  'Google DNS'),
     ('1.1.1.1', 53,  'Cloudflare DNS'),
 ]
-_NET_PROBE_TIMEOUT  = 3
+_NET_PROBE_TIMEOUT       = 3
 _NET_PROBE_INTERVAL      = 30   # normal polling interval (s)
 _NET_PROBE_INTERVAL_DOWN = 5    # faster polling during outage (s)
 
@@ -2698,8 +2698,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # Fire notification
         _fire_upload_notification(user_id, dest_rel or "/",
-                                  f"Batch upload complete: {extracted} files extracted, "
-                                  f"{skipped} skipped, {errors} errors.")
+            f"Batch upload complete: {extracted} files extracted, "
+            f"{skipped} skipped, {errors} errors."
+        )
 
         # Terminate chunked response
         try:
@@ -4374,7 +4375,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _MAX_USERNAME = 64
         _MAX_NICKNAME = 64
         _MAX_EMAIL    = 254   # RFC 5321 maximum
-        _MAX_PASSWORD = 1024  # bcrypt only uses first 72 bytes; cap well above that
+        _MAX_PASSWORD = 1024  # bcrypt only uses first 72 bytes, but with new pre-hash it's now well above that; cap are not needed but wanted
         if (len(username) > _MAX_USERNAME or
                 len(nickname) > _MAX_NICKNAME or
                 len(email)    > _MAX_EMAIL    or
@@ -4770,6 +4771,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(200, self._render_share_page(share, token, target_fs, base_fs, sub_path or ""), "text/html")
 
         return self._send_response(404, "<h1>404 — Not Found</h1>", "text/html")
+        # This message by no means should came up with the FluxDrop interaction as-is, so if it will - that's the sign of an error
 
     def _render_share_page(self, share, token, target_fs, base_fs, sub_path):
         """Render the public share HTML page with recursive folder listing."""
@@ -5713,6 +5715,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # authenticated any user can browse/download files from the shared CDN
         # volume.  Returned paths keep the "/cdn" prefix so the client can
         # distinguish them from per-user entries.
+        # Right now, it's not working, and... The purpose is unknown to be fair. Will be marked for removal
         if relative_path.startswith('/cdn'):
             cdn_rel = relative_path[len('/cdn'):]
             base_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
@@ -6615,6 +6618,8 @@ def _get_server_free_bytes() -> int:
     stat = shutil.disk_usage(SERVE_ROOT)
     return stat.free
 
+# Never saw it actually changed - need to be tested
+# Seems like related to the "small size of CDN drive" in my current server config
 DEFAULT_QUOTA_BYTES = 50 * 1024 ** 3  # 50 GB
 QUOTA_MIN_BYTES     = 10 * 1024 ** 3  # floor: never drop below 10 GB
 QUOTA_MAX_BYTES     = 100 * 1024 ** 3 # ceiling: never exceed 100 GB

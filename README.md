@@ -1,12 +1,11 @@
-# server `v0.11.3`
+# server `v0.11.3.1`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release note: **Huge overall updates to the code. For now NOT ready for public 
-testing {pre-release changes; commit-as-checkpoint style} FIXED THE ADMIN 
-PANEL***
+testing {pre-release changes; commit-as-checkpoint style} Code review***
 
 ***Do not use those versions until 0.12.0\* is released because it will need 
-CSP header for safe Markdown rendering***
+CSP header for safe Markdown rendering (I think it is done now?)***
 
 *(changed the version because right now, I need to make checkpoints since code 
 changes are huge to be iterated safely without regressions)*

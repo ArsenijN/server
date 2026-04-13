@@ -23,6 +23,8 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
+- [ ] Make caching or optimize the quota size counting for reducing the time 
+that is needed to process the 150k+ items
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching, like folder structures or file properties or something else)
 - [ ] Fix `/files` duplication in folder-in-link (non-breaking but enormous)
@@ -33,13 +35,14 @@ console for errors")
 - [x] Fix folder-in-link forwarding (paths in URL) working only when clicked on 
 `path-breadcrumb`, but not when on `open-btn` in `border-t`
 - [ ] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
-least)
-- [ ] Fix admin panel not working
+least - since it shows the CSP doing it's work)
+- [x] Fix admin panel not working
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
 dynamic insufficient space at the CDN drive?)
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
 will display what files takes the most, where and what)
-- [ ] Fix Markdown "intended support for new lines" (80 bytes line agreement)
+- [ ] Fix Markdown "intended support for new lines" (80/88 chars per line 
+agreement)
 - [ ] Fix issues with resuming the download (in FluxDrop file manager at least)
 - [ ] Make download work as chunked-based in FluxDrop UI, keeping the regular 
 octet-stream for legacy usage
@@ -47,22 +50,16 @@ octet-stream for legacy usage
 download doesn't continue)
 - [ ] Fix beacon token deactivation/deletion even on usage
 - [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
-means http to https on cdn 9file manager)?
-- [x] Add ability to navigate the folders via browser's next/previous page 
-(make paths in url)
-- [x] Add ability to confirm entries via Enter; fix the issue that enter makes 
-interaction with background used object
-- [x] Add notification ability when upload of files in queue is finished
+means http to https on cdn (file manager) since login works ok (forwards to 
+https)
 - [ ] Fix spaces at the end of folder names causes delete fail - rename works 
 OK with them
-- [x] Fix 0-bytes files can catch on "Content-Length required." error on folder 
-uploads
 - [x] Add some kind of file streaming so upload of a folders will be faster 
 (but secure) - one stream, a lot of files
   - [ ] Add this feature to site UI
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
 content)
-- [ ] Add file picker (checkbox-styled)
+- [ ] Add file picker to file browser (checkbox-styled)
   - [ ] Add ability to use regular keyboard shortcuts (shift for multiple file 
   pick, ctrl to specific, ctrl+shift for multiple from latest pick with ctrl; 
   aka regular file browser behavior)

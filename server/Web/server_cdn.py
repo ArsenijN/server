@@ -2991,7 +2991,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 '''SELECT u.id, u.is_admin FROM sessions s
                    JOIN users u ON u.id = s.user_id
                    WHERE s.session_token = ? AND s.expires_at > CURRENT_TIMESTAMP''',
-                (token,)
+                (_hash_session_token(token),)   # ← P1: hash before comparing, same as _check_token_auth
             ).fetchone()
         if not row:
             self._send_response(401, json.dumps({'error': 'Invalid or expired token.'}), 'application/json')

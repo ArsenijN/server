@@ -1,9 +1,10 @@
-# server `v0.11.4`
+# server `v0.11.5`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Huge overall updates to the code. For now NOT ready for public 
-testing {pre-release changes; commit-as-checkpoint style} Added part of the 
-features from ToDo, new fixes pending***
+*Release note: **Fix image fetch can't be stop in bg***
+
+(Huge overall updates to the code. For now it's NOT ready for public testing 
+{pre-release changes; commit-as-checkpoint style})
 
 ***Do not use those versions until 0.12.0\* is released because it will need 
 CSP header for safe Markdown rendering (I think it is done now?)***

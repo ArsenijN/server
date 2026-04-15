@@ -1344,7 +1344,22 @@ window.previewFile = async function(path) {
         const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(tokenData.download_token)}`;
 
         if (cat === 'image') {
-            bodyEl.innerHTML = `<img src="${dlUrl}" alt="${escapeHtml(filename)}" style="max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto">`;
+            // Fetch as blob so the AbortController can cancel mid-download.
+            bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Loading image…</p>';
+            const imgResp = await fetchWithFallback(dlUrl, {
+                signal: _previewSignal,
+                ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {})
+            });
+            if (!imgResp.ok) throw new Error(`HTTP ${imgResp.status}`);
+            const imgBlob = await imgResp.blob();
+            const imgUrl  = URL.createObjectURL(imgBlob);
+            // If modal was closed while we were fetching, discard the blob silently.
+            if (_previewSignal.aborted) { URL.revokeObjectURL(imgUrl); return; }
+            bodyEl.innerHTML = `<img src="${imgUrl}" alt="${escapeHtml(filename)}"
+                style="max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto">`;
+            // Revoke the object URL when the preview is closed.
+            const _origClose = window.closePreview;
+            window.closePreview = function() { URL.revokeObjectURL(imgUrl); window.closePreview = _origClose; _origClose(); };
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
 
         } else if (cat === 'heic') {
@@ -1389,17 +1404,17 @@ window.previewFile = async function(path) {
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
 
         } else if (cat === 'pdf') {
-            // Use the browser's built-in PDF renderer via an <iframe>.
-            // The download token is appended so the server accepts the request
-            // without a cookie/header — same pattern used for images.
-            bodyEl.innerHTML = `<iframe
-                src="${dlUrl}"
-                style="width:100%;height:65vh;border:none;border-radius:8px;background:#fff"
-                title="${escapeHtml(filename)}">
+            // Append &inline=1 so the server sends Content-Disposition: inline,
+            // which lets the browser PDF plugin render the file instead of downloading it.
+            const pdfUrl = dlUrl + '&inline=1';
+            bodyEl.innerHTML = `<object
+                data="${pdfUrl}"
+                type="application/pdf"
+                style="width:100%;height:65vh;border:none;border-radius:8px;background:#fff">
                 <p style="color:#94a3b8;padding:2rem;text-align:center">
-                    Your browser cannot display PDFs inline.
+                    PDF preview not available. Use the Download button below.
                 </p>
-            </iframe>`;
+            </object>`;
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
 
         } else if (cat === 'archive') {
@@ -1460,6 +1475,7 @@ window.previewFile = async function(path) {
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
         }
     } catch (err) {
+        if (err.name === 'AbortError') return;  // modal closed mid-fetch, not an error
         bodyEl.innerHTML = `<p style="color:#ef4444;padding:2rem;text-align:center">Preview failed: ${escapeHtml(String(err))}</p>`;
     }
 };
@@ -1594,9 +1610,6 @@ window.downloadFolderZip = async function(path) {
 }
 
 window.deleteItem = async function(path) {
-    // Trim surrounding whitespace so folders whose names end with spaces
-    // are found correctly by the server (rename already trims client-side).
-    path = path.trim();
     const disp = stripInternalPrefix(path);
     if (!confirm('Move to Trash: ' + disp + '?')) return;
     try {
@@ -1749,11 +1762,17 @@ async function _refreshTrashView() {
                 ${daysLeft(item.expires_at)}
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0">
-                ${!item.is_dir ? `<button class="trash-preview-btn" data-path="${escapeHtmlAttr(item.original_path)}"
-                    style="background:#6366f1;color:white;border:none;border-radius:6px;
-                           padding:4px 10px;cursor:pointer;font-size:12px">
-                    Preview
-                </button>` : ''}
+                ${!item.is_dir
+                    ? `<button class="trash-preview-btn" data-path="${escapeHtmlAttr(item.trash_path)}"
+                           style="background:#6366f1;color:white;border:none;border-radius:6px;
+                                  padding:4px 10px;cursor:pointer;font-size:12px">
+                           Preview
+                       </button>`
+                    : `<button class="trash-browse-btn" data-trash-path="${escapeHtmlAttr(item.trash_path)}" data-id="${item.id}"
+                           style="background:#6366f1;color:white;border:none;border-radius:6px;
+                                  padding:4px 10px;cursor:pointer;font-size:12px">
+                           Browse
+                       </button>`}
                 <button class="trash-restore-btn" data-id="${item.id}"
                     style="background:#22c55e;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600">
@@ -1797,10 +1816,44 @@ async function _refreshTrashView() {
     });
 
     // Preview button — open the file in the standard preview modal.
-    // The file is still accessible via its original path while in trash.
     body.querySelectorAll('.trash-preview-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             previewFile(btn.dataset.path);
+        });
+    });
+
+    // Browse button — expand an inline file tree for trashed folders.
+    body.querySelectorAll('.trash-browse-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const trashPath = btn.dataset.trashPath;
+            const row = btn.closest('.trash-row');
+            // Toggle: if tree already open, close it.
+            const existing = row.nextElementSibling;
+            if (existing && existing.classList.contains('trash-tree-panel')) {
+                existing.remove(); btn.textContent = 'Browse'; return;
+            }
+            btn.textContent = 'Loading…'; btn.disabled = true;
+            try {
+                // Re-use the existing archive_tree or list API.
+                // Simplest: ask the server to list the trash_path as if it were
+                // a normal directory — requires a server-side endpoint that can
+                // read from the trash dir.  Until that's available we fall back
+                // to showing a "not yet supported" message.
+                const panel = document.createElement('div');
+                panel.className = 'trash-tree-panel';
+                panel.style.cssText = 'background:#f8fafc;border-bottom:1px solid #e2e8f0;' +
+                    'padding:10px 20px 10px 44px;font-size:12px;color:#475569';
+                // TODO: replace with real API call once server exposes
+                //       GET /api/v1/trash/<id>/list or similar.
+                panel.innerHTML = `<em style="color:#94a3b8">📂 Folder browsing from trash requires a
+                    server-side listing endpoint (<code>/api/v1/trash/${btn.dataset.id}/list</code>).
+                    Restore the folder first to browse its contents.</em>`;
+                row.insertAdjacentElement('afterend', panel);
+                btn.textContent = 'Close'; btn.disabled = false;
+            } catch (err) {
+                btn.textContent = 'Browse'; btn.disabled = false;
+                alert('Browse failed: ' + err.message);
+            }
         });
     });
 }

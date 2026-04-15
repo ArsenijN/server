@@ -7,6 +7,7 @@ user feedback or ideas for future development.
 
 - [ ] Fix plain text password and login (!!!)
 > key to key password to server 
+> kinda resolved via HSTS and HTTPS
 
 ---
 
@@ -32,9 +33,6 @@ via Chrome
 that is needed to process the 150k+ items
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching, like folder structures or file properties or something else)
-- [x] Fix `/files` duplication in folder-in-link (non-breaking but enormous) - 
-means that after page reload via F5, it appends new /files/, so it becomes 
-`https://arseniusgen.uk.to/fluxdrop_pp/files/files/files` after 2 reloads)
 - [x] Add message for HTML if styles are not loaded (aka "Loading styles... 
 Stuck there for long time? Check the internet, try reloading the page and check 
 console for errors")
@@ -52,7 +50,7 @@ agreement)
 octet-stream for legacy usage
 - [ ] Add self-resume on network switch (offline handler shows and hides, but 
 download doesn't continue)
-- [ ] Fix beacon token deactivation/deletion even on usage
+- [ ] Fix beacon token deactivation/deletion even on usage - still there
 - [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
 means http to https on cdn (file manager) since login works ok (forwards to 
 https)
@@ -67,7 +65,7 @@ content)
   - [ ] Add ability to use regular keyboard shortcuts (shift for multiple file 
   pick, ctrl to specific, ctrl+shift for multiple from latest pick with ctrl; 
   aka regular file browser behavior)
-- [ ] Cancel background file fetch (download) for preview if preview modal is 
+- [x] Cancel background file fetch (download) for preview if preview modal is 
 closed (reduce wasted amount of internet traffic)
 - [ ] Add loading wheel to the right of "Upload" button between prep and upload 
 states - make it appear before new entry in `Uploads` or `Downloads` appears, 
@@ -175,3 +173,46 @@ sources.
 >         if (err.name === 'AbortError') return; // modal was closed, ignore
 >         bodyEl.innerHTML = `<p style="color:#ef4444;...">Preview failed: ...`;
 > ```
+
+
+If your server doesn't support `inline=1` yet, the
+simplest cross-browser fix is to embed via `<object>` with a fallback link,
+which forces inline rendering in most browsers regardless of the header.
+
+Option B — server_cdn.py: add `inline=1` support to the download handler
+
+Find the section where `Content-Disposition` is set for the download endpoint
+and add the inline flag check.  Search for the string `attachment; filename`
+inside the download handler:
+
+**Find (may appear 1–2 times in the download path):**
+```python
+            'Content-Disposition': f'attachment; filename="{quoted_name}"',
+```
+
+**Replace with:**
+```python
+            'Content-Disposition': (
+                f'inline; filename="{quoted_name}"'
+                if parsed_qs.get('inline', ['0'])[0] == '1'
+                else f'attachment; filename="{quoted_name}"'
+            ),
+```
+
+> Make sure `parsed_qs` is in scope where you make this change.  If the
+> download handler already parses query params into a dict, use whatever
+> variable name it uses.  If not, add near the top of the handler:
+> ```python
+> from urllib.parse import parse_qs
+> parsed_qs = parse_qs(urllib.parse.urlparse(self.path).query)
+> ```
+
+line 1824:
+> The "Browse" inline tree is scaffolded here with a placeholder message
+> because the trash items are stored under an internal `.trash` directory
+> path that the current list API (`/api/v1/list/…`) does not expose.
+> To implement it fully, add `GET /api/v1/trash/<id>/list` in `server_cdn.py`
+> that walks `trash_path` and returns the same JSON structure as the normal
+> list endpoint.  The client-side scaffold above calls `btn.dataset.id` — 
+> swap the placeholder `panel.innerHTML` for a real `apiCall` once the
+> endpoint exists.

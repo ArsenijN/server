@@ -1644,6 +1644,7 @@ def _trash_list(user_id: int) -> list:
             'size_bytes':    size,
             'is_dir':        bool(is_dir),
             'retention_days': ret,
+            'trash_path':    tpath,
         })
     return items
 
@@ -5008,12 +5009,16 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if len(parts) < 2 or parts[1] != str(user_id):
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
             sub = parts[2] if len(parts) > 2 else ''
-            fs_path  = os.path.normpath(os.path.join(user_root, sub))
+            fs_path  = os.path.join(user_root, sub)   # no normpath: preserve trailing spaces
             orig_rel = '/' + sub if sub else '/'
         else:
-            fs_path  = os.path.normpath(os.path.join(user_root, path.lstrip('/')))
+            fs_path  = os.path.join(user_root, path.lstrip('/'))  # no normpath: preserve trailing spaces
             orig_rel = '/' + path.lstrip('/')
-        if not os.path.realpath(fs_path).startswith(user_root):
+        # Security: resolve symlinks on the *parent* directory only, not the
+        # leaf, so that a trailing-space name is not mangled by realpath.
+        fs_parent   = os.path.realpath(os.path.dirname(fs_path))
+        root_real   = os.path.realpath(user_root)
+        if not fs_parent.startswith(root_real):
             return self._send_response(403, json.dumps({'error': 'Forbidden'}))
         if not os.path.exists(fs_path):
             return self._send_response(404, json.dumps({'error': 'Path not found'}))

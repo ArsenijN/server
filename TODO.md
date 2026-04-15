@@ -23,6 +23,7 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
+- [ ] Trash bin folder preview
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items
 - [ ] Add server ability to push the additional data before client will request 

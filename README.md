@@ -9,7 +9,7 @@ Just backend code of my server, nothing else, anyone can use it
 ***Do not use those versions until 0.12.0\* is released because it will need 
 CSP header for safe Markdown rendering (I think it is done now?)***
 
-*(changed the version because right now, I need to make checkpoints since code 
+\**(changed the version because right now, I need to make checkpoints since code 
 changes are huge to be iterated safely without regressions)*
 
 Currently, server is **almost production-ready!!!** (see: [FluxDrop 

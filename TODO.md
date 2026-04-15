@@ -23,21 +23,24 @@ user feedback or ideas for future development.
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
+- [ ] Optimize FluxDrop for mobile screens, regular 16:9 and other aspect 
+ratios, later on make an mobile version of the FluxDrop as an installable app 
+via Chrome
+- [ ] Review the `script.js` for comments, etc.
 - [ ] Trash bin folder preview
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching, like folder structures or file properties or something else)
-- [ ] Fix `/files` duplication in folder-in-link (non-breaking but enormous)
+- [x] Fix `/files` duplication in folder-in-link (non-breaking but enormous) - 
+means that after page reload via F5, it appends new /files/, so it becomes 
+`https://arseniusgen.uk.to/fluxdrop_pp/files/files/files` after 2 reloads)
 - [x] Add message for HTML if styles are not loaded (aka "Loading styles... 
 Stuck there for long time? Check the internet, try reloading the page and check 
 console for errors")
   - [ ] Make it appear also in plain HTML without need in `<script>`
-- [x] Fix folder-in-link forwarding (paths in URL) working only when clicked on 
-`path-breadcrumb`, but not when on `open-btn` in `border-t`
 - [ ] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
 least - since it shows the CSP doing it's work)
-- [x] Fix admin panel not working
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
 dynamic insufficient space at the CDN drive?)
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
@@ -57,7 +60,7 @@ https)
 OK with them
 - [x] Add some kind of file streaming so upload of a folders will be faster 
 (but secure) - one stream, a lot of files
-  - [ ] Add this feature to site UI
+  - [ ] Add this feature to site UI from `batch_tar_upload.py`
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
 content)
 - [ ] Add file picker to file browser (checkbox-styled)
@@ -102,7 +105,7 @@ and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports 
 for more ideal links and simplicity
-- [ ] Add PDF preview
+- [ ] Add PDF preview (at least via browser's util)
 - [ ] Add `.7z` and `.rar` for file table previews (and other ones)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
 - [ ] Make special player with "video preview support", aka "slow internet 
@@ -120,8 +123,6 @@ upgrade; line 6621)
 - [ ] Add landing page for FluxDrop - I really want start to draft it out
 - [ ] Add ToS and PP docs - WIP
 - [ ] Make proper header and footer for the main FluxDrop UI
-- [ ] Make an mobile version of the FluxDrop as an app or as an installable 
-app via Chrome
 - [ ] Add autoupdate "agreement" (when newer ToS or PP appears - user must 
 accept it within)
 - [ ] Discover ways to build own page via modules (zero-code; not necessary 
@@ -163,3 +164,14 @@ sources.
 
 > **HSTS rollout plan:** Deploy with `max-age=300` first. Test that HTTPS works perfectly from a fresh browser. Then increase to `max-age=31536000`. Once set to a large value browsers will *always* use HTTPS for your domain — reversing it is hard, so confirm everything works first.
 > 💡 Once you move inline scripts to `script.js` and inline styles to `tailwindcss.css`, you can drop `'unsafe-inline'` from both `script-src` and `style-src` for a significantly stronger policy.
+
+> **Note:** Aborted fetches throw a `DOMException` with `name === 'AbortError'`.
+> The existing `catch (err)` block at the bottom of `previewFile` will catch
+> it and show "Preview failed: AbortError" for a brief flash — to suppress
+> that, optionally add at the top of the catch:
+>
+> ```js
+>     } catch (err) {
+>         if (err.name === 'AbortError') return; // modal was closed, ignore
+>         bodyEl.innerHTML = `<p style="color:#ef4444;...">Preview failed: ...`;
+> ```

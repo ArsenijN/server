@@ -115,7 +115,12 @@ let _lastUploadBatchCount = 0;  // P10: tracks file count in the current upload 
 // Works whether the app lives at "/" or "/fluxdrop_pp/" or any other subpath —
 // no hardcoded path needed. Strips "index.html" if present.
 const _APP_BASE = (() => {
-    let base = window.location.pathname.replace(/\/index\.html$/, '');
+    // Strip index.html, then strip /files and everything after it so that
+    // reloading on a deep-link URL like /fluxdrop_pp/files/foo doesn't make
+    // _APP_BASE include "/files/foo" and cause double-/files on next render.
+    let base = window.location.pathname
+        .replace(/\/index\.html$/, '')
+        .replace(/\/files(\/.*)?$/, '');
     // Ensure no trailing slash (we add one when building URLs below)
     return base.endsWith('/') ? base.slice(0, -1) : base;
 })();
@@ -1065,7 +1070,8 @@ const EXT_VIDEO   = new Set(['mp4','webm','ogg','ogv','mov','m4v','mkv','avi']);
 const EXT_AUDIO   = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus','weba']);
 const EXT_TEXT    = new Set(['txt','js','ts','jsx','tsx','py','sh','bash','json','xml','yaml','yml','toml','ini','cfg','conf','html','htm','css','scss','less','csv','log','env','rs','go','c','cpp','h','java','rb','php','swift','kt','sql','r','lua']);
 const EXT_MARKDOWN = new Set(['md','markdown','mdown','mkd']);
-const EXT_ARCHIVE = new Set(['zip','tar','gz','tgz','bz2','tbz2','xz','txz']);
+const EXT_ARCHIVE  = new Set(['zip','tar','gz','tgz','bz2','tbz2','xz','txz']);
+const EXT_PDF      = new Set(['pdf']);
 
 function fileCategory(path) {
     const ext = (path.split('.').pop() || '').toLowerCase();
@@ -1074,6 +1080,7 @@ function fileCategory(path) {
     if (EXT_VIDEO.has(ext))      return 'video';
     if (EXT_AUDIO.has(ext))      return 'audio';
     if (EXT_MARKDOWN.has(ext))   return 'markdown';
+    if (EXT_PDF.has(ext))        return 'pdf';
     if (EXT_TEXT.has(ext))       return 'text';
     if (EXT_ARCHIVE.has(ext))    return 'archive';
     return 'binary';
@@ -1223,7 +1230,13 @@ function _renderMarkdown(bodyEl, rawText) {
     bodyEl.appendChild(container);
 }
 
+// Holds the AbortController for any in-flight preview fetch so we can
+// cancel it when the modal is closed before the response arrives.
+let _previewAbortCtrl = null;
+
 window.closePreview = function() {
+    // Cancel any in-progress background fetch (text, markdown, HEIC, etc.)
+    if (_previewAbortCtrl) { _previewAbortCtrl.abort(); _previewAbortCtrl = null; }
     const modal = document.getElementById('preview-modal');
     modal.classList.add('hidden');
     const body = document.getElementById('preview-body');
@@ -1308,6 +1321,11 @@ function _renderArchiveTree(bodyEl, entries, archiveName) {
 }
 
 window.previewFile = async function(path) {
+    // Cancel any previous in-flight preview fetch before starting a new one.
+    if (_previewAbortCtrl) { _previewAbortCtrl.abort(); }
+    _previewAbortCtrl = new AbortController();
+    const _previewSignal = _previewAbortCtrl.signal;
+
     const filename = path.split('/').pop();
     const cat = fileCategory(path);
     const modal = document.getElementById('preview-modal');
@@ -1332,7 +1350,7 @@ window.previewFile = async function(path) {
         } else if (cat === 'heic') {
             bodyEl.innerHTML = '<p style="color:#94a3b8;padding:2rem;text-align:center">Decoding HEIC…</p>';
             await _loadHeic2any();
-            const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+            const resp = await fetchWithFallback(dlUrl, { signal: _previewSignal, ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}) });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const blob = await resp.blob();
             // heic2any converts to JPEG blob (or PNG if toType specified)
@@ -1356,19 +1374,33 @@ window.previewFile = async function(path) {
         } else if (cat === 'markdown') {
             bodyEl.innerHTML = '<p style="color:#94a3b8;padding:2rem;text-align:center">Rendering…</p>';
             await _loadMarked();
-            const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+            const resp = await fetchWithFallback(dlUrl, { signal: _previewSignal, ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}) });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const text = await resp.text();
             _renderMarkdown(bodyEl, text);
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
 
         } else if (cat === 'text') {
-            const resp = await fetchWithFallback(dlUrl, authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {});
+            const resp = await fetchWithFallback(dlUrl, { signal: _previewSignal, ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}) });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const text = await resp.text();
             const ext = (path.split('.').pop() || '').toLowerCase();
             bodyEl.innerHTML = `<pre class="lang-${ext}">${escapeHtml(text.slice(0, 50000))}${text.length > 50000 ? '\n\n… (truncated)' : ''}</pre>`;
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
+
+        } else if (cat === 'pdf') {
+            // Use the browser's built-in PDF renderer via an <iframe>.
+            // The download token is appended so the server accepts the request
+            // without a cookie/header — same pattern used for images.
+            bodyEl.innerHTML = `<iframe
+                src="${dlUrl}"
+                style="width:100%;height:65vh;border:none;border-radius:8px;background:#fff"
+                title="${escapeHtml(filename)}">
+                <p style="color:#94a3b8;padding:2rem;text-align:center">
+                    Your browser cannot display PDFs inline.
+                </p>
+            </iframe>`;
+            dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
 
         } else if (cat === 'archive') {
             const ext = (path.split('.').pop() || '').toLowerCase();
@@ -1397,6 +1429,7 @@ window.previewFile = async function(path) {
                     const encodedPath = path.split('/').map(encodeURIComponent).join('/');
                     const treeUrl = `${API_BASE_URL}/api/v1/archive_tree${encodedPath}?dl_token=${encodeURIComponent(dlToken)}`;
                     const treeResp = await fetchWithFallback(treeUrl, {
+                        signal: _previewSignal,
                         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
                     });
                     if (!treeResp.ok) throw new Error(`HTTP ${treeResp.status}`);
@@ -1561,6 +1594,9 @@ window.downloadFolderZip = async function(path) {
 }
 
 window.deleteItem = async function(path) {
+    // Trim surrounding whitespace so folders whose names end with spaces
+    // are found correctly by the server (rename already trims client-side).
+    path = path.trim();
     const disp = stripInternalPrefix(path);
     if (!confirm('Move to Trash: ' + disp + '?')) return;
     try {
@@ -1713,6 +1749,11 @@ async function _refreshTrashView() {
                 ${daysLeft(item.expires_at)}
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0">
+                ${!item.is_dir ? `<button class="trash-preview-btn" data-path="${escapeHtmlAttr(item.original_path)}"
+                    style="background:#6366f1;color:white;border:none;border-radius:6px;
+                           padding:4px 10px;cursor:pointer;font-size:12px">
+                    Preview
+                </button>` : ''}
                 <button class="trash-restore-btn" data-id="${item.id}"
                     style="background:#22c55e;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600">
@@ -1752,6 +1793,14 @@ async function _refreshTrashView() {
             } catch (err) {
                 alert('Delete failed: ' + err.message);
             }
+        });
+    });
+
+    // Preview button — open the file in the standard preview modal.
+    // The file is still accessible via its original path while in trash.
+    body.querySelectorAll('.trash-preview-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            previewFile(btn.dataset.path);
         });
     });
 }

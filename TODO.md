@@ -54,7 +54,7 @@ download doesn't continue)
 - [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
 means http to https on cdn (file manager) since login works ok (forwards to 
 https)
-- [ ] Fix spaces at the end of folder names causes delete fail - rename works 
+- [x] Fix spaces at the end of folder names causes delete fail - rename works 
 OK with them
 - [x] Add some kind of file streaming so upload of a folders will be faster 
 (but secure) - one stream, a lot of files

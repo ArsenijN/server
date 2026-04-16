@@ -1234,6 +1234,88 @@ function _renderMarkdown(bodyEl, rawText) {
 // cancel it when the modal is closed before the response arrives.
 let _previewAbortCtrl = null;
 
+// Preview a trashed file by streaming it directly from the trash endpoint.
+// This bypasses the normal download-token flow because trashed files live
+// outside the user's regular file tree.
+async function _previewTrashFile(trashId, filename) {
+    // Cancel any previous in-flight preview fetch.
+    if (_previewAbortCtrl) { _previewAbortCtrl.abort(); }
+    _previewAbortCtrl = new AbortController();
+    const _previewSignal = _previewAbortCtrl.signal;
+
+    const modal  = document.getElementById('preview-modal');
+    const titleEl = document.getElementById('preview-title');
+    const bodyEl  = document.getElementById('preview-body');
+    const dlBtn   = document.getElementById('preview-download-btn');
+
+    titleEl.textContent = filename;
+    bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Loading…</p>';
+    dlBtn.style.display = 'none';
+    modal.classList.remove('hidden');
+
+    const streamUrl = `${API_BASE_URL}/api/v1/trash/${trashId}/file`;
+
+    try {
+        const cat = fileCategory(filename);
+
+        // For image / pdf / text / markdown — fetch as blob then render.
+        if (['image','heic','pdf','text','markdown','audio','video'].includes(cat)) {
+            const resp = await fetchWithFallback(streamUrl, {
+                signal: _previewSignal,
+                headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const blob    = await resp.blob();
+            if (_previewSignal.aborted) { URL.revokeObjectURL(URL.createObjectURL(blob)); return; }
+            const blobUrl = URL.createObjectURL(blob);
+
+            const revokeOnClose = () => { URL.revokeObjectURL(blobUrl); };
+
+            if (cat === 'image' || cat === 'heic') {
+                bodyEl.innerHTML = `<img src="${blobUrl}" alt="${escapeHtml(filename)}"
+                    style="max-width:100%;max-height:70vh;border-radius:8px;display:block;margin:0 auto">`;
+            } else if (cat === 'video') {
+                bodyEl.innerHTML = `<video controls autoplay style="max-width:100%;max-height:70vh;
+                    border-radius:8px;display:block;margin:0 auto;background:#000">
+                    <source src="${blobUrl}">Your browser doesn't support this video format.</video>`;
+            } else if (cat === 'audio') {
+                bodyEl.innerHTML = `<div style="padding:2rem 1rem;text-align:center">
+                    <div style="font-size:4rem;margin-bottom:1rem">🎵</div>
+                    <div style="color:#94a3b8;margin-bottom:1.5rem;font-size:15px">${escapeHtml(filename)}</div>
+                    <audio controls autoplay style="width:100%"><source src="${blobUrl}"></audio></div>`;
+            } else if (cat === 'pdf') {
+                bodyEl.innerHTML = `<iframe src="${blobUrl}"
+                    style="width:100%;height:65vh;border:none;border-radius:8px;background:#fff"
+                    title="${escapeHtml(filename)}"></iframe>`;
+            } else {
+                // text / markdown — read as text
+                const text = await blob.text();
+                if (cat === 'markdown') {
+                    await _loadMarked();
+                    _renderMarkdown(bodyEl, text);
+                } else {
+                    const ext = (filename.split('.').pop() || '').toLowerCase();
+                    bodyEl.innerHTML = `<pre class="lang-${ext}">${escapeHtml(text.slice(0, 50000))}${text.length > 50000 ? '\n\n… (truncated)' : ''}</pre>`;
+                }
+            }
+
+            // Revoke blob URL when preview is closed.
+            const _origClose = window.closePreview;
+            window.closePreview = function() { revokeOnClose(); window.closePreview = _origClose; _origClose(); };
+            dlBtn.style.display = 'none'; // can't easily download from trash; use Restore first
+        } else {
+            bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
+                <div style="font-size:3.5rem;margin-bottom:1rem">📄</div>
+                <div style="color:#94a3b8;margin-bottom:1rem">${escapeHtml(filename)}</div>
+                <p style="color:#64748b;font-size:14px">No preview available. Restore the file to download it.</p>
+            </div>`;
+        }
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+        bodyEl.innerHTML = `<p style="color:#ef4444;padding:2rem;text-align:center">Preview failed: ${escapeHtml(String(err))}</p>`;
+    }
+}
+
 window.closePreview = function() {
     // Cancel any in-progress background fetch (text, markdown, HEIC, etc.)
     if (_previewAbortCtrl) { _previewAbortCtrl.abort(); _previewAbortCtrl = null; }
@@ -1404,17 +1486,31 @@ window.previewFile = async function(path) {
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
 
         } else if (cat === 'pdf') {
-            // Append &inline=1 so the server sends Content-Disposition: inline,
-            // which lets the browser PDF plugin render the file instead of downloading it.
-            const pdfUrl = dlUrl + '&inline=1';
-            bodyEl.innerHTML = `<object
-                data="${pdfUrl}"
-                type="application/pdf"
-                style="width:100%;height:65vh;border:none;border-radius:8px;background:#fff">
+            bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Loading PDF…</p>';
+            const pdfResp = await fetchWithFallback(dlUrl, {
+                signal: _previewSignal,
+                ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {})
+            });
+            if (!pdfResp.ok) throw new Error(`HTTP ${pdfResp.status}`);
+            const pdfBlob = await pdfResp.blob();
+            if (_previewSignal.aborted) { URL.revokeObjectURL(URL.createObjectURL(pdfBlob)); return; }
+            const pdfBlobUrl = URL.createObjectURL(pdfBlob);
+            // blob: URLs are same-origin to the page — X-Frame-Options does not apply.
+            bodyEl.innerHTML = `<iframe
+                src="${pdfBlobUrl}"
+                style="width:100%;height:65vh;border:none;border-radius:8px;background:#fff"
+                title="${escapeHtml(filename)}">
                 <p style="color:#94a3b8;padding:2rem;text-align:center">
-                    PDF preview not available. Use the Download button below.
+                    Your browser cannot display PDFs inline.
                 </p>
-            </object>`;
+            </iframe>`;
+            // Revoke the blob URL when the preview is closed.
+            const _origClosePdf = window.closePreview;
+            window.closePreview = function() {
+                URL.revokeObjectURL(pdfBlobUrl);
+                window.closePreview = _origClosePdf;
+                _origClosePdf();
+            };
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
 
         } else if (cat === 'archive') {
@@ -1763,7 +1859,7 @@ async function _refreshTrashView() {
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0">
                 ${!item.is_dir
-                    ? `<button class="trash-preview-btn" data-path="${escapeHtmlAttr(item.trash_path)}"
+                    ? `<button class="trash-preview-btn" data-id="${item.id}" data-name="${escapeHtmlAttr(item.name)}"
                            style="background:#6366f1;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
                            Preview
@@ -1815,10 +1911,10 @@ async function _refreshTrashView() {
         });
     });
 
-    // Preview button — open the file in the standard preview modal.
+   // Preview button — stream the trashed file directly via the trash endpoint.
     body.querySelectorAll('.trash-preview-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            previewFile(btn.dataset.path);
+            _previewTrashFile(+btn.dataset.id, btn.dataset.name);
         });
     });
 

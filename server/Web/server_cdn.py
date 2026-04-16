@@ -27,6 +27,7 @@ from shared import CustomLogger, current_blacklist, blacklist_lock, load_blackli
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 import socket as _socket
 import base64 as _base64
+import mimetypes
 
 # Content-types that benefit from gzip (text-based, not already compressed).
 # Binary / already-compressed types are explicitly excluded so we never waste
@@ -4018,6 +4019,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if self.trash_list_pattern.match(parsed_url.path):
             return self._handle_trash_list()
 
+        # GET /api/v1/trash/<id>/file  — stream trashed file for preview
+        trash_item_pattern_preview = re.match(r'^/api/v\d/trash/(\d+)/file$', parsed_url.path)
+        if trash_item_pattern_preview:
+            return self._handle_trash_file_stream(int(trash_item_pattern_preview.group(1)))
+
         # FluxDrop API calls
         flux_match = self.fluxdrop_api_pattern.match(parsed_url.path)
         if flux_match:
@@ -4989,6 +4995,52 @@ class AuthHandler(SimpleHTTPRequestHandler):
             'notice': notice,
         }))
 
+    def _handle_trash_file_stream(self, item_id: int):
+        """GET /api/v1/trash/<id>/file  — stream a trashed file for preview.
+        Uses session-token auth (same as all other authenticated endpoints).
+        Only the owning user can access their own trash items.
+        """
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        try:
+            with _db_connect() as conn:
+                row = conn.execute(
+                    'SELECT trash_path, is_dir, size_bytes FROM trash_items'
+                    ' WHERE id = ? AND user_id = ?',
+                    (item_id, user_id)
+                ).fetchone()
+        except Exception as exc:
+            return self._send_response(500, json.dumps({'error': str(exc)}))
+        if not row:
+            return self._send_response(404, json.dumps({'error': 'Trash item not found'}))
+        if row['is_dir']:
+            return self._send_response(400, json.dumps({'error': 'Cannot stream a directory'}))
+        trash_path = row['trash_path']
+        if not os.path.isfile(trash_path):
+            return self._send_response(404, json.dumps({'error': 'Trashed file missing from disk'}))
+
+        filename  = os.path.basename(trash_path).split('__')[0]  # strip __<uid> suffix
+        mime_type, _ = mimetypes.guess_type(filename)
+        mime_type = mime_type or 'application/octet-stream'
+        file_size = os.path.getsize(trash_path)
+
+        self.send_response(200)
+        self.send_header('Content-Type', mime_type)
+        self.send_header('Content-Disposition', f'inline; filename="{filename}"')
+        self.send_header('Content-Length', str(file_size))
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        try:
+            with open(trash_path, 'rb') as f:
+                while True:
+                    chunk = f.read(64 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def _handle_trash_move(self):
         """POST /api/v1/trash  {path}  — soft-delete a file/folder into the trash."""
         user_id = self._check_token_auth()
@@ -4999,9 +5051,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
             data   = json.loads(self.rfile.read(length) if length else b'{}')
         except Exception:
             return self._send_response(400, json.dumps({'error': 'Invalid JSON'}))
-        path = data.get('path', '').strip()
-        if not path:
+        path = data.get('path', '')
+        if not isinstance(path, str) or not path.strip():
             return self._send_response(400, json.dumps({'error': 'path required'}))
+        # Do NOT strip() the whole path — folder names may intentionally end
+        # with spaces (e.g. "my folder ").  Only strip surrounding slashes so
+        # the join below works correctly; leading slash is re-added if needed.
+        path = path.strip('/')
+        path = '/' + path   # restore leading slash for the rest of the handler
         # Resolve to filesystem path (user-relative)
         user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
         if path.startswith('/FluxDrop/'):

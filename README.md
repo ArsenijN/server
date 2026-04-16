@@ -1,7 +1,8 @@
-# server `v0.11.5`
+# server `v0.11.6`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix image fetch can't be stop in bg***
+*Release note: **Fix space at the end of the folder name causing trash bin to 
+not work***
 
 (Huge overall updates to the code. For now it's NOT ready for public testing 
 {pre-release changes; commit-as-checkpoint style})

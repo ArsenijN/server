@@ -5005,6 +5005,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
         try:
             with _db_connect() as conn:
+                conn.row_factory = sqlite3.Row   # dict-style access for this query only
                 row = conn.execute(
                     'SELECT trash_path, is_dir, size_bytes FROM trash_items'
                     ' WHERE id = ? AND user_id = ?',
@@ -5026,6 +5027,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         file_size = os.path.getsize(trash_path)
 
         self.send_response(200)
+        self._send_cors_headers()          # required — this path bypasses _send_response()
         self.send_header('Content-Type', mime_type)
         self.send_header('Content-Disposition', f'inline; filename="{filename}"')
         self.send_header('Content-Length', str(file_size))

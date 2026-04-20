@@ -33,10 +33,9 @@ via Chrome
 that is needed to process the 150k+ items
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching, like folder structures or file properties or something else)
-- [x] Add message for HTML if styles are not loaded (aka "Loading styles... 
-Stuck there for long time? Check the internet, try reloading the page and check 
-console for errors")
-  - [ ] Make it appear also in plain HTML without need in `<script>`
+- [ ] Make message about not loaded styles appear also in plain HTML without 
+need in `<script>`
+- [ ] Make message about not loaded JS appear also in plain HTML
 - [ ] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
 least - since it shows the CSP doing it's work)
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
@@ -54,19 +53,14 @@ download doesn't continue)
 - [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
 means http to https on cdn (file manager) since login works ok (forwards to 
 https)
-- [x] Fix spaces at the end of folder names causes delete fail - rename works 
-OK with them
-- [x] Add some kind of file streaming so upload of a folders will be faster 
-(but secure) - one stream, a lot of files
-  - [ ] Add this feature to site UI from `batch_tar_upload.py`
+- [ ] Add file streaming (archive and stream to the server; one stream - a lot 
+of files) feature to site UI from `batch_tar_upload.py`
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
 content)
 - [ ] Add file picker to file browser (checkbox-styled)
   - [ ] Add ability to use regular keyboard shortcuts (shift for multiple file 
   pick, ctrl to specific, ctrl+shift for multiple from latest pick with ctrl; 
   aka regular file browser behavior)
-- [x] Cancel background file fetch (download) for preview if preview modal is 
-closed (reduce wasted amount of internet traffic)
 - [ ] Add loading wheel to the right of "Upload" button between prep and upload 
 states - make it appear before new entry in `Uploads` or `Downloads` appears, 
 also, bring the label to the static part so it will not scroll
@@ -110,6 +104,8 @@ for more ideal links and simplicity
 mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
 bandwidth and resolution)
 - [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
+
+
 - [ ] Delete "CDN" path as it serves no purpose and doesn't work (line 5718 in 
 `server_cdn.py`). Seems like it was made to make "shared" folder for any user 
 of FluxDrop, but true usage is unknown since it's seems like undocumented and 
@@ -143,76 +139,4 @@ storage media)
 - [ ] Custom right-click menu
 
 
-
-Note for myself: the realistic "safe to deploy publicly" checklist, in order 
-of importance:
-
-1. Fix B7 — force HTTPS for all auth/API paths. This is the single most 
-important one.
-2. Fix B2 — hash session tokens before storing. One DB backup or misconfigured 
-file permission undoes all your auth work otherwise.
-3. Fix B8 — add HSTS so browsers remember to always use HTTPS for your domain.
-4. Add B9 (CSP) before you add any of the preview features from your TODO — 
-PDF, Markdown, and archive previews are XSS-heavy territory and you want the 
-CSP in place first.
-5. Fix B6 — login length caps, to prevent the bcrypt DoS from distributed 
-sources.
-
-
-
-> **HSTS rollout plan:** Deploy with `max-age=300` first. Test that HTTPS works perfectly from a fresh browser. Then increase to `max-age=31536000`. Once set to a large value browsers will *always* use HTTPS for your domain — reversing it is hard, so confirm everything works first.
-> 💡 Once you move inline scripts to `script.js` and inline styles to `tailwindcss.css`, you can drop `'unsafe-inline'` from both `script-src` and `style-src` for a significantly stronger policy.
-
-> **Note:** Aborted fetches throw a `DOMException` with `name === 'AbortError'`.
-> The existing `catch (err)` block at the bottom of `previewFile` will catch
-> it and show "Preview failed: AbortError" for a brief flash — to suppress
-> that, optionally add at the top of the catch:
->
-> ```js
->     } catch (err) {
->         if (err.name === 'AbortError') return; // modal was closed, ignore
->         bodyEl.innerHTML = `<p style="color:#ef4444;...">Preview failed: ...`;
-> ```
-
-
-If your server doesn't support `inline=1` yet, the
-simplest cross-browser fix is to embed via `<object>` with a fallback link,
-which forces inline rendering in most browsers regardless of the header.
-
-Option B — server_cdn.py: add `inline=1` support to the download handler
-
-Find the section where `Content-Disposition` is set for the download endpoint
-and add the inline flag check.  Search for the string `attachment; filename`
-inside the download handler:
-
-**Find (may appear 1–2 times in the download path):**
-```python
-            'Content-Disposition': f'attachment; filename="{quoted_name}"',
-```
-
-**Replace with:**
-```python
-            'Content-Disposition': (
-                f'inline; filename="{quoted_name}"'
-                if parsed_qs.get('inline', ['0'])[0] == '1'
-                else f'attachment; filename="{quoted_name}"'
-            ),
-```
-
-> Make sure `parsed_qs` is in scope where you make this change.  If the
-> download handler already parses query params into a dict, use whatever
-> variable name it uses.  If not, add near the top of the handler:
-> ```python
-> from urllib.parse import parse_qs
-> parsed_qs = parse_qs(urllib.parse.urlparse(self.path).query)
-> ```
-
-line 1824:
-> The "Browse" inline tree is scaffolded here with a placeholder message
-> because the trash items are stored under an internal `.trash` directory
-> path that the current list API (`/api/v1/list/…`) does not expose.
-> To implement it fully, add `GET /api/v1/trash/<id>/list` in `server_cdn.py`
-> that walks `trash_path` and returns the same JSON structure as the normal
-> list endpoint.  The client-side scaffold above calls `btn.dataset.id` — 
-> swap the placeholder `panel.innerHTML` for a real `apiCall` once the
-> endpoint exists.
+- [ ] Add the ability of partial streaming on trash bin previews

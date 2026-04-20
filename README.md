@@ -1,14 +1,16 @@
-# server `v0.11.6`
+# server `v0.11.7`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix space at the end of the folder name causing trash bin to 
-not work***
+*Release note: **Fix the PDF preview and trash bin file preview***
 
 (Huge overall updates to the code. For now it's NOT ready for public testing 
 {pre-release changes; commit-as-checkpoint style})
 
 ***Do not use those versions until 0.12.0\* is released because it will need 
-CSP header for safe Markdown rendering (I think it is done now?)***
+CSP header for safe Markdown rendering (I think it is done now?) and further 
+tests for safe public access via GSE (Google Search Engine). Also, the public 
+access will be restricted until most of the ToDo entries will be done (like 
+landing page, TOS and PP, reliability options, etc.)***
 
 \**(changed the version because right now, I need to make checkpoints since code 
 changes are huge to be iterated safely without regressions)*

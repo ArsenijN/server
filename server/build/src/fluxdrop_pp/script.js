@@ -1492,8 +1492,12 @@ window.previewFile = async function(path) {
                 ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {})
             });
             if (!pdfResp.ok) throw new Error(`HTTP ${pdfResp.status}`);
-            const pdfBlob = await pdfResp.blob();
-            if (_previewSignal.aborted) { URL.revokeObjectURL(URL.createObjectURL(pdfBlob)); return; }
+            // Force the MIME type to application/pdf regardless of what the
+            // server sent — without this the blob defaults to octet-stream
+            // and both Firefox and Chrome refuse to render it in an iframe.
+            const pdfBlobRaw = await pdfResp.blob();
+            if (_previewSignal.aborted) { return; }   // nothing to revoke yet
+            const pdfBlob    = new Blob([pdfBlobRaw], { type: 'application/pdf' });
             const pdfBlobUrl = URL.createObjectURL(pdfBlob);
             // blob: URLs are same-origin to the page — X-Frame-Options does not apply.
             bodyEl.innerHTML = `<iframe

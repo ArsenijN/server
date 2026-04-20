@@ -101,5 +101,11 @@
         font-size: 0.875rem;
         color: #1e293b;
     }
-    .profile-menu-item:hover { background-color: #f1f5f9; }
+    .profile-menu-item:hover { 
+        background-color: #f1f5f9; 
+    }
+
+    #fd-style-fallback {
+        display: none !important;
+    }
 }

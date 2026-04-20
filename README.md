@@ -1,7 +1,8 @@
-# server `v0.11.9`
+# server `v0.11.10`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix the IP Beacon unexpected token purge in-use***
+*Release note: **Add Markdown intended newline cojoint, added messages if 
+JS/CSS isn't loaded, `.7z` and `.rar` now handled as files without preview***
 
 (Huge overall updates to the code. For now it's NOT ready for public testing 
 {pre-release changes; commit-as-checkpoint style})

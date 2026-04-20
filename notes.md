@@ -48,6 +48,44 @@ line 1824:
 
 
 
+```
+That's a good instinct — the CDN path is vestigial but the underlying idea (a shared space between users) is actually worth keeping as a concept, just rethought properly. Before writing any patches let me read what the CDN path actually does today.Now I have a full picture. Let me lay this out clearly before suggesting anything:
+
+---
+
+**What CDN actually is today:**
+
+There are actually *two* separate "shared" concepts tangled together:
+
+1. **`CDN_UPLOAD_DIR`** (`secrets/CDN_uploads`) — what the "Browse CDN" button navigates to. It's a globally-shared flat directory that any logged-in user can browse. It has partial support wired through `download_token`, `list`, `zip`, `rename`, `delete`, etc. — but the server comment literally says *"purpose is unknown... marked for removal"*. The `ownerType = 'catbox'` check in `script.js` is a leftover reference to this.
+
+2. **`CATBOX_UPLOAD_DIR`** (`CB_uploads`) — a completely *separate* thing used by the catbox-style anonymous upload API (the `/user/api.php` endpoint), not the file manager at all. This is the Litterbox/Catbox clone feature.
+
+So the "Browse CDN" button goes to `CDN_uploads/`, which is a dead-end shared folder with no upload UI, no quota, no permissions — it just happens to be listable.
+
+---
+
+**The "Family shared folder" rethink:**
+
+Your instinct is right. The infrastructure for a proper shared space is mostly already there — you just need to decide on the data model. There are two realistic approaches:
+
+**Option A — Shared folder per-group (simpler):** Create a `groups` table, each group has a `group_id` and maps to a real directory like `SERVE_ROOT/FluxDrop/groups/<group_id>/`. Members are listed in a `group_members` table. The existing list/download/upload/delete endpoints get a third path prefix `/group/<group_id>/` alongside `/cdn/` and `/`. Permissions are: any member can read/write, only the group owner (or admin) can add/remove members or delete the group.
+
+**Option B — Shared subfolder inside one user's tree (simpler to implement):** One user "owns" a folder and grants other specific users access to it via a share token with write permission. This is basically the existing share system with write access added. Less flexible but almost zero new backend code.
+
+For a family use case Option A is the right model — it's symmetric, nobody "owns" the vacation photos folder, and it survives if the original user leaves. Option B is fine for "let my partner upload to my invoices folder" but feels wrong for a proper shared space.
+
+---
+
+**What I'd suggest doing now vs later:**
+
+Right now — **remove the broken CDN button from the UI** and replace it with a greyed-out "Shared space (coming soon)" placeholder, or just hide it. The `CDN_UPLOAD_DIR` infrastructure can stay in the server for now since it's not hurting anything, and the path prefix `/cdn/` can be repurposed as `/group/` later without much churn.
+
+Later, when you want to build it properly — the new things needed are: `groups` + `group_members` DB tables, a `/group/<id>/` path resolver in the 6–7 places that currently have the `/cdn/` branch, a group management UI (create group, invite by username, leave), and a quota decision (does shared space count against the owner? split evenly? separate pool?).
+
+Want me to write the patch to remove/hide the CDN button now, or sketch out the full group schema and migration as a design doc first?
+```
+
 
 
 # Current problems

@@ -1070,7 +1070,7 @@ const EXT_VIDEO   = new Set(['mp4','webm','ogg','ogv','mov','m4v','mkv','avi']);
 const EXT_AUDIO   = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus','weba']);
 const EXT_TEXT    = new Set(['txt','js','ts','jsx','tsx','py','sh','bash','json','xml','yaml','yml','toml','ini','cfg','conf','html','htm','css','scss','less','csv','log','env','rs','go','c','cpp','h','java','rb','php','swift','kt','sql','r','lua']);
 const EXT_MARKDOWN = new Set(['md','markdown','mdown','mkd']);
-const EXT_ARCHIVE  = new Set(['zip','tar','gz','tgz','bz2','tbz2','xz','txz']);
+const EXT_ARCHIVE  = new Set(['zip','tar','gz','tgz','bz2','tbz2','xz','txz','7z','rar','zst','lz4','lzma','cab','iso','dmg','pkg','deb','rpm']);
 const EXT_PDF      = new Set(['pdf']);
 
 function fileCategory(path) {
@@ -1143,8 +1143,53 @@ function _loadMarked() {
 // - Sanitises every HTML tag that marked emits using a strict allowlist so
 //   user-uploaded .md files cannot inject scripts even without a CSP.
 function _renderMarkdown(bodyEl, rawText) {
-    marked.use({ gfm: true, breaks: true });
-    const rawHtml = marked.parse(rawText);
+    // Pre-process: join soft-wrapped lines (single bare \n between two
+    // non-empty, non-block lines) into a single space so that editors
+    // that hard-wrap prose at column 80 don't produce staircase <br>s.
+    //
+    // A line is considered a "block starter" if it begins a Markdown
+    // structural element: heading (#), fence (``` or ~~~), blockquote (>),
+    // thematic break (--- / *** / ___), HTML tag, or a list item (-, *, +,
+    // digit+dot).  Blank lines are preserved as paragraph separators.
+    const BLOCK_START = /^(\s{0,3})(#{1,6}\s|```|~~~|>|[-*_]{3,}|<\/?[a-zA-Z]|[-*+]\s|\d+[.)]\s)/;
+
+    const lines  = rawText.split('\n');
+    const joined = [];
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const next = lines[i + 1];
+        joined.push(line);
+        // If this line and the next are both non-empty, non-block lines,
+        // and they are separated by exactly one newline (soft wrap),
+        // replace the newline with a space by not emitting a \n between
+        // them.  We do this by marking the join point.
+        if (
+            line.trim() !== '' &&
+            next !== undefined && next.trim() !== '' &&
+            !BLOCK_START.test(line) &&
+            !BLOCK_START.test(next) &&
+            // Preserve two-space hard break (CommonMark spec)
+            !line.endsWith('  ') &&
+            !line.endsWith('\\')
+        ) {
+            // Replace the upcoming \n with a space by appending directly.
+            // We do this by popping the line we just pushed, appending a
+            // space, and continuing — the next iteration will push `next`.
+            joined[joined.length - 1] = line + ' ';
+            // Skip emitting a newline: joined lines will be re-split by
+            // marked's lexer as one logical line.
+            // (We don't actually skip anything — the array join below uses
+            //  '\n', so we need a different approach: use a sentinel.)
+            // Simpler: just reassign lines[i+1] to be the merged result
+            // and leave this slot as empty so it contributes nothing.
+            lines[i + 1] = line + ' ' + next;
+            joined[joined.length - 1] = ''; // this slot becomes blank
+        }
+    }
+    const processedText = joined.join('\n');
+
+    marked.use({ gfm: true, breaks: false });  // spec-correct: bare \n = space
+    const rawHtml = marked.parse(processedText);
 
     // Allowlist sanitiser — strips any tag/attr not on the list.
     const ALLOWED_TAGS = new Set([
@@ -1523,14 +1568,24 @@ window.previewFile = async function(path) {
 
             const isZip = ext === 'zip';
             const isTar = ['tar', 'gz', 'tgz'].includes(ext);
-            const noPreview = ['bz2', 'tbz2', 'xz', 'txz'].includes(ext);
+            const noPreview = ['bz2','tbz2','xz','txz','7z','rar','zst','lz4','lzma','cab','iso','dmg','pkg','deb','rpm'].includes(ext);
 
+            const FORMAT_NAMES = {
+                bz2:'bzip2', tbz2:'bzip2 tar', xz:'XZ', txz:'XZ tar',
+                '7z':'7-Zip', rar:'RAR', zst:'Zstandard', lz4:'LZ4',
+                lzma:'LZMA', cab:'Windows Cabinet', iso:'Disc Image',
+                dmg:'macOS Disk Image', pkg:'Package', deb:'Debian Package',
+                rpm:'RPM Package',
+            };
             if (noPreview) {
+                const fmtName = FORMAT_NAMES[ext] || ('.' + ext.toUpperCase());
                 bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
                     <div style="font-size:3rem;margin-bottom:1rem">🗜</div>
-                    <div style="color:#94a3b8">${escapeHtml(filename)}</div>
-                    <p style="color:#64748b;font-size:14px;margin-top:8px">
-                        .${ext} preview isn't supported in browser.<br>Download and extract locally.
+                    <div style="color:#94a3b8;font-weight:600;margin-bottom:4px">${escapeHtml(filename)}</div>
+                    <div style="color:#64748b;font-size:12px;margin-bottom:12px">${fmtName} archive</div>
+                    <p style="color:#64748b;font-size:14px">
+                        In-browser preview is not available for this format.<br>
+                        Download the file and extract it locally.
                     </p></div>`;
                 dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
             } else if (isZip || isTar) {

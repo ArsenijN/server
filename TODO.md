@@ -33,23 +33,22 @@ via Chrome
 that is needed to process the 150k+ items
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching, like folder structures or file properties or something else)
-- [ ] Make message about not loaded styles appear also in plain HTML without 
+- [x] Make message about not loaded styles appear also in plain HTML without 
 need in `<script>`
-- [ ] Make message about not loaded JS appear also in plain HTML
+- [x] Make message about not loaded JS appear also in plain HTML
 - [ ] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
 least - since it shows the CSP doing it's work)
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
 dynamic insufficient space at the CDN drive?)
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
 will display what files takes the most, where and what)
-- [ ] Fix Markdown "intended support for new lines" (80/88 chars per line 
+- [x] Fix Markdown "intended support for new lines" (80/88 chars per line 
 agreement)
 - [ ] Fix issues with resuming the download (in FluxDrop file manager at least)
 - [ ] Make download work as chunked-based in FluxDrop UI, keeping the regular 
 octet-stream for legacy usage
 - [ ] Add self-resume on network switch (offline handler shows and hides, but 
 download doesn't continue)
-- [ ] Fix beacon token deactivation/deletion even on usage - still there
 - [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
 means http to https on cdn (file manager) since login works ok (forwards to 
 https)
@@ -64,7 +63,7 @@ content)
 - [ ] Add loading wheel to the right of "Upload" button between prep and upload 
 states - make it appear before new entry in `Uploads` or `Downloads` appears, 
 also, bring the label to the static part so it will not scroll
-- [ ] Add image placeholders between image download and display
+- [ ] Add image placeholders between image fetch and display
 - [ ] Check why HEIF files are slow to decode (on client, it takes ~5 seconds 
 even on i5 10400)
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
@@ -97,7 +96,6 @@ and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports 
 for more ideal links and simplicity
-- [ ] Add PDF preview (at least via browser's util)
 - [ ] Add `.7z` and `.rar` for file table previews (and other ones)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
 - [ ] Make special player with "video preview support", aka "slow internet 
@@ -128,6 +126,7 @@ manager)
 
 - [ ] Make HTTP and HTTPS hosters work properly as standalone utilities without 
 any FluxDrop and CDN
+- [ ] Divide FluxDrop and HTTP/HTTPS hosters into separate repos
 
 
 - [ ] Migration to other host platform for HTTP and HTTPS efficiency and 
@@ -139,4 +138,5 @@ storage media)
 - [ ] Custom right-click menu
 
 
-- [ ] Add the ability of partial streaming on trash bin previews
+- [x] Add the ability of partial streaming on trash bin previews
+- [ ] Fix 206 not working in trash bin preview

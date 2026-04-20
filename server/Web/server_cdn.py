@@ -5026,22 +5026,61 @@ class AuthHandler(SimpleHTTPRequestHandler):
         mime_type = mime_type or 'application/octet-stream'
         file_size = os.path.getsize(trash_path)
 
-        self.send_response(200)
-        self._send_cors_headers()          # required — this path bypasses _send_response()
-        self.send_header('Content-Type', mime_type)
-        self.send_header('Content-Disposition', f'inline; filename="{filename}"')
-        self.send_header('Content-Length', str(file_size))
-        self.send_header('Cache-Control', 'no-store')
-        self.end_headers()
-        try:
-            with open(trash_path, 'rb') as f:
-                while True:
-                    chunk = f.read(64 * 1024)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        bufsize      = 4 * 1024 * 1024   # 4 MiB read buffer
+        disposition  = self._content_disposition(filename).replace('attachment;', 'inline;', 1)
+        range_header = self.headers.get('Range')
+
+        if range_header:
+            m = re.match(r'bytes=(\d+)-(\d*)', range_header)
+            if m:
+                start = int(m.group(1))
+                end   = int(m.group(2)) if m.group(2) else file_size - 1
+            else:
+                start, end = 0, file_size - 1
+            start  = max(0, min(start, file_size - 1))
+            end    = max(start, min(end,   file_size - 1))
+            length = end - start + 1
+            self.send_response(206)
+            self._send_cors_headers()
+            self.send_header('Content-Type',        mime_type)
+            # Use RFC 5987 encoding for non-ASCII names (Cyrillic, CJK, etc.)
+            self.send_header('Content-Disposition',
+                            self._content_disposition(filename).replace('attachment;', 'inline;', 1))
+            self.send_header('Accept-Ranges',       'bytes')
+            self.send_header('Content-Range',       f'bytes {start}-{end}/{file_size}')
+            self.send_header('Content-Length',      str(length))
+            self.send_header('Cache-Control',       'no-store')
+            self.end_headers()
+            try:
+                with open(trash_path, 'rb') as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = f.read(min(bufsize, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+        else:
+            self.send_response(200)
+            self._send_cors_headers()
+            self.send_header('Content-Type',        mime_type)
+            self.send_header('Content-Disposition', disposition)
+            self.send_header('Accept-Ranges',       'bytes')
+            self.send_header('Content-Length',      str(file_size))
+            self.send_header('Cache-Control',       'no-store')
+            self.end_headers()
+            try:
+                with open(trash_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(bufsize)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     def _handle_trash_move(self):
         """POST /api/v1/trash  {path}  — soft-delete a file/folder into the trash."""

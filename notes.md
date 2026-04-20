@@ -50,56 +50,7 @@ line 1824:
 
 
 
-# Current problems (not)
+# Current problems
 ```
-arsen@MiWiFi-RD15-srv:~/servers/self-host/site/Web$ tail -n 50 LogsCDN.txt 
-[2026-04-16 09:19:45] File "/opt/python3.14.2/lib/python3.14/http/server.py", line 496, in handle
-    self.handle_one_request()
-    ~~~~~~~~~~~~~~~~~~~~~~~^^
-[2026-04-16 09:19:45] File "/opt/python3.14.2/lib/python3.14/http/server.py", line 484, in handle_one_request
-    method()
-    ~~~~~~^^
-[2026-04-16 09:19:45] File "/home/arsen/servers/self-host/site/Web/server_cdn.py", line 4025, in do_GET
-    return self._handle_trash_file_stream(int(trash_item_pattern_preview.group(1)))
-           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[2026-04-16 09:19:45] File "/home/arsen/servers/self-host/site/Web/server_cdn.py", line 5017, in _handle_trash_file_stream
-    if row['is_dir']:
-       ~~~^^^^^^^^^^
-[2026-04-16 09:19:45] TypeError: tuple indices must be integers or slices, not str
-[2026-04-16 09:19:45] ----------------------------------------
-[2026-04-16 09:19:45] ----------------------------------------
-[2026-04-16 09:19:45] Exception occurred during processing of request from
-[2026-04-16 09:19:45] ('88.154.16.44', 54634)
-[2026-04-16 09:19:45] Traceback (most recent call last):
-[2026-04-16 09:19:45] File "/opt/python3.14.2/lib/python3.14/socketserver.py", line 697, in process_request_thread
-    self.finish_request(request, client_address)
-    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
-[2026-04-16 09:19:45] File "/opt/python3.14.2/lib/python3.14/socketserver.py", line 362, in finish_request
-    self.RequestHandlerClass(request, client_address, self)
-    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[2026-04-16 09:19:45] File "/home/arsen/servers/self-host/site/Web/server_cdn.py", line 2810, in __init__
-    super().__init__(*args, directory=SERVE_ROOT, **kwargs)
-    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[2026-04-16 09:19:45] File "/opt/python3.14.2/lib/python3.14/http/server.py", line 732, in __init__
-    super().__init__(*args, **kwargs)
-    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
-[2026-04-16 09:19:45] File "/opt/python3.14.2/lib/python3.14/socketserver.py", line 766, in __init__
-    self.handle()
-    ~~~~~~~~~~~^^
-[2026-04-16 09:19:45] File "/opt/python3.14.2/lib/python3.14/http/server.py", line 496, in handle
-    self.handle_one_request()
-    ~~~~~~~~~~~~~~~~~~~~~~~^^
-[2026-04-16 09:19:45] File "/opt/python3.14.2/lib/python3.14/http/server.py", line 484, in handle_one_request
-    method()
-    ~~~~~~^^
-[2026-04-16 09:19:45] File "/home/arsen/servers/self-host/site/Web/server_cdn.py", line 4025, in do_GET
-    return self._handle_trash_file_stream(int(trash_item_pattern_preview.group(1)))
-           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[2026-04-16 09:19:45] File "/home/arsen/servers/self-host/site/Web/server_cdn.py", line 5017, in _handle_trash_file_stream
-    if row['is_dir']:
-       ~~~^^^^^^^^^^
-[2026-04-16 09:19:45] TypeError: tuple indices must be integers or slices, not str
-[2026-04-16 09:19:45] ----------------------------------------
-[2026-04-16 09:19:48] 31.43.242.8 - - [16/Apr/2026 09:19:48] "POST /beacon/ping HTTP/1.1" 200 -
-[2026-04-16 09:20:13] Updating blacklist...
+nothing
 ```

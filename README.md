@@ -1,7 +1,8 @@
-# server `v0.11.7`
+# server `v0.11.8`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix the PDF preview and trash bin file preview***
+*Release note: **Fix the trash bin file preview issues, add partial content 
+(206 HTTP code) for trash bin with fallback to regular (200)***
 
 (Huge overall updates to the code. For now it's NOT ready for public testing 
 {pre-release changes; commit-as-checkpoint style})

@@ -511,6 +511,7 @@ def init_db():
         _add_column_if_missing('status_snapshots', 'latency_ms', 'REAL DEFAULT NULL')
         _add_column_if_missing('net_outages', 'note', 'TEXT DEFAULT NULL')
         _add_column_if_missing('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0')
+        _add_column_if_missing('beacon_read_tokens', 'last_used', 'REAL DEFAULT NULL')
         conn.commit()
 
     logging.info("Database initialized successfully.")
@@ -3880,6 +3881,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
                        JOIN beacon_read_tokens r ON r.device_id = d.id
                        WHERE r.read_token = ?""", (token,)
                 ).fetchone()
+                if row:
+                    # Keep the token alive — update last_used so the purge
+                    # job doesn't evict it while it's still being polled.
+                    conn.execute(
+                        'UPDATE beacon_read_tokens SET last_used = ? WHERE read_token = ?',
+                        (time.time(), token)
+                    )
+                    conn.commit()
             if not row:
                 return self._send_response(404, json.dumps({'error': 'Token not found'}), 'application/json')
             payload = {
@@ -6629,8 +6638,13 @@ def _token_purge_worker():
                     'DELETE FROM beacon_devices WHERE last_seen < ?',
                     (now_ts - 30 * 86400,)
                 )
+                # Purge read tokens idle for more than 7 days.
+                # COALESCE falls back to created_at for rows that pre-date
+                # the last_used column (they'll get last_used = NULL until
+                # their first lookup after the migration).
                 conn.execute(
-                    'DELETE FROM beacon_read_tokens WHERE created_at < ?',
+                    'DELETE FROM beacon_read_tokens'
+                    ' WHERE COALESCE(last_used, created_at) < ?',
                     (now_ts - 7 * 86400,)
                 )
                 conn.commit()

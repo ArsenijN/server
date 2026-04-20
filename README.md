@@ -1,8 +1,7 @@
-# server `v0.11.8`
+# server `v0.11.9`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix the trash bin file preview issues, add partial content 
-(206 HTTP code) for trash bin with fallback to regular (200)***
+*Release note: **Fix the IP Beacon unexpected token purge in-use***
 
 (Huge overall updates to the code. For now it's NOT ready for public testing 
 {pre-release changes; commit-as-checkpoint style})

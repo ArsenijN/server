@@ -1,27 +1,12 @@
-# server `v0.11.11`
+# server `v0.12.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Dedup of the redirects in `do_X`, other things,
-new audit***
+*Release note: **Public release of the site to Google Search. Google Search 
+Indexing is pending (DNS issues appeared)***
 
-(Huge overall updates to the code. For now it's NOT ready for public testing 
-{pre-release changes; commit-as-checkpoint style})
+Now, the server **is** production-ready!!! (see: 
+[FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
 
-***Do not use those versions until 0.12.0\* is released because it will need 
-CSP header for safe Markdown rendering (I think it is done now?) and further 
-tests for safe public access via GSE (Google Search Engine). Also, the public 
-access will be restricted until most of the ToDo entries will be done (like 
-landing page, TOS and PP, reliability options, etc.)***
-
-\**(changed the version because for now, I need to make checkpoints since code 
-changes are huge to be iterated safely without regressions or safety issues)*
-
-Currently, server is **almost production-ready!!!** (see: [FluxDrop 
-Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
-
-Because of this new audit, FluxDrop will become available for public (via 
-Google Search engine) after full security checks and user interaction 
-improvements
 
 Accessible at: https://arseniusgen.uk.to
 
@@ -30,8 +15,8 @@ FluxDrop accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
 Wiki page: https://github.com/ArsenijN/server/wiki
 
 New Readme style will be applied or merged with current when FluxDrop will 
-reach full production-ready state ([current look](./README_newstyle.md)). 
-Also, the version will be bumped to 1.0.0
+reach full production-ready state ([current look](./README_newstyle.md)) and
+the version will be bumped to 1.0.0
 
 ## FluxDrop relations to this server
 
@@ -42,7 +27,8 @@ design "very human". So... there we are
 
 FluxDrop and entire server now operates with proper HTTPS thanks to **Let's 
 Encrypt**'s certificates! Test it out at: arseniusgen.uk.to or 
-arsenius-gen.uk.to
+arsenius-gen.uk.to (arsenius_gen.uk.to is also valid, but can't have secure 
+HTTPS)
 
 > Q: Why you didn't used Let's Encrypt before?
 

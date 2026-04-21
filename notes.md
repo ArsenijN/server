@@ -1,19 +1,3 @@
-Note for myself: the realistic "safe to deploy publicly" checklist, in order 
-of importance:
-
-1. Fix B7 — force HTTPS for all auth/API paths. This is the single most 
-important one.
-2. Fix B2 — hash session tokens before storing. One DB backup or misconfigured 
-file permission undoes all your auth work otherwise.
-3. Fix B8 — add HSTS so browsers remember to always use HTTPS for your domain.
-4. Add B9 (CSP) before you add any of the preview features from your TODO — 
-PDF, Markdown, and archive previews are XSS-heavy territory and you want the 
-CSP in place first.
-5. Fix B6 — login length caps, to prevent the bcrypt DoS from distributed 
-sources.
-
-
-
 > **HSTS rollout plan:** Deploy with `max-age=300` first. Test that HTTPS works perfectly from a fresh browser. Then increase to `max-age=31536000`. Once set to a large value browsers will *always* use HTTPS for your domain — reversing it is hard, so confirm everything works first.
 > 💡 Once you move inline scripts to `script.js` and inline styles to `tailwindcss.css`, you can drop `'unsafe-inline'` from both `script-src` and `style-src` for a significantly stronger policy.
 

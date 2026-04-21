@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /$
+Allow: /fluxdrop_pp/$
+
+Disallow: /api/
+Disallow: /auth/
+Disallow: /FluxDrop/
+Disallow: /share/
+Disallow: /status
+Disallow: /beacon/
+Disallow: /upload
+Disallow: /uploads/
+
+# Sitemap: https://arseniusgen.uk.to/sitemap.xml

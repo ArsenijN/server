@@ -33,17 +33,12 @@ via Chrome
 that is needed to process the 150k+ items
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching, like folder structures or file properties or something else)
-- [x] Make message about not loaded styles appear also in plain HTML without 
-need in `<script>`
-- [x] Make message about not loaded JS appear also in plain HTML
 - [ ] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
 least - since it shows the CSP doing it's work)
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
 dynamic insufficient space at the CDN drive?)
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
 will display what files takes the most, where and what)
-- [x] Fix Markdown "intended support for new lines" (80/88 chars per line 
-agreement)
 - [ ] Fix issues with resuming the download (in FluxDrop file manager at least)
 - [ ] Make download work as chunked-based in FluxDrop UI, keeping the regular 
 octet-stream for legacy usage

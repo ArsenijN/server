@@ -3785,11 +3785,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_HEAD(self):
-        # Ensure CORS and Accept-Ranges headers are present on HEAD responses
+        # Ensure CORS and Accept-Ranges headers are present on HEAD responses.
+        # patched_end_headers delegates to self.end_headers (the class override)
+        # so X-Frame-Options, HSTS, and CSP are included — previously it called
+        # super().end_headers() directly, bypassing all security headers.
         def patched_end_headers():
             self.send_header('Accept-Ranges', 'bytes')
             self._send_cors_headers()
-            super(AuthHandler, self).end_headers()
+            AuthHandler.end_headers(self)   # go through our override, not the base class
 
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
@@ -4111,8 +4114,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({"error": "Forbidden"}))
-        if self._redirect_to_https_if_needed():
-            return
         parsed_url = urlparse(self.path)
 
         # Chunked upload session endpoints (before auth so chunk upload works with upload_token)
@@ -4235,8 +4236,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
-        if self._redirect_to_https_if_needed():
-            return
         parsed_url = urlparse(self.path)
         item_match = self.shares_item_pattern.match(parsed_url.path)
         if item_match:
@@ -4332,8 +4331,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
         with blacklist_lock:
             if self.client_address[0] in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
-        if self._redirect_to_https_if_needed():
-            return
         parsed_url = urlparse(self.path)
         us_cancel = self.upload_session_cancel_pattern.match(parsed_url.path)
         if us_cancel:

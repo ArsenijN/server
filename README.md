@@ -1,8 +1,8 @@
-# server `v0.11.10`
+# server `v0.11.11`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Add Markdown intended newline cojoint, added messages if 
-JS/CSS isn't loaded, `.7z` and `.rar` now handled as files without preview***
+*Release note: **Dedup of the redirects in `do_X`, other things,
+new audit***
 
 (Huge overall updates to the code. For now it's NOT ready for public testing 
 {pre-release changes; commit-as-checkpoint style})
@@ -13,13 +13,13 @@ tests for safe public access via GSE (Google Search Engine). Also, the public
 access will be restricted until most of the ToDo entries will be done (like 
 landing page, TOS and PP, reliability options, etc.)***
 
-\**(changed the version because right now, I need to make checkpoints since code 
-changes are huge to be iterated safely without regressions)*
+\**(changed the version because for now, I need to make checkpoints since code 
+changes are huge to be iterated safely without regressions or safety issues)*
 
 Currently, server is **almost production-ready!!!** (see: [FluxDrop 
 Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
 
-Because of that new audit, FluxDrop will become available for public (via 
+Because of this new audit, FluxDrop will become available for public (via 
 Google Search engine) after full security checks and user interaction 
 improvements
 

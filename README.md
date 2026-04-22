@@ -1,14 +1,14 @@
-# server `v0.12.1`
+# server `v0.12.2`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Small UI changes, ensure client updates the caches since a lot 
-of things are done for past few weeks***
+*Release note: **Added window modal for TOS and PP, added the landing page for 
+FluxDrop***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
 
-The updates would cover important issues first, then ToDo entries, then user 
-feedback/issue tracker list
+The future code updates would cover important issues first, then ToDo entries, 
+then user feedback/issue tracker list
 
 
 Accessible at: https://arseniusgen.uk.to

@@ -1,4 +1,4 @@
-        // ======================================================================
+// ======================================================================
         // --- CONFIGURATION ---
         // ======================================================================
 // Prefer HTTPS, but fall back to HTTP if HTTPS is unreachable
@@ -302,17 +302,305 @@ function renderAuthControls() {
     }
 }
 
-function renderApp(route = 'login') {
+function renderApp(route = null) {
     renderAuthControls();
     if (!authToken) {
         if (route === 'register') renderRegisterView();
-        else renderLoginView();
+        else if (route === 'login') renderLoginView();
+        else renderLandingView();   // ← default: show landing page
         return;
     }
-_requestNotificationPermission();  // P10 — ask once when the user is active
-// If authenticated, render the main app view (file browser)
-renderFileBrowserView();
+    _requestNotificationPermission();
+    checkAndShowPolicies(() => renderFileBrowserView());
+}
 
+function renderLandingView() {
+    appRoot.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:2rem">
+
+            <!-- Hero -->
+            <div class="card" style="text-align:center;padding:3rem 2rem">
+                <img src="icon.svg" style="width:72px;height:72px;margin:0 auto 1rem" alt="FluxDrop">
+                <h2 style="font-size:2.2rem;font-weight:800;color:#1e40af;margin-bottom:.75rem">
+                    Your files. Your server. Your rules.
+                </h2>
+                <p style="font-size:1.1rem;color:#475569;max-width:560px;margin:0 auto 2rem;line-height:1.7">
+                    FluxDrop is a self-hosted file storage and sharing platform.
+                    Upload, organise, preview, and share files — straight from your
+                    own infrastructure, with full privacy and no third-party cloud.
+                </p>
+                <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+                    <button class="btn" style="font-size:1rem;padding:0.85rem 2rem"
+                            onclick="renderApp('login')">Login</button>
+                    <button class="btn" style="font-size:1rem;padding:0.85rem 2rem;background:#16a34a"
+                            onclick="renderApp('register')">Create account</button>
+                </div>
+            </div>
+
+            <!-- Feature grid -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.25rem">
+                ${[
+                    ['📁', 'Organised storage', 'Nested folders, drag-and-drop uploads, and a full file browser keep your files exactly where you expect them.'],
+                    ['🔗', 'Instant sharing', 'Generate a public link for any file or folder in one click. Set expiry dates, restrict to accounts, or allow anonymous uploads.'],
+                    ['👁', 'Built-in previews', 'Images, video, audio, and text files open in a sleek in-app viewer — no extra app needed.'],
+                    ['⚡', 'Chunked uploads', 'Large files are uploaded in resumable chunks. Lose your connection? Pick up right where you left off.'],
+                    ['🗑', 'Trash bin', 'Deleted files land in a recoverable trash bin and are held for 30 days before permanent removal.'],
+                    ['🔒', 'Your data, your server', 'Nothing leaves your infrastructure. No analytics, no ads, no third-party data sharing.'],
+                ].map(([icon, title, desc]) => `
+                    <div class="card" style="padding:1.5rem">
+                        <div style="font-size:2rem;margin-bottom:.5rem">${icon}</div>
+                        <h3 style="font-weight:700;color:#1e40af;margin-bottom:.4rem">${title}</h3>
+                        <p style="color:#64748b;font-size:.92rem;line-height:1.6">${desc}</p>
+                    </div>
+                `).join('')}
+            </div>
+
+            <!-- How it works -->
+            <div class="card" style="padding:2rem">
+                <h3 style="font-size:1.4rem;font-weight:700;color:#1e40af;margin-bottom:1.25rem;text-align:center">
+                    How it works
+                </h3>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;text-align:center">
+                    ${[
+                        ['1', 'Create an account', 'Register with a username and email.'],
+                        ['2', 'Upload your files', 'Drag files in, or use the upload button. Folders work too.'],
+                        ['3', 'Organise freely', 'Create folders, rename, and move things around.'],
+                        ['4', 'Share with anyone', 'Generate a link and send it. Set permissions as you like.'],
+                    ].map(([n, title, desc]) => `
+                        <div>
+                            <div style="width:40px;height:40px;border-radius:50%;background:#dbeafe;color:#1d4ed8;
+                                        font-weight:800;font-size:1.1rem;display:flex;align-items:center;
+                                        justify-content:center;margin:0 auto .6rem">${n}</div>
+                            <div style="font-weight:600;color:#1e293b;margin-bottom:.25rem">${title}</div>
+                            <div style="font-size:.88rem;color:#64748b">${desc}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- Footer links -->
+            <div style="text-align:center;padding-bottom:1rem;font-size:.85rem;color:#94a3b8">
+                <button onclick="showPolicyModal('tos')"
+                    style="background:none;border:none;color:#94a3b8;cursor:pointer;text-decoration:underline;font-size:.85rem">
+                    Terms of Service</button>
+                &nbsp;·&nbsp;
+                <button onclick="showPolicyModal('pp')"
+                    style="background:none;border:none;color:#94a3b8;cursor:pointer;text-decoration:underline;font-size:.85rem">
+                    Privacy Policy</button>
+            </div>
+        </div>
+    `;
+}
+
+// ── Policy / TOS / PP modal ───────────────────────────────────────────────
+// CURRENT_POLICY_VERSIONS must be kept in sync with the server-side constants.
+// Only bump these when you publish updated Markdown files.
+// const POLICY_VERSIONS = { tos: '0.0.0', pp: '0.0.0' };
+const POLICY_LABELS   = { tos: 'Terms of Service', pp: 'Privacy Policy' };
+
+// Show a read-only view of one policy document (no agreement required).
+async function showPolicyModal(type) {
+    const label = POLICY_LABELS[type] || type.toUpperCase();
+
+    // Fetch current version from versions.json — single source of truth
+    let version = '0.0.0';
+    try {
+        const vr = await fetch('./policies/versions.json', { cache: 'no-cache' });
+        if (vr.ok) {
+            const vdata = await vr.json();
+            version = vdata[type] || '0.0.0';
+        }
+    } catch { /* use fallback */ }
+
+    // Relative path under the site root → served as a static file
+    const url = `./policies/${type === 'tos' ? 'TOS' : 'PP'}/ukr/v${version}.md`;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = [
+        'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10000',
+        'background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:1rem',
+    ].join(';');
+
+    overlay.innerHTML = `
+        <div style="background:#fff;border-radius:1rem;width:100%;max-width:720px;
+                    max-height:88vh;display:flex;flex-direction:column;overflow:hidden;
+                    box-shadow:0 24px 48px rgba(0,0,0,.3)">
+            <div style="padding:1.25rem 1.5rem;border-bottom:1px solid #e2e8f0;
+                        display:flex;justify-content:space-between;align-items:center">
+                <h2 style="font-size:1.15rem;font-weight:700;color:#1e40af;margin:0">
+                    ${label} <span style="font-size:.8rem;color:#94a3b8;font-weight:400">v${version}</span>
+                </h2>
+                <button id="pm-close" style="background:none;border:none;font-size:1.4rem;
+                        cursor:pointer;color:#64748b;line-height:1">✕</button>
+            </div>
+            <div id="pm-body" style="padding:1.5rem;overflow-y:auto;flex:1;
+                                     font-size:.93rem;line-height:1.7;color:#1e293b">
+                <div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>
+            </div>
+        </div>`;
+
+    document.body.appendChild(overlay);
+    overlay.querySelector('#pm-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    // Fetch & render the Markdown as plain preformatted text
+    // (no Markdown library dependency needed for a simple display)
+    try {
+        const resp = await fetch(url, { cache: 'no-cache' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const text = await resp.text();
+        // Very lightweight Markdown → HTML: headings, bold, newlines
+        const html = _mdToHtml(text);
+        overlay.querySelector('#pm-body').innerHTML = html;
+    } catch (err) {
+        overlay.querySelector('#pm-body').innerHTML =
+            `<p style="color:#dc2626">Could not load the document. Please try again later.<br>
+             <small style="color:#94a3b8">${err.message}</small></p>`;
+    }
+}
+
+// Tiny Markdown renderer (enough for policy docs — headings, bold, italic, lists, paragraphs)
+function _mdToHtml(md) {
+    return md
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        // headings
+        .replace(/^### (.+)$/gm, '<h3 style="font-size:1rem;font-weight:700;color:#1e40af;margin:1.2em 0 .3em">$1</h3>')
+        .replace(/^## (.+)$/gm,  '<h2 style="font-size:1.15rem;font-weight:700;color:#1e40af;margin:1.4em 0 .4em">$1</h2>')
+        .replace(/^# (.+)$/gm,   '<h1 style="font-size:1.35rem;font-weight:800;color:#1e40af;margin:1.5em 0 .5em">$1</h1>')
+        // bold / italic
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        // unordered list items
+        .replace(/^[-*] (.+)$/gm, '<li style="margin-left:1.25em;margin-bottom:.25em">$1</li>')
+        // ordered list items
+        .replace(/^\d+\. (.+)$/gm, '<li style="margin-left:1.25em;margin-bottom:.25em">$1</li>')
+        // blank lines → paragraph breaks
+        .replace(/\n{2,}/g, '</p><p style="margin:.6em 0">')
+        .replace(/\n/g, '<br>');
+}
+
+// Called after login / on page load for authenticated users.
+// Checks with the server which policies still need acceptance, then
+// shows them one at a time.  Calls onAllAccepted() when done (or if nothing needed).
+async function checkAndShowPolicies(onAllAccepted) {
+    let status;
+    try {
+        const resp = await apiCall('/api/v1/policy/status', 'GET', null, false);
+        status = resp;
+    } catch {
+        // If the endpoint doesn't exist yet (server not updated), skip gracefully
+        onAllAccepted();
+        return;
+    }
+
+    const queue = [];
+    if (status.needs_tos) queue.push({ type: 'tos', version: status.current_tos });
+    if (status.needs_pp)  queue.push({ type: 'pp',  version: status.current_pp  });
+
+    if (queue.length === 0) { onAllAccepted(); return; }
+
+    async function showNext() {
+        if (queue.length === 0) { onAllAccepted(); return; }
+        const { type, version } = queue.shift();
+        await _showPolicyAgreementModal(type, version, showNext);
+    }
+    showNext();
+}
+
+// Like showPolicyModal but forces the user to scroll to the bottom and click "I agree".
+async function _showPolicyAgreementModal(type, version, onAccepted) {
+    const label = POLICY_LABELS[type] || type.toUpperCase();
+    const url   = `./policies/${type === 'tos' ? 'TOS' : 'PP'}/ukr/v${version}.md`;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = [
+        'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10001',
+        'background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:1rem',
+    ].join(';');
+
+    overlay.innerHTML = `
+        <div style="background:#fff;border-radius:1rem;width:100%;max-width:720px;
+                    max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
+                    box-shadow:0 24px 48px rgba(0,0,0,.4)">
+            <div style="padding:1.25rem 1.5rem;background:#eff6ff;border-bottom:1px solid #bfdbfe">
+                <h2 style="font-size:1.1rem;font-weight:700;color:#1e40af;margin:0 0 .25rem">
+                    Please review our updated ${label}
+                </h2>
+                <p style="font-size:.85rem;color:#3730a3;margin:0">
+                    v${version} — You must agree to continue using FluxDrop.
+                </p>
+            </div>
+            <div id="pam-body" style="padding:1.5rem;overflow-y:auto;flex:1;
+                                      font-size:.92rem;line-height:1.7;color:#1e293b">
+                <div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>
+            </div>
+            <div style="padding:1rem 1.5rem;border-top:1px solid #e2e8f0;
+                        display:flex;align-items:center;justify-content:space-between;gap:1rem;
+                        background:#f8fafc">
+                <span id="pam-scroll-hint" style="font-size:.82rem;color:#94a3b8">
+                    ↓ Scroll to the bottom to enable the agree button
+                </span>
+                <button id="pam-agree-btn" class="btn" disabled
+                    style="opacity:.45;cursor:not-allowed;white-space:nowrap">
+                    I agree to the ${label}
+                </button>
+            </div>
+        </div>`;
+
+    document.body.appendChild(overlay);
+
+    const bodyEl  = overlay.querySelector('#pam-body');
+    const agreeBtn = overlay.querySelector('#pam-agree-btn');
+    const hint     = overlay.querySelector('#pam-scroll-hint');
+
+    // Enable the button once the user has scrolled to within 40 px of the bottom
+    bodyEl.addEventListener('scroll', () => {
+        const nearBottom = bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 40;
+        if (nearBottom) {
+            agreeBtn.disabled = false;
+            agreeBtn.style.opacity = '1';
+            agreeBtn.style.cursor = 'pointer';
+            hint.textContent = '✓ You have read the document';
+        }
+    });
+
+    agreeBtn.addEventListener('click', async () => {
+        agreeBtn.disabled = true;
+        agreeBtn.textContent = 'Saving…';
+        try {
+            await apiCall('/api/v1/policy/accept', 'POST', { [type]: version });
+            overlay.remove();
+            onAccepted();
+        } catch (err) {
+            agreeBtn.disabled = false;
+            agreeBtn.textContent = `I agree to the ${label}`;
+            showMessage('Error', `Could not save your agreement: ${err.message}`);
+        }
+    });
+
+    // Fetch document
+    try {
+        const resp = await fetch(url, { cache: 'no-cache' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const text = await resp.text();
+        bodyEl.innerHTML = _mdToHtml(text);
+        // If it's short enough to not need scrolling, enable the button immediately
+        if (bodyEl.scrollHeight <= bodyEl.clientHeight + 40) {
+            agreeBtn.disabled = false;
+            agreeBtn.style.opacity = '1';
+            agreeBtn.style.cursor = 'pointer';
+            hint.textContent = '';
+        }
+    } catch (err) {
+        bodyEl.innerHTML = `
+            <p style="color:#dc2626">Could not load the document: ${err.message}</p>
+            <p>You can still agree by clicking the button below, or try reloading the page.</p>`;
+        // Allow agreement even if the document failed to load
+        agreeBtn.disabled = false;
+        agreeBtn.style.opacity = '1';
+        agreeBtn.style.cursor = 'pointer';
+        hint.textContent = '';
+    }
 }
 
 function renderLoginView() {

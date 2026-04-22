@@ -27,7 +27,7 @@ user feedback or ideas for future development.
 - [ ] Optimize FluxDrop for mobile screens, regular 16:9 and other aspect 
 ratios, later on make an mobile version of the FluxDrop as an installable app 
 via Chrome
-- [ ] Review the `script.js` for comments, etc.
+- [x] Review the `script.js` for comments, etc. -- already do that sometimes
 - [ ] Trash bin folder preview
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items

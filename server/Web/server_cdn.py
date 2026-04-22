@@ -151,6 +151,30 @@ SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
 # Track when this process started (for server uptime on /status)
 _SERVER_START_TIME = time.time()
 
+# Path to the versions file — same directory as the policies folder
+_POLICY_VERSIONS_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'policies', 'versions.json'
+)
+
+def _get_policy_versions() -> dict:
+    """Read current required policy versions from policies/versions.json.
+    Falls back to '0.0.0' for any missing key so the server never crashes
+    due to a missing or malformed file.
+    """
+    try:
+        with open(_POLICY_VERSIONS_FILE, encoding='utf-8') as f:
+            data = json.load(f)
+        return {
+            'tos': str(data.get('tos', '0.0.0')),
+            'pp':  str(data.get('pp',  '0.0.0')),
+        }
+    except FileNotFoundError:
+        logging.warning('policies/versions.json not found — defaulting to 0.0.0')
+        return {'tos': '0.0.0', 'pp': '0.0.0'}
+    except Exception:
+        logging.exception('Failed to read policies/versions.json — defaulting to 0.0.0')
+        return {'tos': '0.0.0', 'pp': '0.0.0'}
+
 # ==============================================================================
 # --- LOGGER SETUP (use shared CustomLogger) ---
 # ==============================================================================
@@ -492,6 +516,21 @@ def init_db():
                 secret      TEXT    DEFAULT NULL,                 -- HMAC secret for webhooks
                 enabled     INTEGER NOT NULL DEFAULT 1,
                 created_at  REAL    NOT NULL DEFAULT 0
+            )
+        ''')
+        # Policy acceptance tracking
+        # Stores which version of TOS and PP each user has agreed to.
+        # On login/page-load the client calls GET /api/v1/policy/status to
+        # learn the current required versions and which ones the user has
+        # already accepted.  POST /api/v1/policy/accept records a new acceptance.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS policy_acceptances (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                policy_type TEXT    NOT NULL,   -- 'tos' | 'pp'
+                version     TEXT    NOT NULL,   -- e.g. '0.0.1'
+                accepted_at REAL    NOT NULL DEFAULT 0,
+                UNIQUE(user_id, policy_type, version)
             )
         ''')
         conn.commit()
@@ -4064,6 +4103,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 'trash_bytes': trash_bytes,
                 'created_at': created,
             }))
+        
+        if parsed_url.path == '/api/v1/policy/status':
+            return self._handle_policy_status()
 
         if parsed_url.path == '/api/v1/admin/users':
             admin = self._check_admin_auth()
@@ -4165,6 +4207,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         dt_match = self.download_token_pattern.match(parsed_url.path)
         if dt_match:
             return self.handle_mint_download_token()
+
+        # Policy acceptance
+        if parsed_url.path == '/api/v1/policy/accept':
+            return self._handle_policy_accept()
 
         # Share list/create
         if self.shares_list_pattern.match(parsed_url.path):
@@ -4368,6 +4414,98 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._handle_notifications_delete(int(_notif_del.group(1)))
 
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
+
+
+    # ── Policy acceptance API ─────────────────────────────────────────────────
+
+    def _handle_policy_status(self):
+        versions = _get_policy_versions()
+        current_tos = versions['tos']
+        current_pp  = versions['pp']
+        
+        user_id = self._check_token_auth()
+        accepted_tos = accepted_pp = None
+        if user_id:
+            try:
+                with _db_connect() as conn:
+                    r = conn.execute(
+                        "SELECT policy_type, version FROM policy_acceptances "
+                        "WHERE user_id = ? AND policy_type IN ('tos','pp') "
+                        "ORDER BY accepted_at DESC",
+                        (user_id,)
+                    ).fetchall()
+                by_type = {}
+                for row in r:
+                    by_type.setdefault(row[0], row[1])
+                accepted_tos = by_type.get('tos')
+                accepted_pp  = by_type.get('pp')
+            except Exception:
+                logging.exception('_handle_policy_status: DB error')
+
+        return self._send_response(200, json.dumps({
+            'current_tos': current_tos,
+            'current_pp':  current_pp,
+            'accepted_tos': accepted_tos,
+            'accepted_pp':  accepted_pp,
+            'needs_tos':   accepted_tos != current_tos,
+            'needs_pp':    accepted_pp  != current_pp,
+        }), 'application/json')
+
+    def _handle_policy_accept(self):
+        """POST /api/v1/policy/accept
+        Body JSON: { "tos": "0.0.0", "pp": "0.0.0" }
+        At least one key must be present.  Versions must match the current
+        required versions (the client can't pre-accept future versions).
+        Requires authentication.
+        """
+        versions = _get_policy_versions()
+
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Authentication required.'}), 'application/json')
+
+        content_len = int(self.headers.get('Content-Length', 0))
+        if content_len <= 0 or content_len > 512:
+            return self._send_response(400, json.dumps({'error': 'Invalid body.'}), 'application/json')
+        try:
+            data = json.loads(self.rfile.read(content_len))
+        except Exception:
+            return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}), 'application/json')
+
+        to_record = []
+        if 'tos' in data:
+            if data['tos'] != versions['tos']:
+                return self._send_response(400, json.dumps({
+                    'error': f"TOS version mismatch: expected {versions['tos']}, got {data['tos']}"
+                }), 'application/json')
+            to_record.append(('tos', versions['tos']))
+        if 'pp' in data:
+            if data['pp'] != versions['pp']:
+                return self._send_response(400, json.dumps({
+                    'error': f"PP version mismatch: expected {versions['pp']}, got {data['pp']}"
+                }), 'application/json')
+            to_record.append(('pp', versions['pp']))
+
+        if not to_record:
+            return self._send_response(400, json.dumps({'error': 'Nothing to record.'}), 'application/json')
+
+        now = time.time()
+        try:
+            with _db_connect() as conn:
+                for ptype, ver in to_record:
+                    conn.execute(
+                        'INSERT OR REPLACE INTO policy_acceptances '
+                        '(user_id, policy_type, version, accepted_at) VALUES (?,?,?,?)',
+                        (user_id, ptype, ver, now)
+                    )
+                conn.commit()
+        except Exception:
+            logging.exception('_handle_policy_accept: DB error')
+            return self._send_response(500, json.dumps({'error': 'Internal server error.'}), 'application/json')
+
+        logging.info(f"Policy acceptance recorded: user_id={user_id} {to_record}")
+        return self._send_response(200, json.dumps({'ok': True}), 'application/json')
+
 
     # --- Auth API Handlers ---
     def handle_auth_register(self, data):

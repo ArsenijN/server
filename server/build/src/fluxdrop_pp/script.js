@@ -1461,7 +1461,7 @@ window.previewFile = async function(path) {
     const dlBtn = document.getElementById('preview-download-btn');
 
     titleEl.textContent = filename;
-    bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Loading…</p>';
+    bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Connecting…</p>';
     dlBtn.style.display = 'none';
     modal.classList.remove('hidden');
 
@@ -1472,7 +1472,7 @@ window.previewFile = async function(path) {
 
         if (cat === 'image') {
             // Fetch as blob so the AbortController can cancel mid-download.
-            bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Loading image…</p>';
+            bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Fetching an image…</p>';
             const imgResp = await fetchWithFallback(dlUrl, {
                 signal: _previewSignal,
                 ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {})
@@ -1531,7 +1531,7 @@ window.previewFile = async function(path) {
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
 
         } else if (cat === 'pdf') {
-            bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Loading PDF…</p>';
+            bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Fetching a PDF…</p>';
             const pdfResp = await fetchWithFallback(dlUrl, {
                 signal: _previewSignal,
                 ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {})
@@ -1619,14 +1619,14 @@ window.previewFile = async function(path) {
                 bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center">
                     <div style="font-size:3.5rem;margin-bottom:1rem">📦</div>
                     <div style="color:#94a3b8;margin-bottom:1rem">${escapeHtml(filename)}</div>
-                    <p style="color:#64748b;font-size:14px">No preview available for this archive type.</p>
+                    <p style="color:#64748b;font-size:14px">No preview available for this archive type yet.</p>
                 </div>`;
                 dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
             }
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => downloadFile(path);
 
         } else {
-            bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center"><div style="font-size:3.5rem;margin-bottom:1rem">📄</div><div style="color:#94a3b8;margin-bottom:1rem">${escapeHtml(filename)}</div><p style="color:#64748b;font-size:14px">No preview available for this file type.</p></div>`;
+            bodyEl.innerHTML = `<div style="padding:3rem 1rem;text-align:center"><div style="font-size:3.5rem;margin-bottom:1rem">📄</div><div style="color:#94a3b8;margin-bottom:1rem">${escapeHtml(filename)}</div><p style="color:#64748b;font-size:14px">No preview available for this file type yet.</p></div>`;
             dlBtn.style.display = 'inline-flex'; dlBtn.onclick = () => { closePreview(); downloadFile(path); };
         }
     } catch (err) {
@@ -2348,7 +2348,7 @@ async function openMoveDialog(srcPath) {
 }
 
 async function promptCreateFolder() {
-    const name = prompt('Folder name (relative to current folder):', 'NewFolder');
+    const name = prompt('Create a folder with a name:', 'NewFolder');
     if (!name) return;
     try {
         // Use the new mkdir API to create the folder directly under the current path.
@@ -3629,7 +3629,7 @@ async function openAdminPanel() {
                 padding:10px 24px;display:flex;gap:24px;flex-shrink:0;flex-wrap:wrap"></div>
             <div style="overflow-y:auto;flex:1;padding:16px 24px">
                 <div id="ap-body">
-                    <div style="color:#64748b;font-size:14px;padding:20px 0">Loading users…</div>
+                    <div style="color:#64748b;font-size:14px;padding:20px 0">Loading users… (this may take a few minutes if server have a lot of files)</div>
                 </div>
             </div>
         </div>`;
@@ -3916,7 +3916,7 @@ async function openShareDialog(path, isDir) {
                 </label>
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
                     <input type="checkbox" id="sh-auth-upload" style="width:16px;height:16px">
-                    <span style="font-size:14px"><strong>Allow registered users to upload</strong> into this folder</span>
+                    <span style="font-size:14px"><strong>Allow only FluxDrop users to upload</strong> into this folder</span>
                 </label>` : ''}
             </div>
 

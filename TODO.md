@@ -135,3 +135,17 @@ storage media)
 
 - [x] Add the ability of partial streaming on trash bin previews
 - [ ] Fix 206 not working in trash bin preview
+- [ ] Add progressbar for blob fetches
+- [ ] Add "view background connectivity debug console" in settings to see small 
+one-liner somewhere at the bottom that will say what site currently try to 
+fetch or do
+- [ ] Fix "Allow only FluxDrop users to upload" doesn't work as intended
+- [ ] Make upload settings as drop-out menu for choosing who actually can 
+upload (anyone or only FluxDrop users)
+- [ ] Make "Use this URL directly in <img>, <video>, Discord, etc." appear on 
+hover over info mark after "🌐 CDN Embed URL (direct media link):"
+- [ ] Add stats window loading wheel/bar since bad internet causes high wait 
+times without knowing what's doing
+- [ ] Fix the background media playing if internet is very bad and seems like 
+only when attempt to reach for file was made after the preview window is 
+closed (internet hang)

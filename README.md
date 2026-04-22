@@ -1,11 +1,14 @@
-# server `v0.12.0`
+# server `v0.12.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Public release of the site to Google Search. Google Search 
-Indexing is pending (DNS issues appeared)***
+*Release note: **Small UI changes, ensure client updates the caches since a lot 
+of things are done for past few weeks***
 
-Now, the server **is** production-ready!!! (see: 
+Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
+
+The updates would cover important issues first, then ToDo entries, then user 
+feedback/issue tracker list
 
 
 Accessible at: https://arseniusgen.uk.to

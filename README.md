@@ -1,8 +1,7 @@
-# server `v0.12.2`
+# server `v0.12.3`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Added window modal for TOS and PP, added the landing page for 
-FluxDrop***
+*Release note: **Add language selection for TOS and PP modal***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

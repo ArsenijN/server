@@ -4,7 +4,7 @@
 //   - API calls (/api/, /auth/) → network-only, never cached
 //   - Everything else → network-first, fall back to cache, then offline page
 
-const CACHE_NAME    = 'fluxdrop-v2';    // ensure client gets new CSS properly displayed
+const CACHE_NAME    = 'fluxdrop-v2';    // ensure client gets new things properly by changing the cache version
 const OFFLINE_URL   = '/offline.html';
 
 // Assets to pre-cache on install. Keep this list to the bare minimum needed

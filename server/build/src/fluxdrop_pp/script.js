@@ -393,27 +393,64 @@ function renderLandingView() {
 }
 
 // ── Policy / TOS / PP modal ───────────────────────────────────────────────
-// CURRENT_POLICY_VERSIONS must be kept in sync with the server-side constants.
-// Only bump these when you publish updated Markdown files.
-// const POLICY_VERSIONS = { tos: '0.0.0', pp: '0.0.0' };
-const POLICY_LABELS   = { tos: 'Terms of Service', pp: 'Privacy Policy' };
+const POLICY_LABELS = { tos: 'Terms of Service', pp: 'Privacy Policy' };
+
+// Active language code — persisted in localStorage.
+// Falls back to 'eng' if the stored value isn't available for a document.
+let _policyLang = localStorage.getItem('fluxdrop_policy_lang') || 'eng';
+
+// Fetch versions.json and return the full parsed object (cached for the
+// lifetime of this page load — the file is tiny and changes only on deploy).
+let _versionsCache = null;
+async function _fetchVersions() {
+    if (_versionsCache) return _versionsCache;
+    try {
+        const r = await fetch('./policies/versions.json', { cache: 'no-cache' });
+        if (r.ok) _versionsCache = await r.json();
+    } catch { /* use fallback */ }
+    return _versionsCache || {};
+}
+
+// Build the relative URL for a policy Markdown file.
+// versions.json shape: { "languages": {"eng":"English","ukr":"Ukrainian"},
+//                        "tos": {"eng":"1.2e","ukr":"0.0.0"},
+//                        "pp":  {"eng":"1.0", "ukr":"0.0.0"} }
+function _policyUrl(type, lang, version) {
+    const folder = type === 'tos' ? 'TOS' : 'PP';
+    return `./policies/${folder}/${lang}/v${version}.md`;
+}
+
+// Build the language selector <select> HTML for the modal header.
+// availableLangs: array of lang codes that actually have a file for this
+// type+version. languages: the full {code: name} map from versions.json.
+function _langSelectorHtml(availableLangs, languages, currentLang, selectId) {
+    if (availableLangs.length <= 1) return ''; // no point showing a 1-item selector
+    const opts = availableLangs.map(code => {
+        const name = (languages && languages[code]) || code;
+        const sel  = code === currentLang ? ' selected' : '';
+        return `<option value="${code}"${sel}>${name}</option>`;
+    }).join('');
+    return `<select id="${selectId}"
+        style="font-size:.8rem;padding:3px 6px;border-radius:6px;border:1px solid #cbd5e1;
+               color:#475569;background:#f8fafc;cursor:pointer;margin-left:.5rem">
+        ${opts}
+    </select>`;
+}
 
 // Show a read-only view of one policy document (no agreement required).
 async function showPolicyModal(type) {
-    const label = POLICY_LABELS[type] || type.toUpperCase();
+    const label    = POLICY_LABELS[type] || type.toUpperCase();
+    const versions = await _fetchVersions();
+    const languages = versions.languages || {};
 
-    // Fetch current version from versions.json — single source of truth
-    let version = '0.0.0';
-    try {
-        const vr = await fetch('./policies/versions.json', { cache: 'no-cache' });
-        if (vr.ok) {
-            const vdata = await vr.json();
-            version = vdata[type] || '0.0.0';
-        }
-    } catch { /* use fallback */ }
+    // Determine which languages are available for this doc type
+    const versionMap = versions[type] || {};   // { eng: '1.2e', ukr: '0.0.0' }
+    const availableLangs = Object.keys(versionMap).length ? Object.keys(versionMap) : ['eng'];
 
-    // Relative path under the site root → served as a static file
-    const url = `./policies/${type === 'tos' ? 'TOS' : 'PP'}/ukr/v${version}.md`;
+    // Pick best language: user preference → first available
+    let lang = availableLangs.includes(_policyLang) ? _policyLang : availableLangs[0];
+    let version = versionMap[lang] || '0.0.0';
+    const url = _policyUrl(type, lang, version);
 
     const overlay = document.createElement('div');
     overlay.style.cssText = [
@@ -426,10 +463,14 @@ async function showPolicyModal(type) {
                     max-height:88vh;display:flex;flex-direction:column;overflow:hidden;
                     box-shadow:0 24px 48px rgba(0,0,0,.3)">
             <div style="padding:1.25rem 1.5rem;border-bottom:1px solid #e2e8f0;
-                        display:flex;justify-content:space-between;align-items:center">
-                <h2 style="font-size:1.15rem;font-weight:700;color:#1e40af;margin:0">
-                    ${label} <span style="font-size:.8rem;color:#94a3b8;font-weight:400">v${version}</span>
-                </h2>
+                        display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:.4rem">
+                    <h2 style="font-size:1.15rem;font-weight:700;color:#1e40af;margin:0">
+                        ${label}
+                    </h2>
+                    <span id="pm-version" style="font-size:.8rem;color:#94a3b8;font-weight:400">v${version}</span>
+                    ${_langSelectorHtml(availableLangs, languages, lang, 'pm-lang')}
+                </div>
                 <button id="pm-close" style="background:none;border:none;font-size:1.4rem;
                         cursor:pointer;color:#64748b;line-height:1">✕</button>
             </div>
@@ -443,20 +484,31 @@ async function showPolicyModal(type) {
     overlay.querySelector('#pm-close').addEventListener('click', () => overlay.remove());
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
-    // Fetch & render the Markdown as plain preformatted text
-    // (no Markdown library dependency needed for a simple display)
-    try {
-        const resp = await fetch(url, { cache: 'no-cache' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const text = await resp.text();
-        // Very lightweight Markdown → HTML: headings, bold, newlines
-        const html = _mdToHtml(text);
-        overlay.querySelector('#pm-body').innerHTML = html;
-    } catch (err) {
-        overlay.querySelector('#pm-body').innerHTML =
-            `<p style="color:#dc2626">Could not load the document. Please try again later.<br>
-             <small style="color:#94a3b8">${err.message}</small></p>`;
+    async function loadDoc(loadLang) {
+        const loadVer = versionMap[loadLang] || '0.0.0';
+        overlay.querySelector('#pm-version').textContent = `v${loadVer}`;
+        const bodyEl = overlay.querySelector('#pm-body');
+        bodyEl.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>';
+        try {
+            const resp = await fetch(_policyUrl(type, loadLang, loadVer), { cache: 'no-cache' });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            bodyEl.innerHTML = _mdToHtml(await resp.text());
+        } catch (err) {
+            bodyEl.innerHTML =
+                `<p style="color:#dc2626">Could not load the document. Please try again later.<br>
+                 <small style="color:#94a3b8">${err.message}</small></p>`;
+        }
     }
+
+    const langSel = overlay.querySelector('#pm-lang');
+    if (langSel) {
+        langSel.addEventListener('change', () => {
+            _policyLang = langSel.value;
+            localStorage.setItem('fluxdrop_policy_lang', _policyLang);
+            loadDoc(_policyLang);
+        });
+    }
+    loadDoc(lang);
 }
 
 // Tiny Markdown renderer (enough for policy docs — headings, bold, italic, lists, paragraphs)
@@ -508,9 +560,21 @@ async function checkAndShowPolicies(onAllAccepted) {
 }
 
 // Like showPolicyModal but forces the user to scroll to the bottom and click "I agree".
+// version here is the server-required version string (from policy/status).
 async function _showPolicyAgreementModal(type, version, onAccepted) {
-    const label = POLICY_LABELS[type] || type.toUpperCase();
-    const url   = `./policies/${type === 'tos' ? 'TOS' : 'PP'}/ukr/v${version}.md`;
+    const label    = POLICY_LABELS[type] || type.toUpperCase();
+    const versions = await _fetchVersions();
+    const languages = versions.languages || {};
+    const versionMap = versions[type] || {};
+    const availableLangs = Object.keys(versionMap).length ? Object.keys(versionMap) : ['eng'];
+    let lang = availableLangs.includes(_policyLang) ? _policyLang : availableLangs[0];
+
+    // Helper: enable/disable the agree button
+    function _enableAgree() {
+        agreeBtn.disabled = false;
+        agreeBtn.style.opacity = '1';
+        agreeBtn.style.cursor = 'pointer';
+    }
 
     const overlay = document.createElement('div');
     overlay.style.cssText = [
@@ -522,13 +586,17 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
         <div style="background:#fff;border-radius:1rem;width:100%;max-width:720px;
                     max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
                     box-shadow:0 24px 48px rgba(0,0,0,.4)">
-            <div style="padding:1.25rem 1.5rem;background:#eff6ff;border-bottom:1px solid #bfdbfe">
-                <h2 style="font-size:1.1rem;font-weight:700;color:#1e40af;margin:0 0 .25rem">
-                    Please review our updated ${label}
-                </h2>
-                <p style="font-size:.85rem;color:#3730a3;margin:0">
-                    v${version} — You must agree to continue using FluxDrop.
-                </p>
+            <div style="padding:1.25rem 1.5rem;background:#eff6ff;border-bottom:1px solid #bfdbfe;
+                        display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem">
+                <div>
+                    <h2 style="font-size:1.1rem;font-weight:700;color:#1e40af;margin:0 0 .25rem;display:flex;align-items:center;gap:.5rem">
+                        Please review our updated ${label}
+                        ${_langSelectorHtml(availableLangs, languages, lang, 'pam-lang')}
+                    </h2>
+                    <p style="font-size:.85rem;color:#3730a3;margin:0">
+                        v${version} — You must agree to continue using FluxDrop.
+                    </p>
+                </div>
             </div>
             <div id="pam-body" style="padding:1.5rem;overflow-y:auto;flex:1;
                                       font-size:.92rem;line-height:1.7;color:#1e293b">
@@ -549,17 +617,15 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
 
     document.body.appendChild(overlay);
 
-    const bodyEl  = overlay.querySelector('#pam-body');
+    const bodyEl   = overlay.querySelector('#pam-body');
     const agreeBtn = overlay.querySelector('#pam-agree-btn');
     const hint     = overlay.querySelector('#pam-scroll-hint');
 
-    // Enable the button once the user has scrolled to within 40 px of the bottom
+    // Enable the agree button once scrolled near the bottom.
+    // Switching language resets the scroll requirement.
     bodyEl.addEventListener('scroll', () => {
-        const nearBottom = bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 40;
-        if (nearBottom) {
-            agreeBtn.disabled = false;
-            agreeBtn.style.opacity = '1';
-            agreeBtn.style.cursor = 'pointer';
+        if (bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 40) {
+            _enableAgree();
             hint.textContent = '✓ You have read the document';
         }
     });
@@ -578,29 +644,46 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
         }
     });
 
-    // Fetch document
-    try {
-        const resp = await fetch(url, { cache: 'no-cache' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const text = await resp.text();
-        bodyEl.innerHTML = _mdToHtml(text);
-        // If it's short enough to not need scrolling, enable the button immediately
-        if (bodyEl.scrollHeight <= bodyEl.clientHeight + 40) {
-            agreeBtn.disabled = false;
-            agreeBtn.style.opacity = '1';
-            agreeBtn.style.cursor = 'pointer';
+    // Language switch: reload document, reset scroll requirement
+    const langSel = overlay.querySelector('#pam-lang');
+    if (langSel) {
+        langSel.addEventListener('change', () => {
+            lang = langSel.value;
+            _policyLang = lang;
+            localStorage.setItem('fluxdrop_policy_lang', lang);
+            // Require re-scroll for the newly loaded language
+            agreeBtn.disabled = true;
+            agreeBtn.style.opacity = '.45';
+            agreeBtn.style.cursor = 'not-allowed';
+            hint.textContent = '↓ Scroll to the bottom to enable the agree button';
+            loadDoc(lang);
+        });
+    }
+
+    async function loadDoc(loadLang) {
+        // Use the version for the selected language; fall back to the server-required version
+        const loadVer = versionMap[loadLang] || version;
+        bodyEl.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>';
+        bodyEl.scrollTop = 0;
+        try {
+            const resp = await fetch(_policyUrl(type, loadLang, loadVer), { cache: 'no-cache' });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            bodyEl.innerHTML = _mdToHtml(await resp.text());
+            // Short doc that doesn't need scrolling — enable immediately
+            if (bodyEl.scrollHeight <= bodyEl.clientHeight + 40) {
+                _enableAgree();
+                hint.textContent = '';
+            }
+        } catch (err) {
+            bodyEl.innerHTML = `
+                <p style="color:#dc2626">Could not load the document: ${err.message}</p>
+                <p>You can still agree by clicking the button below, or try reloading the page.</p>`;
+            _enableAgree();
             hint.textContent = '';
         }
-    } catch (err) {
-        bodyEl.innerHTML = `
-            <p style="color:#dc2626">Could not load the document: ${err.message}</p>
-            <p>You can still agree by clicking the button below, or try reloading the page.</p>`;
-        // Allow agreement even if the document failed to load
-        agreeBtn.disabled = false;
-        agreeBtn.style.opacity = '1';
-        agreeBtn.style.cursor = 'pointer';
-        hint.textContent = '';
     }
+
+    loadDoc(lang);
 }
 
 function renderLoginView() {

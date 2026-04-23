@@ -152,9 +152,7 @@ SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
 _SERVER_START_TIME = time.time()
 
 # Path to the versions file — same directory as the policies folder
-_POLICY_VERSIONS_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), 'policies', 'versions.json'
-)
+_POLICY_VERSIONS_FILE = os.getenv('POLICY_VERSIONS_FILE', str(os.path.dirname(os.path.abspath(__file__)) + 'policies\\versions.json'))
 
 def _get_policy_versions() -> dict:
     """Read current required policy versions from policies/versions.json.
@@ -169,7 +167,7 @@ def _get_policy_versions() -> dict:
             'pp':  str(data.get('pp',  '0.0.0')),
         }
     except FileNotFoundError:
-        logging.warning('policies/versions.json not found — defaulting to 0.0.0')
+        logging.warning(f'policies/versions.json not found — defaulting to 0.0.0. Got the file place value: {_POLICY_VERSIONS_FILE}')
         return {'tos': '0.0.0', 'pp': '0.0.0'}
     except Exception:
         logging.exception('Failed to read policies/versions.json — defaulting to 0.0.0')

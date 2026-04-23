@@ -537,7 +537,7 @@ function _mdToHtml(md) {
 async function checkAndShowPolicies(onAllAccepted) {
     let status;
     try {
-        const resp = await apiCall('/api/v1/policy/status', 'GET', null, false);
+        const resp = await apiCall('/api/v1/policy/status', 'GET', null, true);
         status = resp;
     } catch {
         // If the endpoint doesn't exist yet (server not updated), skip gracefully

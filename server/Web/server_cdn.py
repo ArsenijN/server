@@ -155,16 +155,20 @@ _SERVER_START_TIME = time.time()
 _POLICY_VERSIONS_FILE = os.getenv('POLICY_VERSIONS_FILE', str(os.path.dirname(os.path.abspath(__file__)) + 'policies\\versions.json'))
 
 def _get_policy_versions() -> dict:
-    """Read current required policy versions from policies/versions.json.
-    Falls back to '0.0.0' for any missing key so the server never crashes
-    due to a missing or malformed file.
-    """
     try:
         with open(_POLICY_VERSIONS_FILE, encoding='utf-8') as f:
             data = json.load(f)
+
+        def _pick(val):
+            # New multi-language shape: {"eng": "1.0", "ukr": "0.0.0"}
+            # Old flat shape: "1.0"
+            if isinstance(val, dict):
+                return str(val.get('eng') or next(iter(val.values()), '0.0.0'))
+            return str(val) if val else '0.0.0'
+
         return {
-            'tos': str(data.get('tos', '0.0.0')),
-            'pp':  str(data.get('pp',  '0.0.0')),
+            'tos': _pick(data.get('tos', '0.0.0')),
+            'pp':  _pick(data.get('pp',  '0.0.0')),
         }
     except FileNotFoundError:
         logging.warning(f'policies/versions.json not found — defaulting to 0.0.0. Got the file place value: {_POLICY_VERSIONS_FILE}')
@@ -4420,8 +4424,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         versions = _get_policy_versions()
         current_tos = versions['tos']
         current_pp  = versions['pp']
-        
+        logging.info(f'[policy/status] current_tos={current_tos!r} current_pp={current_pp!r}')
+
         user_id = self._check_token_auth()
+        logging.info(f'[policy/status] user_id={user_id!r}')
         accepted_tos = accepted_pp = None
         if user_id:
             try:
@@ -4432,21 +4438,32 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         "ORDER BY accepted_at DESC",
                         (user_id,)
                     ).fetchall()
+                logging.info(f'[policy/status] raw DB rows: {r}')
                 by_type = {}
                 for row in r:
                     by_type.setdefault(row[0], row[1])
+                logging.info(f'[policy/status] by_type: {by_type}')
                 accepted_tos = by_type.get('tos')
                 accepted_pp  = by_type.get('pp')
             except Exception:
                 logging.exception('_handle_policy_status: DB error')
+        else:
+            logging.warning('[policy/status] no authenticated user — token missing or invalid')
+
+        needs_tos = accepted_tos != current_tos
+        needs_pp  = accepted_pp  != current_pp
+        logging.info(
+            f'[policy/status] accepted_tos={accepted_tos!r} vs current={current_tos!r} → needs_tos={needs_tos} | '
+            f'accepted_pp={accepted_pp!r} vs current={current_pp!r} → needs_pp={needs_pp}'
+        )
 
         return self._send_response(200, json.dumps({
-            'current_tos': current_tos,
-            'current_pp':  current_pp,
+            'current_tos':  current_tos,
+            'current_pp':   current_pp,
             'accepted_tos': accepted_tos,
             'accepted_pp':  accepted_pp,
-            'needs_tos':   accepted_tos != current_tos,
-            'needs_pp':    accepted_pp  != current_pp,
+            'needs_tos':    needs_tos,
+            'needs_pp':     needs_pp,
         }), 'application/json')
 
     def _handle_policy_accept(self):

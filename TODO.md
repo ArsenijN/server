@@ -27,7 +27,6 @@ user feedback or ideas for future development.
 - [ ] Optimize FluxDrop for mobile screens, regular 16:9 and other aspect 
 ratios, later on make an mobile version of the FluxDrop as an installable app 
 via Chrome
-- [x] Review the `script.js` for comments, etc. -- already do that sometimes
 - [ ] Trash bin folder preview
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items
@@ -40,7 +39,7 @@ dynamic insufficient space at the CDN drive?)
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
 will display what files takes the most, where and what)
 - [ ] Fix issues with resuming the download (in FluxDrop file manager at least)
-- [ ] Make download work as chunked-based in FluxDrop UI, keeping the regular 
+- [ ] Make download work as chunk-based in FluxDrop UI, keeping the regular 
 octet-stream for legacy usage
 - [ ] Add self-resume on network switch (offline handler shows and hides, but 
 download doesn't continue)
@@ -107,10 +106,10 @@ was introduced in one of the edit sessions without need to be made
 upgrade; line 6621)
 
 
-- [ ] Add landing page for FluxDrop - I really want start to draft it out
-- [ ] Add ToS and PP docs - WIP
+- [x] Add landing page for FluxDrop - I really want start to draft it out
+- [x] Add ToS and PP docs - WIP
 - [ ] Make proper header and footer for the main FluxDrop UI
-- [ ] Add autoupdate "agreement" (when newer ToS or PP appears - user must 
+- [x] Add autoupdate "agreement" (when newer ToS or PP appears - user must 
 accept it within)
 - [ ] Discover ways to build own page via modules (zero-code; not necessary 
 since I can just remember CSS and HTML, and do that by hands)

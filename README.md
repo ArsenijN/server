@@ -1,8 +1,9 @@
-# server `v0.12.4`
+# server `v0.12.5`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix TOS and PP user agreement version preservation; fix 
-display of the document version for TOS and PP in window modal***
+*Release note: **JS Naked Day update***
+
+https://js-naked-day.org/
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

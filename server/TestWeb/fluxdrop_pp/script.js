@@ -4597,7 +4597,16 @@ function renderShareRow(s) {
                 <input type="text" readonly value="${urlEsc}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
                 <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#ca8a04;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">Copy</button>
             </div>
-            <div style="font-size:10px;color:#92400e;margin-top:4px">Use this URL directly in &lt;img&gt;, &lt;video&gt;, Discord, etc.</div>
+            <span class="fd-tooltip-wrap" id="cdn-tip-wrap">
+                <span class="fd-tooltip-icon">i</span>
+                <div class="fd-tooltip-bubble">
+                    Use this URL directly in
+                    <code>&lt;img src="…"&gt;</code>,
+                    <code>&lt;video src="…"&gt;</code>,
+                    Discord embeds, or anywhere a direct media link is accepted.
+                    No authentication required.
+                </div>
+            </span>
         </div>` : ''}
     </div>`;
 }

@@ -76,3 +76,140 @@ Want me to write the patch to remove/hide the CDN button now, or sketch out the 
 ```
 nothing
 ```
+
+
+# Globalping at 23.04.2026:
+## Globalping: `PING` from World
+### Target: arseniusgen.uk.to
+
+#### Amsterdam, NL, EU - DELUXHOST (AS214677)
+Time: `52 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=52.4 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=51.9 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=51.7 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1187 ms
+rtt min/avg/max/mdev = 51.732/52.026/52.422/0.291 ms
+```
+
+#### Buffalo, US, NA - HostPapa (AS36352)
+Time: `127 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=131 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=121 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=131 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1545 ms
+rtt min/avg/max/mdev = 120.692/127.321/130.689/4.687 ms
+```
+
+#### Falkenstein, DE, EU - Hetzner Online (AS24940)
+Time: `32 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=33.7 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=31.1 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=31.8 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2793 ms
+rtt min/avg/max/mdev = 31.069/32.186/33.684/1.101 ms
+```
+
+#### Helsinki, FI, EU - Hetzner Online (AS24940)
+Time: `65 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=65.5 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=63.4 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=65.3 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1204 ms
+rtt min/avg/max/mdev = 63.373/64.700/65.457/0.941 ms
+```
+
+#### Kuala Lumpur, MY, AS - TM TECHNOLOGY SERVICES (AS4788)
+Time: `249 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=258 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=252 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=237 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1462 ms
+rtt min/avg/max/mdev = 237.434/249.067/257.938/8.596 ms
+```
+
+#### Los Angeles, US, NA - HostPapa (AS36352)
+Time: `188 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=183 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=189 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=192 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1272 ms
+rtt min/avg/max/mdev = 183.000/187.970/192.099/3.762 ms
+```
+
+#### Mumbai, IN, AS - Oracle (AS31898)
+Time: `163 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=160 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=164 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=165 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1170 ms
+rtt min/avg/max/mdev = 159.508/162.995/165.061/2.480 ms
+```
+
+#### Nuremberg, DE, EU - netcup (AS197540)
+Time: `45 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=40.7 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=46.6 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=46.6 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1209 ms
+rtt min/avg/max/mdev = 40.750/44.661/46.636/2.766 ms
+```
+
+#### Roubaix, FR, EU - OVH (AS16276)
+Time: `42 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=45.8 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=37.8 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=43.9 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1296 ms
+rtt min/avg/max/mdev = 37.799/42.479/45.752/3.396 ms
+```
+
+#### Toronto, CA, NA - Oracle (AS31898)
+Time: `134 ms`&nbsp;&nbsp;&nbsp;Loss: `0%`
+```
+PING arseniusgen.uk.to (134.249.151.95) on port 80.
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=1 time=128 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=2 time=136 ms
+Reply from arseniusgen.uk.to (134.249.151.95) on port 80: tcp_conn=3 time=137 ms
+
+--- arseniusgen.uk.to (134.249.151.95) ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 1612 ms
+rtt min/avg/max/mdev = 127.781/133.501/136.636/4.051 ms
+```
+
+You can also view the results at https://globalping.io?measurement=2ibLlME3ut7PkBqxm00020GUA

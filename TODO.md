@@ -5,9 +5,10 @@ user feedback or ideas for future development.
 
 ---
 
-- [ ] Fix plain text password and login (!!!)
+- [x] Fix plain text password and login (!!!)
 > key to key password to server 
 > kinda resolved via HSTS and HTTPS
+> marked as resolved via HSTS
 
 ---
 
@@ -26,16 +27,21 @@ user feedback or ideas for future development.
 
 - [ ] Optimize FluxDrop for mobile screens, regular 16:9 and other aspect 
 ratios, later on make an mobile version of the FluxDrop as an installable app 
-via Chrome
+via Chrome or as "native" Android Material Design one
+- [ ] Fix every FluxDrop snippet and site (UIs) to work properly with mobile 
+and non-16:9 screens
 - [ ] Trash bin folder preview
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items
 - [ ] Add server ability to push the additional data before client will request 
-them (pre-caching, like folder structures or file properties or something else)
+them (pre-caching; like folder structures, quota, file properties, download 
+tokens (pre-generate the download tokens for files to fasten up the ping 
+issues (aka preview tokens), or resolve the issues that FluxDrop is very 
+unstable in bad internet areas) or something else)
 - [ ] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
 least - since it shows the CSP doing it's work)
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
-dynamic insufficient space at the CDN drive?)
+dynamic insufficient free space at the CDN drive?)
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
 will display what files takes the most, where and what)
 - [ ] Fix issues with resuming the download (in FluxDrop file manager at least)
@@ -50,10 +56,12 @@ https)
 of files) feature to site UI from `batch_tar_upload.py`
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
 content)
-- [ ] Add file picker to file browser (checkbox-styled)
+- [ ] Add file picker to file browser (checkbox-styled or as "click on the 
+`border-t` to select one)
   - [ ] Add ability to use regular keyboard shortcuts (shift for multiple file 
   pick, ctrl to specific, ctrl+shift for multiple from latest pick with ctrl; 
-  aka regular file browser behavior)
+  aka regular file browser behavior like on Windows)
+  - [ ] Add ability to double-click on the `border-t` to open the file/folder
 - [ ] Add loading wheel to the right of "Upload" button between prep and upload 
 states - make it appear before new entry in `Uploads` or `Downloads` appears, 
 also, bring the label to the static part so it will not scroll
@@ -85,8 +93,6 @@ to tell it (via pings or continuous connections)
 - [ ] Sand off the UI and textes, fix small inconsistences in UI (like on 
 rename function)
 - [ ] i18n support (language changes)
-- [ ] Fix every FluxDrop snippet and site (UIs) to work properly with mobile 
-and non-16:9 screens
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports 
 for more ideal links and simplicity
@@ -106,11 +112,7 @@ was introduced in one of the edit sessions without need to be made
 upgrade; line 6621)
 
 
-- [x] Add landing page for FluxDrop - I really want start to draft it out
-- [x] Add ToS and PP docs - WIP
 - [ ] Make proper header and footer for the main FluxDrop UI
-- [x] Add autoupdate "agreement" (when newer ToS or PP appears - user must 
-accept it within)
 - [ ] Discover ways to build own page via modules (zero-code; not necessary 
 since I can just remember CSS and HTML, and do that by hands)
 - [ ] Add "proper" loading wheels (1 second as least amount of time for the 
@@ -136,15 +138,19 @@ storage media)
 - [ ] Fix 206 not working in trash bin preview
 - [ ] Add progressbar for blob fetches
 - [ ] Add "view background connectivity debug console" in settings to see small 
-one-liner somewhere at the bottom that will say what site currently try to 
-fetch or do
-- [ ] Fix "Allow only FluxDrop users to upload" doesn't work as intended
+one-liner somewhere at the bottom of the UI that will say what site currently 
+try to fetch or do (at least via Internet)
+- [ ] Fix "Allow only FluxDrop users to upload" doesn't work as intended ( - 
+expected to be so no one can upload to folder except the registered users on 
+FluxDrop)
 - [ ] Make upload settings as drop-out menu for choosing who actually can 
 upload (anyone or only FluxDrop users)
-- [ ] Make "Use this URL directly in <img>, <video>, Discord, etc." appear on 
-hover over info mark after "🌐 CDN Embed URL (direct media link):"
+- [ ] Make "Use this URL directly in <img>, <video>, Discord, etc." appear if 
+user hover over info mark after "🌐 CDN Embed URL (direct media link):"
 - [ ] Add stats window loading wheel/bar since bad internet causes high wait 
-times without knowing what's doing
+times without knowing what it is doing
 - [ ] Fix the background media playing if internet is very bad and seems like 
 only when attempt to reach for file was made after the preview window is 
 closed (internet hang)
+- [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF or JPG)
+- [ ] Add fix for the timed out chunks causing full file reupload from the part where it's failed instead of pushing only the unloaded/wrong part of the file (aka reduce very large internet overhead)

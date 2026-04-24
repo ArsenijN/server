@@ -108,4 +108,92 @@
     #fd-style-fallback {
         display: none !important;
     }
+
+    .fd-tooltip-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .fd-tooltip-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background-color: #dbeafe;
+        color: #1d4ed8;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: default;
+        user-select: none;
+        flex-shrink: 0;
+        line-height: 1;
+        transition: background-color 0.15s ease;
+    }
+
+    .fd-tooltip-icon:hover {
+        background-color: #bfdbfe;
+    }
+
+    .fd-tooltip-bubble {
+        visibility: hidden;
+        opacity: 0;
+        pointer-events: none;
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        width: 240px;
+        background-color: #1e3a5f;
+        color: #e0f0ff;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1.5;
+        padding: 8px 11px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+        transition: opacity 0.15s ease, visibility 0.15s ease;
+        z-index: 9000;
+        white-space: normal;
+        text-align: left;
+    }
+
+    .fd-tooltip-bubble code {
+        background-color: rgba(255, 255, 255, 0.12);
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-family: monospace;
+    }
+
+    /* Arrow pointing down */
+    .fd-tooltip-bubble::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 5px solid transparent;
+        border-top-color: #1e3a5f;
+    }
+
+    .fd-tooltip-wrap:hover .fd-tooltip-bubble {
+        visibility: visible;
+        opacity: 1;
+    }
+
+    /* Flip down if near top of viewport */
+    .fd-tooltip-wrap.fd-tooltip-below .fd-tooltip-bubble {
+        bottom: auto;
+        top: calc(100% + 8px);
+    }
+
+    .fd-tooltip-wrap.fd-tooltip-below .fd-tooltip-bubble::after {
+        top: auto;
+        bottom: 100%;
+        border-top-color: transparent;
+        border-bottom-color: #1e3a5f;
+    }
 }

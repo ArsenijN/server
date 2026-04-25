@@ -1,10 +1,8 @@
-# server `v0.12.6`
+# server `v0.12.7`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **JS Naked Day end update, added tooltip for CDN links, changed 
-the Privacy Policy version, added shortcut for Server Status in FluxDrop menu***
-
-https://js-naked-day.org/
+*Release note: **Bump server version (oops), removed out of context commentary 
+in Server Status opener, added flipper for tooltip modal***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

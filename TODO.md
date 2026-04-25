@@ -5,13 +5,6 @@ user feedback or ideas for future development.
 
 ---
 
-- [x] Fix plain text password and login (!!!)
-> key to key password to server 
-> kinda resolved via HSTS and HTTPS
-> marked as resolved via HSTS
-
----
-
 - [ ] **Family/Group accounts**
   - [ ] Let two or more usernames share a common root directory with mutual
     read/write privileges.
@@ -145,7 +138,7 @@ expected to be so no one can upload to folder except the registered users on
 FluxDrop)
 - [ ] Make upload settings as drop-out menu for choosing who actually can 
 upload (anyone or only FluxDrop users)
-- [ ] Make "Use this URL directly in <img>, <video>, Discord, etc." appear if 
+- [x] Make "Use this URL directly in <img>, <video>, Discord, etc." appear if 
 user hover over info mark after "🌐 CDN Embed URL (direct media link):"
 - [ ] Add stats window loading wheel/bar since bad internet causes high wait 
 times without knowing what it is doing
@@ -153,4 +146,8 @@ times without knowing what it is doing
 only when attempt to reach for file was made after the preview window is 
 closed (internet hang)
 - [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF or JPG)
-- [ ] Add fix for the timed out chunks causing full file reupload from the part where it's failed instead of pushing only the unloaded/wrong part of the file (aka reduce very large internet overhead)
+- [ ] Add fix for the timed out chunks causing full file reupload from the part 
+where it's failed instead of pushing only the unloaded/wrong part of the file 
+(aka reduce very large internet overhead)
+- [ ] Add close by click on the dimmed space into the links manager
+- [ ] Make "X" non-scrollable in links manager

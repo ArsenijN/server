@@ -3731,10 +3731,6 @@ function openProfileMenu() {
     });
     document.getElementById('pm-status').addEventListener('click', () => {
         overlay.remove();
-        // Open IP Beacon — session validation is handled server-side via the
-        // FluxDrop cookie/header.  Do NOT pass authToken as ?token= because
-        // that query param is consumed by ip_lookup.html as a beacon lookup
-        // token (primary/read), which is a completely different credential.
         window.location.href = '/status';
     });
     document.getElementById('pm-logout').addEventListener('click', () => { overlay.remove(); handleLogout(); });
@@ -4464,6 +4460,7 @@ async function loadShareManager() {
             return;
         }
         body.innerHTML = shares.map(s => renderShareRow(s)).join('');
+        _initTooltipFlip()
         body.querySelectorAll('.sm-delete-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 if (!confirm('Delete this share link? Recipients will no longer be able to access it.')) return;
@@ -4523,6 +4520,16 @@ async function loadShareManager() {
     } catch(e) {
         body.innerHTML = `<p style="color:#ef4444;font-size:14px">Failed to load shares: ${e.message}</p>`;
     }
+}
+
+function _initTooltipFlip() {
+    document.querySelectorAll('.fd-tooltip-wrap').forEach(wrap => {
+        wrap.addEventListener('mouseenter', () => {
+            const rect = wrap.getBoundingClientRect();
+            // If less than 120px above the element, flip the bubble downward
+            wrap.classList.toggle('fd-tooltip-below', rect.top < 120);
+        });
+    });
 }
 
 function renderShareRow(s) {
@@ -4618,7 +4625,7 @@ function renderShareRow(s) {
                 <input type="text" readonly value="${urlEsc}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
                 <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#ca8a04;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">Copy</button>
             </div>
-        </div>` : ''}
+        </div>` : '' }
     </div>`;
 }
 

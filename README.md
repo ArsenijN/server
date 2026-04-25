@@ -1,7 +1,8 @@
-# server `v0.12.5`
+# server `v0.12.6`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **JS Naked Day update***
+*Release note: **JS Naked Day end update, added tooltip for CDN links, changed 
+the Privacy Policy version, added shortcut for Server Status in FluxDrop menu***
 
 https://js-naked-day.org/
 

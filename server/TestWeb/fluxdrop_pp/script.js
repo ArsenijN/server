@@ -3703,6 +3703,7 @@ function openProfileMenu() {
                 <button class="profile-menu-item" id="pm-profile">👤 My Profile</button>
                 <button class="profile-menu-item" id="pm-shares">🔗 Shared Links</button>
                 <button class="profile-menu-item" id="pm-beacon">📡 IP Beacon</button>
+                <button class="profile-menu-item" id="pm-status">⚡ Server Status</button>
                 <div style="height:1px;background:#f1f5f9;margin:4px 0"></div>
                 ${isAdmin ? '<button class="profile-menu-item" id="pm-admin">⚙️ Admin Panel</button>' : ''}
                 <button class="profile-menu-item" id="pm-logout" style="color:#ef4444">🚪 Logout</button>
@@ -3727,6 +3728,14 @@ function openProfileMenu() {
         // that query param is consumed by ip_lookup.html as a beacon lookup
         // token (primary/read), which is a completely different credential.
         window.location.href = '/beacon/ui';
+    });
+    document.getElementById('pm-status').addEventListener('click', () => {
+        overlay.remove();
+        // Open IP Beacon — session validation is handled server-side via the
+        // FluxDrop cookie/header.  Do NOT pass authToken as ?token= because
+        // that query param is consumed by ip_lookup.html as a beacon lookup
+        // token (primary/read), which is a completely different credential.
+        window.location.href = '/status';
     });
     document.getElementById('pm-logout').addEventListener('click', () => { overlay.remove(); handleLogout(); });
     if (isAdmin) document.getElementById('pm-admin')?.addEventListener('click', () => { overlay.remove(); openAdminPanel(); });
@@ -4592,21 +4601,23 @@ function renderShareRow(s) {
         </div>
         ${s.allow_cdn_embed && !s.is_dir ? `
         <div style="margin-top:10px;padding:10px;background:#fefce8;border:1px solid #fde047;border-radius:8px">
-            <div style="font-size:11px;color:#854d0e;font-weight:600;margin-bottom:5px">🌐 CDN Embed URL (direct media link):</div>
+            <div style="font-size:11px;color:#854d0e;font-weight:600;margin-bottom:5px">
+                🌐 CDN Embed URL (direct media link):
+                <span class="fd-tooltip-wrap" id="cdn-tip-wrap">
+                    <span class="fd-tooltip-icon" style="font-family: Playwrite Norge; font-style: italic;">i</span>
+                    <div class="fd-tooltip-bubble">
+                        Use this URL directly in
+                        <code>&lt;img src="…"&gt;</code>,
+                        <code>&lt;video src="…"&gt;</code>,
+                        Discord embeds, or anywhere a direct media link is accepted.
+                        No authentication required.
+                    </div>
+                </span>
+            </div>
             <div style="display:flex;gap:6px">
                 <input type="text" readonly value="${urlEsc}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
                 <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#ca8a04;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">Copy</button>
             </div>
-            <span class="fd-tooltip-wrap" id="cdn-tip-wrap">
-                <span class="fd-tooltip-icon">i</span>
-                <div class="fd-tooltip-bubble">
-                    Use this URL directly in
-                    <code>&lt;img src="…"&gt;</code>,
-                    <code>&lt;video src="…"&gt;</code>,
-                    Discord embeds, or anywhere a direct media link is accepted.
-                    No authentication required.
-                </div>
-            </span>
         </div>` : ''}
     </div>`;
 }

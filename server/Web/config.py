@@ -89,3 +89,5 @@ UPLOAD_TMP_DIR = os.getenv(
     'UPLOAD_TMP_DIR',
     '/tmp/fluxdrop_upload_sessions'
 )
+
+SERVE_ROOT = os.path.abspath(os.getenv('SERVE_ROOT', '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028'))

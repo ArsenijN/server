@@ -99,3 +99,5 @@ HTTPS_PORT = int(os.getenv('HTTPS_PORT', '64800'))
 
 # Default server root for CDN: use the larger media volume rather than the server's SSD (in most cases).
 CATBOX_UPLOAD_DIR = os.getenv('CATBOX_UPLOAD_DIR', 'CB_uploads')
+
+_SNIPPETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snippets')

@@ -1,8 +1,8 @@
-# server `v0.13.1`
+# server `v0.13.2`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Small fix for the tooltip modal, fixed the Status Page issues 
-(imports)***
+*Release note: **Move back the `snippets` folder by changing how it's location 
+calculated***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

@@ -1,6 +1,5 @@
 import os
-
-_SNIPPETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snippets')
+from config import _SNIPPETS_DIR
 
 def _load_snippet(filename: str) -> str:
     """Load an HTML snippet from the snippets/ subfolder."""

@@ -1,8 +1,8 @@
-# server `v0.13.0`
+# server `v0.13.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Divided `server_cdn.py` into code modules, preparing for the 
-migration to Hypercorn base***
+*Release note: **Small fix for the tooltip modal, fixed the Status Page issues 
+(imports)***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

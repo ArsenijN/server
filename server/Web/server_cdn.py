@@ -25,7 +25,7 @@ from urllib.parse import unquote, quote, urlparse, parse_qs
 import gzip as _gzip_mod
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
-from config import SERVE_ROOT
+from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST
 import socket as _socket
 import mimetypes
 
@@ -45,6 +45,8 @@ from core.status import _build_status_page, _get_status_history, _get_recent_inc
 from core.quota import _compute_dynamic_quota, _quota_updater_thread
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
+from core.uptime import _SERVER_START_TIME
+from core.snippets import _render_snippet
 
 # Content-types that benefit from gzip (text-based, not already compressed).
 # Binary / already-compressed types are explicitly excluded so we never waste
@@ -69,33 +71,7 @@ _GZIP_MIN_SIZE     = 512                # below this the header overhead isn't w
 # ==============================================================================
 # --- HTML SNIPPET LOADER ---
 # ==============================================================================
-_SNIPPETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snippets')
 
-def _load_snippet(filename: str) -> str:
-    """Load an HTML snippet from the snippets/ subfolder."""
-    with open(os.path.join(_SNIPPETS_DIR, filename), encoding='utf-8') as f:
-        return f.read()
-
-def _read_version() -> str:
-    try:
-        with open(os.path.join(os.path.dirname(__file__), 'VERSION'), encoding='utf-8') as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return 'unknown'
-
-SERVER_VERSION = _read_version()
-
-def _render_snippet(filename: str, **kwargs) -> str:
-    """Load a snippet and substitute {PLACEHOLDER} tokens safely.
-
-    Unlike str.format(), this only replaces tokens whose names are explicitly
-    passed as keyword arguments, so CSS rules like *{box-sizing:border-box}
-    and JS template literals like ${previewUrl} are left completely untouched.
-    """
-    template = _load_snippet(filename)
-    for key, value in kwargs.items():
-        template = template.replace('{' + key + '}', str(value))
-    return template
 
 # ==============================================================================
 # --- CONFIGURATION ---
@@ -111,15 +87,8 @@ ALLOWED_ORIGINS = {
     # credentialed cross-origin requests to the server. Not needed in production.
 }
 
-# Host/ports
-HOST = os.getenv('HOST', '0.0.0.0')
-HTTP_PORT = int(os.getenv('HTTP_PORT', '63512'))
-HTTPS_PORT = int(os.getenv('HTTPS_PORT', '64800'))
-
 # Public domain and serve root
 PUBLIC_DOMAIN = os.getenv('PUBLIC_DOMAIN', _CONFIG_PUBLIC_DOMAIN)
-# Default server root for CDN: use the larger media volume rather than the server's SSD (in most cases).
-CATBOX_UPLOAD_DIR = os.getenv('CATBOX_UPLOAD_DIR', 'CB_uploads')
 
 # Log & DB paths are imported from config
 LOG_FILE = LOG_FILE_CDN
@@ -163,9 +132,6 @@ SMTP_SERVER = os.getenv('SMTP_SERVER', '')
 SMTP_PORT = int(os.getenv('SMTP_PORT', os.getenv('SMTP_PORT', '587')))
 SMTP_SENDER_EMAIL = os.getenv('SMTP_SENDER_EMAIL', '')
 SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
-
-# Track when this process started (for server uptime on /status)
-_SERVER_START_TIME = time.time()
 
 # Path to the versions file — same directory as the policies folder
 _POLICY_VERSIONS_FILE = os.getenv('POLICY_VERSIONS_FILE', str(os.path.dirname(os.path.abspath(__file__)) + 'policies\\versions.json'))
@@ -268,19 +234,6 @@ def _mark_file_protected(relative_path, created_by=None):
 # ==============================================================================
 # --- STATUS PAGE (/status) ---
 # ==============================================================================
-
-def _fmt_bytes(n: int) -> str:
-    """Human-readable byte size."""
-    for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
-        if n < 1024:
-            return f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.1f} PB"
-
-def _disk_indicator(pct: float) -> str:
-    if pct >= 90: return 'crit'
-    if pct >= 75: return 'warn'
-    return 'ok'
 
 # ==============================================================================
 # --- OTHER HANDLERS AND UTILITIES ---

@@ -4527,7 +4527,7 @@ function _initTooltipFlip() {
         wrap.addEventListener('mouseenter', () => {
             const rect = wrap.getBoundingClientRect();
             // If less than 120px above the element, flip the bubble downward
-            wrap.classList.toggle('fd-tooltip-below', rect.top < 120);
+            wrap.classList.toggle('fd-tooltip-below', rect.top < 240);
         });
     });
 }

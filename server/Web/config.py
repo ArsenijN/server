@@ -91,3 +91,11 @@ UPLOAD_TMP_DIR = os.getenv(
 )
 
 SERVE_ROOT = os.path.abspath(os.getenv('SERVE_ROOT', '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028'))
+
+# Host/ports
+HOST = os.getenv('HOST', '0.0.0.0')
+HTTP_PORT = int(os.getenv('HTTP_PORT', '63512'))
+HTTPS_PORT = int(os.getenv('HTTPS_PORT', '64800'))
+
+# Default server root for CDN: use the larger media volume rather than the server's SSD (in most cases).
+CATBOX_UPLOAD_DIR = os.getenv('CATBOX_UPLOAD_DIR', 'CB_uploads')

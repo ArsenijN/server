@@ -1,8 +1,11 @@
-# server `v0.13.6`
+# server `v0.13.7`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Changed DownDetector to Quad9 checker for internet 
-reachability, changed the audit, other small things done***
+*Release note: **Fixed critical issue with the recent net probe changes, moved 
+`VERSIONS` to the `core` subfolder and back to the root, fixed the edge case 
+when server can be restarted in the middle of net outage, causing infinite 
+long net outage - made purger for the unclosed server outages when server 
+restarts mid-outage***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

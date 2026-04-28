@@ -112,7 +112,7 @@ from core.shares import _get_share, _get_shares_for_user, _create_share, _update
     _is_share_expired, _log_share_access, _parse_expiry
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
     _trash_purge_expired, _user_trash_root
-from core.net_monitor import _get_net_history_by_day, _net_state_lock, _net_monitor_state, _get_net_outages, _net_monitor_worker
+from core.net_monitor import _get_net_history_by_day, _net_state_lock, _net_monitor_state, _get_net_outages, _net_monitor_worker, _reconcile_open_outages
 from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot
 from core.quota import _compute_dynamic_quota, _quota_updater_thread
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
@@ -1943,13 +1943,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # For any other GET request, assume it's a static file.
         # Patch end_headers to include CORS and Accept-Ranges, then call base handler.
-        # N.B. must go through AuthHandler.end_headers (our override) — not the base
-        # class directly — so X-Frame-Options, HSTS, CSP etc. are always present.
-        # The same bug was fixed for do_HEAD in v5 (C2); this is the do_GET twin.
         def patched_end_headers():
             self.send_header('Accept-Ranges', 'bytes')
             self._send_cors_headers()
-            AuthHandler.end_headers(self)   # go through our override, not the base class
+            super(AuthHandler, self).end_headers()
 
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
@@ -4717,6 +4714,7 @@ if __name__ == '__main__':
     purge_thread.start()
 
     net_mon_thread = threading.Thread(target=_net_monitor_worker, name="NetMonitor", daemon=True)
+    _reconcile_open_outages()   # close orphaned rows from any previous crash/restart
     net_mon_thread.start()
 
     quota_thread = threading.Thread(target=_quota_updater_thread, name="QuotaUpdater", daemon=True)

@@ -1,4 +1,4 @@
-import socket, time, threading, logging as _ps, logging
+import socket, time, threading, logging
 from datetime import datetime
 from core.db import _db_connect
 
@@ -32,7 +32,7 @@ def _net_probe_once() -> tuple[bool, float | None]:
     for host, port, _ in _NET_PROBE_HOSTS:
         t0 = time.monotonic()
         try:
-            with _ps.create_connection((host, port), timeout=_NET_PROBE_TIMEOUT):
+            with socket.create_connection((host, port), timeout=_NET_PROBE_TIMEOUT):
                 ok_lats.append((time.monotonic() - t0) * 1000)
         except Exception:
             pass
@@ -44,26 +44,98 @@ def _net_probe_once() -> tuple[bool, float | None]:
 def _dd_check_google() -> bool | None:
     """Probe a third independent host to confirm whether an outage is external.
 
-    Previously this scraped the DownDetector HTML page, which broke silently
-    whenever the page layout changed (B12).  We now do a direct TCP connect to
-    a well-known host that is NOT in _NET_PROBE_HOSTS so the result is
-    independent of the primary probes.
+    Previously scraped DownDetector HTML (fragile, layout-dependent).
+    Now does a direct TCP connect to Quad9 (9.9.9.9:53) — independent of both
+    Google and Cloudflare which are the primary probes.
 
-    Returns True  → third host also unreachable → likely an ISP/external outage
-            False → third host responds         → outage looks local/server-side
-            None  → unexpected error (caller treats as unknown)
+    Returns True  → Quad9 also unreachable → likely an ISP/external outage
+            False → Quad9 responds         → outage looks local/server-side
+            None  → unexpected error
     """
-    _THIRD_HOST = ('9.9.9.9', 53)   # Quad9 DNS — independent of Google & Cloudflare
     try:
-        with socket.create_connection(_THIRD_HOST, timeout=_NET_PROBE_TIMEOUT):
-            return False   # third host is up → outage is not external
+        with socket.create_connection(('9.9.9.9', 53), timeout=_NET_PROBE_TIMEOUT):
+            return False
     except OSError:
-        return True        # third host also down → likely external
+        return True
     except Exception:
         return None
 
 
-def _open_net_outage(probe_host: str) -> int | None:
+def _reconcile_open_outages() -> None:
+    """Close any outage rows left open by a previous crash/restart.
+
+    Called once at startup, before _net_monitor_worker begins.
+
+    Two cases:
+    A) Network is currently UP   → every open row is orphaned (server was
+       restarted while the outage was already over, or while the bug was
+       present).  Close them all with ended_at = started_at so they show as
+       0-second resolved outages rather than permanent "ONGOING" entries.
+    B) Network is currently DOWN → the most-recent open row is legitimately
+       still in progress.  Re-load it into _net_monitor_state so the worker
+       picks up where it left off instead of opening a duplicate row.  Older
+       open rows (shouldn't exist, but just in case) are closed.
+
+    This means after any restart the outage table is always consistent and
+    the status page never shows stale "ONGOING" entries.
+    """
+    try:
+        is_up, _ = _net_probe_once()
+        with _db_connect() as conn:
+            rows = conn.execute(
+                'SELECT id, started_at FROM net_outages WHERE ended_at IS NULL ORDER BY started_at DESC'
+            ).fetchall()
+
+        if not rows:
+            return
+
+        now = time.time()
+
+        if is_up:
+            # All open rows are orphans — close every one of them.
+            with _db_connect() as conn:
+                for oid, started_at in rows:
+                    dur = round(now - started_at, 1)
+                    conn.execute(
+                        'UPDATE net_outages SET ended_at=?, duration_sec=?, confirmed_external=0 WHERE id=?',
+                        (now, dur, oid)
+                    )
+                conn.commit()
+            logging.info(
+                f'NetMonitor: reconciled {len(rows)} orphaned open outage(s) on startup (network is up)'
+            )
+
+        else:
+            # Network is still down.  Keep the newest row as the active outage;
+            # close any older open rows as orphans.
+            active_id, active_started = rows[0]
+            orphans = rows[1:]
+            if orphans:
+                with _db_connect() as conn:
+                    for oid, started_at in orphans:
+                        dur = round(now - started_at, 1)
+                        conn.execute(
+                            'UPDATE net_outages SET ended_at=?, duration_sec=?, confirmed_external=0 WHERE id=?',
+                            (now, dur, oid)
+                        )
+                    conn.commit()
+                logging.info(
+                    f'NetMonitor: closed {len(orphans)} orphaned outage(s); resuming active outage id={active_id}'
+                )
+            else:
+                logging.info(f'NetMonitor: resuming active outage id={active_id} (network still down)')
+
+            # Re-inject into shared state so the worker doesn't open a duplicate.
+            with _net_state_lock:
+                _net_monitor_state['ok']          = False
+                _net_monitor_state['outage_id']   = active_id
+                _net_monitor_state['outage_since'] = active_started
+
+    except Exception:
+        logging.exception('NetMonitor: startup reconciliation failed')
+
+
+
     try:
         with _db_connect() as conn:
             cur = conn.execute(

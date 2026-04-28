@@ -1,10 +1,8 @@
-# server `v0.13.4`
+# server `v0.13.5`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Reworked the imports, moved the server infos to `meta.py` 
-`core` module, deleted duplicate imports. It's recommended to wipe the `Web` 
-subfolder (preserving the secrets and settings) and re-deploy the new server 
-files to remove excess files***
+*Release note: **Fixed critical issue with importing `hashlib` as `time` in 
+`upload.py` `core` module, added index table for easier code base knowledge***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
@@ -48,6 +46,13 @@ those who used it before?) and I was able to do the certificates successfully
 right and... Now there we are
 
 ## Dev info
+### Server deployment
+
+It's recommended to wipe the `Web` subfolder (preserving the secrets and 
+settings) and re-deploy the new server files to remove excess files from older 
+updates and commits. Please be cautious with `rm -rf` command since this may 
+lead to the total server wipe of credentials and frontend files
+
 ### Secrets handling
 
 Sensitive information (database, SMTP credentials, SSL keys, etc.) is kept in 

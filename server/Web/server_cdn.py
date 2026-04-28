@@ -1,4 +1,81 @@
 #!/usr/bin/env python3
+# =============================================================================
+# MODULE INDEX
+# Functions and classes are split across core/ modules.
+# When asking for help, attach server_cdn.py + the relevant module(s) below.
+#
+# core/db.py
+#   _db_connect()                  — SQLite context manager (WAL, 15s timeout)
+#   init_db()                      — create/migrate all tables on startup
+#   _get_chunk_lock(token)         — per-upload serialisation lock
+#   _release_chunk_lock(token)     — release after assembly or purge
+#   _assembly_progress_{set,get,clear}(token, ...) — in-process progress tracker
+#
+# core/rate_limit.py
+#   _rate_limit(ip, bucket, max_hits) → bool  — sliding-window throttle
+#
+# core/notifications.py
+#   _fire_upload_notification(user_id, path, message)  — webhook/email on upload
+#
+# core/auth.py
+#   hash_password(password) → (hash, '')
+#   send_verification_email(email, token, username)
+#   _mint_download_token(relative_path, user_id) → raw_token
+#   _validate_download_token(relative_path, raw_token) → dict | None
+#   _update_token_progress(token_id, bytes_confirmed)
+#   _purge_expired_download_tokens()
+#
+# core/upload.py
+#   _upload_init(...)  → session dict
+#   _upload_get(token) → session dict | None
+#   _upload_receive_chunk(token, index, data, expected_size) → session dict
+#   _upload_assemble(token) → (dest_path, sha256_hex)
+#   _upload_session_status(session) → dict
+#   _purge_abandoned_upload_sessions()
+#
+# core/shares.py
+#   _create_share(...) → token
+#   _get_shares_for_user(user_id)
+#   _get_share(token) → dict | None        — respects expiry
+#   _get_share_raw(token) → dict | None    — ignores expiry
+#   _update_share(token, owner_id, fields)
+#   _delete_share(token, owner_id)
+#   _log_share_access(token, user_id, action)
+#   _get_share_stats(token, owner_id)
+#
+# core/trash.py
+#   _move_to_trash(user_id, fs_path, original_path) → metadata dict
+#   _trash_list(user_id)
+#   _trash_restore(user_id, item_id) → original_path
+#   _trash_delete_permanent(user_id, item_id)
+#   _trash_purge_expired() → purge_count
+#   _trash_size_used(user_id) → bytes
+#
+# core/quota.py
+#   _compute_dynamic_quota() → bytes
+#   _quota_updater_thread(interval_seconds)  — background daemon
+#
+# core/net_monitor.py
+#   _net_monitor_worker()     — background daemon
+#   _net_monitor_state        — shared dict {ok, latency_ms, outage_id, outage_since}
+#   _net_state_lock           — lock for reading _net_monitor_state
+#   _get_net_outages(days)
+#   _get_net_history_by_day(days)
+#
+# core/status.py
+#   _build_status_page() → HTML string
+#   _record_status_snapshot(http_up, https_up, db_ok, mem_pct, disk_pct, ...)
+#   _get_recent_incidents(limit)
+#   _get_message_board(limit)
+#   _get_status_history(days)
+#
+# core/snippets.py
+#   _render_snippet(filename, **kwargs) → str   — safe {PLACEHOLDER} substitution
+#
+# core/meta.py
+#   SERVER_VERSION      — string read from VERSION file
+#   _SERVER_START_TIME  — float unix timestamp of process start
+# =============================================================================
 import os
 import sys
 import json
@@ -12,19 +89,15 @@ import secrets
 import requests
 import hashlib
 import bcrypt
-#import collections
-#import smtplib
 import sqlite3
 from werkzeug.formparser import parse_form_data # For parsing multipart/form-data (cgi deprecated in Python 3.13+)
-#from email.mime.text import MIMEText
-#from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
 import gzip as _gzip_mod
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
-from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST
+from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
 import socket as _socket
 import mimetypes
 
@@ -68,11 +141,6 @@ _GZIP_MAX_INLINE   = 16 * 1024 * 1024   # 16 MB
 _GZIP_MIN_SIZE     = 512                # below this the header overhead isn't worth it
 
 # ==============================================================================
-# --- HTML SNIPPET LOADER ---
-# ==============================================================================
-
-
-# ==============================================================================
 # --- CONFIGURATION ---
 # ==============================================================================
 # --- Server Settings ---
@@ -104,8 +172,6 @@ LOG_FILE = LOG_FILE_CDN
 # The file should contain lines like "SMTP_SERVER=smtp.gmail.com" etc.  You can
 # put additional variables there later for other secrets, they will all be
 # injected into os.environ before we read them below.
-
-from config import SECRETS_DIR
 
 def _load_env_file(path: str) -> None:
     try:
@@ -171,23 +237,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stderr)]
 )
 
-
-# ==============================================================================
-# --- UPLOAD HELPERS ---
-# ==============================================================================
-
-# ── Upload-complete notification helpers ─────────────────────────────────────
-
-# ==============================================================================
-# --- RESUMABLE UPLOAD HELPERS ---
-# ==============================================================================
-
-
-# ==============================================================================
-# --- SHARE LINK HELPERS ---
-# ==============================================================================
-
-
 # ==============================================================================
 # --- TRASH BIN HELPERS ---
 # ==============================================================================
@@ -225,19 +274,6 @@ def _mark_file_protected(relative_path, created_by=None):
             (relative_path, created_by)
         )
         conn.commit()
-
-# ==============================================================================
-# --- AUTHENTICATION & USER MANAGEMENT ---
-# ==============================================================================
-
-# ==============================================================================
-# --- STATUS PAGE (/status) ---
-# ==============================================================================
-
-# ==============================================================================
-# --- OTHER HANDLERS AND UTILITIES ---
-# ==============================================================================
-
 
 # ==============================================================================
 # --- MAIN REQUEST HANDLER ---

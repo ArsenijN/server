@@ -44,7 +44,7 @@ from core.status import _build_status_page, _get_status_history, _get_recent_inc
 from core.quota import _compute_dynamic_quota, _quota_updater_thread
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
-from core.uptime import _SERVER_START_TIME
+from core.meta import _SERVER_START_TIME
 from core.snippets import _render_snippet
 
 # Content-types that benefit from gzip (text-based, not already compressed).

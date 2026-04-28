@@ -2,12 +2,7 @@ import os, time, threading, logging
 from core.db import _db_connect
 from core.trash import _trash_size_used
 from config import SERVE_ROOT
-
-# Never saw it actually changed - need to be tested
-# Seems like related to the "small size of CDN drive" in my current server config
-DEFAULT_QUOTA_BYTES = 50 * 1024 ** 3  # 50 GB
-QUOTA_MIN_BYTES     = 10 * 1024 ** 3  # floor: never drop below 10 GB
-QUOTA_MAX_BYTES     = 100 * 1024 ** 3 # ceiling: never exceed 100 GB
+from config import QUOTA_MAX_BYTES, DEFAULT_QUOTA_BYTES, QUOTA_MIN_BYTES
 
 def _get_server_free_bytes() -> int:
     import shutil

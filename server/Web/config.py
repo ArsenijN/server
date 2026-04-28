@@ -79,16 +79,20 @@ SMTP_SENDER_EMAIL = os.getenv('SMTP_SENDER_EMAIL', '')
 SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
 
 # Chunks
-UPLOAD_CHUNK_SIZE = os.getenv('UPLOAD_CHUNK_SIZE', str(1 * 1024 * 1024)) #default 1 MB
+# In future, can be changed to this code for accomodance for P8 patch with removing the chunks from being exposed on the CDN and additionally 
+# fasten up the rapid uploads:
+# UPLOAD_TMP_DIR = os.getenv(
+#     'UPLOAD_TMP_DIR',
+#     '/tmp/fluxdrop_upload_sessions'
+# )
 
-# Ensure that ports are provided from configs also
-HTTP_PORT = int(os.getenv('HTTP_PORT', '8080'))
-HTTPS_PORT = int(os.getenv('HTTPS_PORT', '8443'))
+# Chunk size and abandoned-session TTL are tunable via env
+# Temp chunks for now land on the CDN drive itself, avoiding /tmp exhaustion
+UPLOAD_CHUNK_SIZE = int(os.getenv('UPLOAD_CHUNK_SIZE', int(1 * 1024 * 1024))) #default 1 MB
 
-UPLOAD_TMP_DIR = os.getenv(
-    'UPLOAD_TMP_DIR',
-    '/tmp/fluxdrop_upload_sessions'
-)
+UPLOAD_TMP_DIR           = os.getenv('UPLOAD_TMP_DIR', os.path.join(
+    '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028', '.upload_sessions'
+))
 
 SERVE_ROOT = os.path.abspath(os.getenv('SERVE_ROOT', '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028'))
 
@@ -101,3 +105,15 @@ HTTPS_PORT = int(os.getenv('HTTPS_PORT', '64800'))
 CATBOX_UPLOAD_DIR = os.getenv('CATBOX_UPLOAD_DIR', 'CB_uploads')
 
 _SNIPPETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snippets')
+
+UPLOAD_SESSION_TTL = int(os.getenv('UPLOAD_SESSION_TTL', str(48 * 3600)))   # 48 h
+MAX_JSON_BODY = int(os.getenv('MAX_JSON_BODY', str(1  * 1024 * 1024)))  # 1 MB — cap all JSON request bodies
+MAX_SHARE_UPLOAD_BYTES = int(os.getenv('MAX_SHARE_UPLOAD_BYTES', str(500 * 1024 * 1024)))   # 500 MB — cap anonymous share uploads
+MAX_UPLOAD_BYTES = int(os.getenv('MAX_UPLOAD_BYTES', str(10 * 1024 * 1024 * 1024)))     # 10 GB legacy upload cap
+
+
+# Never saw it actually changed - need to be tested
+# Seems like related to the "small size of CDN drive" in my current server config
+DEFAULT_QUOTA_BYTES = 50 * 1024 ** 3  # 50 GB
+QUOTA_MIN_BYTES     = 10 * 1024 ** 3  # floor: never drop below 10 GB
+QUOTA_MAX_BYTES     = 100 * 1024 ** 3 # ceiling: never exceed 100 GB

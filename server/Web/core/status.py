@@ -2,7 +2,7 @@ import os, time, threading, logging, json
 from datetime import datetime, timedelta
 from core.db import _db_connect
 from core.net_monitor import _net_monitor_state, _get_net_outages, _get_net_history_by_day, _net_state_lock
-from core.uptime import _SERVER_START_TIME
+from core.meta import _SERVER_START_TIME, SERVER_VERSION
 from config import SERVE_ROOT, DB_FILE, CATBOX_UPLOAD_DIR, HTTP_PORT, HTTPS_PORT, PUBLIC_DOMAIN
 from core.snippets import _render_snippet
 
@@ -18,15 +18,6 @@ def _disk_indicator(pct: float) -> str:
     if pct >= 90: return 'crit'
     if pct >= 75: return 'warn'
     return 'ok'
-
-def _read_version() -> str:
-    try:
-        with open(os.path.join(os.path.dirname(__file__), 'VERSION'), encoding='utf-8') as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return 'unknown'
-
-SERVER_VERSION = _read_version()
 
 def _build_snapshot_cause(http_up: bool, https_up: bool, db_ok: bool,
                            mem_pct: int, disk_pct: int) -> str | None:
@@ -109,11 +100,6 @@ def _record_status_snapshot(http_up: bool, https_up: bool, db_ok: bool,
             conn.commit()
     except Exception:
         logging.exception('Failed to record status snapshot')
-
-
-# ==============================================================================
-# --- NETWORK CONNECTIVITY MONITOR ---
-# ==============================================================================
 
 def _get_recent_incidents(limit: int = 20) -> list:
     """Return the most recent incidents from incident_log, newest first.

@@ -1,4 +1,4 @@
-import socket, time, threading, logging
+import socket, time, threading, logging as _ps, logging
 from datetime import datetime
 from core.db import _db_connect
 
@@ -28,7 +28,6 @@ def _net_probe_once() -> tuple[bool, float | None]:
     from a single temporarily unreachable server).  Declared outage only
     when BOTH fail.
     """
-    import socket as _ps
     ok_lats = []
     for host, port, _ in _NET_PROBE_HOSTS:
         t0 = time.monotonic()

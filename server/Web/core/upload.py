@@ -1,24 +1,9 @@
-import os, json, shutil, secrets, hashlib as _hl, time, logging, threading, hashlib
+import os, json, shutil, secrets, hashlib as time, logging, threading, hashlib
 from datetime import datetime, timedelta
 from core.db import _db_connect, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_clear
 from core.notifications import _fire_upload_notification
-
-# Chunk size and abandoned-session TTL are tunable via env
-UPLOAD_CHUNK_SIZE        = int(os.getenv('UPLOAD_CHUNK_SIZE',       str(1 * 1024 * 1024)))          # 1 MB
-UPLOAD_SESSION_TTL       = int(os.getenv('UPLOAD_SESSION_TTL',      str(48 * 3600)))                # 48 h
-MAX_JSON_BODY            = int(os.getenv('MAX_JSON_BODY',           str(1  * 1024 * 1024)))         # 1 MB — cap all JSON request bodies
-MAX_SHARE_UPLOAD_BYTES   = int(os.getenv('MAX_SHARE_UPLOAD_BYTES',  str(500 * 1024 * 1024)))        # 500 MB — cap anonymous share uploads
-MAX_UPLOAD_BYTES         = int(os.getenv('MAX_UPLOAD_BYTES',        str(10 * 1024 * 1024 * 1024)))  # 10 GB legacy upload cap
-# Temp chunks land on the CDN drive itself, avoiding /tmp exhaustion
-UPLOAD_TMP_DIR           = os.getenv('UPLOAD_TMP_DIR', os.path.join(
-    '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028', '.upload_sessions'
-))
-# In future, can be changed to this code for accomodance for P8 patch with removing the chunks from being exposed on the CDN:
-# UPLOAD_TMP_DIR = os.getenv(                                   # ← P8
-#     'UPLOAD_TMP_DIR',
-#     '/tmp/fluxdrop_upload_sessions'
-# )
+from config import UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, MAX_JSON_BODY, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, UPLOAD_TMP_DIR
 
 def _upload_init(filename: str, dest_path: str, total_size: int,
                  total_chunks: int, sha256_final: str | None,

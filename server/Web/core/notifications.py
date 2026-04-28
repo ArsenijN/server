@@ -2,10 +2,7 @@ import threading, time, json, logging
 from core.db import _db_connect
 # SMTP config — these globals must come with it:
 import os
-SMTP_SERVER          = os.getenv('SMTP_SERVER', '')
-SMTP_PORT            = int(os.getenv('SMTP_PORT', '587'))
-SMTP_SENDER_EMAIL    = os.getenv('SMTP_SENDER_EMAIL', '')
-SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
+from config import SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD, SMTP_SERVER
 
 def _get_upload_notifications(user_id: int) -> list:
     """Return all enabled notification subscriptions for a user."""

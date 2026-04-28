@@ -1,8 +1,8 @@
-# server `v0.13.5`
+# server `v0.13.6`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fixed critical issue with importing `hashlib` as `time` in 
-`upload.py` `core` module, added index table for easier code base knowledge***
+*Release note: **Changed DownDetector to Quad9 checker for internet 
+reachability, changed the audit, other small things done***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

@@ -44,7 +44,7 @@ octet-stream for legacy usage
 download doesn't continue)
 - [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
 means http to https on cdn (file manager) since login works ok (forwards to 
-https)
+https) -- needs CDN migration to regular HTTP/HTTPS ports or single port to fix
 - [ ] Add file streaming (archive and stream to the server; one stream - a lot 
 of files) feature to site UI from `batch_tar_upload.py`
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
@@ -118,8 +118,8 @@ any FluxDrop and CDN
 - [ ] Divide FluxDrop and HTTP/HTTPS hosters into separate repos
 
 
-- [ ] Migration to other host platform for HTTP and HTTPS efficiency and 
-optimizations (Python; go to gunicorn or something else)
+- [x] Migration to other host platform for HTTP and HTTPS efficiency and 
+optimizations (Python; go to gunicorn or something else) - WIP
 - [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper 
 storage media)
 
@@ -138,8 +138,6 @@ expected to be so no one can upload to folder except the registered users on
 FluxDrop)
 - [ ] Make upload settings as drop-out menu for choosing who actually can 
 upload (anyone or only FluxDrop users)
-- [x] Make "Use this URL directly in <img>, <video>, Discord, etc." appear if 
-user hover over info mark after "🌐 CDN Embed URL (direct media link):"
 - [ ] Add stats window loading wheel/bar since bad internet causes high wait 
 times without knowing what it is doing
 - [ ] Fix the background media playing if internet is very bad and seems like 
@@ -150,4 +148,5 @@ closed (internet hang)
 where it's failed instead of pushing only the unloaded/wrong part of the file 
 (aka reduce very large internet overhead)
 - [ ] Add close by click on the dimmed space into the links manager
-- [ ] Make "X" non-scrollable in links manager
+- [ ] Make "X" non-scrollable in links manager (so can be closed without need 
+to scroll to the top)

@@ -42,22 +42,23 @@ def _net_probe_once() -> tuple[bool, float | None]:
 
 
 def _dd_check_google() -> bool | None:
-    """Rough DownDetector check for Google/ISP outages.
+    """Probe a third independent host to confirm whether an outage is external.
 
-    Returns True  → DownDetector shows active user reports (external issue)
-            False → DownDetector looks clear
-            None  → check failed (network itself may be down)
+    Previously this scraped the DownDetector HTML page, which broke silently
+    whenever the page layout changed (B12).  We now do a direct TCP connect to
+    a well-known host that is NOT in _NET_PROBE_HOSTS so the result is
+    independent of the primary probes.
+
+    Returns True  → third host also unreachable → likely an ISP/external outage
+            False → third host responds         → outage looks local/server-side
+            None  → unexpected error (caller treats as unknown)
     """
+    _THIRD_HOST = ('9.9.9.9', 53)   # Quad9 DNS — independent of Google & Cloudflare
     try:
-        import urllib.request as _ur, ssl as _ssl
-        ctx = _ssl.create_default_context()
-        req = _ur.Request(
-            'https://downdetector.com/status/google/',
-            headers={'User-Agent': 'Mozilla/5.0'}
-        )
-        with _ur.urlopen(req, timeout=5, context=ctx) as r:
-            body = r.read(8192).decode('utf-8', errors='ignore').lower()
-        return ('problems at google' in body or 'user reports indicate' in body)
+        with socket.create_connection(_THIRD_HOST, timeout=_NET_PROBE_TIMEOUT):
+            return False   # third host is up → outage is not external
+    except OSError:
+        return True        # third host also down → likely external
     except Exception:
         return None
 
@@ -102,7 +103,7 @@ def _net_monitor_worker() -> None:
 
     On outage:
       1. Opens a net_outages row.
-      2. Spawns a one-shot thread to check DownDetector (non-blocking).
+      2. Spawns a one-shot thread to probe Quad9 (independent external host check).
       3. Polls every 5 s until connectivity is restored.
     On recovery:
       4. Closes the net_outages row with duration + external flag.

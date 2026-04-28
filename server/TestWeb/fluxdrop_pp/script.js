@@ -1,4 +1,4 @@
-// ======================================================================
+        // ======================================================================
         // --- CONFIGURATION ---
         // ======================================================================
 // Prefer HTTPS, but fall back to HTTP if HTTPS is unreachable
@@ -1010,7 +1010,7 @@ async function loadDirectory(path) {
             `<tbody>${rows}</tbody></table>`;
         attachRowListeners();
     } catch (err) {
-        fileList.innerHTML = `<p class="text-sm text-red-600" style="padding:1rem">Failed to load directory: ${err.message}</p>`;
+        fileList.innerHTML = `<p class="text-sm text-red-600" style="padding:1rem">Failed to load directory: ${escapeHtml(err.message)}</p>`;
     }
 }
 

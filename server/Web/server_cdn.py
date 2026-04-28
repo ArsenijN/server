@@ -1943,10 +1943,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # For any other GET request, assume it's a static file.
         # Patch end_headers to include CORS and Accept-Ranges, then call base handler.
+        # N.B. must go through AuthHandler.end_headers (our override) — not the base
+        # class directly — so X-Frame-Options, HSTS, CSP etc. are always present.
+        # The same bug was fixed for do_HEAD in v5 (C2); this is the do_GET twin.
         def patched_end_headers():
             self.send_header('Accept-Ranges', 'bytes')
             self._send_cors_headers()
-            super(AuthHandler, self).end_headers()
+            AuthHandler.end_headers(self)   # go through our override, not the base class
 
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers

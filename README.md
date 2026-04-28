@@ -1,8 +1,8 @@
-# server `v0.13.2`
+# server `v0.13.3`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Move back the `snippets` folder by changing how it's location 
-calculated***
+*Release note: **Fix import issues in `auth.py` core module, removed unused 
+imports from `serevr_cdn.py`***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

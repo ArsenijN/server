@@ -5,6 +5,10 @@ from email.mime.multipart import MIMEMultipart
 from core.db import _db_connect
 from core.rate_limit import _rate_limit
 from core.notifications import SMTP_SERVER, SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD
+from core.snippets import _render_snippet
+from config import PUBLIC_DOMAIN, HTTPS_PORT, SERVE_DIRECTORY
+from email.mime.image import MIMEImage
+from datetime import datetime, timedelta
 
 # ── P1: Session token hashing ────────────────────────────────────────────
 def _hash_session_token(raw: str) -> str:

@@ -12,13 +12,12 @@ import secrets
 import requests
 import hashlib
 import bcrypt
-import collections
-import smtplib
+#import collections
+#import smtplib
 import sqlite3
 from werkzeug.formparser import parse_form_data # For parsing multipart/form-data (cgi deprecated in Python 3.13+)
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
+#from email.mime.text import MIMEText
+#from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs

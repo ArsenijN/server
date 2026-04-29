@@ -135,7 +135,7 @@ def _reconcile_open_outages() -> None:
         logging.exception('NetMonitor: startup reconciliation failed')
 
 
-
+def _open_net_outage(probe_host: str) -> int | None:
     try:
         with _db_connect() as conn:
             cur = conn.execute(

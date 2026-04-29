@@ -1,11 +1,8 @@
-# server `v0.13.7`
+# server `v0.13.8`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fixed critical issue with the recent net probe changes, moved 
-`VERSIONS` to the `core` subfolder and back to the root, fixed the edge case 
-when server can be restarted in the middle of net outage, causing infinite 
-long net outage - made purger for the unclosed server outages when server 
-restarts mid-outage***
+*Release note: **Fix `_open_net_outage` function definition in `net_monitor` 
+`core` module***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

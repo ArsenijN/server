@@ -107,7 +107,8 @@ from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, 
 from core.rate_limit import _rate_limit
 from core.notifications import _fire_upload_notification
 from core.upload import MAX_JSON_BODY, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, _upload_init, _upload_get, _upload_receive_chunk, \
-    _upload_session_status, _upload_assemble, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, _purge_abandoned_upload_sessions, UPLOAD_TMP_DIR
+    _upload_session_status, _upload_assemble, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, _purge_abandoned_upload_sessions, UPLOAD_TMP_DIR, \
+    _cancel_upload_session
 from core.shares import _get_share, _get_shares_for_user, _create_share, _update_share, _delete_share, _get_share_stats, _get_share_raw, \
     _is_share_expired, _log_share_access, _parse_expiry
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
@@ -274,6 +275,26 @@ def _mark_file_protected(relative_path, created_by=None):
             (relative_path, created_by)
         )
         conn.commit()
+
+def _pending_dest_paths(user_id: int) -> set:
+    """Return the set of dest_path values for in-progress direct-write sessions
+    owned by *user_id*.  These files are pre-allocated but not yet complete and
+    must not appear in directory listings.
+
+    The index on (dest_path, upload_status, completed) makes this fast.
+    """
+    try:
+        with _db_connect() as conn:
+            rows = conn.execute(
+                """SELECT dest_path FROM upload_sessions
+                WHERE owner_ref = ? AND owner_type = 'user'
+                    AND strategy = 'direct' AND completed = 0""",
+                (str(user_id),)
+            ).fetchall()
+        return {r[0] for r in rows}
+    except Exception:
+        logging.exception('_pending_dest_paths failed')
+        return set()
 
 # ==============================================================================
 # --- MAIN REQUEST HANDLER ---
@@ -1479,34 +1500,26 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def handle_upload_session_cancel(self, upload_token: str):
         """DELETE /api/v1/upload_session/<token>
-        Immediately deletes the tmp chunk directory and DB row for an in-progress
-        upload session.  Safe to call when the user cancels — avoids waiting 48 h
-        for the TTL purge to reclaim the disk space.
+        Immediately cancels an in-progress upload session and cleans up:
+          - 'buffer' strategy: deletes the tmp chunk directory.
+          - 'direct' strategy: deletes the partial pre-allocated destination file.
         Auth: same rules as chunk upload.
         Returns JSON: { cancelled: true }
         """
         session = _upload_get(upload_token)
         if not session:
-            # Already gone — treat as success
             return self._send_response(200, json.dumps({'cancelled': True}))
         if session['completed']:
             return self._send_response(409, json.dumps({'error': 'Session already completed.'}))
-
+ 
         ok, reason = self._check_upload_session_auth(session)
         if not ok:
             return self._send_response(403, json.dumps({'error': reason}))
-
+ 
         try:
-            tmp_dir = session['tmp_dir']
-            with _db_connect() as conn:
-                conn.execute('DELETE FROM upload_sessions WHERE upload_token = ?', (upload_token,))
-                conn.commit()
-            _release_chunk_lock(upload_token)
-            try:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-            except Exception:
-                pass
-            logging.info(f'Upload session cancelled and cleaned up: token={upload_token[:12]}…')
+            _cancel_upload_session(upload_token)
+            logging.info(f'Upload session cancelled: token={upload_token[:12]}… '
+                         f'strategy={session.get("strategy","buffer")}')
             return self._send_response(200, json.dumps({'cancelled': True}))
         except Exception as e:
             logging.exception('Failed to cancel upload session')
@@ -3886,13 +3899,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 entries = []
                 try:
                     user_dir = user_base_path_for(user_id)
+                    pending = _pending_dest_paths(user_id)
                     for name in sorted(os.listdir(target)):
-                        p = os.path.join(target, name)
-                        st = os.stat(p)
+                        p  = os.path.join(target, name)
+                        if not os.path.isdir(p) and p in pending:
+                            continue                                # skip partial upload file
+                        st  = os.stat(p)
                         rel = '/' + os.path.relpath(p, user_dir).replace(os.sep, '/')
                         entries.append({
-                            "name": name,
-                            "path": rel,
+                            "name": name, "path": rel,
                             "is_dir": os.path.isdir(p),
                             "size": 0 if os.path.isdir(p) else st.st_size,
                             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(timespec='seconds')

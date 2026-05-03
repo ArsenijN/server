@@ -1,8 +1,10 @@
-# server `v0.13.8`
+# server `v0.14.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix `_open_net_outage` function definition in `net_monitor` 
-`core` module***
+*Release note: **Sped up the upload speeds by making util of the separate drive 
+as `UPLOAD_TMP_DIR`, improve the speeds when used the same drive for CDN and 
+tmp dir even further by making use of the fragments; significant improvements 
+in the file counting for the status page***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
@@ -52,6 +54,12 @@ It's recommended to wipe the `Web` subfolder (preserving the secrets and
 settings) and re-deploy the new server files to remove excess files from older 
 updates and commits. Please be cautious with `rm -rf` command since this may 
 lead to the total server wipe of credentials and frontend files
+
+Please take a note that server uses `UPLOAD_TMP_DIR` as storage for chunks that 
+are uploaded to the server, to then process them and while processing, write 
+them to the destination file. It's very recommended to ensure that 
+`UPLOAD_TMP_DIR` lives on separate drive since that will envolve severe head 
+seeks that will significantly reduce the speeds of the file processing
 
 ### Secrets handling
 

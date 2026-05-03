@@ -79,19 +79,11 @@ SMTP_SENDER_EMAIL = os.getenv('SMTP_SENDER_EMAIL', '')
 SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
 
 # Chunks
-# In future, can be changed to this code for accomodance for P8 patch with removing the chunks from being exposed on the CDN and additionally 
-# fasten up the rapid uploads:
-# UPLOAD_TMP_DIR = os.getenv(
-#     'UPLOAD_TMP_DIR',
-#     '/tmp/fluxdrop_upload_sessions'
-# )
-
 # Chunk size and abandoned-session TTL are tunable via env
-# Temp chunks for now land on the CDN drive itself, avoiding /tmp exhaustion
 UPLOAD_CHUNK_SIZE = int(os.getenv('UPLOAD_CHUNK_SIZE', int(1 * 1024 * 1024))) #default 1 MB
 
 UPLOAD_TMP_DIR           = os.getenv('UPLOAD_TMP_DIR', os.path.join(
-    '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028', '.upload_sessions'
+    '/tmp', 'fluxdrop_upload_sessions'
 ))
 
 SERVE_ROOT = os.path.abspath(os.getenv('SERVE_ROOT', '/media/arsen/dab4b7b7-8867-4bf3-9304-6fd153c0a028'))
@@ -112,7 +104,7 @@ MAX_SHARE_UPLOAD_BYTES = int(os.getenv('MAX_SHARE_UPLOAD_BYTES', str(500 * 1024 
 MAX_UPLOAD_BYTES = int(os.getenv('MAX_UPLOAD_BYTES', str(10 * 1024 * 1024 * 1024)))     # 10 GB legacy upload cap
 
 
-# Never saw it actually changed - need to be tested
+# Never saw it actually changed (dynamic quota) - need to be tested
 # Seems like related to the "small size of CDN drive" in my current server config
 DEFAULT_QUOTA_BYTES = 50 * 1024 ** 3  # 50 GB
 QUOTA_MIN_BYTES     = 10 * 1024 ** 3  # floor: never drop below 10 GB

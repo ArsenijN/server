@@ -3,8 +3,133 @@ from datetime import datetime, timedelta
 from core.db import _db_connect
 from core.net_monitor import _net_monitor_state, _get_net_outages, _get_net_history_by_day, _net_state_lock
 from core.meta import _SERVER_START_TIME, SERVER_VERSION
-from config import SERVE_ROOT, DB_FILE, CATBOX_UPLOAD_DIR, HTTP_PORT, HTTPS_PORT, PUBLIC_DOMAIN
+from config import SERVE_ROOT, DB_FILE, CATBOX_UPLOAD_DIR, HTTP_PORT, HTTPS_PORT, PUBLIC_DOMAIN, UPLOAD_TMP_DIR
 from core.snippets import _render_snippet
+
+# ── Directory-count background cache ─────────────────────────────────────────
+# Walking 165k+ files on every /status request takes 2-15 s on this hardware.
+# Instead, a daemon thread re-scans both watched directories in the background
+# and stores the results here.  _build_status_page() reads the cache — O(1).
+#
+# Invalidation strategy (two-layer):
+#   1. mtime check — os.stat(dir).st_mtime changes when a file is directly
+#      created/deleted inside that directory level.  For deep trees this only
+#      catches top-level changes, so it is used as a fast "definitely changed"
+#      signal, not as a "definitely unchanged" guarantee.
+#   2. TTL — unconditional refresh every DIR_CACHE_TTL seconds (default 300 s).
+#      This ensures counts can never be more than 5 minutes stale even for
+#      changes deep inside nested subdirectories.
+#
+# On first request the cache is empty; _dir_cache_get() returns (0, 0) and
+# immediately kicks off a scan in the background thread.  The next request
+# (seconds later) will see real numbers.
+# ─────────────────────────────────────────────────────────────────────────────
+
+DIR_CACHE_TTL      = int(os.getenv('DIR_CACHE_TTL', '300'))   # seconds between forced refresh
+DIR_CACHE_INTERVAL = int(os.getenv('DIR_CACHE_INTERVAL', '60'))  # background thread poll interval
+
+# Cache state: path → { count, size, scanned_at, last_mtime }
+_dir_cache: dict[str, dict] = {}
+_dir_cache_lock   = threading.Lock()
+_dir_cache_dirty: set[str] = set()   # paths queued for rescan
+_dir_cache_event  = threading.Event()  # wakes the background thread immediately
+
+
+def _count_dir_walk(path: str) -> tuple[int, int]:
+    """Walk *path* and return (file_count, total_bytes).  May be slow — only
+    called from the background thread, never from a request handler.
+    """
+    count = size = 0
+    try:
+        for root, _, files in os.walk(path):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                try:
+                    size += os.path.getsize(fp)
+                    count += 1
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return count, size
+
+
+def _dir_cache_get(path: str) -> tuple[int, int]:
+    """Return cached (count, size) for *path*, scheduling a rescan if stale.
+
+    Never blocks — returns the last known values (or 0, 0 on cold start) and
+    signals the background thread to refresh if the data is out of date.
+    """
+    now = time.monotonic()
+    with _dir_cache_lock:
+        entry = _dir_cache.get(path)
+        if entry is None:
+            # Cold start — nothing cached yet; queue an immediate scan.
+            _dir_cache_dirty.add(path)
+            _dir_cache_event.set()
+            return 0, 0
+
+        # Fast mtime check: if the directory's own mtime changed, queue rescan.
+        try:
+            cur_mtime = os.stat(path).st_mtime
+        except OSError:
+            cur_mtime = entry['last_mtime']
+
+        age = now - entry['scanned_at']
+        stale_ttl   = age >= DIR_CACHE_TTL
+        stale_mtime = cur_mtime != entry['last_mtime']
+
+        if (stale_ttl or stale_mtime) and path not in _dir_cache_dirty:
+            _dir_cache_dirty.add(path)
+            _dir_cache_event.set()
+
+        return entry['count'], entry['size']
+
+
+def _dir_cache_worker():
+    """Background daemon: processes _dir_cache_dirty paths, then sleeps."""
+    while True:
+        _dir_cache_event.wait(timeout=DIR_CACHE_INTERVAL)
+        _dir_cache_event.clear()
+
+        with _dir_cache_lock:
+            paths = list(_dir_cache_dirty)
+
+        for path in paths:
+            try:
+                t0 = time.monotonic()
+                count, size = _count_dir_walk(path)
+                elapsed = time.monotonic() - t0
+                try:
+                    mtime = os.stat(path).st_mtime
+                except OSError:
+                    mtime = 0.0
+                with _dir_cache_lock:
+                    _dir_cache[path] = {
+                        'count': count, 'size': size,
+                        'scanned_at': time.monotonic(),
+                        'last_mtime': mtime,
+                    }
+                    _dir_cache_dirty.discard(path)
+                logging.info(
+                    f'DirCache: scanned {path!r} → {count} files, '
+                    f'{size // (1024**2)} MB in {elapsed:.1f}s'
+                )
+            except Exception:
+                logging.exception(f'DirCache: scan failed for {path!r}')
+                with _dir_cache_lock:
+                    _dir_cache_dirty.discard(path)
+
+
+# Start the background thread once at import time.
+# daemon=True so it doesn't block clean server shutdown.
+_dir_cache_thread = threading.Thread(
+    target=_dir_cache_worker,
+    name='DirCacheWorker',
+    daemon=True,
+)
+_dir_cache_thread.start()
+
 
 def _fmt_bytes(n: int) -> str:
     """Human-readable byte size."""
@@ -302,7 +427,7 @@ def _build_status_page() -> str:
 
     cdn_disk  = _diskinfo(SERVE_ROOT)
     root_disk = _diskinfo('/')
-    tmp_disk  = _diskinfo('/tmp')
+    tmp_disk  = _diskinfo(UPLOAD_TMP_DIR)
 
     # ── cpu load ──
     try:
@@ -402,28 +527,15 @@ def _build_status_page() -> str:
     except Exception:
         pass
 
-    # ── file counts ──
-    def _count_dir(path: str):
-        count = size = 0
-        try:
-            for root, _, files in os.walk(path):
-                for fn in files:
-                    fp = os.path.join(root, fn)
-                    try:
-                        size += os.path.getsize(fp)
-                        count += 1
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-        return count, size
-
+    # ── file counts (served from background cache — never blocks the request) ──
     fluxdrop_dir = os.path.join(SERVE_ROOT, 'FluxDrop')
     catbox_dir   = os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR)
-    fluxdrop_files, fluxdrop_size = _count_dir(fluxdrop_dir)
-    catbox_files,   catbox_size   = _count_dir(catbox_dir)
-    fluxdrop_size_str = _fmt_bytes(fluxdrop_size)
-    catbox_size_str   = _fmt_bytes(catbox_size)
+    ff, fs = _dir_cache_get(fluxdrop_dir)
+    cf, cs = _dir_cache_get(catbox_dir)
+    fluxdrop_files    = ff
+    fluxdrop_size_str = _fmt_bytes(fs)
+    catbox_files      = cf
+    catbox_size_str   = _fmt_bytes(cs)
 
     # ── TLS cert expiry ──
     ssl_status = 'ok'; ssl_ind = 'ok'; ssl_detail = 'valid'
@@ -668,6 +780,7 @@ def _build_status_page() -> str:
         tmpdisk_avail=tmp_disk['avail'], tmpdisk_total=tmp_disk['total'],
         tmpdisk_used=tmp_disk['used'],   tmpdisk_pct=tmp_disk['pct'],
         tmpdisk_ind=tmp_disk['ind'],
+        tmpdisk_path=UPLOAD_TMP_DIR,
         # cpu / mem
         cpu_bars_html=cpu_bars_html,
         mem_pct=mem_pct, mem_total=mem_total, mem_used=mem_used, mem_avail=mem_avail,

@@ -317,6 +317,17 @@ def init_db():
         _add_column_if_missing('net_outages', 'note', 'TEXT DEFAULT NULL')
         _add_column_if_missing('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0')
         _add_column_if_missing('beacon_read_tokens', 'last_used', 'REAL DEFAULT NULL')
+        _add_column_if_missing('upload_sessions', 'strategy',
+                               "TEXT NOT NULL DEFAULT 'buffer'")
+        _add_column_if_missing('upload_sessions', 'upload_status',
+                               "TEXT NOT NULL DEFAULT 'pending'")
+        try:
+            conn.execute(
+                '''CREATE INDEX IF NOT EXISTS idx_upload_sessions_dest_status
+                   ON upload_sessions (dest_path, upload_status, completed)'''
+            )
+        except Exception:
+            pass
         conn.commit()
 
     logging.info("Database initialized successfully.")

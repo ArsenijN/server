@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FluxDrop — System Status</title>
-<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}/fluxdrop_pp/icon.svg">
+<link rel="icon" type="image/svg" sizes="32x32" href="https://{PUBLIC_DOMAIN}:64800/icon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -786,7 +786,7 @@ footer a:hover { text-decoration: underline; }
 
       <div class="svc-row" style="border-bottom:none">
         <div class="svc-indicator {tmpdisk_ind}"></div>
-        <div class="svc-name">Temp Directory <span style="color:var(--muted);font-size:11px">/tmp (upload buffer)</span></div>
+        <div class="svc-name">Temp Directory <span style="color:var(--muted);font-size:11px">{tmpdisk_path} (upload buffer)</span></div>
         <div class="svc-detail">{tmpdisk_avail} free / {tmpdisk_total}</div>
         <div class="svc-badge {tmpdisk_ind}">{tmpdisk_pct}%</div>
       </div>

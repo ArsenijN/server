@@ -2941,8 +2941,45 @@ async function uploadChunked(file, destRel, opts = {}) {
     renderUploadTray();
 
     // ── Parallel chunk upload loop ──────────────────────────────────
-    // Send up to CONCURRENCY chunks at a time for much faster uploads.
-    const CONCURRENCY = 8;
+    // Concurrency is adaptive: starts from the speed probe result, then
+    // self-tunes every 3 s by watching the EWA speed trend.
+    // Min 1, max 6. (8 was too aggressive for i3 370m + HDD.)
+    const CONCURRENCY_MIN = 1;
+    const CONCURRENCY_MAX = 6;
+
+    // Seed from probe: target ~50 MB in-flight / chunkSize.
+    // For 25 MB chunks → starts at 2. Falls back to 3 if no probe data.
+    let concurrency = (ul.measuredSpeed && ul.measuredSpeed > 0 && chunkSize > 0)
+        ? Math.max(CONCURRENCY_MIN, Math.min(CONCURRENCY_MAX, Math.round(50 * 1024 * 1024 / chunkSize)))
+        : 3;
+
+    let _activeWorkerCount = 0;
+    let _workerLaunchFn    = null;
+    let _tunerLastSpeed    = ul.speed || 0;
+    let _tunerTimer        = null;
+
+    function _startConcurrencyTuner() {
+        if (_tunerTimer) return;
+        _tunerTimer = setInterval(() => {
+            if (ul.cancelled || uploadError) { clearInterval(_tunerTimer); _tunerTimer = null; return; }
+            if (ul.paused) return; // don't tune while paused
+            const cur = ul.speed || 0;
+            if (_tunerLastSpeed > 0 && cur > 0) {
+                const ratio = cur / _tunerLastSpeed;
+                if (ratio < 0.85 && concurrency > CONCURRENCY_MIN) {
+                    // Speed dropped >15 % — back off one worker
+                    concurrency = Math.max(CONCURRENCY_MIN, concurrency - 1);
+                } else if (ratio >= 0.95 && concurrency < CONCURRENCY_MAX
+                           && _activeWorkerCount < concurrency + 1
+                           && nextIdx < totalChunks) {
+                    // Speed stable/rising — try adding one more worker
+                    concurrency++;
+                    if (_workerLaunchFn) _workerLaunchFn();
+                }
+            }
+            _tunerLastSpeed = cur;
+        }, 3000);
+    }
 
     // Per-chunk XHR registry so cancel aborts ALL in-flight XHRs, not just the last one
     const activeXhrs = new Map(); // idx -> xhr
@@ -3109,8 +3146,27 @@ async function uploadChunked(file, destRel, opts = {}) {
         }
     }
 
-    // Launch CONCURRENCY workers and wait for all to finish
-    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    // Launch adaptive worker pool and wait for all chunks to finish.
+    _startConcurrencyTuner();
+    await new Promise((resolvePool) => {
+        let _poolDone = false;
+        function _checkDone() {
+            if (!_poolDone && _activeWorkerCount === 0) {
+                _poolDone = true;
+                clearInterval(_tunerTimer);
+                _tunerTimer = null;
+                resolvePool();
+            }
+        }
+        _workerLaunchFn = function _spawnWorker() {
+            if (ul.cancelled || uploadError || nextIdx >= totalChunks) { _checkDone(); return; }
+            _activeWorkerCount++;
+            worker().finally(() => { _activeWorkerCount--; _checkDone(); });
+        };
+        const initial = Math.min(concurrency, Math.max(0, totalChunks - startIdx));
+        for (let i = 0; i < initial; i++) _workerLaunchFn();
+        if (initial === 0) resolvePool(); // zero-chunk (empty) file
+    });
 
     if (ul.paused && !ul.cancelled) {
         // Workers exited due to pause — don't complete, just leave state as paused.

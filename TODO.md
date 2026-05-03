@@ -143,10 +143,21 @@ times without knowing what it is doing
 - [ ] Fix the background media playing if internet is very bad and seems like 
 only when attempt to reach for file was made after the preview window is 
 closed (internet hang)
-- [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF or JPG)
+- [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF or 
+JPG)
 - [ ] Add fix for the timed out chunks causing full file reupload from the part 
 where it's failed instead of pushing only the unloaded/wrong part of the file 
 (aka reduce very large internet overhead)
 - [ ] Add close by click on the dimmed space into the links manager
 - [ ] Make "X" non-scrollable in links manager (so can be closed without need 
 to scroll to the top)
+- [ ] Do not show the window to "agree with the TOS and PP" when user token is 
+expired - immediatelly "kick out" the user with purged token to the landing 
+page
+- [ ] Add "landing page" for CatBox API to use it from thr browser, and also
+- [ ] Add "CatBox API usage" page for CatBox API
+- [ ] Ensure that CatBox API have file size limits
+- [ ] Fix status page having wrong path to display as tmp dir
+- [ ] Fasten up the upload speeds and multi-user handling by using tmp dir on 
+SSD with chunks purge; made the qBittorrent-like system for same-drive-as-cache
+- [ ] Fix URL-encode issues with the "path persist"

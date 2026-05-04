@@ -20,6 +20,70 @@ from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
 
  
 
+# --- CDN reverse proxy (HTTP) ---
+_CDN_PROXY_PREFIXES = (
+    '/api/',
+    '/auth/',
+    '/share/',
+    '/status',
+    '/beacon',
+    '/FluxDrop/',
+    '/cdn/',
+    '/fluxdrop_pp/',
+    '/CB_uploads/',
+)
+
+import urllib.request as _urllib_req
+import urllib.error   as _urllib_err
+
+def _proxy_to_cdn_http(handler, method: str = 'GET'):
+    """Forward request to the CDN HTTP listener on the loopback interface."""
+    _HOP_BY_HOP = frozenset({
+        'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+        'te', 'trailers', 'transfer-encoding', 'upgrade', 'host',
+    })
+    target = f"http://127.0.0.1:{CDN_HTTP_PORT}{handler.path}"
+    body = None
+    cl = handler.headers.get('Content-Length')
+    if cl and int(cl) > 0:
+        body = handler.rfile.read(int(cl))
+    req = _urllib_req.Request(target, data=body, method=method)
+    for k, v in handler.headers.items():
+        if k.lower() not in _HOP_BY_HOP:
+            try:
+                req.add_header(k, v)
+            except Exception:
+                pass
+    req.add_header('X-Forwarded-For', handler.client_address[0])
+    try:
+        with _urllib_req.urlopen(req, timeout=60) as resp:
+            raw = resp.read()
+            handler.send_response(resp.status)
+            for k, v in resp.headers.items():
+                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
+                    try:
+                        handler.send_header(k, v)
+                    except Exception:
+                        pass
+            handler.send_header('Content-Length', str(len(raw)))
+            handler.end_headers()
+            handler.wfile.write(raw)
+    except _urllib_err.HTTPError as e:
+        raw = e.read() or b''
+        handler.send_response(e.code)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(raw)))
+        handler.end_headers()
+        handler.wfile.write(raw)
+    except Exception as exc:
+        msg = f'{{"error":"proxy error: {exc}"}}'.encode()
+        handler.send_response(502)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(msg)))
+        handler.end_headers()
+        handler.wfile.write(msg)
+
+
 # --- Request Handler ---
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
     """
@@ -70,42 +134,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         requested_path = self.path
         print(f"Request from: {client_ip} -> {requested_path}")
 
-        # --- Share link redirect ---
-        # /share/<token>[/...] → CDN server which owns all FluxDrop share logic.
-        import re as _re
-        # Bare /share with no token → redirect to not-found page on CDN
-        if requested_path.split('?')[0] in ('/share', '/share/'):
-            self.send_response(302)
-            self.send_header('Location', f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}/share/")
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            return
-        _share_m = _re.match(r'^(/share/[A-Za-z0-9_\-]+(?:/.*)?)', requested_path.split('?')[0])
-        if _share_m:
-            _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
-            _target = f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}{_share_m.group(1)}{_qs}"
-            self.send_response(302)
-            self.send_header('Location', _target)
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            return
-        # --- /status redirect → CDN ---
-        if requested_path.split('?')[0] == '/status':
-            _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
-            self.send_response(302)
-            self.send_header('Location', f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}/status{_qs}")
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            return
-        # --- /beacon/* redirect → CDN (all beacon endpoints live on the CDN server) ---
-        if requested_path.split('?')[0].startswith('/beacon'):
-            _qs = ('?' + requested_path.split('?', 1)[1]) if '?' in requested_path else ''
-            _path = requested_path.split('?')[0]
-            self.send_response(302)
-            self.send_header('Location', f"http://{_PUBLIC_DOMAIN}:{CDN_HTTP_PORT}{_path}{_qs}")
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            return
+        # --- Proxy CDN-owned paths to server_cdn.py internally ---
+        _clean = requested_path.split('?')[0]
+        if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _CDN_PROXY_PREFIXES):
+            return _proxy_to_cdn_http(self, 'GET')
 
         # P11: SPA deep-link support — serve the app shell for any .../files[/...] path
         # so the browser history API can restore the correct folder on direct load or refresh.
@@ -357,6 +389,65 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.add_cors_headers()
         self.end_headers()
         self.wfile.write(b"<h1>405 Method Not Allowed</h1>")
+
+    def do_POST(self):
+        client_ip = self.client_address[0]
+        with blacklist_lock:
+            if client_ip in current_blacklist:
+                self.send_error(403, "Access Denied")
+                return
+        _p = self.path.split('?')[0]
+        if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
+            return _proxy_to_cdn_http(self, 'POST')
+        # Speed-test upload endpoint
+        if self.path.startswith('/upload'):
+            try:
+                cl = int(self.headers.get('Content-Length', 0))
+                if cl > 0:
+                    self.rfile.read(cl)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.add_cors_headers()
+                self.end_headers()
+                self.wfile.write(b'{"status":"success"}')
+            except Exception:
+                self.send_response(500)
+                self.end_headers()
+            return
+        if self.path.startswith('/ping'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.add_cors_headers()
+            self.end_headers()
+            self.wfile.write(b'pong')
+            return
+        self.send_response(405)
+        self.add_cors_headers()
+        self.end_headers()
+
+    def do_DELETE(self):
+        _p = self.path.split('?')[0]
+        if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
+            return _proxy_to_cdn_http(self, 'DELETE')
+        self.send_response(405)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def do_PUT(self):
+        _p = self.path.split('?')[0]
+        if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
+            return _proxy_to_cdn_http(self, 'PUT')
+        self.send_response(405)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def do_PATCH(self):
+        _p = self.path.split('?')[0]
+        if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
+            return _proxy_to_cdn_http(self, 'PATCH')
+        self.send_response(405)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
 
     def log_message(self, format, *args):
         print(f"HTTP: {format % args}")

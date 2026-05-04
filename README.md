@@ -1,10 +1,8 @@
-# server `v0.14.0`
+# server `v0.14.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Sped up the upload speeds by making util of the separate drive 
-as `UPLOAD_TMP_DIR`, improve the speeds when used the same drive for CDN and 
-tmp dir even further by making use of the fragments; significant improvements 
-in the file counting for the status page***
+*Release note: **Migration to the proxy-based over port-based system for 
+backend and frontend separation***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

@@ -161,3 +161,7 @@ page
 - [ ] Fasten up the upload speeds and multi-user handling by using tmp dir on 
 SSD with chunks purge; made the qBittorrent-like system for same-drive-as-cache
 - [ ] Fix URL-encode issues with the "path persist"
+- [ ] Fix archive streaming may fail at ~6 GB of streamed files (including few 
+20+ GB in the streamed archive folder)
+- [ ] Fix problem with file downloading being written into the RAM, causing RAM 
+exhausting 

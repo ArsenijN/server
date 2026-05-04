@@ -44,7 +44,6 @@ _CDN_PROXY_PREFIXES = (
     '/beacon',
     '/FluxDrop/',
     '/cdn/',
-    '/fluxdrop_pp/',   # icon + app assets that live under SERVE_ROOT on the CDN
     '/CB_uploads/',
 )
 

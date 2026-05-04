@@ -29,7 +29,6 @@ _CDN_PROXY_PREFIXES = (
     '/beacon',
     '/FluxDrop/',
     '/cdn/',
-    '/fluxdrop_pp/',
     '/CB_uploads/',
 )
 

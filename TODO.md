@@ -115,7 +115,9 @@ manager)
 
 - [ ] Make HTTP and HTTPS hosters work properly as standalone utilities without 
 any FluxDrop and CDN
-- [ ] Divide FluxDrop and HTTP/HTTPS hosters into separate repos
+- [ ] Divide FluxDrop and HTTP/HTTPS hosters into separate repos -- under 
+question since static HTTP/HTTPS is very simple and actually will not make 
+sense as standalone util/service
 
 
 - [x] Migration to other host platform for HTTP and HTTPS efficiency and 
@@ -154,14 +156,18 @@ to scroll to the top)
 - [ ] Do not show the window to "agree with the TOS and PP" when user token is 
 expired - immediatelly "kick out" the user with purged token to the landing 
 page
-- [ ] Add "landing page" for CatBox API to use it from thr browser, and also
+- [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Ensure that CatBox API have file size limits
-- [ ] Fix status page having wrong path to display as tmp dir
-- [ ] Fasten up the upload speeds and multi-user handling by using tmp dir on 
+- [x] Fix status page having wrong path to display as tmp dir
+- [x] Fasten up the upload speeds and multi-user handling by using tmp dir on 
 SSD with chunks purge; made the qBittorrent-like system for same-drive-as-cache
 - [ ] Fix URL-encode issues with the "path persist"
 - [ ] Fix archive streaming may fail at ~6 GB of streamed files (including few 
 20+ GB in the streamed archive folder)
-- [ ] Fix problem with file downloading being written into the RAM, causing RAM 
+- [x] Fix problem with file downloading being written into the RAM, causing RAM 
 exhausting 
+- [ ] Fix issue with quota being very greedy, allowing to over-use the 
+available space - probably, even if the quota is 50 GB, user, in theory, still 
+would be able to upload one single 200 GB file
+- [ ] Fix double TLS for proxy aka fix the file download speeds

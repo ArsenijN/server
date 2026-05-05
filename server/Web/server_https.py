@@ -85,33 +85,55 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
     ctx.check_hostname = False
     ctx.verify_mode = _ssl.CERT_NONE
 
+    # Stream the response in chunks — never buffer the entire body.
+    # This is critical for large file downloads (10-30 GB) where .read()
+    # would try to hold the whole file in the server's RAM.
+    _PROXY_BUF = 256 * 1024   # 256 KiB read buffer — small enough for low-RAM i3
     try:
         with _urllib_req.urlopen(req, context=ctx, timeout=60) as resp:
-            raw = resp.read()
             handler.send_response(resp.status)
+            _cl = resp.headers.get('Content-Length')
             for k, v in resp.headers.items():
-                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
+                if k.lower() not in _HOP_BY_HOP:
                     try:
                         handler.send_header(k, v)
                     except Exception:
                         pass
+            handler.end_headers()
+            # Stream body chunk by chunk directly to the client socket
+            while True:
+                chunk = resp.read(_PROXY_BUF)
+                if not chunk:
+                    break
+                try:
+                    handler.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    break   # client disconnected mid-download — normal for seeks/cancels
+    except _urllib_err.HTTPError as e:
+        try:
+            raw = e.read() or b''
+        except Exception:
+            raw = b''
+        try:
+            handler.send_response(e.code)
+            handler.send_header('Content-Type', 'application/json')
             handler.send_header('Content-Length', str(len(raw)))
             handler.end_headers()
             handler.wfile.write(raw)
-    except _urllib_err.HTTPError as e:
-        raw = e.read() or b''
-        handler.send_response(e.code)
-        handler.send_header('Content-Type', 'application/json')
-        handler.send_header('Content-Length', str(len(raw)))
-        handler.end_headers()
-        handler.wfile.write(raw)
+        except Exception:
+            pass
+    except (BrokenPipeError, ConnectionResetError):
+        pass   # client disconnected before or during headers
     except Exception as exc:
         msg = f'{{"error":"proxy error: {exc}"}}'.encode()
-        handler.send_response(502)
-        handler.send_header('Content-Type', 'application/json')
-        handler.send_header('Content-Length', str(len(msg)))
-        handler.end_headers()
-        handler.wfile.write(msg)
+        try:
+            handler.send_response(502)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+        except Exception:
+            pass
 
 
 # --- CAPTCHA Storage ---

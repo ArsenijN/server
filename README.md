@@ -1,7 +1,8 @@
-# server `v0.14.2`
+# server `v0.14.3`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fixed issues with proxying the `fluxdrop_pp/*`***
+*Release note: **Fixed some issues with the proxy and client's RAM 
+exhaustion on large file download***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

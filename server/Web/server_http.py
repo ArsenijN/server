@@ -54,33 +54,50 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
             except Exception:
                 pass
     req.add_header('X-Forwarded-For', handler.client_address[0])
+    _PROXY_BUF = 256 * 1024
     try:
         with _urllib_req.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
             handler.send_response(resp.status)
             for k, v in resp.headers.items():
-                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
+                if k.lower() not in _HOP_BY_HOP:
                     try:
                         handler.send_header(k, v)
                     except Exception:
                         pass
+            handler.end_headers()
+            while True:
+                chunk = resp.read(_PROXY_BUF)
+                if not chunk:
+                    break
+                try:
+                    handler.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+    except _urllib_err.HTTPError as e:
+        try:
+            raw = e.read() or b''
+        except Exception:
+            raw = b''
+        try:
+            handler.send_response(e.code)
+            handler.send_header('Content-Type', 'application/json')
             handler.send_header('Content-Length', str(len(raw)))
             handler.end_headers()
             handler.wfile.write(raw)
-    except _urllib_err.HTTPError as e:
-        raw = e.read() or b''
-        handler.send_response(e.code)
-        handler.send_header('Content-Type', 'application/json')
-        handler.send_header('Content-Length', str(len(raw)))
-        handler.end_headers()
-        handler.wfile.write(raw)
+        except Exception:
+            pass
+    except (BrokenPipeError, ConnectionResetError):
+        pass
     except Exception as exc:
         msg = f'{{"error":"proxy error: {exc}"}}'.encode()
-        handler.send_response(502)
-        handler.send_header('Content-Type', 'application/json')
-        handler.send_header('Content-Length', str(len(msg)))
-        handler.end_headers()
-        handler.wfile.write(msg)
+        try:
+            handler.send_response(502)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+        except Exception:
+            pass
 
 
 # --- Request Handler ---
@@ -332,64 +349,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers = old_end_headers
 
     def do_POST(self):
-        """
-        Handles POST requests with CORS support.
-        Useful for upload functionality in the speed test.
-        """
-        client_ip = self.client_address[0]
-        requested_path = self.path
-        print(f"POST request from: {client_ip} -> {requested_path}")
-
-        with blacklist_lock:
-            if client_ip in current_blacklist:
-                print(f"BLOCKED: {client_ip} - Access Denied")
-                self.send_error(403, "Access Denied")
-                return
-
-        # Handle upload endpoint for speed test
-        if requested_path.startswith('/upload'):
-            try:
-                content_length = int(self.headers.get('Content-Length', 0))
-                if content_length > 0:
-                    # Read the uploaded data (but don't save it, just consume it)
-                    post_data = self.rfile.read(content_length)
-                    print(f"Received upload: {len(post_data)} bytes")
-                
-                # Send successful response
-                self.send_response(200)
-                self.send_header("Content-type", "application/json")
-                self.add_cors_headers()
-                self.end_headers()
-                response = '{"status": "success", "message": "Upload completed"}'
-                self.wfile.write(response.encode('utf-8'))
-                return
-            except Exception as e:
-                print(f"Error handling upload: {e}")
-                self.send_response(500)
-                self.send_header("Content-type", "application/json")
-                self.add_cors_headers()
-                self.end_headers()
-                response = '{"status": "error", "message": "Upload failed"}'
-                self.wfile.write(response.encode('utf-8'))
-                return
-
-        # Handle ping endpoint for latency test
-        if requested_path.startswith('/ping'):
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.add_cors_headers()
-            self.end_headers()
-            self.wfile.write(b"pong")
-            return
-
-        # Default POST handling
-        self.send_response(405)  # Method Not Allowed
-        self.send_header("Content-type", "text/html")
-        self.add_cors_headers()
-        self.end_headers()
-        self.wfile.write(b"<h1>405 Method Not Allowed</h1>")
-
-    def do_POST(self):
         client_ip = self.client_address[0]
         with blacklist_lock:
             if client_ip in current_blacklist:
@@ -454,7 +413,17 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 # --- Main Server Logic ---
 if __name__ == "__main__":
     sys.stdout = CustomLogger(LOG_FILE_HTTP)
-    sys.stderr = CustomLogger(LOG_FILE_HTTP)
+    # Use a distinct logger name for stderr so it doesn't share handlers with
+    # stdout's logger — same name → same Logger instance → every line written twice.
+    _stderr_logger = CustomLogger(LOG_FILE_HTTP)
+    _stderr_logger.file_logger = logging.getLogger(LOG_FILE_HTTP + ':stderr')
+    _stderr_logger.file_logger.setLevel(logging.INFO)
+    _stderr_logger.file_logger.propagate = False
+    _fmt = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    _fh  = logging.FileHandler(LOG_FILE_HTTP, encoding='utf-8')
+    _fh.setFormatter(_fmt)
+    _stderr_logger.file_logger.addHandler(_fh)
+    sys.stderr = _stderr_logger
 
     print(f"Serving files from: {os.getcwd()}")
 

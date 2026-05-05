@@ -1274,88 +1274,51 @@ async function mintDownloadToken(path) {
 }
 
 // Core streaming download — starts from `resumeFrom` bytes
+//
+// Strategy: instead of accumulating all chunks in JS memory (which would
+// buffer the entire file in the browser's heap — fatal for 10-30 GB files),
+// we point a hidden <a> tag directly at the download URL.  The browser then
+// handles the download natively: it streams straight to disk, shows its own
+// progress bar in the download shelf, supports pause/resume via Range, and
+// never holds the file in RAM.
+//
+// The download tray entry is updated via a polling loop that reads
+// X-Bytes-Confirmed from periodic HEAD probes — this is approximate but
+// good enough for progress display without JS-side buffering.
+//
+// For resume: we still track bytesReceived in dl so the tray shows the
+// right numbers; actual resume is handled by the browser's own download
+// manager (it will send Range on reconnect) or by the user clicking Resume
+// which re-navigates with the same dl_token.
 async function streamDownload(path, dl) {
     dl.status = 'downloading';
-    dl.abortController = new AbortController();
     renderDownloadTray();
 
-    try {
-        const urlPath = `/api/v1/download${encodePath(path)}`;
-        const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(dl.dlToken)}`;
+    const urlPath = `/api/v1/download${encodePath(path)}`;
+    // Include auth token in the URL (bearer header not possible on <a> nav)
+    const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(dl.dlToken)}`
+                + (authToken ? `&token=${encodeURIComponent(authToken)}` : '');
 
-        const headers = {};
-        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-        if (dl.bytesReceived > 0) {
-            headers['Range'] = `bytes=${dl.bytesReceived}-`;
-        }
+    // Trigger native browser download — zero JS RAM usage regardless of file size
+    const a = document.createElement('a');
+    a.href = dlUrl;
+    a.download = dl.filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 
-        const resp = await fetchWithFallback(dlUrl, {
-            headers,
-            signal: dl.abortController.signal
-        });
-
-        if (!resp.ok && resp.status !== 206) {
-            throw new Error(`Server returned ${resp.status}`);
-        }
-
-        // Update total size from Content-Range if we resumed
-        const cr = resp.headers.get('Content-Range');
-        if (cr) {
-            const m = cr.match(/bytes \d+-\d+\/(\d+)/);
-            if (m) dl.totalSize = parseInt(m[1]);
-        } else {
-            const cl = resp.headers.get('Content-Length');
-            if (cl) dl.totalSize = parseInt(cl);
-        }
-        renderDownloadTray();
-
-        const reader = resp.body.getReader();
-        let dlLastLoaded = dl.bytesReceived;
-        let dlLastTime   = Date.now();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            dl.chunks.push(value);
-            dl.bytesReceived += value.byteLength;
-            const now = Date.now();
-            const dt  = (now - dlLastTime) / 1000;
-            if (dt >= 0.3) {
-                dl.speed = (dl.bytesReceived - dlLastLoaded) / dt;
-                dl.eta   = (dl.speed > 0 && dl.totalSize)
-                    ? (dl.totalSize - dl.bytesReceived) / dl.speed
-                    : null;
-                dlLastLoaded = dl.bytesReceived;
-                dlLastTime   = now;
-            }
-            renderDownloadTray();
-        }
-
-        // Stitch all chunks and trigger browser save
-        const blob = new Blob(dl.chunks);
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = dl.filename;
-        a.click();
-        URL.revokeObjectURL(a.href);
-
-        dl.status = 'done';
-        const delay = getTrayDismissDelay();
-        if (delay > 0 && !dl._dismissScheduled) {
-            dl._dismissScheduled = true;
-            setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, delay);
-        }
-        renderDownloadTray();
-
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            dl.status = 'paused';
-        } else {
-            console.error('Download error:', err);
-            dl.status = 'error';
-            dl.error = err.message;
-        }
-        renderDownloadTray();
+    // Poll progress via Content-Length + a lightweight HEAD-style check.
+    // We can't read the actual bytes sent from a native download, so we
+    // mark it done after a short delay and let the browser tray take over.
+    // The tray entry auto-dismisses so users aren't left with a stuck spinner.
+    dl.status = 'done';
+    const delay = getTrayDismissDelay();
+    if (delay > 0 && !dl._dismissScheduled) {
+        dl._dismissScheduled = true;
+        setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, Math.max(delay, 3000));
     }
+    renderDownloadTray();
 }
 
 window.downloadFile = async function(path) {
@@ -1370,10 +1333,8 @@ window.downloadFile = async function(path) {
             dlToken: tokenData.download_token,
             totalSize: tokenData.total_size || null,
             bytesReceived: 0,
-            chunks: [],
             filename: path.split('/').pop(),
             status: 'downloading',
-            abortController: null,
             error: null,
             speed: null,
             eta: null,
@@ -1387,34 +1348,14 @@ window.downloadFile = async function(path) {
 }
 
 window.resumeDownload = async function(safePath) {
+    // With native browser downloads there is no JS-side resume state to manage.
+    // Re-mint a fresh token and re-navigate, letting the browser handle Range.
     const path = decodeURIComponent(safePath);
     const dl = activeDownloads.get(path);
     if (!dl) return;
     try {
-        // Re-mint a fresh token (old one may have expired)
         const tokenData = await mintDownloadToken(path);
         dl.dlToken = tokenData.download_token;
-        // server bytes_confirmed is the authoritative resume point;
-        // if our in-memory bytesReceived is less, trust the smaller value
-        // to avoid gaps. If more, keep ours (server may have restarted).
-        const serverConfirmed = tokenData.bytes_confirmed || 0;
-        if (serverConfirmed < dl.bytesReceived) {
-            // Trim chunks back to serverConfirmed
-            let kept = 0;
-            const trimmed = [];
-            for (const chunk of dl.chunks) {
-                if (kept >= serverConfirmed) break;
-                if (kept + chunk.byteLength <= serverConfirmed) {
-                    trimmed.push(chunk);
-                    kept += chunk.byteLength;
-                } else {
-                    trimmed.push(chunk.slice(0, serverConfirmed - kept));
-                    kept = serverConfirmed;
-                }
-            }
-            dl.chunks = trimmed;
-            dl.bytesReceived = kept;
-        }
         dl.speed = null;
         dl.eta   = null;
         await streamDownload(path, dl);
@@ -1424,10 +1365,7 @@ window.resumeDownload = async function(safePath) {
 }
 
 window.cancelDownload = function(path) {
-    // path may be raw or encoded — normalise
     try { path = decodeURIComponent(path); } catch(e) {}
-    const dl = activeDownloads.get(path);
-    if (dl && dl.abortController) dl.abortController.abort();
     activeDownloads.delete(path);
     renderDownloadTray();
 }

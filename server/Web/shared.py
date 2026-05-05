@@ -26,10 +26,15 @@ class CustomLogger:
         self.file_logger.setLevel(logging.INFO)
         # Prevent this logger from propagating to the root logger to avoid recursion
         self.file_logger.propagate = False
-        formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setFormatter(formatter)
-        self.file_logger.addHandler(file_handler)
+        # Only add a handler if one doesn't already exist for this logger.
+        # logging.getLogger() returns the SAME Logger instance for the same name,
+        # so calling CustomLogger() more than once (e.g. after os.execv restart)
+        # would keep stacking FileHandlers — each one writing every line again.
+        if not self.file_logger.handlers:
+            formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            file_handler.setFormatter(formatter)
+            self.file_logger.addHandler(file_handler)
 
     def write(self, message):
         self.terminal.write(message)

@@ -1,7 +1,7 @@
-# server `v0.14.4`
+# server `v0.14.5`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fixed duped logs for HTTPS static hoster***
+*Release note: **Actually fix the dup problem with HTTP/HTTPS hosters logs***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

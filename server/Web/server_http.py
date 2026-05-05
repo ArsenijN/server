@@ -413,17 +413,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 # --- Main Server Logic ---
 if __name__ == "__main__":
     sys.stdout = CustomLogger(LOG_FILE_HTTP)
-    # Use a distinct logger name for stderr so it doesn't share handlers with
-    # stdout's logger — same name → same Logger instance → every line written twice.
-    _stderr_logger = CustomLogger(LOG_FILE_HTTP)
-    _stderr_logger.file_logger = logging.getLogger(LOG_FILE_HTTP + ':stderr')
-    _stderr_logger.file_logger.setLevel(logging.INFO)
-    _stderr_logger.file_logger.propagate = False
-    _fmt = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    _fh  = logging.FileHandler(LOG_FILE_HTTP, encoding='utf-8')
-    _fh.setFormatter(_fmt)
-    _stderr_logger.file_logger.addHandler(_fh)
-    sys.stderr = _stderr_logger
+    sys.stderr = CustomLogger(LOG_FILE_HTTP)
 
     print(f"Serving files from: {os.getcwd()}")
 

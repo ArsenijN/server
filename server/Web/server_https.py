@@ -569,7 +569,15 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 # --- Main Server Logic ---
 if __name__ == "__main__":
     sys.stdout = CustomLogger(LOG_FILE_HTTPS)
-    sys.stderr = CustomLogger(LOG_FILE_HTTPS)
+    _stderr_logger = CustomLogger(LOG_FILE_HTTPS)
+    _stderr_logger.file_logger = logging.getLogger(LOG_FILE_HTTPS + ':stderr')
+    _stderr_logger.file_logger.setLevel(logging.INFO)
+    _stderr_logger.file_logger.propagate = False
+    _fmt = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    _fh  = logging.FileHandler(LOG_FILE_HTTPS, encoding='utf-8')
+    _fh.setFormatter(_fmt)
+    _stderr_logger.file_logger.addHandler(_fh)
+    sys.stderr = _stderr_logger
 
     print(f"Serving files from: {os.getcwd()}")
     print(f"Files can be uploaded to: {UPLOAD_DIRECTORY}")

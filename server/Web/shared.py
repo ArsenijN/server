@@ -19,22 +19,22 @@ stop_update_event = threading.Event()
 
 # --- Custom Logger ---
 class CustomLogger:
+    # The real terminal stdout/stderr captured before any redirection.
+    # Both stdout and stderr loggers write through this so neither fans
+    # through the other's write() — which would double-log errors.
+    _real_terminal = sys.stdout
+
     def __init__(self, log_file):
         self.log_file = log_file
-        self.terminal = sys.stdout
+        self.terminal = CustomLogger._real_terminal
         self.file_logger = logging.getLogger(log_file)
         self.file_logger.setLevel(logging.INFO)
         # Prevent this logger from propagating to the root logger to avoid recursion
         self.file_logger.propagate = False
-        # Only add a handler if one doesn't already exist for this logger.
-        # logging.getLogger() returns the SAME Logger instance for the same name,
-        # so calling CustomLogger() more than once (e.g. after os.execv restart)
-        # would keep stacking FileHandlers — each one writing every line again.
-        if not self.file_logger.handlers:
-            formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
-            file_handler.setFormatter(formatter)
-            self.file_logger.addHandler(file_handler)
+        formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(formatter)
+        self.file_logger.addHandler(file_handler)
 
     def write(self, message):
         self.terminal.write(message)

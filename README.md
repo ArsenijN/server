@@ -1,8 +1,9 @@
-# server `v0.14.6`
+# server `v0.15.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Finally fix the dup problem with HTTP/HTTPS hosters error 
-logs***
+*Release note: **Making FluxDrop independant from external sources/CDNs, 
+optimize the overall server UX for bad/slow/irregular internet 
+speeds/latency***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

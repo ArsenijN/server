@@ -31,8 +31,8 @@ them (pre-caching; like folder structures, quota, file properties, download
 tokens (pre-generate the download tokens for files to fasten up the ping 
 issues (aka preview tokens), or resolve the issues that FluxDrop is very 
 unstable in bad internet areas) or something else)
-- [ ] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
-least - since it shows the CSP doing it's work)
+- [x] Fix CSP making bad things to the snippets (I assume; for IP Beacon at 
+least - since it shows the CSP doing it's work) -- kinda resolved via proxy?
 - [ ] Test why quota can't be changed (at least in dynamic mode, caused by 
 dynamic insufficient free space at the CDN drive?)
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
@@ -42,9 +42,10 @@ will display what files takes the most, where and what)
 octet-stream for legacy usage
 - [ ] Add self-resume on network switch (offline handler shows and hides, but 
 download doesn't continue)
-- [ ] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
+- [x] Fix HSTS redirects for FluxDrop file manager (currently doesn't work) -
 means http to https on cdn (file manager) since login works ok (forwards to 
 https) -- needs CDN migration to regular HTTP/HTTPS ports or single port to fix
+ -- already WIP, implemented, not migrated due to some specific problems
 - [ ] Add file streaming (archive and stream to the server; one stream - a lot 
 of files) feature to site UI from `batch_tar_upload.py`
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
@@ -68,8 +69,8 @@ excluded from quota)
 - [ ] Auto negotiation for upload type (folder or file)
 - [ ] Add dark theme switch, or at least make addons work properly and test 
 them
-- [ ] Add variable chunk sizes on demand for different internet speeds and 
-optimizations
+- [x] Add variable chunk sizes on demand for different internet speeds and 
+optimizations -- uploads, downloads is an issue
 - [ ] Improve user iterations by adding auto-reconnect on dropped connection 
 (e.g. switched networks) - this means semi-constant pings to the server on 
 download or/and upload
@@ -87,8 +88,8 @@ to tell it (via pings or continuous connections)
 rename function)
 - [ ] i18n support (language changes)
 - [ ] Add checkers for external HTTP and HTTPS hosters
-- [ ] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports 
-for more ideal links and simplicity
+- [x] Merge (or forward) HTTP and HTTPS hoster's regular ports with CDN's ports 
+for more ideal links and simplicity -- WIP, implemented, not migrated
 - [ ] Add `.7z` and `.rar` for file table previews (and other ones)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
 - [ ] Make special player with "video preview support", aka "slow internet 
@@ -113,11 +114,13 @@ since I can just remember CSS and HTML, and do that by hands)
 manager)
 
 
-- [ ] Make HTTP and HTTPS hosters work properly as standalone utilities without 
-any FluxDrop and CDN
-- [ ] Divide FluxDrop and HTTP/HTTPS hosters into separate repos -- under 
+- [x] Make HTTP and HTTPS hosters work properly as standalone utilities without 
+any FluxDrop and CDN -- no real usage as standalone since the static hosters 
+are simple enough to be as separate software, except make sure that it's not 
+"depending" on CDN to work as-is
+- [x] Divide FluxDrop and HTTP/HTTPS hosters into separate repos -- under 
 question since static HTTP/HTTPS is very simple and actually will not make 
-sense as standalone util/service
+sense as standalone util/service, same
 
 
 - [x] Migration to other host platform for HTTP and HTTPS efficiency and 
@@ -159,15 +162,12 @@ page
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Ensure that CatBox API have file size limits
-- [x] Fix status page having wrong path to display as tmp dir
-- [x] Fasten up the upload speeds and multi-user handling by using tmp dir on 
-SSD with chunks purge; made the qBittorrent-like system for same-drive-as-cache
 - [ ] Fix URL-encode issues with the "path persist"
 - [ ] Fix archive streaming may fail at ~6 GB of streamed files (including few 
 20+ GB in the streamed archive folder)
-- [x] Fix problem with file downloading being written into the RAM, causing RAM 
-exhausting 
 - [ ] Fix issue with quota being very greedy, allowing to over-use the 
 available space - probably, even if the quota is 50 GB, user, in theory, still 
 would be able to upload one single 200 GB file
 - [ ] Fix double TLS for proxy aka fix the file download speeds
+- [ ] Fix problems with the Quad9 pings "failing" and firing the external 
+outage

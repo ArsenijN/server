@@ -333,6 +333,23 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return
         def patched_end_headers():
             self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Keep-Alive", "timeout=30, max=100")
+            # Cache-Control by file type:
+            #   index.html       → no-cache (always revalidate so deploys are instant)
+            #   fonts/woff/woff2 → 1 year immutable (content never changes)
+            #   other assets     → 1 hour, must-revalidate (Last-Modified handles 304)
+            import posixpath as _psp
+            _ext = _psp.splitext(self.path.split('?')[0])[1].lower()
+            _base = _psp.basename(self.path.split('?')[0]).lower()
+            if _base in ('index.html', 'index.htm'):
+                self.send_header("Cache-Control", "no-cache")
+            elif _ext in ('.woff', '.woff2', '.ttf', '.eot', '.otf'):
+                self.send_header("Cache-Control", "max-age=31536000, immutable")
+            elif _ext in ('.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'):
+                self.send_header("Cache-Control", "max-age=86400")
+            elif _ext in ('.css', '.js', '.map'):
+                self.send_header("Cache-Control", "max-age=3600, must-revalidate")
             super(RequestHandler, self).end_headers()
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
@@ -399,6 +416,19 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                     return
         def patched_end_headers():
             self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Keep-Alive", "timeout=30, max=100")
+            import posixpath as _psp
+            _ext = _psp.splitext(self.path.split('?')[0])[1].lower()
+            _base = _psp.basename(self.path.split('?')[0]).lower()
+            if _base in ('index.html', 'index.htm'):
+                self.send_header("Cache-Control", "no-cache")
+            elif _ext in ('.woff', '.woff2', '.ttf', '.eot', '.otf'):
+                self.send_header("Cache-Control", "max-age=31536000, immutable")
+            elif _ext in ('.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'):
+                self.send_header("Cache-Control", "max-age=86400")
+            elif _ext in ('.css', '.js', '.map'):
+                self.send_header("Cache-Control", "max-age=3600, must-revalidate")
             super(RequestHandler, self).end_headers()
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
@@ -550,7 +580,15 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'OPTIONS')
-        self._set_headers(204)
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Token')
+        self.send_header('Access-Control-Max-Age', '86400')
+        self.send_header('Connection', 'keep-alive')
+        self.send_header('Keep-Alive', 'timeout=30, max=100')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
 
     def _redirect_with_message(self, path, status, message):
         """Helper to redirect the client with status and message parameters."""

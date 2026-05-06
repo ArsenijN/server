@@ -3291,18 +3291,25 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 fn_len = len(arcname_bytes)
 
                 # --- Local file header (30 bytes + filename) ---
+                # Write real sizes into the local header — not zeros.
+                # Windows Explorer's built-in unzip does not reliably support
+                # the data-descriptor fallback (bit 3); it needs sizes here.
+                # We know file_size from the pre-walk so we can fill them in.
+                # We keep FLAG_DD set and still emit a data descriptor afterwards
+                # because some tools (Info-ZIP, older Android) expect it when
+                # the flag is set.
                 lfh = _st.pack('<4sHHHHHIIIHH',
                     LFH_SIG,
-                    20,         # version needed: 2.0
-                    FLAG_DD,    # bit 3: sizes in data descriptor
+                    20,             # version needed: 2.0
+                    FLAG_DD,        # bit 3 kept for broad compatibility
                     METHOD_STORED,
                     dos_time,
                     dos_date,
-                    0,          # CRC-32 (unknown, in data descriptor)
-                    0,          # compressed size (unknown)
-                    0,          # uncompressed size (unknown)
+                    0,              # CRC-32 placeholder (real value in data descriptor)
+                    file_size,      # compressed size   — known upfront for STORE
+                    file_size,      # uncompressed size — same as compressed for STORE
                     fn_len,
-                    0,          # extra field length
+                    0,              # extra field length
                 ) + arcname_bytes
 
                 self.wfile.write(lfh)
@@ -3313,10 +3320,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 # We use the pre-walked file_size to pad or truncate so that the
                 # number of bytes we emit exactly matches what we promised in
                 # Content-Length.  If the file grew we stop at file_size; if it
-                # shrank we zero-pad the remainder.  Either way the ZIP is valid
-                # (STORE method, so padding bytes become part of the file data —
-                # the recipient will see a slightly wrong tail, but the archive
-                # itself won't be "Not a zip archive").
+                # shrank or vanished we zero-pad the remainder.  Either way the
+                # archive structure stays intact — we never abort mid-stream.
                 crc = 0
                 bytes_written = 0
                 try:
@@ -3330,15 +3335,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             crc = _zl.crc32(chunk, crc) & 0xFFFFFFFF
                             bytes_written += len(chunk)
                             remaining -= len(chunk)
-                    # If file shrank: zero-pad so Content-Length stays accurate
-                    if bytes_written < file_size:
-                        pad = bytes(file_size - bytes_written)
-                        self.wfile.write(pad)
-                        crc = _zl.crc32(pad, crc) & 0xFFFFFFFF
-                        bytes_written = file_size
-                except (OSError, BrokenPipeError, ConnectionResetError, ssl.SSLError):
-                    # File vanished or client disconnected — abort silently
-                    return
+                except OSError:
+                    # File vanished mid-stream — fall through to zero-pad below.
+                    # Do NOT return: the archive must be completed so the central
+                    # directory and EOCD are written and the file is openable.
+                    logging.warning(f'ZIP: file vanished mid-stream, zero-padding: {abs_path!r}')
+                except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+                    return   # client disconnected — nothing we can do
+                # Zero-pad if file shrank or vanished so Content-Length stays accurate
+                if bytes_written < file_size:
+                    pad = bytes(file_size - bytes_written)
+                    self.wfile.write(pad)
+                    crc = _zl.crc32(pad, crc) & 0xFFFFFFFF
+                    bytes_written = file_size
                 offset += bytes_written
 
                 # --- Data descriptor (16 bytes with signature) ---

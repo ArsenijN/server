@@ -86,7 +86,7 @@ function _showUpdateBanner() {
     ].join(';');
     banner.innerHTML = `
         <span>🔄 A new version of FluxDrop is available.</span>
-        <button onclick="location.reload()" style="
+        <button onclick="_fdHardReload()" style="
             background:#fff;color:#1e40af;border:none;border-radius:0.5rem;
             padding:0.3rem 0.8rem;font-weight:600;cursor:pointer;">
             Reload
@@ -97,6 +97,29 @@ function _showUpdateBanner() {
         </button>`;
     document.body.appendChild(banner);
 }
+// Hard reload: clears ALL SW caches first so the next load fetches fresh
+// files from the server, then reloads.  Without this, clicking "Reload"
+// while a SW is active just serves the (stale) cached version again.
+async function _fdHardReload() {
+    try {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            // Ask the SW to wipe its caches via a message, then reload
+            await new Promise((resolve) => {
+                const ch = new MessageChannel();
+                ch.port1.onmessage = resolve;
+                navigator.serviceWorker.controller.postMessage(
+                    { type: 'SKIP_AND_CLEAR' }, [ch.port2]
+                );
+                // Safety timeout — reload even if SW doesn't respond
+                setTimeout(resolve, 800);
+            });
+        }
+    } catch { /* non-fatal */ }
+    // location.reload() respects the SW; window.location.href with cache-bust doesn't
+    // But since we just cleared the cache above, reload() will go to network
+    location.reload();
+}
+
         // ======================================================================
         // --- GLOBAL STATE & DOM ELEMENTS ---
         // ======================================================================
@@ -5140,67 +5163,5 @@ document.addEventListener('DOMContentLoaded', () => {
     //
     // We wait 2s after DOMContentLoaded so the check doesn't compete with the
     // initial API calls (list, foldersize, policy) for the limited connections.
-    (async function _versionCheck() {
-        await new Promise(r => setTimeout(r, 2000));
-        try {
-            const files = [
-                '/fluxdrop_pp/index.html',
-                '/fluxdrop_pp/script.js',
-            ];
-            // Capture load-time Last-Modified from a HEAD at startup via
-            // performance.getEntriesByName — if unavailable, HEAD them now
-            // as the baseline (first call stores, second call within session detects).
-            const _VK_KEY = '_fd_asset_mtimes';
-            const stored  = JSON.parse(sessionStorage.getItem(_VK_KEY) || 'null');
-            const current = {};
-
-            for (const f of files) {
-                try {
-                    const r = await fetch(f, { method: 'HEAD', cache: 'no-store' });
-                    current[f] = r.headers.get('last-modified') || '';
-                } catch { current[f] = ''; }
-            }
-
-            if (!stored) {
-                // First load — just store the current mtimes
-                sessionStorage.setItem(_VK_KEY, JSON.stringify(current));
-                return;
-            }
-
-            const stale = files.some(f => stored[f] && current[f] && stored[f] !== current[f]);
-            if (!stale) return;
-
-            // Show update banner
-            const banner = document.createElement('div');
-            banner.id = 'fd-update-banner';
-            banner.style.cssText = [
-                'position:fixed;bottom:0;left:0;width:100%;z-index:99998',
-                'background:#1e3a5f;color:#e0f0ff',
-                'display:flex;align-items:center;justify-content:center;gap:12px',
-                'padding:11px 16px;font-family:Inter,sans-serif;font-size:13.5px',
-                'font-weight:500;box-shadow:0 -2px 10px rgba(0,0,0,0.25)',
-                'transform:translateY(100%);transition:transform 0.35s ease',
-            ].join(';');
-            banner.innerHTML = `
-                <span style="font-size:17px">🔄</span>
-                <span>A new version of FluxDrop is available.</span>
-                <button onclick="sessionStorage.removeItem('${_VK_KEY}');location.reload()"
-                        style="background:#3b82f6;color:#fff;border:none;border-radius:7px;
-                               padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer">
-                    Reload now
-                </button>
-                <button onclick="this.closest('#fd-update-banner').remove()"
-                        style="background:rgba(255,255,255,0.12);color:#e0f0ff;border:none;
-                               border-radius:7px;padding:5px 12px;font-size:13px;cursor:pointer">
-                    Later
-                </button>
-            `;
-            document.body.appendChild(banner);
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                banner.style.transform = 'translateY(0)';
-            }));
-        } catch { /* non-fatal */ }
-    })();
-
     renderApp();
 });

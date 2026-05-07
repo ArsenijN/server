@@ -3,28 +3,33 @@
 //   - Static shell assets (HTML, JS, CSS, icons) → cache-first, update in background
 //   - API calls (/api/, /auth/) → network-only, never cached
 //   - Everything else → network-first, fall back to cache, then offline page
+//
+// PATH NOTE: The app lives at /fluxdrop_pp/ so all asset URLs must include
+// that prefix.  The SW is registered from /fluxdrop_pp/index.html which sets
+// its scope to /fluxdrop_pp/ — requests outside that scope are never seen.
+// Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
+// (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME    = 'fluxdrop-v3';    // ensure client gets new things properly by changing the cache version
-const OFFLINE_URL   = '/offline.html';
+const CACHE_NAME  = 'fluxdrop-v4';   // bump when PRECACHE_URLS list changes
+const OFFLINE_URL = '/fluxdrop_pp/offline.html';
+const APP_BASE    = '/fluxdrop_pp';
 
-// Assets to pre-cache on install. Keep this list to the bare minimum needed
-// to render the shell while offline so the user sees the offline message.
 const PRECACHE_URLS = [
-    '/',
-    '/index.html',
-    '/script.js',
-    '/tailwindcss.css',
-    '/icon.svg',
-    '/offline.html',
-    '/assets/Inter.css',
-    '/assets/all.min.css',
-    '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2',
-    '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2',
-    '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2',
-    '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7SUc.woff2',
-    '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2',
-    '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2',
-    '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2',
+    '/fluxdrop_pp/',
+    '/fluxdrop_pp/index.html',
+    '/fluxdrop_pp/script.js',
+    '/fluxdrop_pp/tailwindcss.css',
+    '/fluxdrop_pp/icon.svg',
+    '/fluxdrop_pp/offline.html',
+    '/fluxdrop_pp/assets/Inter.css',
+    '/fluxdrop_pp/assets/all.min.css',
+    '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2',
+    '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2',
+    '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2',
+    '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7SUc.woff2',
+    '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2',
+    '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2',
+    '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2',
 ];
 
 // ── Install ───────────────────────────────────────────────────────────────
@@ -32,58 +37,80 @@ self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE_URLS))
     );
-    // Take over immediately rather than waiting for the old SW to become idle
     self.skipWaiting();
 });
 
 // ── Activate ─────────────────────────────────────────────────────────────
 self.addEventListener('activate', event => {
-    // Delete caches from old SW versions
     event.waitUntil(
-        caches.keys().then(keys =>
-            Promise.all(
+        caches.keys()
+            .then(keys => Promise.all(
                 keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-            )
-        ).then(() => self.clients.claim())
-         // P9: Tell all open tabs that a new version is ready
-         .then(() => self.clients.matchAll({ type: 'window' }))
-         .then(clients => clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' })))
+            ))
+            .then(() => self.clients.claim())
+            .then(() => self.clients.matchAll({ type: 'window' }))
+            .then(clients => clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' })))
     );
+});
+
+// ── Message: SKIP_AND_CLEAR ───────────────────────────────────────────────
+// Sent by _fdHardReload() in script.js before triggering location.reload().
+// Deletes all caches so the reload fetches everything fresh from the server.
+self.addEventListener('message', event => {
+    if (event.data && event.data.type === 'SKIP_AND_CLEAR') {
+        event.waitUntil(
+            caches.keys()
+                .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+                .then(() => {
+                    // Reply so _fdHardReload's Promise resolves promptly
+                    if (event.ports && event.ports[0]) event.ports[0].postMessage('cleared');
+                })
+        );
+    }
 });
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
-    // Never intercept cross-origin requests (fonts, CDN libs, API server on
-    // a different port — all different origins from the page origin).
+    // Cross-origin (API port 64800, external fonts, etc.) — never intercept.
     if (url.origin !== self.location.origin) return;
 
-    // API and auth: network-only.  Caching API responses would be wrong.
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) {
-        return; // let the browser handle it normally
+    const path = url.pathname;
+
+    // API, auth, share, beacon — network-only; never cache.
+    if (path.startsWith('/api/') || path.startsWith('/auth/') ||
+        path.startsWith('/share/') || path.startsWith('/beacon')) {
+        return;
     }
 
-    // Static shell assets: cache-first.
-    // If we have it cached, return it immediately and also fetch a fresh copy
-    // in the background to keep the cache up to date (stale-while-revalidate).
-    const isShellAsset = PRECACHE_URLS.some(p => {
-        const norm = p === '/' ? '/index.html' : p;
-        return url.pathname === norm || url.pathname === p;
-    });
+    // SPA navigation: any request for a path under /fluxdrop_pp/files/*
+    // is a client-side route, not a real file — serve index.html from cache.
+    if (event.request.mode === 'navigate' &&
+        path.startsWith(APP_BASE + '/files')) {
+        event.respondWith(
+            caches.match('/fluxdrop_pp/index.html')
+                .then(r => r || fetch('/fluxdrop_pp/index.html'))
+        );
+        return;
+    }
+
+    // Static shell assets: cache-first with background revalidation.
+    const isShellAsset = PRECACHE_URLS.some(p =>
+        path === p || path === p.replace(/\/+$/, '')
+    );
 
     if (isShellAsset) {
         event.respondWith(
             caches.open(CACHE_NAME).then(async cache => {
                 const cached = await cache.match(event.request);
-                // Background update — don't await it
+                // Always revalidate in background — keeps cache warm without blocking
                 const networkFetch = fetch(event.request).then(netResp => {
                     if (netResp && netResp.status === 200) {
                         cache.put(event.request, netResp.clone());
                     }
                     return netResp;
                 }).catch(() => null);
-
                 return cached || networkFetch || caches.match(OFFLINE_URL);
             })
         );
@@ -95,11 +122,9 @@ self.addEventListener('fetch', event => {
         fetch(event.request).catch(async () => {
             const cached = await caches.match(event.request);
             if (cached) return cached;
-            // For navigation requests, show the offline page
             if (event.request.mode === 'navigate') {
                 return caches.match(OFFLINE_URL);
             }
-            // For other requests just let them fail
             return Response.error();
         })
     );

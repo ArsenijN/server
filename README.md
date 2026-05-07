@@ -1,9 +1,11 @@
-# server `v0.15.0`
+# server `v0.15.1`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Making FluxDrop independant from external sources/CDNs, 
-optimize the overall server UX for bad/slow/irregular internet 
-speeds/latency***
+*Release note: **Use proxy for CDN access instead of separate CDN ports; add 
+updater for the cache for interruptable site usage; make HTTP and HTTPS hosters 
+to use caching for some assets for connection speed up; add caching for assets 
+(fonts, styles) via `sw.js` service worker; change ToDo formatting; other 
+changes pending***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

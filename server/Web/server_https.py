@@ -191,6 +191,21 @@ def verify_captcha(captcha_id, user_answer):
 
 
 # --- Request Handler ---
+import posixpath as _psp
+
+def _cache_control_for_path(path: str) -> str:
+    _ext  = _psp.splitext(path.split('?')[0])[1].lower()
+    _base = _psp.basename(path.split('?')[0]).lower()
+    if _base in ('index.html', 'index.htm'):
+        return 'no-cache'
+    if _ext in ('.woff', '.woff2', '.ttf', '.eot', '.otf'):
+        return 'max-age=31536000, immutable'
+    if _ext in ('.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'):
+        return 'max-age=86400'
+    if _ext in ('.css', '.js', '.map'):
+        return 'max-age=3600, must-revalidate'
+    return ''
+
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     """
@@ -335,21 +350,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Connection", "keep-alive")
             self.send_header("Keep-Alive", "timeout=30, max=100")
-            # Cache-Control by file type:
-            #   index.html       → no-cache (always revalidate so deploys are instant)
-            #   fonts/woff/woff2 → 1 year immutable (content never changes)
-            #   other assets     → 1 hour, must-revalidate (Last-Modified handles 304)
-            import posixpath as _psp
-            _ext = _psp.splitext(self.path.split('?')[0])[1].lower()
-            _base = _psp.basename(self.path.split('?')[0]).lower()
-            if _base in ('index.html', 'index.htm'):
-                self.send_header("Cache-Control", "no-cache")
-            elif _ext in ('.woff', '.woff2', '.ttf', '.eot', '.otf'):
-                self.send_header("Cache-Control", "max-age=31536000, immutable")
-            elif _ext in ('.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'):
-                self.send_header("Cache-Control", "max-age=86400")
-            elif _ext in ('.css', '.js', '.map'):
-                self.send_header("Cache-Control", "max-age=3600, must-revalidate")
+            _cc = _cache_control_for_path(self.path)
+            if _cc:
+                self.send_header("Cache-Control", _cc)
             super(RequestHandler, self).end_headers()
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
@@ -418,17 +421,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Connection", "keep-alive")
             self.send_header("Keep-Alive", "timeout=30, max=100")
-            import posixpath as _psp
-            _ext = _psp.splitext(self.path.split('?')[0])[1].lower()
-            _base = _psp.basename(self.path.split('?')[0]).lower()
-            if _base in ('index.html', 'index.htm'):
-                self.send_header("Cache-Control", "no-cache")
-            elif _ext in ('.woff', '.woff2', '.ttf', '.eot', '.otf'):
-                self.send_header("Cache-Control", "max-age=31536000, immutable")
-            elif _ext in ('.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'):
-                self.send_header("Cache-Control", "max-age=86400")
-            elif _ext in ('.css', '.js', '.map'):
-                self.send_header("Cache-Control", "max-age=3600, must-revalidate")
+            _cc = _cache_control_for_path(self.path)
+            if _cc:
+                self.send_header("Cache-Control", _cc)
             super(RequestHandler, self).end_headers()
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
@@ -607,7 +602,15 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 # --- Main Server Logic ---
 if __name__ == "__main__":
     sys.stdout = CustomLogger(LOG_FILE_HTTPS)
-    sys.stderr = CustomLogger(LOG_FILE_HTTPS)
+    _stderr_logger = CustomLogger(LOG_FILE_HTTPS)
+    _stderr_logger.file_logger = logging.getLogger(LOG_FILE_HTTPS + ':stderr')
+    _stderr_logger.file_logger.setLevel(logging.INFO)
+    _stderr_logger.file_logger.propagate = False
+    _fmt = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    _fh  = logging.FileHandler(LOG_FILE_HTTPS, encoding='utf-8')
+    _fh.setFormatter(_fmt)
+    _stderr_logger.file_logger.addHandler(_fh)
+    sys.stderr = _stderr_logger
 
     print(f"Serving files from: {os.getcwd()}")
     print(f"Files can be uploaded to: {UPLOAD_DIRECTORY}")

@@ -54,51 +54,50 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
             except Exception:
                 pass
     req.add_header('X-Forwarded-For', handler.client_address[0])
-    _PROXY_BUF = 256 * 1024
     try:
         with _urllib_req.urlopen(req, timeout=60) as resp:
+            raw = resp.read()
             handler.send_response(resp.status)
             for k, v in resp.headers.items():
-                if k.lower() not in _HOP_BY_HOP:
+                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
                     try:
                         handler.send_header(k, v)
                     except Exception:
                         pass
-            handler.end_headers()
-            while True:
-                chunk = resp.read(_PROXY_BUF)
-                if not chunk:
-                    break
-                try:
-                    handler.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    break
-    except _urllib_err.HTTPError as e:
-        try:
-            raw = e.read() or b''
-        except Exception:
-            raw = b''
-        try:
-            handler.send_response(e.code)
-            handler.send_header('Content-Type', 'application/json')
             handler.send_header('Content-Length', str(len(raw)))
             handler.end_headers()
             handler.wfile.write(raw)
-        except Exception:
-            pass
-    except (BrokenPipeError, ConnectionResetError):
-        pass
+    except _urllib_err.HTTPError as e:
+        raw = e.read() or b''
+        handler.send_response(e.code)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(raw)))
+        handler.end_headers()
+        handler.wfile.write(raw)
     except Exception as exc:
         msg = f'{{"error":"proxy error: {exc}"}}'.encode()
-        try:
-            handler.send_response(502)
-            handler.send_header('Content-Type', 'application/json')
-            handler.send_header('Content-Length', str(len(msg)))
-            handler.end_headers()
-            handler.wfile.write(msg)
-        except Exception:
-            pass
+        handler.send_response(502)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(msg)))
+        handler.end_headers()
+        handler.wfile.write(msg)
 
+
+import posixpath as _psp
+
+def _cache_control_for_path(path: str) -> str:
+    """Return the appropriate Cache-Control value for a static file path."""
+    _ext  = _psp.splitext(path.split('?')[0])[1].lower()
+    _base = _psp.basename(path.split('?')[0]).lower()
+    if _base in ('index.html', 'index.htm'):
+        return 'no-cache'
+    if _ext in ('.woff', '.woff2', '.ttf', '.eot', '.otf'):
+        return 'max-age=31536000, immutable'
+    if _ext in ('.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'):
+        return 'max-age=86400'
+    if _ext in ('.css', '.js', '.map'):
+        return 'max-age=3600, must-revalidate'
+    return ''
 
 # --- Request Handler ---
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -249,6 +248,11 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # Fallback to default behavior, but advertise Accept-Ranges and add CORS headers
         def patched_end_headers():
             self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Keep-Alive", "timeout=30, max=100")
+            _cc = _cache_control_for_path(self.path)
+            if _cc:
+                self.send_header("Cache-Control", _cc)
             self.add_cors_headers()
             super(RequestHandler, self).end_headers()
         
@@ -330,6 +334,11 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # Fallback to default behavior, but advertise Accept-Ranges, Content-Length, and CORS
         def patched_end_headers():
             self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Keep-Alive", "timeout=30, max=100")
+            _cc = _cache_control_for_path(self.path)
+            if _cc:
+                self.send_header("Cache-Control", _cc)
             self.add_cors_headers()
             # Content-Length will be set by super().do_HEAD()
             super(RequestHandler, self).end_headers()
@@ -347,6 +356,64 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
         finally:
             self.end_headers = old_end_headers
+
+    def do_POST(self):
+        """
+        Handles POST requests with CORS support.
+        Useful for upload functionality in the speed test.
+        """
+        client_ip = self.client_address[0]
+        requested_path = self.path
+        print(f"POST request from: {client_ip} -> {requested_path}")
+
+        with blacklist_lock:
+            if client_ip in current_blacklist:
+                print(f"BLOCKED: {client_ip} - Access Denied")
+                self.send_error(403, "Access Denied")
+                return
+
+        # Handle upload endpoint for speed test
+        if requested_path.startswith('/upload'):
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                if content_length > 0:
+                    # Read the uploaded data (but don't save it, just consume it)
+                    post_data = self.rfile.read(content_length)
+                    print(f"Received upload: {len(post_data)} bytes")
+                
+                # Send successful response
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.add_cors_headers()
+                self.end_headers()
+                response = '{"status": "success", "message": "Upload completed"}'
+                self.wfile.write(response.encode('utf-8'))
+                return
+            except Exception as e:
+                print(f"Error handling upload: {e}")
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.add_cors_headers()
+                self.end_headers()
+                response = '{"status": "error", "message": "Upload failed"}'
+                self.wfile.write(response.encode('utf-8'))
+                return
+
+        # Handle ping endpoint for latency test
+        if requested_path.startswith('/ping'):
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.add_cors_headers()
+            self.end_headers()
+            self.wfile.write(b"pong")
+            return
+
+        # Default POST handling
+        self.send_response(405)  # Method Not Allowed
+        self.send_header("Content-type", "text/html")
+        self.add_cors_headers()
+        self.end_headers()
+        self.wfile.write(b"<h1>405 Method Not Allowed</h1>")
 
     def do_POST(self):
         client_ip = self.client_address[0]

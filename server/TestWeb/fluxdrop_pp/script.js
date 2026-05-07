@@ -2,8 +2,8 @@
         // --- CONFIGURATION ---
         // ======================================================================
 // Prefer HTTPS, but fall back to HTTP if HTTPS is unreachable
-const API_HTTPS = `https://${window.location.hostname}:64800`;
-const API_HTTP  = `http://${window.location.hostname}:63512`;
+const API_HTTPS = `https://${window.location.hostname}`;
+const API_HTTP  = `http://${window.location.hostname}`;
 
 // Pick a sensible base URL depending on how the page was loaded.  We
 // default to the same protocol in order to avoid mixed‑content issues when
@@ -1274,51 +1274,88 @@ async function mintDownloadToken(path) {
 }
 
 // Core streaming download — starts from `resumeFrom` bytes
-//
-// Strategy: instead of accumulating all chunks in JS memory (which would
-// buffer the entire file in the browser's heap — fatal for 10-30 GB files),
-// we point a hidden <a> tag directly at the download URL.  The browser then
-// handles the download natively: it streams straight to disk, shows its own
-// progress bar in the download shelf, supports pause/resume via Range, and
-// never holds the file in RAM.
-//
-// The download tray entry is updated via a polling loop that reads
-// X-Bytes-Confirmed from periodic HEAD probes — this is approximate but
-// good enough for progress display without JS-side buffering.
-//
-// For resume: we still track bytesReceived in dl so the tray shows the
-// right numbers; actual resume is handled by the browser's own download
-// manager (it will send Range on reconnect) or by the user clicking Resume
-// which re-navigates with the same dl_token.
 async function streamDownload(path, dl) {
     dl.status = 'downloading';
+    dl.abortController = new AbortController();
     renderDownloadTray();
 
-    const urlPath = `/api/v1/download${encodePath(path)}`;
-    // Include auth token in the URL (bearer header not possible on <a> nav)
-    const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(dl.dlToken)}`
-                + (authToken ? `&token=${encodeURIComponent(authToken)}` : '');
+    try {
+        const urlPath = `/api/v1/download${encodePath(path)}`;
+        const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(dl.dlToken)}`;
 
-    // Trigger native browser download — zero JS RAM usage regardless of file size
-    const a = document.createElement('a');
-    a.href = dlUrl;
-    a.download = dl.filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+        const headers = {};
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+        if (dl.bytesReceived > 0) {
+            headers['Range'] = `bytes=${dl.bytesReceived}-`;
+        }
 
-    // Poll progress via Content-Length + a lightweight HEAD-style check.
-    // We can't read the actual bytes sent from a native download, so we
-    // mark it done after a short delay and let the browser tray take over.
-    // The tray entry auto-dismisses so users aren't left with a stuck spinner.
-    dl.status = 'done';
-    const delay = getTrayDismissDelay();
-    if (delay > 0 && !dl._dismissScheduled) {
-        dl._dismissScheduled = true;
-        setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, Math.max(delay, 3000));
+        const resp = await fetchWithFallback(dlUrl, {
+            headers,
+            signal: dl.abortController.signal
+        });
+
+        if (!resp.ok && resp.status !== 206) {
+            throw new Error(`Server returned ${resp.status}`);
+        }
+
+        // Update total size from Content-Range if we resumed
+        const cr = resp.headers.get('Content-Range');
+        if (cr) {
+            const m = cr.match(/bytes \d+-\d+\/(\d+)/);
+            if (m) dl.totalSize = parseInt(m[1]);
+        } else {
+            const cl = resp.headers.get('Content-Length');
+            if (cl) dl.totalSize = parseInt(cl);
+        }
+        renderDownloadTray();
+
+        const reader = resp.body.getReader();
+        let dlLastLoaded = dl.bytesReceived;
+        let dlLastTime   = Date.now();
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            dl.chunks.push(value);
+            dl.bytesReceived += value.byteLength;
+            const now = Date.now();
+            const dt  = (now - dlLastTime) / 1000;
+            if (dt >= 0.3) {
+                dl.speed = (dl.bytesReceived - dlLastLoaded) / dt;
+                dl.eta   = (dl.speed > 0 && dl.totalSize)
+                    ? (dl.totalSize - dl.bytesReceived) / dl.speed
+                    : null;
+                dlLastLoaded = dl.bytesReceived;
+                dlLastTime   = now;
+            }
+            renderDownloadTray();
+        }
+
+        // Stitch all chunks and trigger browser save
+        const blob = new Blob(dl.chunks);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = dl.filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+
+        dl.status = 'done';
+        const delay = getTrayDismissDelay();
+        if (delay > 0 && !dl._dismissScheduled) {
+            dl._dismissScheduled = true;
+            setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, delay);
+        }
+        renderDownloadTray();
+
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            dl.status = 'paused';
+        } else {
+            console.error('Download error:', err);
+            dl.status = 'error';
+            dl.error = err.message;
+        }
+        renderDownloadTray();
     }
-    renderDownloadTray();
 }
 
 window.downloadFile = async function(path) {
@@ -1333,8 +1370,10 @@ window.downloadFile = async function(path) {
             dlToken: tokenData.download_token,
             totalSize: tokenData.total_size || null,
             bytesReceived: 0,
+            chunks: [],
             filename: path.split('/').pop(),
             status: 'downloading',
+            abortController: null,
             error: null,
             speed: null,
             eta: null,
@@ -1348,14 +1387,34 @@ window.downloadFile = async function(path) {
 }
 
 window.resumeDownload = async function(safePath) {
-    // With native browser downloads there is no JS-side resume state to manage.
-    // Re-mint a fresh token and re-navigate, letting the browser handle Range.
     const path = decodeURIComponent(safePath);
     const dl = activeDownloads.get(path);
     if (!dl) return;
     try {
+        // Re-mint a fresh token (old one may have expired)
         const tokenData = await mintDownloadToken(path);
         dl.dlToken = tokenData.download_token;
+        // server bytes_confirmed is the authoritative resume point;
+        // if our in-memory bytesReceived is less, trust the smaller value
+        // to avoid gaps. If more, keep ours (server may have restarted).
+        const serverConfirmed = tokenData.bytes_confirmed || 0;
+        if (serverConfirmed < dl.bytesReceived) {
+            // Trim chunks back to serverConfirmed
+            let kept = 0;
+            const trimmed = [];
+            for (const chunk of dl.chunks) {
+                if (kept >= serverConfirmed) break;
+                if (kept + chunk.byteLength <= serverConfirmed) {
+                    trimmed.push(chunk);
+                    kept += chunk.byteLength;
+                } else {
+                    trimmed.push(chunk.slice(0, serverConfirmed - kept));
+                    kept = serverConfirmed;
+                }
+            }
+            dl.chunks = trimmed;
+            dl.bytesReceived = kept;
+        }
         dl.speed = null;
         dl.eta   = null;
         await streamDownload(path, dl);
@@ -1365,7 +1424,10 @@ window.resumeDownload = async function(safePath) {
 }
 
 window.cancelDownload = function(path) {
+    // path may be raw or encoded — normalise
     try { path = decodeURIComponent(path); } catch(e) {}
+    const dl = activeDownloads.get(path);
+    if (dl && dl.abortController) dl.abortController.abort();
     activeDownloads.delete(path);
     renderDownloadTray();
 }
@@ -5065,5 +5127,80 @@ document.addEventListener('DOMContentLoaded', () => {
         // Clean the URL
         window.history.replaceState({}, document.title, window.location.pathname);
     }
+
+    // ── App version / stale-cache check ──────────────────────────────────────
+    // After the first render we silently probe index.html and script.js with
+    // cache:no-store to get their current Last-Modified dates from the server.
+    // If either differs from what the running page loaded, the user is on a
+    // stale cached version and we show a soft "update available" banner.
+    //
+    // Why Last-Modified and not ETag?  The HTTPS server sends Last-Modified
+    // for all files served via SimpleHTTPRequestHandler; ETags are not set.
+    // A mismatch means the file on disk changed since this tab was loaded.
+    //
+    // We wait 2s after DOMContentLoaded so the check doesn't compete with the
+    // initial API calls (list, foldersize, policy) for the limited connections.
+    (async function _versionCheck() {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+            const files = [
+                '/fluxdrop_pp/index.html',
+                '/fluxdrop_pp/script.js',
+            ];
+            // Capture load-time Last-Modified from a HEAD at startup via
+            // performance.getEntriesByName — if unavailable, HEAD them now
+            // as the baseline (first call stores, second call within session detects).
+            const _VK_KEY = '_fd_asset_mtimes';
+            const stored  = JSON.parse(sessionStorage.getItem(_VK_KEY) || 'null');
+            const current = {};
+
+            for (const f of files) {
+                try {
+                    const r = await fetch(f, { method: 'HEAD', cache: 'no-store' });
+                    current[f] = r.headers.get('last-modified') || '';
+                } catch { current[f] = ''; }
+            }
+
+            if (!stored) {
+                // First load — just store the current mtimes
+                sessionStorage.setItem(_VK_KEY, JSON.stringify(current));
+                return;
+            }
+
+            const stale = files.some(f => stored[f] && current[f] && stored[f] !== current[f]);
+            if (!stale) return;
+
+            // Show update banner
+            const banner = document.createElement('div');
+            banner.id = 'fd-update-banner';
+            banner.style.cssText = [
+                'position:fixed;bottom:0;left:0;width:100%;z-index:99998',
+                'background:#1e3a5f;color:#e0f0ff',
+                'display:flex;align-items:center;justify-content:center;gap:12px',
+                'padding:11px 16px;font-family:Inter,sans-serif;font-size:13.5px',
+                'font-weight:500;box-shadow:0 -2px 10px rgba(0,0,0,0.25)',
+                'transform:translateY(100%);transition:transform 0.35s ease',
+            ].join(';');
+            banner.innerHTML = `
+                <span style="font-size:17px">🔄</span>
+                <span>A new version of FluxDrop is available.</span>
+                <button onclick="sessionStorage.removeItem('${_VK_KEY}');location.reload()"
+                        style="background:#3b82f6;color:#fff;border:none;border-radius:7px;
+                               padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer">
+                    Reload now
+                </button>
+                <button onclick="this.closest('#fd-update-banner').remove()"
+                        style="background:rgba(255,255,255,0.12);color:#e0f0ff;border:none;
+                               border-radius:7px;padding:5px 12px;font-size:13px;cursor:pointer">
+                    Later
+                </button>
+            `;
+            document.body.appendChild(banner);
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                banner.style.transform = 'translateY(0)';
+            }));
+        } catch { /* non-fatal */ }
+    })();
+
     renderApp();
 });

@@ -1,7 +1,11 @@
-# server `v0.15.2`
+# server `v0.16.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Update the service worker***
+*Release note: **Fix the problems with streaming ZIP downloads (large files or 
+archive sizes), fix critical issue with quota usage, fix client RAM exhaust on 
+streamed ZIP download, fix CatBox API didn't have any size restrictions, fix 
+the issues with external dependencies being 404'd or just sourced on external 
+CDNs***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

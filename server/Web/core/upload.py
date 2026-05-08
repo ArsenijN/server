@@ -86,19 +86,59 @@ def _upload_init(filename: str, dest_path: str, total_size: int,
                  total_chunks: int, sha256_final: str | None,
                  owner_type: str, owner_ref: str,
                  anon_device_token: str | None = None) -> dict:
-    """Create a new upload session.
-
-    Chooses the write strategy at init time:
-      - 'direct'  → pre-allocate dest_path on HDD, write chunks straight in.
-      - 'buffer'  → write chunk files to UPLOAD_TMP_DIR (SSD), assemble later.
-
-    Returns the session row as a dict.
-    """
+    """Create a new upload session.  Now rejects uploads that would exceed
+    the owner's quota *before* any disk allocation takes place."""
+    
     token    = secrets.token_urlsafe(32)
     strategy = _choose_strategy(dest_path)
 
-    # For 'direct' strategy, pre-allocate the destination file.
-    # If that fails (unsupported FS, permission error, out of space) fall back.
+    # ── Quota guard for user uploads ─────────────────────────────────────────
+    # We reserve `total_size` bytes before pre-allocating so that two
+    # concurrent uploads cannot both pass the guard with the same free quota.
+    # The reservation is implemented via the upload_sessions table itself:
+    # any session with completed=0 and strategy='direct' already has a
+    # pre-allocated file on disk, so _get_user_disk_usage() will count it.
+    # For 'buffer' sessions the chunks live in UPLOAD_TMP_DIR (different FS),
+    # so we do a lightweight in-DB accounting check instead.
+    if owner_type == 'user' and total_size > 0:
+        user_id_int = int(owner_ref)
+        try:
+            with _db_connect() as _qc:
+                _qrow = _qc.execute(
+                    'SELECT quota_bytes FROM users WHERE id=?', (user_id_int,)
+                ).fetchone()
+            from core.quota import _compute_dynamic_quota
+            quota = (_qrow[0] if _qrow and _qrow[0] else _compute_dynamic_quota())
+
+            # Current disk usage (excludes trash)
+            from server_cdn import _get_user_disk_usage  # lazy import — avoids circular
+            usage = _get_user_disk_usage(user_id_int)
+
+            # Pending bytes: other in-progress uploads not yet on the user's disk
+            # (buffer-strategy sessions whose chunks are in UPLOAD_TMP_DIR).
+            with _db_connect() as _pc:
+                pending_rows = _pc.execute(
+                    """SELECT total_size FROM upload_sessions
+                       WHERE owner_ref=? AND owner_type='user'
+                         AND strategy='buffer' AND completed=0
+                         AND total_size > 0""",
+                    (str(user_id_int),)
+                ).fetchall()
+            pending_bytes = sum(r[0] for r in pending_rows)
+
+            if usage + pending_bytes + total_size > quota:
+                free = max(0, quota - usage - pending_bytes)
+                raise ValueError(
+                    f'Storage quota exceeded: {total_size // (1024**2)} MB requested, '
+                    f'only {free // (1024**2)} MB free '
+                    f'({usage // (1024**2)} MB used of {quota // (1024**2)} MB quota).'
+                )
+        except ValueError:
+            raise   # re-raise quota errors
+        except Exception as exc:
+            logging.warning(f'_upload_init: quota pre-check failed, proceeding: {exc}')
+
+    # ── Strategy + pre-allocation (unchanged from original) ──────────────────
     if strategy == 'direct':
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         if not _preallocate(dest_path, total_size):
@@ -108,7 +148,6 @@ def _upload_init(filename: str, dest_path: str, total_size: int,
             )
             strategy = 'buffer'
 
-    # For buffer strategy, create the tmp chunk directory on the fast drive.
     tmp_dir = ''
     if strategy == 'buffer':
         tmp_dir = os.path.join(UPLOAD_TMP_DIR, token)

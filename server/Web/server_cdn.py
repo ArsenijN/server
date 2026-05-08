@@ -3164,48 +3164,17 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
 
     def _handle_zip(self, path_segment: str):
-        """GET /api/v1/zip/<path>  — stream a folder as a ZIP (STORE, no compression).
-
-        Uses ZIP_STORED so the total size is predictable and Content-Length can
-        be sent before the first byte, giving the browser a real progress bar.
-
-        ZIP local-file-header layout per entry (PKZIP spec):
-          4  signature  (PK\\x03\\x04)
-          2  version needed  (20 = 2.0)
-          2  general purpose bit flag  (bit 3 set → sizes in data descriptor)
-          2  compression method  (0 = STORED)
-          2  last mod time
-          2  last mod date
-          4  CRC-32         (0 with bit3, filled in data descriptor)
-          4  compressed size   (0 with bit3)
-          4  uncompressed size (0 with bit3)
-          2  filename length
-          2  extra field length
-             filename bytes
-             file data
-          4  data descriptor sig (PK\\x07\\x08)
-          4  CRC-32
-          4  compressed size
-          4  uncompressed size
-
-        Central directory + end-of-central-directory are written after all files.
-
-        Because we use bit 3 (sizes-in-data-descriptor) we can stream each file
-        without seeking.  But we still need to pre-walk the tree to compute the
-        total byte count for Content-Length, which is fast (stat only, no reads).
-        """
         import zipfile as _zf
-        import struct as _st
-        import zlib  as _zl
+        import struct  as _st
+        import zlib    as _zl
 
         user_id = self._check_token_auth()
         if not user_id:
             return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
 
         relative_path = unquote(path_segment)
-
-        # Resolve filesystem path (same logic as list handler)
         user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+
         if relative_path.startswith('/cdn'):
             cdn_rel = relative_path[len('/cdn'):]
             base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
@@ -3219,109 +3188,118 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not os.path.isdir(base_fs):
             return self._send_response(404, json.dumps({'error': 'Not a directory.'}))
 
-        # --- Pre-walk: collect all files and compute Content-Length ---
-        # Each local file entry contributes:
-        #   30 + len(arcname_bytes)          local file header
-        #   file_size                         raw data
-        #   16                               data descriptor  (sig+crc32+sizes, 32-bit each)
-        # Central directory entry per file:
-        #   46 + len(arcname_bytes)
-        # End-of-central-directory record: 22 bytes
-
-        _DOS_EPOCH = (0, 0)  # (time=0, date=0) — valid but minimal
-
-        files_info = []  # list of (abs_path, arcname, arcname_bytes, file_size, mtime_dostime)
-        total_content_length = 0
-
-        for dirpath, _dirs, filenames in os.walk(base_fs):
-            for fname in sorted(filenames):
-                if fname in ('.placeholder', '.create_marker'):
-                    continue  # internal FluxDrop folder markers, skip
-                abs_path = os.path.join(dirpath, fname)
-                arcname = os.path.relpath(abs_path, base_fs).replace(os.sep, '/')
-                arcname_bytes = arcname.encode('utf-8')
-                try:
-                    st = os.stat(abs_path)
-                    file_size = st.st_size
-                    # Convert mtime to MS-DOS date/time for the ZIP header
-                    import time as _time
-                    lt = _time.localtime(st.st_mtime)
-                    dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
-                    dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
-                except OSError:
-                    continue
-                files_info.append((abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date))
-                # local header + data + data descriptor (16 bytes with sig)
-                total_content_length += 30 + len(arcname_bytes) + file_size + 16
-
-        # Central directory size
-        cd_size = sum(46 + len(fi[2]) for fi in files_info)
-        total_content_length += cd_size + 22  # EOCD
-
-        folder_name = os.path.basename(base_fs.rstrip('/')) or 'download'
-        zip_filename = folder_name + '.zip'
-
-        # --- Stream the ZIP ---
+        # ── ZIP constants ────────────────────────────────────────────────────────
         LFH_SIG  = b'PK\x03\x04'
         DD_SIG   = b'PK\x07\x08'
         CDH_SIG  = b'PK\x01\x02'
         EOCD_SIG = b'PK\x05\x06'
-        FLAG_DD  = 0x0008   # sizes in data descriptor
-        METHOD_STORED = 0
+        # ZIP64 signatures
+        ZIP64_EOCD_SIG    = b'PK\x06\x06'
+        ZIP64_EOCD_LOCATOR = b'PK\x06\x07'
 
+        FLAG_DD       = 0x0008
+        METHOD_STORED = 0
+        UINT32_MAX    = 0xFFFF_FFFF
+        UINT16_MAX    = 0xFFFF
+
+        # ── Pre-walk ─────────────────────────────────────────────────────────────
+        files_info = []   # (abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date)
+        for dirpath, _dirs, filenames in os.walk(base_fs):
+            for fname in sorted(filenames):
+                if fname in ('.placeholder', '.create_marker'):
+                    continue
+                abs_path = os.path.join(dirpath, fname)
+                arcname  = os.path.relpath(abs_path, base_fs).replace(os.sep, '/')
+                arcname_bytes = arcname.encode('utf-8')
+                try:
+                    st       = os.stat(abs_path)
+                    fsz      = st.st_size
+                    import time as _time
+                    lt       = _time.localtime(st.st_mtime)
+                    dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
+                    dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
+                except OSError:
+                    continue
+                files_info.append((abs_path, arcname, arcname_bytes, fsz, dos_time, dos_date))
+
+        # ── Compute Content-Length ───────────────────────────────────────────────
+        # Each local file entry:
+        #   30 + len(fn)                local file header (no zip64 extra — sizes in descriptor)
+        #   + 20                        ZIP64 extra field in LFH  (tag+size+compressed+uncompressed)
+        #   + file_size                 data
+        #   + 24                        data descriptor with ZIP64 sizes (sig+crc+comp64+uncomp64)
+        # CDH entry:
+        #   46 + len(fn) + zip64_extra  (zip64 extra = 28 bytes always for simplicity)
+        # EOCD64: 56 + ZIP64 EOCD locator: 20 + EOCD32: 22
+
+        Z64_LFH_EXTRA  = 20   # tag(2)+size(2)+comp(8)+uncomp(8)
+        Z64_DD_SIZE    = 24   # sig(4)+crc(4)+comp(8)+uncomp(8)
+        Z64_CDH_EXTRA  = 28   # tag(2)+size(2)+uncomp(8)+comp(8)+lhoffset(8)
+        EOCD64_SIZE    = 56 + 20 + 22   # zip64 eocd + locator + classic eocd
+
+        total_cl = 0
+        for _, _, arcname_bytes, fsz, _, _ in files_info:
+            fn = len(arcname_bytes)
+            total_cl += 30 + fn + Z64_LFH_EXTRA + fsz + Z64_DD_SIZE
+        cd_size = sum(46 + len(fi[2]) + Z64_CDH_EXTRA for fi in files_info)
+        total_cl += cd_size + EOCD64_SIZE
+
+        folder_name  = os.path.basename(base_fs.rstrip('/')) or 'download'
+        zip_filename = folder_name + '.zip'
+
+        # ── Send headers ─────────────────────────────────────────────────────────
         try:
             self.send_response(200)
             self._send_cors_headers()
             self.send_header('Content-Type', 'application/zip')
-            self.send_header('Content-Disposition',
-                             self._content_disposition(zip_filename))
-            self.send_header('Content-Length', str(total_content_length))
-            # REMOVE: self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Content-Disposition', self._content_disposition(zip_filename))
+            self.send_header('Content-Length', str(total_cl))
             self.end_headers()
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             return
 
-        offset = 0          # running byte offset for CD entries
-        cd_entries = []     # central directory chunks to write at the end
-        READ_BUF = 2 * 1024 * 1024  # 2 MB read buffer
+        READ_BUF = 2 * 1024 * 1024
+        offset   = 0          # running byte offset (Python int, no overflow)
+        cd_entries = []
+
+        def _write(data: bytes):
+            nonlocal offset
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+                raise
+            offset += len(data)
 
         try:
             for abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date in files_info:
                 fn_len = len(arcname_bytes)
-                fn_len = len(arcname_bytes)
+                local_offset = offset   # record start of this entry
 
-                # --- Local file header (30 bytes + filename) ---
-                # Write real sizes into the local header — not zeros.
-                # Windows Explorer's built-in unzip does not reliably support
-                # the data-descriptor fallback (bit 3); it needs sizes here.
-                # We know file_size from the pre-walk so we can fill them in.
-                # We keep FLAG_DD set and still emit a data descriptor afterwards
-                # because some tools (Info-ZIP, older Android) expect it when
-                # the flag is set.
+                # ── ZIP64 extra field for LFH ────────────────────────────────
+                z64_extra = _st.pack('<HH QQ',
+                    0x0001,          # tag = ZIP64
+                    16,              # size of following data
+                    file_size,       # uncompressed  (Q = uint64)
+                    file_size,       # compressed    (Q = uint64)
+                )
+
+                # ── Local file header ────────────────────────────────────────
+                # Sizes in header = 0xFFFFFFFF signals "see ZIP64 extra field"
                 lfh = _st.pack('<4sHHHHHIIIHH',
                     LFH_SIG,
-                    20,             # version needed: 2.0
-                    FLAG_DD,        # bit 3 kept for broad compatibility
+                    45,             # version needed: 4.5 (ZIP64)
+                    FLAG_DD,
                     METHOD_STORED,
-                    dos_time,
-                    dos_date,
-                    0,              # CRC-32 placeholder (real value in data descriptor)
-                    file_size,      # compressed size   — known upfront for STORE
-                    file_size,      # uncompressed size — same as compressed for STORE
+                    dos_time, dos_date,
+                    0,              # CRC placeholder (real value in descriptor)
+                    UINT32_MAX,     # compressed   size → ZIP64
+                    UINT32_MAX,     # uncompressed size → ZIP64
                     fn_len,
-                    0,              # extra field length
-                ) + arcname_bytes
+                    len(z64_extra),
+                ) + arcname_bytes + z64_extra
+                _write(lfh)
 
-                self.wfile.write(lfh)
-                local_offset = offset
-                offset += len(lfh)
-
-                # --- File data + CRC-32 ---
-                # We use the pre-walked file_size to pad or truncate so that the
-                # number of bytes we emit exactly matches what we promised in
-                # Content-Length.  If the file grew we stop at file_size; if it
-                # shrank or vanished we zero-pad the remainder.  Either way the
-                # archive structure stays intact — we never abort mid-stream.
+                # ── File data ────────────────────────────────────────────────
                 crc = 0
                 bytes_written = 0
                 try:
@@ -3331,84 +3309,111 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             chunk = f.read(min(READ_BUF, remaining))
                             if not chunk:
                                 break
-                            self.wfile.write(chunk)
-                            crc = _zl.crc32(chunk, crc) & 0xFFFFFFFF
+                            _write(chunk)
+                            crc = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
                             bytes_written += len(chunk)
                             remaining -= len(chunk)
                 except OSError:
-                    # File vanished mid-stream — fall through to zero-pad below.
-                    # Do NOT return: the archive must be completed so the central
-                    # directory and EOCD are written and the file is openable.
-                    logging.warning(f'ZIP: file vanished mid-stream, zero-padding: {abs_path!r}')
-                except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
-                    return   # client disconnected — nothing we can do
-                # Zero-pad if file shrank or vanished so Content-Length stays accurate
+                    logging.warning(f'ZIP64: file vanished mid-stream: {abs_path!r}')
                 if bytes_written < file_size:
                     pad = bytes(file_size - bytes_written)
-                    self.wfile.write(pad)
-                    crc = _zl.crc32(pad, crc) & 0xFFFFFFFF
+                    _write(pad)
+                    crc = _zl.crc32(pad, crc) & 0xFFFF_FFFF
                     bytes_written = file_size
-                offset += bytes_written
 
-                # --- Data descriptor (16 bytes with signature) ---
-                dd = _st.pack('<4sIII',
+                # ── ZIP64 data descriptor ────────────────────────────────────
+                dd = _st.pack('<4s I QQ',
                     DD_SIG,
                     crc,
-                    bytes_written,   # compressed size  (= uncompressed for STORE)
-                    bytes_written,   # uncompressed size
+                    bytes_written,   # compressed   (Q)
+                    bytes_written,   # uncompressed (Q)
                 )
-                self.wfile.write(dd)
-                offset += len(dd)
+                _write(dd)
 
-                # --- Accumulate central directory entry ---
-                # CDH fixed part is 46 bytes; format: 4s + 6H + 3I + 5H + 2I
+                # ── Central directory entry ──────────────────────────────────
+                # ZIP64 extra for CDH: uncompressed + compressed + local header offset
+                z64_cdh_extra = _st.pack('<HH QQQ',
+                    0x0001, 24,
+                    bytes_written,   # uncompressed
+                    bytes_written,   # compressed
+                    local_offset,    # local header offset (Q)
+                )
                 cdh = _st.pack('<4sHHHHHHIIIHHHHHII',
                     CDH_SIG,
-                    20,             # version made by
-                    20,             # version needed
-                    FLAG_DD,        # general purpose bit flag
-                    METHOD_STORED,  # compression method
-                    dos_time,       # last mod file time  (H)
-                    dos_date,       # last mod file date  (H)  <- was missing
-                    crc,            # crc-32              (I)
-                    bytes_written,  # compressed size     (I)
-                    bytes_written,  # uncompressed size   (I)
-                    fn_len,         # filename length     (H)
-                    0,              # extra field length  (H)
-                    0,              # file comment length (H)
-                    0,              # disk number start   (H)
-                    0,              # internal attributes (H)
-                    0,              # external attributes (I)
-                    local_offset,   # local header offset (I)
-                ) + arcname_bytes
+                    45, 45,          # version made by / needed
+                    FLAG_DD,
+                    METHOD_STORED,
+                    dos_time, dos_date,
+                    crc,
+                    UINT32_MAX,      # compressed   → ZIP64
+                    UINT32_MAX,      # uncompressed → ZIP64
+                    fn_len,
+                    len(z64_cdh_extra),
+                    0,               # file comment
+                    0,               # disk start
+                    0,               # internal attr
+                    0,               # external attr
+                    UINT32_MAX,      # local header offset → ZIP64
+                ) + arcname_bytes + z64_cdh_extra
                 cd_entries.append(cdh)
 
-            # --- Central directory ---
+            # ── Central directory ────────────────────────────────────────────────
             cd_start = offset
             for cdh in cd_entries:
-                self.wfile.write(cdh)
+                _write(cdh)
+            cd_end = offset
+            cd_total_size = cd_end - cd_start
+            n_entries = len(cd_entries)
 
-            # --- End of central directory ---
-            cd_total_size = sum(len(e) for e in cd_entries)
-            eocd = _st.pack('<4sHHHHIIH',
-                EOCD_SIG,
-                0,                      # disk number
-                0,                      # disk with CD start
-                len(cd_entries),        # entries on this disk
-                len(cd_entries),        # total entries
-                cd_total_size,
-                cd_start,
-                0,                      # comment length
+            # ── ZIP64 End of Central Directory record ────────────────────────────
+            # Size of zip64 EOCD record = total_size - 12 (sig + size field itself)
+            zip64_eocd = _st.pack('<4s Q HHII QQ QQ',
+                ZIP64_EOCD_SIG,
+                44,              # size of remaining record (= 56 - 12)
+                45,              # version made by
+                45,              # version needed
+                0,               # disk number
+                0,               # disk with CD
+                n_entries,       # entries on this disk  (Q)
+                n_entries,       # total entries         (Q)
+                cd_total_size,   # CD size               (Q)
+                cd_start,        # CD offset             (Q)
             )
-            self.wfile.write(eocd)
+            _write(zip64_eocd)
+
+            # ── ZIP64 EOCD locator ───────────────────────────────────────────────
+            zip64_locator = _st.pack('<4s I Q I',
+                ZIP64_EOCD_LOCATOR,
+                0,               # disk with start of zip64 EOCD
+                cd_end,          # offset of zip64 EOCD record
+                1,               # total number of disks
+            )
+            _write(zip64_locator)
+
+            # ── Classic EOCD (required — points to ZIP64 structures) ────────────
+            eocd = _st.pack('<4s HH HH II H',
+                EOCD_SIG,
+                0, 0,            # disk / disk with CD
+                min(n_entries, UINT16_MAX),
+                min(n_entries, UINT16_MAX),
+                min(cd_total_size, UINT32_MAX),
+                min(cd_start,      UINT32_MAX),
+                0,               # comment length
+            )
+            _write(eocd)
+
             try:
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
                 pass
-            logging.info(f'ZIP streamed: {zip_filename} ({len(files_info)} files, {total_content_length} bytes) user={user_id}')
+
+            logging.info(
+                f'ZIP64 streamed: {zip_filename} '
+                f'({len(files_info)} files, {total_cl} bytes) user={user_id}'
+            )
 
         except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
-            pass  # client disconnected mid-stream, normal for large files
+            pass   # client disconnected mid-stream
 
     # --- Lazy folder size ---
 
@@ -4387,17 +4392,33 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(501, "Album functionality is not implemented.", "text/plain")
 
     def handle_catbox_fileupload(self, files, form, auth_user_display, user_id=None):
-        """Handles CatBox fileupload with streaming to avoid memory issues."""
+        """Handles CatBox fileupload with streaming + configurable size cap."""
+        from config import CATBOX_MAX_UPLOAD_BYTES as _CATBOX_LIMIT
+
         file_items = files.getlist('fileToUpload')
         if not file_items:
             return self._send_response(400, "Bad Request: Missing 'fileToUpload' field.", "text/plain")
 
-        file_item = file_items[0]  # werkzeug FileStorage object
+        file_item = file_items[0]
         if not file_item or not file_item.filename:
             return self._send_response(400, "Bad Request: No file selected for upload.", "text/plain")
 
+        # ── Early Content-Length check (avoids wasting time streaming a too-large file) ──
         try:
-            file_ext = os.path.splitext(file_item.filename)[1]
+            declared_size = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            declared_size = 0
+        if declared_size > _CATBOX_LIMIT:
+            return self._send_response(
+                413,
+                f"File too large: declared {declared_size // (1024**2)} MB, "
+                f"limit is {_CATBOX_LIMIT // (1024**2)} MB. "
+                f"Set CATBOX_MAX_UPLOAD_BYTES env var to change the limit.",
+                "text/plain"
+            )
+
+        try:
+            file_ext    = os.path.splitext(file_item.filename)[1]
             random_name = secrets.token_urlsafe(6).lower().replace('-', '').replace('_', '')
             new_filename = f"{random_name}{file_ext}"
 
@@ -4405,11 +4426,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if not os.path.realpath(save_path).startswith(os.path.realpath(SERVE_ROOT)):
                 return self._send_response(400, "Bad Request: Invalid path.", "text/plain")
 
-            # Ensure upload directory exists
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-            # Stream the file in chunks instead of reading all at once
-            chunk_size = 2 * 1024 * 1024  # NEW: 2 MB chunks
+            chunk_size    = 2 * 1024 * 1024  # 2 MB read buffer
             bytes_written = 0
 
             with open(save_path, 'wb') as f:
@@ -4417,27 +4436,43 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     chunk = file_item.stream.read(chunk_size)
                     if not chunk:
                         break
-                    f.write(chunk)
                     bytes_written += len(chunk)
+                    # Runtime guard: reject mid-stream if the actual data exceeds limit
+                    if bytes_written > _CATBOX_LIMIT:
+                        f.close()
+                        try:
+                            os.remove(save_path)
+                        except OSError:
+                            pass
+                        return self._send_response(
+                            413,
+                            f"File too large: stream exceeded {_CATBOX_LIMIT // (1024**2)} MB limit. "
+                            f"Set CATBOX_MAX_UPLOAD_BYTES env var to change.",
+                            "text/plain"
+                        )
+                    f.write(chunk)
 
-                    # Optional: Log progress for large files
-                    if bytes_written % (100 * 1024 * 1024) == 0:  # Every 100 MB
-                        logging.info(f"Upload progress: {bytes_written / (1024*1024):.1f} MB written")
+                    if bytes_written % (100 * 1024 * 1024) == 0:
+                        logging.info(f"CatBox upload progress: {bytes_written // (1024*1024)} MB")
 
             file_url = f"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/{CATBOX_UPLOAD_DIR}/{new_filename}"
-            logging.info(f"CatBox user '{auth_user_display}' uploaded '{file_item.filename}' ({bytes_written} bytes) to '{save_path}'")
+            logging.info(
+                f"CatBox user '{auth_user_display}' uploaded '{file_item.filename}' "
+                f"({bytes_written} bytes) to '{save_path}'"
+            )
 
-            # If the uploader requested protection, mark the file as protected in the DB.
-            # The actual access token is created separately via the admin CLI (generate_token.py).
             protected_flag = form.get('protected') or form.get('require_token')
             if protected_flag and str(protected_flag).lower() in ('1', 'true', 'on'):
-                # store relative path with leading slash
                 rel = '/' + os.path.relpath(save_path, SERVE_ROOT).replace(os.sep, '/')
                 try:
                     _mark_file_protected(rel, created_by=user_id)
                     logging.info(f"Marked uploaded file as protected: {rel} (created_by={user_id})")
-                    # Inform the uploader that the file requires a token to be viewed
-                    return self._send_response(200, file_url + "\n[PROTECTED] This file requires a token to view. Generate a token using the server CLI.", "text/plain")
+                    return self._send_response(
+                        200,
+                        file_url + "\n[PROTECTED] This file requires a token to view. "
+                        "Generate a token using the server CLI.",
+                        "text/plain"
+                    )
                 except Exception:
                     logging.exception("Failed to mark file as protected in DB")
                     return self._send_response(500, "Internal Server Error: failed to mark file protected", "text/plain")

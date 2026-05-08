@@ -1152,14 +1152,392 @@ window.enterDir = function(path) {
         // NOTE: renderDownloadTray uses stable DOM patching so button clicks are
         // never lost mid-stream (no full innerHTML replacement while downloading).
         // ======================================================================
-// Active downloads map: path -> { dlToken, totalSize, bytesReceived,
-//   chunks[], abortController, status, filename }
+
+function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+    return (b/1073741824).toFixed(2) + ' GB';
+}
+
+
+        // ======================================================================
+        // --- STREAMING DOWNLOAD ENGINE ...
+        // ======================================================================
+
+// Lazily load StreamSaver (only if needed and showSaveFilePicker absent)
+let _streamSaverLoaded = false;
+function _loadStreamSaver() {
+    if (_streamSaverLoaded) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        // s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/StreamSaver.js'; // TODO: fix the issues with it's local deploy and undependancy
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/streamsaver/2.0.6/StreamSaver.min.js';
+        s.onload  = () => { _streamSaverLoaded = true; resolve(); };
+        s.onerror = () => reject(new Error('StreamSaver unavailable'));
+        document.head.appendChild(s);
+    });
+}
+
+// Detect streaming-to-disk capability once
+const _CAN_PICK = (typeof window.showSaveFilePicker === 'function');
+
+// Active downloads: path → dl state object (shared by tray renderer)
+// (replaces the old activeDownloads Map — same variable name kept for compat)
+// dl = {
+//   filename, totalSize, bytesReceived, status,
+//   speed, eta, error,
+//   _writer,       // FileSystemWritableFileStream | null
+//   _abort,        // AbortController for current fetch
+//   _resumeFrom,   // byte offset for next Range request
+//   _chunks,       // [] only used in blob-fallback mode
+//   _mode,         // 'picker' | 'streamsaver' | 'blob'
+// }
+
+/**
+ * Primary entry point.  Call for both file and ZIP downloads.
+ *
+ * @param {string} path         - user-relative path (for dl token)
+ * @param {object} [opts]
+ * @param {string} [opts.directUrl]  - if set, skip token mint (ZIP endpoint)
+ * @param {string} [opts.filename]   - override filename
+ * @param {number} [opts.totalSize]  - hint for progress (ZIP: Content-Length)
+ */
+window.downloadFile = async function(path, opts = {}) {
+    // Deduplicate: if already tracked, surface tray
+    if (activeDownloads.has(path)) { renderDownloadTray(); return; }
+
+    const filename = opts.filename || path.split('/').pop() || 'download';
+
+    // 1. Mint download token (skip for direct URLs like ZIP)
+    let dlUrl, totalSize;
+    if (opts.directUrl) {
+        dlUrl     = opts.directUrl;
+        totalSize = opts.totalSize || null;
+    } else {
+        try {
+            const td  = await mintDownloadToken(path);
+            const enc = path.split('/').map(encodeURIComponent).join('/');
+            dlUrl     = `${API_BASE_URL}/api/v1/download${enc}?dl_token=${encodeURIComponent(td.download_token)}`;
+            totalSize = td.total_size || null;
+        } catch (err) {
+            showMessage('Download failed', err.message);
+            return;
+        }
+    }
+
+    // 2. Detect mode
+    let mode = 'blob';
+    if (_CAN_PICK) {
+        mode = 'picker';
+    } else {
+        try {
+            await _loadStreamSaver();
+            if (typeof streamSaver !== 'undefined') mode = 'streamsaver';
+        } catch (_) { /* stay blob */ }
+    }
+
+    // Warn on large blob-mode downloads
+    if (mode === 'blob' && totalSize && totalSize > 512 * 1024 * 1024) {
+        const proceed = confirm(
+            `⚠ Your browser doesn't support streaming downloads to disk.\n\n` +
+            `Downloading ${formatBytes(totalSize)} will be buffered entirely in RAM ` +
+            `before saving, which may freeze or crash the tab.\n\n` +
+            `Use Chrome or Edge for large files. Continue anyway?`
+        );
+        if (!proceed) return;
+    }
+
+    const dl = {
+        filename, totalSize, bytesReceived: 0,
+        status: 'downloading', speed: null, eta: null, error: null,
+        _writer: null, _abort: new AbortController(),
+        _resumeFrom: 0, _chunks: [], _mode: mode,
+        _dlUrl: dlUrl, _path: path,
+    };
+    activeDownloads.set(path, dl);
+    renderDownloadTray();
+
+    await _runDownload(path, dl);
+};
+
+/** Internal: open writer then stream. Separated so resume can re-enter. */
+async function _runDownload(path, dl) {
+    // 3. Open write destination (only on first run, not resume)
+    if (!dl._writer && dl._mode !== 'blob') {
+        try {
+            if (dl._mode === 'picker') {
+                const ext  = dl.filename.split('.').pop() || '';
+                const mime = _mimeForExt(ext);
+                const fh   = await window.showSaveFilePicker({
+                    suggestedName: dl.filename,
+                    types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
+                });
+                dl._writer = await fh.createWritable({ keepExistingData: false });
+            } else {
+                // StreamSaver
+                const ws   = streamSaver.createWriteStream(dl.filename, {
+                    size: dl.totalSize || undefined,
+                });
+                dl._writer = ws.getWriter();
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                // User dismissed the save dialog → cancel cleanly
+                activeDownloads.delete(path);
+                renderDownloadTray();
+                return;
+            }
+            // Fall back to blob
+            dl._mode   = 'blob';
+            dl._writer = null;
+            logging_warn('showSaveFilePicker/StreamSaver failed, falling back to blob:', err);
+        }
+    }
+
+    dl.status  = 'downloading';
+    dl._abort  = new AbortController();
+    renderDownloadTray();
+
+    const headers = { ...(dl._authHeader || {}) };
+    if (authToken && !headers['Authorization']) headers['Authorization'] = `Bearer ${authToken}`;
+    if (dl._resumeFrom > 0) headers['Range'] = `bytes=${dl._resumeFrom}-`;
+
+    try {
+        const resp = await fetchWithFallback(dl._dlUrl, {
+            headers,
+            signal: dl._abort.signal,
+        });
+
+        if (!resp.ok && resp.status !== 206) {
+            throw new Error(`Server returned HTTP ${resp.status}`);
+        }
+
+        // Update total from Content-Range on resume
+        const cr = resp.headers.get('Content-Range');
+        if (cr) {
+            const m = cr.match(/bytes \d+-\d+\/(\d+)/);
+            if (m) dl.totalSize = parseInt(m[1]);
+        } else if (!dl.totalSize) {
+            const cl = resp.headers.get('Content-Length');
+            if (cl) dl.totalSize = parseInt(cl);
+        }
+        renderDownloadTray();
+
+        // 4. Stream pipe
+        const reader = resp.body.getReader();
+        let lastLoaded = dl.bytesReceived;
+        let lastTime   = Date.now();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            // Write chunk to destination
+            if (dl._mode === 'blob') {
+                dl._chunks.push(value);
+            } else if (dl._mode === 'picker') {
+                await dl._writer.write(value);
+            } else {
+                // StreamSaver WritableStreamDefaultWriter
+                await dl._writer.write(value);
+            }
+
+            dl.bytesReceived  += value.byteLength;
+            dl._resumeFrom    += value.byteLength;   // advance resume cursor
+
+            // ETA / speed
+            const now = Date.now(), dt = (now - lastTime) / 1000;
+            if (dt >= 0.4) {
+                dl.speed     = (dl.bytesReceived - lastLoaded) / dt;
+                dl.eta       = (dl.speed > 0 && dl.totalSize)
+                    ? (dl.totalSize - dl.bytesReceived) / dl.speed : null;
+                lastLoaded   = dl.bytesReceived;
+                lastTime     = now;
+            }
+            renderDownloadTray();
+        }
+
+        // 5. Finalise
+        if (dl._mode === 'blob') {
+            // Last-resort: trigger browser save from memory
+            const blob = new Blob(dl._chunks);
+            dl._chunks = [];  // free ASAP
+            const a    = document.createElement('a');
+            a.href     = URL.createObjectURL(blob);
+            a.download = dl.filename;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+        } else if (dl._mode === 'picker') {
+            await dl._writer.close();
+            dl._writer = null;
+        } else {
+            await dl._writer.close();
+            dl._writer = null;
+        }
+
+        dl.status = 'done';
+        dl.speed  = null;
+        dl.eta    = null;
+        const delay = getTrayDismissDelay();
+        if (delay > 0 && !dl._dismissScheduled) {
+            dl._dismissScheduled = true;
+            setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, delay);
+        }
+        renderDownloadTray();
+
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            dl.status = 'paused';
+        } else {
+            dl.status = 'error';
+            dl.error  = err.message;
+            // Close writer so the partial file is flushed/discarded cleanly
+            if (dl._writer) {
+                try { await dl._writer.abort?.() ?? dl._writer.close(); } catch (_) {}
+                dl._writer = null;
+            }
+        }
+        renderDownloadTray();
+    }
+}
+
+// ── Resume ────────────────────────────────────────────────────────────────────
+// Override the old resumeDownload — now just re-enters _runDownload from
+// where we left off (_resumeFrom is already set).
+window.resumeDownload = async function(safePath) {
+    const path = decodeURIComponent(safePath);
+    const dl   = activeDownloads.get(path);
+    if (!dl) return;
+
+    // Re-mint token so it's still valid after a long pause
+    if (!dl._isZip) {
+        try {
+            const td  = await mintDownloadToken(path);
+            const enc = path.split('/').map(encodeURIComponent).join('/');
+            dl._dlUrl = `${API_BASE_URL}/api/v1/download${enc}?dl_token=${encodeURIComponent(td.download_token)}`;
+            // Sync server-confirmed offset as a floor
+            const sc = td.bytes_confirmed || 0;
+            if (sc < dl._resumeFrom) dl._resumeFrom = sc;
+        } catch (err) {
+            showMessage('Resume failed', err.message);
+            return;
+        }
+    }
+
+    // Re-open picker/writer if closed on error
+    if (!dl._writer && dl._mode !== 'blob') {
+        // For picker mode the FileHandle is lost after close — need a new one.
+        // Simplest UX: let _runDownload open a new picker for the remainder.
+        dl._writer = null;
+        // We DON'T want keepExistingData here because the file was partially
+        // written but not seekable from JS.  The server will send only the
+        // missing bytes; we need a fresh file and the Range header starting at
+        // the confirmed server offset.
+        // Reset resume from server-confirmed byte so we don't have a gap.
+    }
+
+    dl.speed = null;
+    dl.eta   = null;
+    await _runDownload(path, dl);
+};
+
+// ── Cancel ────────────────────────────────────────────────────────────────────
+window.cancelDownload = function(path) {
+    try { path = decodeURIComponent(path); } catch (_) {}
+    const dl = activeDownloads.get(path);
+    if (dl) {
+        dl._abort?.abort();
+        if (dl._writer) {
+            dl._writer.abort?.().catch(() => {});
+            dl._writer = null;
+        }
+    }
+    activeDownloads.delete(path);
+    renderDownloadTray();
+};
+
+// ── ZIP folder download — now also streaming ──────────────────────────────────
+window.downloadFolderZip = async function(path) {
+    const zipKey  = '__zip__' + path;
+    if (activeDownloads.has(zipKey)) { renderDownloadTray(); return; }
+
+    const folderName = path.split('/').filter(Boolean).pop() || 'download';
+    const filename   = folderName + '.zip';
+    const zipUrl     = `${API_BASE_URL}/api/v1/zip${path.split('/').map(encodeURIComponent).join('/')}`;
+
+    // Peek Content-Length with a HEAD request so the progress bar works
+    let totalSize = null;
+    try {
+        const hd = await fetchWithFallback(zipUrl, {
+            method: 'HEAD',
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+        });
+        const cl = hd.headers.get('Content-Length');
+        if (cl) totalSize = parseInt(cl);
+    } catch (_) {}
+
+    const dl = {
+        filename, totalSize, bytesReceived: 0,
+        status: 'downloading', speed: null, eta: null, error: null,
+        _writer: null, _abort: new AbortController(),
+        _resumeFrom: 0, _chunks: [],
+        _mode: _CAN_PICK ? 'picker' : (_streamSaverLoaded ? 'streamsaver' : 'blob'),
+        _dlUrl: zipUrl, _path: zipKey,
+        _isZip: true,
+        // ZIP auth via header, not token
+        _authHeader: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    };
+
+    // Warn for large zips in blob mode
+    if (dl._mode === 'blob' && totalSize && totalSize > 512 * 1024 * 1024) {
+        const go = confirm(
+            `⚠ Your browser doesn't support streaming downloads to disk.\n\n` +
+            `This ZIP is ~${formatBytes(totalSize)} and will be held in RAM. ` +
+            `Use Chrome/Edge for large folders. Continue?`
+        );
+        if (!go) return;
+    }
+
+    activeDownloads.set(zipKey, dl);
+    renderDownloadTray();
+    await _runDownload(zipKey, dl);
+};
+
+// ── Tiny MIME helper ──────────────────────────────────────────────────────────
+function _mimeForExt(ext) {
+    const m = {
+        mp4:'video/mp4', webm:'video/webm', mkv:'video/x-matroska',
+        mp3:'audio/mpeg', flac:'audio/flac', wav:'audio/wav', m4a:'audio/mp4',
+        jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif',
+        webp:'image/webp', svg:'image/svg+xml', pdf:'application/pdf',
+        zip:'application/zip', tar:'application/x-tar',
+        txt:'text/plain', md:'text/markdown', json:'application/json',
+        js:'text/javascript', css:'text/css', html:'text/html',
+    };
+    return m[ext.toLowerCase()] || null;
+}
+
+// Suppress console noise in production
+function logging_warn(...args) { console.warn('[FluxDrop]', ...args); }
+
+
+// Active downloads map: path → dl state object
+// Declared here so downloadFile, renderDownloadTray, resumeDownload,
+// cancelDownload, and downloadFolderZip can all share it.
 const activeDownloads = new Map();
 
+// Mint a download token from the server.
+// Used by downloadFile, previewFile, and the archive-tree preview.
+async function mintDownloadToken(path) {
+    const data = await apiCall('/api/v1/download_token', 'POST', { path });
+    return data; // { download_token, path, expires_in, total_size, bytes_confirmed }
+}
+
 // Render (or update) the floating download tray.
-// Uses stable DOM patching: the tray container and each row are only
-// created once; subsequent calls only update text/bar/class values so
-// buttons are never re-created mid-click.
+// Uses stable DOM patching: container and rows are created once;
+// subsequent calls only update text/bar values so buttons are never
+// re-created mid-click.
 function renderDownloadTray() {
     let tray = document.getElementById('dl-tray');
     if (!tray) {
@@ -1179,280 +1557,123 @@ function renderDownloadTray() {
         return;
     }
 
-    // --- Header (create once) ---
+    // Header (created once)
     let header = tray.querySelector('.dl-tray-header');
     if (!header) {
         header = document.createElement('div');
         header.className = 'dl-tray-header';
-        header.style.cssText = 'padding:10px 14px 6px;font-weight:700;font-size:14px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;';
-        header.innerHTML = `<span class="dl-count"></span><span style="cursor:pointer;opacity:.6" id="dl-tray-close">✕</span>`;
+        header.style.cssText = 'padding:10px 14px 6px;font-weight:700;font-size:14px;' +
+            'border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;';
+        header.innerHTML = `<span class="dl-count"></span>` +
+            `<span style="cursor:pointer;opacity:.6" id="dl-tray-close">✕</span>`;
         tray.prepend(header);
-        header.querySelector('#dl-tray-close').addEventListener('click', () => { tray.innerHTML = ''; });
+        header.querySelector('#dl-tray-close').addEventListener('click', () => {
+            tray.innerHTML = '';
+        });
     }
     header.querySelector('.dl-count').textContent = `📥 Downloads (${activeDownloads.size})`;
 
-    // Remove rows for finished+dismissed entries
+    // Remove rows for entries no longer in the map
     tray.querySelectorAll('.dl-row').forEach(row => {
         if (!activeDownloads.has(row.dataset.dlPath)) row.remove();
     });
 
-    // Create or update one row per active download
     for (const [path, dl] of activeDownloads) {
-        const pct = dl.totalSize ? Math.round(dl.bytesReceived / dl.totalSize * 100) : 0;
-        const recv = formatBytes(dl.bytesReceived);
+        const pct   = dl.totalSize ? Math.round(dl.bytesReceived / dl.totalSize * 100) : 0;
+        const recv  = formatBytes(dl.bytesReceived);
         const total = dl.totalSize ? formatBytes(dl.totalSize) : '?';
-        const name = dl.filename || path.split('/').pop();
+        const name  = dl.filename || path.split('/').pop();
+
+        // Escape path for use as a CSS attribute selector value
+        const safePathAttr = path.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
         let row = tray.querySelector(`.dl-row[data-dl-path="${CSS.escape(path)}"]`);
         if (!row) {
-            // Build the row skeleton once
             row = document.createElement('div');
             row.className = 'dl-row';
             row.dataset.dlPath = path;
             row.style.cssText = 'padding:10px 14px;border-bottom:1px solid #1e293b';
             row.innerHTML = `
                 <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span class="dl-name" title="${name}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px"></span>
+                    <span class="dl-name" title="${escapeHtml(name)}"
+                        style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px"></span>
                     <span class="dl-bytes" style="color:#94a3b8"></span>
                 </div>
                 <div style="background:#334155;border-radius:4px;height:6px;margin-bottom:6px">
-                    <div class="dl-bar" style="background:#3b82f6;height:6px;border-radius:4px;width:0%;transition:width .3s"></div>
+                    <div class="dl-bar"
+                        style="background:#3b82f6;height:6px;border-radius:4px;width:0%;transition:width .3s"></div>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <span class="dl-status" style="color:#64748b"></span>
                     <div class="dl-actions"></div>
                 </div>`;
             tray.appendChild(row);
-            requestAnimationFrame(() => { tray.scrollTop = tray.scrollHeight; });  // auto-scroll to newest entry
+            // Auto-scroll so newest entry is visible
+            requestAnimationFrame(() => { tray.scrollTop = tray.scrollHeight; });
 
-            // Wire up stable button references stored on the row element
+            // Build stable button references stored on the row element
             const actionsDiv = row.querySelector('.dl-actions');
 
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = 'Cancel';
-            cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
+            cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;' +
+                'padding:2px 8px;cursor:pointer;font-size:11px';
             cancelBtn.addEventListener('click', () => cancelDownload(path));
 
             const resumeBtn = document.createElement('button');
             resumeBtn.textContent = 'Resume';
-            resumeBtn.style.cssText = 'background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
+            resumeBtn.style.cssText = 'background:#3b82f6;color:#fff;border:none;border-radius:5px;' +
+                'padding:2px 8px;cursor:pointer;font-size:11px';
             resumeBtn.addEventListener('click', () => resumeDownload(encodeURIComponent(path)));
 
-            const pauseCancelBtn = document.createElement('button');
-            pauseCancelBtn.textContent = 'Cancel';
-            pauseCancelBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
-            pauseCancelBtn.addEventListener('click', () => cancelDownload(path));
+            const abortBtn = document.createElement('button');
+            abortBtn.textContent = 'Cancel';
+            abortBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;' +
+                'padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
+            abortBtn.addEventListener('click', () => cancelDownload(path));
 
             const dismissBtn = document.createElement('button');
             dismissBtn.textContent = 'Dismiss';
-            dismissBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
-            dismissBtn.addEventListener('click', () => { activeDownloads.delete(path); renderDownloadTray(); });
+            dismissBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;' +
+                'padding:2px 8px;cursor:pointer;font-size:11px';
+            dismissBtn.addEventListener('click', () => {
+                activeDownloads.delete(path);
+                renderDownloadTray();
+            });
 
-            row._btns = { cancelBtn, resumeBtn, pauseCancelBtn, dismissBtn, actionsDiv };
+            row._btns = { cancelBtn, resumeBtn, abortBtn, dismissBtn, actionsDiv };
         }
 
         // Update dynamic fields
-        const statusMap = { downloading: '⬇', paused: '⏸', error: '⚠', done: '✅' };
-        row.querySelector('.dl-name').textContent = (statusMap[dl.status] || '') + ' ' + name;
+        const statusIcon = { downloading:'⬇', paused:'⏸', error:'⚠', done:'✅' };
+        row.querySelector('.dl-name').textContent = (statusIcon[dl.status] || '') + ' ' + name;
         row.querySelector('.dl-bytes').textContent = `${recv} / ${total}`;
         row.querySelector('.dl-bar').style.width = pct + '%';
 
-        // Status line: speed · ETA while downloading, plain label otherwise
-        let dlStatusText = dl.status;
+        // Status line
+        let statusText = dl.status;
         if (dl.status === 'downloading') {
             const parts = [];
             if (dl.speed != null) parts.push(formatSpeed(dl.speed));
             if (dl.eta   != null) parts.push('ETA ' + formatEta(dl.eta));
-            if (parts.length) dlStatusText = parts.join(' · ');
+            if (parts.length)     statusText = parts.join(' · ');
         } else if (dl.status === 'error') {
-            dlStatusText = '⚠ ' + (dl.error || 'failed');
+            statusText = '⚠ ' + (dl.error || 'failed');
         }
-        row.querySelector('.dl-status').textContent = dlStatusText;
+        row.querySelector('.dl-status').textContent = statusText;
 
-        // Swap action buttons without re-creating them
-        const { actionsDiv, cancelBtn, resumeBtn, pauseCancelBtn, dismissBtn } = row._btns;
+        // Swap visible buttons without re-creating them
+        const { actionsDiv, cancelBtn, resumeBtn, abortBtn, dismissBtn } = row._btns;
         actionsDiv.innerHTML = '';
         if (dl.status === 'downloading') {
             actionsDiv.appendChild(cancelBtn);
         } else if (dl.status === 'paused' || dl.status === 'error') {
             actionsDiv.appendChild(resumeBtn);
-            actionsDiv.appendChild(pauseCancelBtn);
+            actionsDiv.appendChild(abortBtn);
         } else if (dl.status === 'done') {
             actionsDiv.appendChild(dismissBtn);
         }
     }
-}
-
-function formatBytes(b) {
-    if (b < 1024) return b + ' B';
-    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
-    if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
-    return (b/1073741824).toFixed(2) + ' GB';
-}
-
-// Mint a download token from the server
-async function mintDownloadToken(path) {
-    const data = await apiCall('/api/v1/download_token', 'POST', { path });
-    return data; // { download_token, path, expires_in, total_size, bytes_confirmed }
-}
-
-// Core streaming download — starts from `resumeFrom` bytes
-async function streamDownload(path, dl) {
-    dl.status = 'downloading';
-    dl.abortController = new AbortController();
-    renderDownloadTray();
-
-    try {
-        const urlPath = `/api/v1/download${encodePath(path)}`;
-        const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(dl.dlToken)}`;
-
-        const headers = {};
-        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-        if (dl.bytesReceived > 0) {
-            headers['Range'] = `bytes=${dl.bytesReceived}-`;
-        }
-
-        const resp = await fetchWithFallback(dlUrl, {
-            headers,
-            signal: dl.abortController.signal
-        });
-
-        if (!resp.ok && resp.status !== 206) {
-            throw new Error(`Server returned ${resp.status}`);
-        }
-
-        // Update total size from Content-Range if we resumed
-        const cr = resp.headers.get('Content-Range');
-        if (cr) {
-            const m = cr.match(/bytes \d+-\d+\/(\d+)/);
-            if (m) dl.totalSize = parseInt(m[1]);
-        } else {
-            const cl = resp.headers.get('Content-Length');
-            if (cl) dl.totalSize = parseInt(cl);
-        }
-        renderDownloadTray();
-
-        const reader = resp.body.getReader();
-        let dlLastLoaded = dl.bytesReceived;
-        let dlLastTime   = Date.now();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            dl.chunks.push(value);
-            dl.bytesReceived += value.byteLength;
-            const now = Date.now();
-            const dt  = (now - dlLastTime) / 1000;
-            if (dt >= 0.3) {
-                dl.speed = (dl.bytesReceived - dlLastLoaded) / dt;
-                dl.eta   = (dl.speed > 0 && dl.totalSize)
-                    ? (dl.totalSize - dl.bytesReceived) / dl.speed
-                    : null;
-                dlLastLoaded = dl.bytesReceived;
-                dlLastTime   = now;
-            }
-            renderDownloadTray();
-        }
-
-        // Stitch all chunks and trigger browser save
-        const blob = new Blob(dl.chunks);
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = dl.filename;
-        a.click();
-        URL.revokeObjectURL(a.href);
-
-        dl.status = 'done';
-        const delay = getTrayDismissDelay();
-        if (delay > 0 && !dl._dismissScheduled) {
-            dl._dismissScheduled = true;
-            setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, delay);
-        }
-        renderDownloadTray();
-
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            dl.status = 'paused';
-        } else {
-            console.error('Download error:', err);
-            dl.status = 'error';
-            dl.error = err.message;
-        }
-        renderDownloadTray();
-    }
-}
-
-window.downloadFile = async function(path) {
-    if (activeDownloads.has(path)) {
-        // Already tracked — just re-render tray
-        renderDownloadTray();
-        return;
-    }
-    try {
-        const tokenData = await mintDownloadToken(path);
-        const dl = {
-            dlToken: tokenData.download_token,
-            totalSize: tokenData.total_size || null,
-            bytesReceived: 0,
-            chunks: [],
-            filename: path.split('/').pop(),
-            status: 'downloading',
-            abortController: null,
-            error: null,
-            speed: null,
-            eta: null,
-        };
-        activeDownloads.set(path, dl);
-        renderDownloadTray();
-        await streamDownload(path, dl);
-    } catch (err) {
-        showMessage('Download failed', err.message);
-    }
-}
-
-window.resumeDownload = async function(safePath) {
-    const path = decodeURIComponent(safePath);
-    const dl = activeDownloads.get(path);
-    if (!dl) return;
-    try {
-        // Re-mint a fresh token (old one may have expired)
-        const tokenData = await mintDownloadToken(path);
-        dl.dlToken = tokenData.download_token;
-        // server bytes_confirmed is the authoritative resume point;
-        // if our in-memory bytesReceived is less, trust the smaller value
-        // to avoid gaps. If more, keep ours (server may have restarted).
-        const serverConfirmed = tokenData.bytes_confirmed || 0;
-        if (serverConfirmed < dl.bytesReceived) {
-            // Trim chunks back to serverConfirmed
-            let kept = 0;
-            const trimmed = [];
-            for (const chunk of dl.chunks) {
-                if (kept >= serverConfirmed) break;
-                if (kept + chunk.byteLength <= serverConfirmed) {
-                    trimmed.push(chunk);
-                    kept += chunk.byteLength;
-                } else {
-                    trimmed.push(chunk.slice(0, serverConfirmed - kept));
-                    kept = serverConfirmed;
-                }
-            }
-            dl.chunks = trimmed;
-            dl.bytesReceived = kept;
-        }
-        dl.speed = null;
-        dl.eta   = null;
-        await streamDownload(path, dl);
-    } catch (err) {
-        showMessage('Resume failed', err.message);
-    }
-}
-
-window.cancelDownload = function(path) {
-    // path may be raw or encoded — normalise
-    try { path = decodeURIComponent(path); } catch(e) {}
-    const dl = activeDownloads.get(path);
-    if (dl && dl.abortController) dl.abortController.abort();
-    activeDownloads.delete(path);
-    renderDownloadTray();
 }
 
         // ======================================================================
@@ -1486,7 +1707,7 @@ function _loadHeic2any() {
     if (_heic2anyLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js';
+        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/heic2any.min.js';
         s.onload  = () => { _heic2anyLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load heic2any'));
         document.head.appendChild(s);
@@ -1499,7 +1720,7 @@ function _loadJSZip() {
     if (_jszipLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/jszip.min.js';
         s.onload  = () => { _jszipLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load JSZip'));
         document.head.appendChild(s);
@@ -1512,7 +1733,7 @@ function _loadUntar() {
     if (_untarLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/js-untar/2.0.0/untar.min.js';
+        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/untar.min.js';
         s.onload  = () => { _untarLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load js-untar'));
         document.head.appendChild(s);
@@ -1525,7 +1746,7 @@ function _loadMarked() {
     if (_markedLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js';
+        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/marked.min.js';
         s.onload  = () => { _markedLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load marked.js'));
         document.head.appendChild(s);
@@ -2077,84 +2298,6 @@ async function loadFolderSize(cell) {
         }
     } catch {
         if (cell.isConnected) { cell.textContent = '—'; cell.style.color = '#94a3b8'; }
-    }
-}
-
-// Stream-download a folder as ZIP using the existing download tray.
-// The server sends Content-Length so progress works just like a file download.
-window.downloadFolderZip = async function(path) {
-    const zipPath = '__zip__' + path;  // synthetic key so it doesn't collide with file paths
-    if (activeDownloads.has(zipPath)) { renderDownloadTray(); return; }
-    const folderName = path.split('/').filter(Boolean).pop() || 'download';
-    const filename   = folderName + '.zip';
-    try {
-        // We don't use mintDownloadToken for ZIP — the session token in the
-        // Authorization header is sufficient (Bearer sent by fetchWithFallback).
-        const dl = {
-            dlToken: null,       // not used — ZIP endpoint accepts session auth
-            totalSize: null,
-            bytesReceived: 0,
-            chunks: [],
-            filename,
-            status: 'downloading',
-            abortController: null,
-            error: null,
-            speed: null,
-            eta: null,
-        };
-        activeDownloads.set(zipPath, dl);
-        renderDownloadTray();
-
-        const zipUrl = `${API_BASE_URL}/api/v1/zip${encodePath(path)}`;
-        dl.abortController = new AbortController();
-        const resp = await fetchWithFallback(zipUrl, {
-            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-            signal: dl.abortController.signal,
-        });
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
-            throw new Error(err.error || `HTTP ${resp.status}`);
-        }
-        const cl = resp.headers.get('Content-Length');
-        if (cl) dl.totalSize = parseInt(cl);
-        renderDownloadTray();
-
-        const reader = resp.body.getReader();
-        let lastLoaded = 0, lastTime = Date.now();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            dl.chunks.push(value);
-            dl.bytesReceived += value.byteLength;
-            const now = Date.now(), dt = (now - lastTime) / 1000;
-            if (dt >= 0.3) {
-                dl.speed = (dl.bytesReceived - lastLoaded) / dt;
-                dl.eta   = (dl.speed > 0 && dl.totalSize)
-                    ? (dl.totalSize - dl.bytesReceived) / dl.speed : null;
-                lastLoaded = dl.bytesReceived; lastTime = now;
-            }
-            renderDownloadTray();
-        }
-        const blob = new Blob(dl.chunks, { type: 'application/zip' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob); a.download = filename; a.click();
-        URL.revokeObjectURL(a.href);
-        dl.status = 'done';
-        const delay = getTrayDismissDelay();
-        if (delay > 0 && !dl._dismissScheduled) {
-            dl._dismissScheduled = true;
-            setTimeout(() => { activeDownloads.delete(zipPath); renderDownloadTray(); }, delay);
-        }
-        renderDownloadTray();
-    } catch (err) {
-        const dl = activeDownloads.get(zipPath);
-        if (dl) {
-            if (err.name === 'AbortError') { dl.status = 'paused'; }
-            else { dl.status = 'error'; dl.error = err.message; }
-            renderDownloadTray();
-        } else {
-            showMessage('ZIP download failed', err.message);
-        }
     }
 }
 

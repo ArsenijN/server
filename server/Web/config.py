@@ -109,3 +109,6 @@ MAX_UPLOAD_BYTES = int(os.getenv('MAX_UPLOAD_BYTES', str(10 * 1024 * 1024 * 1024
 DEFAULT_QUOTA_BYTES = 50 * 1024 ** 3  # 50 GB
 QUOTA_MIN_BYTES     = 10 * 1024 ** 3  # floor: never drop below 10 GB
 QUOTA_MAX_BYTES     = 100 * 1024 ** 3 # ceiling: never exceed 100 GB
+
+
+CATBOX_MAX_UPLOAD_BYTES = int(os.getenv('CATBOX_MAX_UPLOAD_BYTES', str(2 * 1024 ** 3)))  # 2 GB default

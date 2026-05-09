@@ -103,6 +103,7 @@ times without knowing what it is doing
 manager)
 - [ ] Add variable chunk sizes on demand for different internet speeds and 
 optimizations -- uploads, downloads is an issue
+- [ ] Add the update notifier back
 
 - [ ] **Family/Group accounts**
   - [ ] Let two or more usernames share a common root directory with mutual

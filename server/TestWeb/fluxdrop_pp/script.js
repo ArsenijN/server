@@ -1171,9 +1171,20 @@ function _loadStreamSaver() {
     if (_streamSaverLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        // s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/StreamSaver.js'; // TODO: fix the issues with it's local deploy and undependancy
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/streamsaver/2.0.6/StreamSaver.min.js';
-        s.onload  = () => { _streamSaverLoaded = true; resolve(); };
+        // Load from local assets — no CDN dependency, no base-path breakage
+        s.src = _APP_BASE + '/assets/streamsaver/StreamSaver_.js';
+        s.onload = () => {
+            _streamSaverLoaded = true;
+            // Tell StreamSaver where mitm.html lives using an absolute URL.
+            // Without this it resolves relative to the script's own location,
+            // which breaks on any page that isn't at the app root.
+            if (typeof streamSaver !== 'undefined') {
+                streamSaver.mitm = window.location.origin
+                    + _APP_BASE
+                    + '/assets/streamsaver/mitm.html';
+            }
+            resolve();
+        };
         s.onerror = () => reject(new Error('StreamSaver unavailable'));
         document.head.appendChild(s);
     });
@@ -1459,49 +1470,181 @@ window.cancelDownload = function(path) {
 
 // ── ZIP folder download — now also streaming ──────────────────────────────────
 window.downloadFolderZip = async function(path) {
-    const zipKey  = '__zip__' + path;
+    const zipKey = '__zip__' + path;
     if (activeDownloads.has(zipKey)) { renderDownloadTray(); return; }
 
     const folderName = path.split('/').filter(Boolean).pop() || 'download';
     const filename   = folderName + '.zip';
     const zipUrl     = `${API_BASE_URL}/api/v1/zip${path.split('/').map(encodeURIComponent).join('/')}`;
+    const authHdr    = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
-    // Peek Content-Length with a HEAD request so the progress bar works
-    let totalSize = null;
-    try {
-        const hd = await fetchWithFallback(zipUrl, {
-            method: 'HEAD',
-            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-        });
-        const cl = hd.headers.get('Content-Length');
-        if (cl) totalSize = parseInt(cl);
-    } catch (_) {}
+    // Determine write mode now (before the dialog, if picker)
+    let mode = 'blob';
+    if (_CAN_PICK) {
+        mode = 'picker';
+    } else if (_streamSaverLoaded && typeof streamSaver !== 'undefined') {
+        mode = 'streamsaver';
+    }
 
     const dl = {
-        filename, totalSize, bytesReceived: 0,
-        status: 'downloading', speed: null, eta: null, error: null,
-        _writer: null, _abort: new AbortController(),
-        _resumeFrom: 0, _chunks: [],
-        _mode: _CAN_PICK ? 'picker' : (_streamSaverLoaded ? 'streamsaver' : 'blob'),
-        _dlUrl: zipUrl, _path: zipKey,
-        _isZip: true,
-        // ZIP auth via header, not token
-        _authHeader: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+        filename,
+        totalSize:     null,   // filled in once GET response headers arrive
+        bytesReceived: 0,
+        status:        'downloading',
+        speed:         null,
+        eta:           null,
+        error:         null,
+        _writer:       null,
+        _abort:        new AbortController(),
+        _resumeFrom:   0,
+        _chunks:       [],
+        _mode:         mode,
+        _dlUrl:        zipUrl,
+        _path:         zipKey,
+        _isZip:        true,
+        _authHeader:   authHdr,
     };
-
-    // Warn for large zips in blob mode
-    if (dl._mode === 'blob' && totalSize && totalSize > 512 * 1024 * 1024) {
-        const go = confirm(
-            `⚠ Your browser doesn't support streaming downloads to disk.\n\n` +
-            `This ZIP is ~${formatBytes(totalSize)} and will be held in RAM. ` +
-            `Use Chrome/Edge for large folders. Continue?`
-        );
-        if (!go) return;
-    }
 
     activeDownloads.set(zipKey, dl);
     renderDownloadTray();
-    await _runDownload(zipKey, dl);
+
+    // Open the save-file picker BEFORE the fetch so the user gesture is still
+    // in scope (browsers require showSaveFilePicker to be called synchronously
+    // within a user gesture; we're inside a click handler so this is fine).
+    if (dl._mode === 'picker') {
+        try {
+            const fh = await window.showSaveFilePicker({
+                suggestedName: filename,
+                types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
+            });
+            dl._writer = await fh.createWritable({ keepExistingData: false });
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                // User cancelled the save dialog — clean up silently
+                activeDownloads.delete(zipKey);
+                renderDownloadTray();
+                return;
+            }
+            // Any other error (e.g. SecurityError on some browsers) → fall back to blob
+            dl._mode   = 'blob';
+            dl._writer = null;
+            logging_warn('showSaveFilePicker failed for ZIP, falling back to blob:', err);
+        }
+    } else if (dl._mode === 'streamsaver') {
+        try {
+            const ws   = streamSaver.createWriteStream(filename);
+            dl._writer = ws.getWriter();
+        } catch (err) {
+            dl._mode   = 'blob';
+            dl._writer = null;
+        }
+    }
+
+    // Warn for blob mode on large folders (we don't know size yet, so warn at start)
+    if (dl._mode === 'blob') {
+        // We'll warn after we read Content-Length from the response if it's huge.
+        // Nothing to do here yet.
+    }
+
+    // ── Stream the ZIP ────────────────────────────────────────────────────
+    dl._abort = new AbortController();
+    renderDownloadTray();
+
+    try {
+        const resp = await fetchWithFallback(zipUrl, {
+            method:  'GET',
+            headers: authHdr,
+            signal:  dl._abort.signal,
+        });
+
+        if (!resp.ok) {
+            const errBody = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+            throw new Error(errBody.error || `HTTP ${resp.status}`);
+        }
+
+        // Read Content-Length NOW from the actual response — the server
+        // pre-walks the tree and sends this before streaming the first byte.
+        const cl = resp.headers.get('Content-Length');
+        if (cl) {
+            dl.totalSize = parseInt(cl, 10);
+
+            // Late blob-mode warning now that we know the size
+            if (dl._mode === 'blob' && dl.totalSize > 512 * 1024 * 1024) {
+                // Can't show confirm() here without pausing the stream, so
+                // show a non-blocking notice in the tray instead.
+                dl.error = `⚠ Large file (${formatBytes(dl.totalSize)}) buffered in RAM — consider Chrome/Edge`;
+                renderDownloadTray();
+                dl.error = null; // clear so it doesn't show as "error" state
+            }
+        }
+        renderDownloadTray();
+
+        const reader = resp.body.getReader();
+        let lastLoaded = 0;
+        let lastTime   = Date.now();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            if (dl._mode === 'blob') {
+                dl._chunks.push(value);
+            } else {
+                await dl._writer.write(value);
+            }
+
+            dl.bytesReceived  += value.byteLength;
+            dl._resumeFrom    += value.byteLength;
+
+            const now = Date.now(), dt = (now - lastTime) / 1000;
+            if (dt >= 0.4) {
+                dl.speed = (dl.bytesReceived - lastLoaded) / dt;
+                dl.eta   = (dl.speed > 0 && dl.totalSize)
+                    ? (dl.totalSize - dl.bytesReceived) / dl.speed
+                    : null;
+                lastLoaded = dl.bytesReceived;
+                lastTime   = now;
+            }
+            renderDownloadTray();
+        }
+
+        // Finalise
+        if (dl._mode === 'blob') {
+            const blob = new Blob(dl._chunks, { type: 'application/zip' });
+            dl._chunks = [];
+            const a    = document.createElement('a');
+            a.href     = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+        } else {
+            await dl._writer.close();
+            dl._writer = null;
+        }
+
+        dl.status = 'done';
+        dl.speed  = null;
+        dl.eta    = null;
+        const delay = getTrayDismissDelay();
+        if (delay > 0 && !dl._dismissScheduled) {
+            dl._dismissScheduled = true;
+            setTimeout(() => { activeDownloads.delete(zipKey); renderDownloadTray(); }, delay);
+        }
+        renderDownloadTray();
+
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            dl.status = 'paused';
+        } else {
+            dl.status = 'error';
+            dl.error  = err.message;
+            if (dl._writer) {
+                try { await dl._writer.abort?.() ?? dl._writer.close(); } catch (_) {}
+                dl._writer = null;
+            }
+        }
+        renderDownloadTray();
+    }
 };
 
 // ── Tiny MIME helper ──────────────────────────────────────────────────────────
@@ -5307,4 +5450,69 @@ document.addEventListener('DOMContentLoaded', () => {
     // We wait 2s after DOMContentLoaded so the check doesn't compete with the
     // initial API calls (list, foldersize, policy) for the limited connections.
     renderApp();
+    setTimeout(async () => {
+        // Only bother when a SW is actually controlling this page
+        if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+
+        // Files whose staleness we track.  Both must match for the page to be
+        // considered fresh — a stale script.js with a fresh index.html is
+        // still stale because the user's browser is running old code.
+        const TRACKED = [
+            _APP_BASE + '/index.html',
+            _APP_BASE + '/script.js',
+        ];
+
+        try {
+            // Ask the cache what ETags/Last-Modified values it has stored
+            const cache = await caches.open('fluxdrop-v4'); // must match CACHE_NAME in sw.js
+
+            const stale = await Promise.any(
+                TRACKED.map(async (url) => {
+                    // Fetch fresh copy from the server (cache:no-store skips SW + HTTP cache)
+                    const netResp = await fetch(url, {
+                        cache:  'no-store',
+                        signal: AbortSignal.timeout(8000),
+                    });
+                    if (!netResp.ok) return false; // server error → don't nag
+
+                    // What does the cache have?
+                    const cached = await cache.match(url);
+                    if (!cached) return true; // not cached at all → stale
+
+                    // Compare by ETag first, Last-Modified as fallback
+                    const netEtag  = netResp.headers.get('ETag');
+                    const cacheEtag = cached.headers.get('ETag');
+                    if (netEtag && cacheEtag) {
+                        if (netEtag !== cacheEtag) return true;  // content changed
+                        return false;
+                    }
+
+                    const netMod   = netResp.headers.get('Last-Modified');
+                    const cacheMod = cached.headers.get('Last-Modified');
+                    if (netMod && cacheMod) {
+                        if (netMod !== cacheMod) return true;
+                        return false;
+                    }
+
+                    // No cache headers at all (SimpleHTTPRequestHandler sometimes
+                    // omits them) — compare Content-Length as a weak proxy.
+                    // Two files of the same byte length can still differ, but this
+                    // catches the common case of a rebuilt script.js being a different
+                    // size.  Users can always hard-reload manually.
+                    const netLen   = netResp.headers.get('Content-Length');
+                    const cacheLen = cached.headers.get('Content-Length');
+                    if (netLen && cacheLen && netLen !== cacheLen) return true;
+
+                    return false; // looks the same
+                })
+            ).catch(() => false); // Promise.any rejects only if ALL reject → not stale
+
+            if (stale) {
+                _showUpdateBanner();
+            }
+        } catch {
+            // Non-fatal — if the check fails silently the user just won't see
+            // the banner.  They can always hard-reload (F5 / ⌘R) manually.
+        }
+    }, 2000);
 });

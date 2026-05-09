@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v4';   // bump when PRECACHE_URLS list changes
+const CACHE_NAME  = 'fluxdrop-v5';   // bump when PRECACHE_URLS list changes
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 
@@ -21,8 +21,12 @@ const PRECACHE_URLS = [
     '/fluxdrop_pp/tailwindcss.css',
     '/fluxdrop_pp/icon.svg',
     '/fluxdrop_pp/offline.html',
-    '/fluxdrop_pp/assets/Inter.css',
     '/fluxdrop_pp/assets/all.min.css',
+    '/fluxdrop_pp/assets/heic2any.min.js',
+    '/fluxdrop_pp/assets/Inter.css',
+    '/fluxdrop_pp/assets/jszip.min.js',
+    '/fluxdrop_pp/assets/marked.min.js',
+    '/fluxdrop_pp/assets/untar.min.js',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2',
@@ -30,6 +34,9 @@ const PRECACHE_URLS = [
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2',
+    '/fluxdrop_pp/assets/streamsaver/StreamSaver.js',
+    '/fluxdrop_pp/assets/streamsaver/mitm.html',
+    '/fluxdrop_pp/assets/streamsaver/sw.js',
 ];
 
 // ── Install ───────────────────────────────────────────────────────────────

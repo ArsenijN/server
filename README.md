@@ -1,8 +1,9 @@
-# server `v0.16.0.1`
+# server `v0.16.0.2`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release note: **Fix the StreamSaver not working (unsuccessfull, broken 
-download func)***
+download func, disabled the SS to get the download func back, forgive the 404 
+errors in the terminal - that's workaround)***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

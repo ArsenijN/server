@@ -121,6 +121,7 @@ optimizations -- uploads, downloads is an issue
 ### Server-side changes:
 
 #### Critical:
+- [ ] Fix StreamSaver not working - pending from V0.16.0.2
 - [ ] Fix archive streaming may fail at ~6 GB of streamed files (including few 
 20+ GB in the streamed archive folder)
 - [ ] Fix issue with quota being very greedy, allowing to over-use the 

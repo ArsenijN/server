@@ -3204,6 +3204,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # ── Pre-walk ─────────────────────────────────────────────────────────────
         files_info = []   # (abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date)
+        missing_files = []  # arcnames that were found in os.walk but unreadable at stat time
         for dirpath, _dirs, filenames in os.walk(base_fs):
             for fname in sorted(filenames):
                 if fname in ('.placeholder', '.create_marker'):
@@ -3219,6 +3220,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
                     dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
                 except OSError:
+                    missing_files.append(arcname)
                     continue
                 files_info.append((abs_path, arcname, arcname_bytes, fsz, dos_time, dos_date))
 
@@ -3254,6 +3256,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/zip')
             self.send_header('Content-Disposition', self._content_disposition(zip_filename))
             self.send_header('Content-Length', str(total_cl))
+            if missing_files:
+                import urllib.parse as _up
+                self.send_header('X-Zip-Missing-Files',
+                                 _up.quote(json.dumps(missing_files), safe=''))
             self.end_headers()
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             return
@@ -3314,7 +3320,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             bytes_written += len(chunk)
                             remaining -= len(chunk)
                 except OSError:
-                    logging.warning(f'ZIP64: file vanished mid-stream: {abs_path!r}')
+                    logging.warning(f'ZIP64: file vanished mid-stream: {abs_path!r} (arcname: {arcname!r})')
                 if bytes_written < file_size:
                     pad = bytes(file_size - bytes_written)
                     _write(pad)

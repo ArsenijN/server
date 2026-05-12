@@ -5464,7 +5464,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-756014f2'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-d9b038a7'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

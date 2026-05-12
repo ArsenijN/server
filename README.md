@@ -1,8 +1,7 @@
-# server `v0.16.0.7`
+# server `v0.16.0.8`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **StreamSaver fixes (finally!) Questioning updates to the 
-`sw.js` and `script.js`, needs checking if everything is works ok || PENDING 
+*Release note: **Everything is broken (again, worse than before) || PENDING 
 RELEASE MESSAGE || 
                  StreamSaver fixes, download fixes. Now updates of the caches 
 are handled via build script, so there's no way of out-of-sync between `sw.js` 

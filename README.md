@@ -1,4 +1,4 @@
-# server `v0.17.0`
+# server `v0.17.0.1`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release note: **Mainstream: StreamSaver and download fixes. 
@@ -8,27 +8,30 @@ way that cache version out-of-sync can be caused between `sw.js` and
 new window that will appear if the files from archive is missing from the 
 files that are on the server (possible errors in code on server-side so that 
 is bad but better than nothing, for now please do not use ZIP download feature 
-until it will be fully tested), fixed the caching versions problems that 
-caused code regressions and then progressions when was acknowledged and fixed, 
+until it will be fully tested); fixed the caching versions problems that 
+caused code regressions and then progressions when was acknowledged and fixed; 
 other small changes. Regressions: "acceptance" modal still shows when token is 
-purged - needs further fixes or recover from older files***
+purged, and error message appears under it - needs further fixes or recover 
+from older files; ZIP download modal that shows the missing from archive files 
+may not be implemented due to code regression, checks are pending. 
+Patch notes: changed the `README.md` release note, no server push is needed***
 
-Currently, the server is ready for public usage, (see: 
-[FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
+`server` is ready for public usage according to the data from `April 28, 
+2026`, (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
 
-The future code updates would cover important issues first, then ToDo entries, 
-then user feedback/issue tracker list
+The future code updates would cover important code logic/safety issues 
+first, then ToDo entries, then user feedback/issue tracker list on GitHub
 
 
-Accessible at: https://arseniusgen.uk.to
+Main service is accessible at: https://arseniusgen.uk.to
 
-FluxDrop accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
+FluxDrop is accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
 
-Wiki page: https://github.com/ArsenijN/server/wiki
+Wiki page for `server`: https://github.com/ArsenijN/server/wiki
 
-New Readme style will be applied or merged with current when FluxDrop will 
-reach full production-ready state ([current look](./README_newstyle.md)) and
-the version will be bumped to 1.0.0
+New `README.md` style will be applied or merged with current after when 
+FluxDrop will reach full production-ready state 
+([current look](./README_newstyle.md)) and the version will be bumped to 1.0.0
 
 ## FluxDrop relations to this server
 

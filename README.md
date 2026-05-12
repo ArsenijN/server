@@ -1,7 +1,7 @@
-# server `v0.16.0.4`
+# server `v0.16.0.5`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **StreamSaver fixes?***
+*Release note: **StreamSaver fixes? (added missing rewrites)***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

@@ -10,9 +10,57 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v5';   // bump when PRECACHE_URLS list changes
+const CACHE_NAME  = 'fluxdrop-v7';   // bumped: merged StreamSaver fetch handler
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
+
+// ── StreamSaver: in-flight download registry ──────────────────────────────
+// mitm.html posts a message here with the stream + port; the fetch handler
+// below intercepts the matching URL and pipes the stream as a response.
+// This replaces the separate streamsaver/sw.js — one SW, one scope.
+const _ssMap = new Map();
+
+// StreamSaver keepalive ping (mitm.html polls this to keep the SW alive)
+// and stream registration messages.
+self.addEventListener('message', event => {
+    // ── FluxDrop: hard-reload cache clear ────────────────────────────────
+    if (event.data && event.data.type === 'SKIP_AND_CLEAR') {
+        event.waitUntil(
+            caches.keys()
+                .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+                .then(() => {
+                    if (event.ports && event.ports[0]) event.ports[0].postMessage('cleared');
+                })
+        );
+        return;
+    }
+
+    // ── StreamSaver: keepalive ping ───────────────────────────────────────
+    if (event.data === 'ping') return;
+
+    // ── StreamSaver: stream registration ─────────────────────────────────
+    const data = event.data;
+    if (!data || !data.url) return;
+
+    const port     = event.ports[0];
+    const metadata = new Array(3); // [stream, data, port]
+    metadata[1] = data;
+    metadata[2] = port;
+
+    if (data.readableStream) {
+        metadata[0] = data.readableStream;
+    } else if (data.transferringReadable) {
+        port.onmessage = evt => {
+            port.onmessage = null;
+            metadata[0] = evt.data.readableStream;
+        };
+    } else {
+        metadata[0] = _ssCreateStream(port);
+    }
+
+    _ssMap.set(data.url, metadata);
+    port.postMessage({ download: data.url });
+});
 
 const PRECACHE_URLS = [
     '/fluxdrop_pp/',
@@ -60,25 +108,50 @@ self.addEventListener('activate', event => {
     );
 });
 
-// ── Message: SKIP_AND_CLEAR ───────────────────────────────────────────────
-// Sent by _fdHardReload() in script.js before triggering location.reload().
-// Deletes all caches so the reload fetches everything fresh from the server.
-self.addEventListener('message', event => {
-    if (event.data && event.data.type === 'SKIP_AND_CLEAR') {
-        event.waitUntil(
-            caches.keys()
-                .then(keys => Promise.all(keys.map(k => caches.delete(k))))
-                .then(() => {
-                    // Reply so _fdHardReload's Promise resolves promptly
-                    if (event.ports && event.ports[0]) event.ports[0].postMessage('cleared');
-                })
-        );
-    }
-});
+// ── StreamSaver: readable stream factory ─────────────────────────────────
+function _ssCreateStream(port) {
+    return new ReadableStream({
+        start(controller) {
+            port.onmessage = ({ data }) => {
+                if (data === 'end')    return controller.close();
+                if (data === 'abort') { controller.error('Aborted'); return; }
+                controller.enqueue(data);
+            };
+        },
+        cancel() { port.postMessage({ abort: true }); }
+    });
+}
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
+
+    // ── StreamSaver: intercept registered download URLs ───────────────────
+    // These are fake URLs mitm.html registered via postMessage; we serve the
+    // piped stream as the response so the browser saves it as a file.
+    if (_ssMap.has(event.request.url)) {
+        const [stream, data, port] = _ssMap.get(event.request.url);
+        _ssMap.delete(event.request.url);
+
+        const headers = new Headers({
+            'Content-Type':             'application/octet-stream; charset=utf-8',
+            'Content-Security-Policy':  "default-src 'none'",
+            'X-Content-Type-Options':   'nosniff',
+        });
+        const h = new Headers(data.headers || {});
+        if (h.has('Content-Length'))      headers.set('Content-Length',      h.get('Content-Length'));
+        if (h.has('Content-Disposition')) headers.set('Content-Disposition', h.get('Content-Disposition'));
+
+        event.respondWith(new Response(stream, { headers }));
+        port.postMessage({ debug: 'StreamSaver: download started' });
+        return;
+    }
+
+    // StreamSaver keepalive ping (Firefox path)
+    if (url.pathname.endsWith('/ping')) {
+        event.respondWith(new Response('pong'));
+        return;
+    }
 
     // Cross-origin (API port 64800, external fonts, etc.) — never intercept.
     if (url.origin !== self.location.origin) return;

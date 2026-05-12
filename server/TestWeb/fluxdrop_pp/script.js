@@ -563,11 +563,11 @@ async function checkAndShowPolicies(onAllAccepted) {
         const resp = await apiCall('/api/v1/policy/status', 'GET', null, true);
         status = resp;
     } catch (err) {
-        // Purged / expired token: apiCall already cleared the token and called
-        // renderApp('login') + showMessage.  Do NOT show the policy modal on
-        // top of that — just bail out silently.
+        // Purged / expired token: apiCall already cleared the token, showed
+        // "Session expired", and called renderApp('login').  Do NOT show the
+        // policy modal on top of that — bail out completely.
         if (err.message === 'SESSION_EXPIRED') return;
-        // If the endpoint doesn't exist yet (server not updated), skip gracefully
+        // Endpoint not yet deployed — skip gracefully.
         onAllAccepted();
         return;
     }
@@ -665,12 +665,10 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             overlay.remove();
             onAccepted();
         } catch (err) {
-            // SESSION_EXPIRED: apiCall already handled login redirect + message.
-            // Remove the modal so it doesn't sit invisible on top of the login view.
-            if (err.message === 'SESSION_EXPIRED') {
-                overlay.remove();
-                return;
-            }
+            // Token expired between status-check and accept — apiCall already
+            // handled the redirect.  Remove the modal so it's not invisible
+            // on top of the login view.
+            if (err.message === 'SESSION_EXPIRED') { overlay.remove(); return; }
             agreeBtn.disabled = false;
             agreeBtn.textContent = `I agree to the ${label}`;
             showMessage('Error', `Could not save your agreement: ${err.message}`);
@@ -1182,7 +1180,7 @@ function _loadStreamSaver() {
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
         // Load from local assets — no CDN dependency, no base-path breakage
-        s.src = _APP_BASE + '/assets/streamsaver/StreamSaver_.js';
+        s.src = _APP_BASE + '/assets/streamsaver/StreamSaver.js';
         s.onload = () => {
             _streamSaverLoaded = true;
             // Tell StreamSaver where mitm.html lives using an absolute URL.
@@ -1478,54 +1476,6 @@ window.cancelDownload = function(path) {
     renderDownloadTray();
 };
 
-// ── Missing-files notice after a ZIP download ─────────────────────────────────
-// Shows a modal listing files that were absent on disk during the ZIP walk.
-// Each entry has a "Go to folder" button that navigates to the parent directory.
-function _showZipMissingFilesModal(missingFiles, zipBasePath) {
-    const rows = missingFiles.map(relPath => {
-        // relPath is relative to the zipped folder, e.g. "Videos/OBS/foo.tar.gz"
-        const parts    = relPath.split('/');
-        const fileName = parts.pop();
-        // Build the absolute app path: zipBasePath is already absolute like "/linlap"
-        const parentAppPath = [zipBasePath.replace(/\/+$/, ''), ...parts].join('/') || '/';
-        const safeRel  = escapeHtml(relPath);
-        const safePAP  = escapeHtmlAttr(parentAppPath);
-        return `<li style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;
-                            border-bottom:1px solid #f1f5f9;flex-wrap:wrap">
-                    <span style="color:#dc2626;font-size:1rem;flex-shrink:0">⚠</span>
-                    <span style="flex:1;font-size:.85rem;color:#374151;word-break:break-all">${safeRel}</span>
-                    <button onclick="hideModal('zip-missing-modal');navigateTo('${safePAP}')"
-                            style="font-size:.75rem;padding:.25rem .6rem;border:1px solid #3b82f6;
-                                   border-radius:.375rem;background:#eff6ff;color:#1d4ed8;
-                                   cursor:pointer;white-space:nowrap;flex-shrink:0">
-                        Go to folder
-                    </button>
-                </li>`;
-    }).join('');
-
-    const count = missingFiles.length;
-    document.getElementById('message-modal-title').textContent =
-        `ZIP skipped ${count} missing file${count === 1 ? '' : 's'}`;
-    document.getElementById('message-modal-content').innerHTML = `
-        <p style="font-size:.85rem;color:#64748b;margin-bottom:.75rem">
-            These files were missing on disk when the archive was built and were
-            excluded from the download. They may have been moved or deleted.
-        </p>
-        <ul style="list-style:none;padding:0;margin:0;max-height:260px;overflow-y:auto;
-                   text-align:left">${rows}</ul>`;
-    showModal('zip-missing-modal');
-    // Reuse the generic message modal but give it a dedicated id so it can be
-    // closed by the "Go to folder" buttons above without closing other modals.
-    // Rename the element id temporarily so hideModal targets the right one.
-    const modal = document.getElementById('message-modal');
-    modal.id = 'zip-missing-modal';
-    // Restore id when the OK button closes it (the button calls hideModal('message-modal'))
-    modal.querySelector('button').onclick = () => {
-        modal.id = 'message-modal';
-        hideModal('message-modal');
-    };
-}
-
 // ── ZIP folder download — now also streaming ──────────────────────────────────
 window.downloadFolderZip = async function(path) {
     const zipKey = '__zip__' + path;
@@ -1620,10 +1570,6 @@ window.downloadFolderZip = async function(path) {
             throw new Error(errBody.error || `HTTP ${resp.status}`);
         }
 
-        // Collect any files the server already knew were missing at scan time.
-        const _missingHdr = resp.headers.get('X-Zip-Missing-Files');
-        const _missingFiles = _missingHdr ? JSON.parse(decodeURIComponent(_missingHdr)) : [];
-
         // Read Content-Length NOW from the actual response — the server
         // pre-walks the tree and sends this before streaming the first byte.
         const cl = resp.headers.get('Content-Length');
@@ -1693,12 +1639,6 @@ window.downloadFolderZip = async function(path) {
             setTimeout(() => { activeDownloads.delete(zipKey); renderDownloadTray(); }, delay);
         }
         renderDownloadTray();
-
-        // Show missing-files notice after the download completes so it doesn't
-        // block or obscure the in-progress tray.
-        if (_missingFiles.length > 0) {
-            _showZipMissingFilesModal(_missingFiles, path);
-        }
 
     } catch (err) {
         if (err.name === 'AbortError') {
@@ -5532,7 +5472,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v4'); // must match CACHE_NAME in sw.js
+            const cache = await caches.open('fluxdrop-v7'); // must match CACHE_NAME in sw.js
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

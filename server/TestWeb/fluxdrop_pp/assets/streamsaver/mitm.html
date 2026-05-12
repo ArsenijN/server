@@ -3,183 +3,115 @@
 <head><meta charset="utf-8"></head>
 <body>
 <!--
-	mitm.html is the lite "man in the middle"
+  mitm.html — StreamSaver "man in the middle"
 
-	This is only meant to signal the opener's messageChannel to
-	the service worker - when that is done this mitm can be closed
-    but it's better to keep it alive since this also stops the sw
-    from restarting
+  Signals the opener's MessageChannel port to the service worker so the SW
+  can intercept the fake download URL and pipe the stream as a file response.
 
-	The service worker is capable of intercepting all request and fork their
-	own "fake" response - wish we are going to craft
-	when the worker then receives a stream then the worker will tell the opener
-	to open up a link that will start the download
-
-	FluxDrop note: SW is registered at /fluxdrop_pp/ scope (not the
-	streamsaver subfolder) so intercepted download URLs are under the app
-	root and actually reachable.  The server MUST return:
-	    Service-Worker-Allowed: /fluxdrop_pp/
-	when serving this sw.js to permit the broader scope claim.
+  FluxDrop note: We do NOT register a second service worker here.
+  The FluxDrop SW (/fluxdrop_pp/sw.js) already covers the /fluxdrop_pp/
+  scope AND contains the StreamSaver message/fetch handlers merged in.
+  We simply look up that existing registration — no second SW, no scope
+  conflict, no Service-Worker-Allowed header needed.
 -->
 <script>
-// This will prevent the sw from restarting
+// Keep the SW alive by pinging it every 10 s (prevents browser from
+// suspending it mid-download when no transferable stream is used).
 let keepAlive = () => {
   keepAlive = () => {}
-  var ping = location.href.substr(0, location.href.lastIndexOf('/')) + '/ping'
   var interval = setInterval(() => {
-    if (sw) {
-      sw.postMessage('ping')
-    } else {
-      fetch(ping).then(res => res.text(!res.ok && clearInterval(interval)))
-    }
+    if (sw) sw.postMessage('ping')
   }, 10000)
 }
 
-// message event is the first thing we need to setup a listner for
-// don't want the opener to do a random timeout - instead they can listen for
-// the ready event
-// but since we need to wait for the Service Worker registration, we store the
-// message for later
+// Buffer messages that arrive before the SW is ready.
 let messages = []
 window.onmessage = evt => messages.push(evt)
 
-let sw = null
+let sw    = null
 let scope = ''
 
-// FluxDrop: the SW is registered at the app root so that the download
-// intercept URLs it generates (/fluxdrop_pp/<origin>/<filename>) are
-// actually within its scope and can be intercepted.
-// The server must send `Service-Worker-Allowed: /fluxdrop_pp/` on this sw.js.
-const SW_SCRIPT = '/fluxdrop_pp/assets/streamsaver/sw.js'
-const SW_SCOPE  = '/fluxdrop_pp/'
-
-function registerWorker() {
-  return navigator.serviceWorker.getRegistration(SW_SCOPE).then(swReg => {
-    return swReg || navigator.serviceWorker.register(SW_SCRIPT, { scope: SW_SCOPE })
+// Instead of registering a new SW, find the FluxDrop SW that the main page
+// already registered at /fluxdrop_pp/.  It handles StreamSaver messages too.
+function getWorker() {
+  const APP_SCOPE = '/fluxdrop_pp/'
+  return navigator.serviceWorker.getRegistration(APP_SCOPE).then(swReg => {
+    if (!swReg) {
+      // Main page hasn't registered yet — shouldn't happen normally because
+      // mitm.html is always loaded from inside the app, but handle it anyway.
+      return navigator.serviceWorker.register('/fluxdrop_pp/sw.js', { scope: APP_SCOPE })
+    }
+    return swReg
   }).then(swReg => {
-    const swRegTmp = swReg.installing || swReg.waiting
-
     scope = swReg.scope
 
-    return (sw = swReg.active) || new Promise(resolve => {
-      swRegTmp.addEventListener('statechange', fn = () => {
-        if (swRegTmp.state === 'activated') {
-          swRegTmp.removeEventListener('statechange', fn)
+    if (swReg.active) {
+      sw = swReg.active
+      return
+    }
+
+    // SW is installing/waiting — wait for it to activate.
+    const pending = swReg.installing || swReg.waiting
+    if (!pending) return
+    return new Promise(resolve => {
+      const fn = () => {
+        if (pending.state === 'activated') {
+          pending.removeEventListener('statechange', fn)
           sw = swReg.active
           resolve()
         }
-      })
+      }
+      pending.addEventListener('statechange', fn)
     })
   })
 }
 
-// Now that we have the Service Worker registered we can process messages
-function onMessage (event) {
+function onMessage(event) {
   let { data, ports, origin } = event
 
-  // It's important to have a messageChannel, don't want to interfere
-  // with other simultaneous downloads
-  if (!ports || !ports.length) {
-    throw new TypeError("[StreamSaver] You didn't send a messageChannel")
-  }
+  if (!ports || !ports.length)  throw new TypeError("[StreamSaver] No messageChannel sent")
+  if (typeof data !== 'object') throw new TypeError("[StreamSaver] Expected an object")
 
-  if (typeof data !== 'object') {
-    throw new TypeError("[StreamSaver] You didn't send a object")
-  }
-
-  // the default public service worker for StreamSaver is shared among others.
-  // so all download links needs to be prefixed to avoid any other conflict
-  data.origin = origin
-
-  // if we ever (in some feature versoin of streamsaver) would like to
-  // redirect back to the page of who initiated a http request
+  data.origin   = origin
   data.referrer = data.referrer || document.referrer || origin
-
-  // pass along version for possible backwards compatibility in sw.js
   data.streamSaverVersion = new URLSearchParams(location.search).get('version')
 
-  if (data.streamSaverVersion === '1.2.0') {
-    console.warn('[StreamSaver] please update streamsaver')
-  }
-
-  /** @since v2.0.0 */
-  if (!data.headers) {
-    console.warn("[StreamSaver] pass `data.headers` that you would like to pass along to the service worker\nit should be a 2D array or a key/val object that fetch's Headers api accepts")
-  } else {
-    // test if it's correct
-    // should thorw a typeError if not
-    new Headers(data.headers)
-  }
-
-  /** @since v2.0.0 */
-  if (typeof data.filename === 'string') {
-    console.warn("[StreamSaver] You shouldn't send `data.filename` anymore. It should be included in the Content-Disposition header option")
-    // Do what File constructor do with fileNames
-    data.filename = data.filename.replace(/\//g, ':')
-  }
-
-  /** @since v2.0.0 */
-  if (data.size) {
-    console.warn("[StreamSaver] You shouldn't send `data.size` anymore. It should be included in the content-length header option")
-  }
-
-  /** @since v2.0.0 */
-  if (data.readableStream) {
-    console.warn("[StreamSaver] You should send the readableStream in the messageChannel, not throught mitm")
-  }
-
-  /** @since v2.0.0 */
   if (!data.pathname) {
-    console.warn("[StreamSaver] Please send `data.pathname` (eg: /pictures/summer.jpg)")
-    data.pathname = Math.random().toString().slice(-6) + '/' + data.filename
+    data.pathname = Math.random().toString().slice(-6) + '/' + (data.filename || 'download')
   }
 
-  // remove all leading slashes
+  // Strip leading slashes; strip protocol from origin.
   data.pathname = data.pathname.replace(/^\/+/g, '')
+  const org = origin.replace(/(^\w+:|^)\/\//, '')
 
-  // remove protocol
-  let org = origin.replace(/(^\w+:|^)\/\//, '')
+  // Build the intercept URL under the app scope so the FluxDrop SW sees it.
+  data.url = new URL(scope + org + '/' + data.pathname).toString()
 
-  // set the absolute pathname to the download url.
-  data.url = new URL(`${scope + org}/${data.pathname}`).toString()
-
-  if (!data.url.startsWith(`${scope + org}/`)) {
-    throw new TypeError('[StreamSaver] bad `data.pathname`')
+  if (!data.url.startsWith(scope + org + '/')) {
+    throw new TypeError('[StreamSaver] bad data.pathname')
   }
-
-  // This sends the message data as well as transferring
-  // messageChannel.port2 to the service worker. The service worker can
-  // then use the transferred port to reply via postMessage(), which
-  // will in turn trigger the onmessage handler on messageChannel.port1.
 
   const transferable = data.readableStream
-    ? [ ports[0], data.readableStream ]
-    : [ ports[0] ]
+    ? [ports[0], data.readableStream]
+    : [ports[0]]
 
-  if (!(data.readableStream || data.transferringReadable)) {
-    keepAlive()
-  }
+  if (!(data.readableStream || data.transferringReadable)) keepAlive()
 
   return sw.postMessage(data, transferable)
 }
 
 if (window.opener) {
-  // The opener can't listen to onload event, so we need to help em out!
-  // (telling them that we are ready to accept postMessage's)
   window.opener.postMessage('StreamSaver::loadedPopup', '*')
 }
 
 if (navigator.serviceWorker) {
-  registerWorker().then(() => {
+  getWorker().then(() => {
     window.onmessage = onMessage
     messages.forEach(window.onmessage)
   })
 } else {
-  // FF can ping sw with fetch from a secure hidden iframe
-  // shouldn't really be possible?
   keepAlive()
 }
-
 </script>
 </body>
 </html>

@@ -5472,7 +5472,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v4'); // must match CACHE_NAME in sw.js
+            const cache = await caches.open('fluxdrop-v7'); // must match CACHE_NAME in sw.js
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

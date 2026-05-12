@@ -562,12 +562,8 @@ async function checkAndShowPolicies(onAllAccepted) {
     try {
         const resp = await apiCall('/api/v1/policy/status', 'GET', null, true);
         status = resp;
-    } catch (err) {
-        // Purged / expired token: apiCall already cleared the token, showed
-        // "Session expired", and called renderApp('login').  Do NOT show the
-        // policy modal on top of that — bail out completely.
-        if (err.message === 'SESSION_EXPIRED') return;
-        // Endpoint not yet deployed — skip gracefully.
+    } catch {
+        // If the endpoint doesn't exist yet (server not updated), skip gracefully
         onAllAccepted();
         return;
     }
@@ -665,10 +661,6 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             overlay.remove();
             onAccepted();
         } catch (err) {
-            // Token expired between status-check and accept — apiCall already
-            // handled the redirect.  Remove the modal so it's not invisible
-            // on top of the login view.
-            if (err.message === 'SESSION_EXPIRED') { overlay.remove(); return; }
             agreeBtn.disabled = false;
             agreeBtn.textContent = `I agree to the ${label}`;
             showMessage('Error', `Could not save your agreement: ${err.message}`);
@@ -5472,7 +5464,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v7'); // must match CACHE_NAME in sw.js
+            const cache = await caches.open('fluxdrop-v-756014f2'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

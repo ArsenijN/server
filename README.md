@@ -1,7 +1,15 @@
-# server `v0.16.0.6`
+# server `v0.16.0.7`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **StreamSaver fixes (finally!)***
+*Release note: **StreamSaver fixes (finally!) Questioning updates to the 
+`sw.js` and `script.js`, needs checking if everything is works ok || PENDING 
+RELEASE MESSAGE || 
+                 StreamSaver fixes, download fixes. Now updates of the caches 
+are handled via build script, so there's no way of out-of-sync between `sw.js` 
+and `script.js`. Fixed the streamed ZIP download (folder downloads), TOS and 
+PP acceptance modal showing when the roken is not valid (user was forced to 
+scroll to the bottom to skip it), fixed the caching versions problems, other 
+small changes***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

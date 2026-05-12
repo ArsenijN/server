@@ -1182,7 +1182,7 @@ function _loadStreamSaver() {
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
         // Load from local assets — no CDN dependency, no base-path breakage
-        s.src = _APP_BASE + '/assets/streamsaver/StreamSaver.js';
+        s.src = _APP_BASE + '/assets/streamsaver/StreamSaver_.js';
         s.onload = () => {
             _streamSaverLoaded = true;
             // Tell StreamSaver where mitm.html lives using an absolute URL.

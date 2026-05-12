@@ -1,3 +1,7 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>
 <!--
 	mitm.html is the lite "man in the middle"
 
@@ -10,6 +14,12 @@
 	own "fake" response - wish we are going to craft
 	when the worker then receives a stream then the worker will tell the opener
 	to open up a link that will start the download
+
+	FluxDrop note: SW is registered at /fluxdrop_pp/ scope (not the
+	streamsaver subfolder) so intercepted download URLs are under the app
+	root and actually reachable.  The server MUST return:
+	    Service-Worker-Allowed: /fluxdrop_pp/
+	when serving this sw.js to permit the broader scope claim.
 -->
 <script>
 // This will prevent the sw from restarting
@@ -36,9 +46,16 @@ window.onmessage = evt => messages.push(evt)
 let sw = null
 let scope = ''
 
+// FluxDrop: the SW is registered at the app root so that the download
+// intercept URLs it generates (/fluxdrop_pp/<origin>/<filename>) are
+// actually within its scope and can be intercepted.
+// The server must send `Service-Worker-Allowed: /fluxdrop_pp/` on this sw.js.
+const SW_SCRIPT = '/fluxdrop_pp/assets/streamsaver/sw.js'
+const SW_SCOPE  = '/fluxdrop_pp/'
+
 function registerWorker() {
-  return navigator.serviceWorker.getRegistration('./').then(swReg => {
-    return swReg || navigator.serviceWorker.register('sw.js', { scope: './' })
+  return navigator.serviceWorker.getRegistration(SW_SCOPE).then(swReg => {
+    return swReg || navigator.serviceWorker.register(SW_SCRIPT, { scope: SW_SCOPE })
   }).then(swReg => {
     const swRegTmp = swReg.installing || swReg.waiting
 
@@ -164,3 +181,5 @@ if (navigator.serviceWorker) {
 }
 
 </script>
+</body>
+</html>

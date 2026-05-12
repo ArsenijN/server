@@ -101,19 +101,26 @@
   }
 
   test(() => {
-    // Transferable stream was first enabled in chrome v73 behind a flag
-    const { readable } = new TransformStream()
-    const mc = new MessageChannel()
-    mc.port1.postMessage(readable, [readable])
-    mc.port1.close()
-    mc.port2.close()
-    supportsTransferable = true
-    // Freeze TransformStream object (can only work with native)
+    // Transferable stream detection: even though Chrome supports this API,
+    // transferring a ReadableStream *into a same-origin iframe* throws a
+    // DOMException ("The operation is insecure") because the iframe is treated
+    // as an opaque/sandboxed browsing context for stream transfer purposes.
+    // We force supportsTransferable = false so StreamSaver always uses the
+    // safe chunk-by-chunk MessageChannel path instead.
+    //
+    // Original code that caused the DOMException:
+    //   const { readable } = new TransformStream()
+    //   const mc = new MessageChannel()
+    //   mc.port1.postMessage(readable, [readable])  ← throws in iframe context
+    //   supportsTransferable = true
+    //
+    // Freeze TransformStream so the rest of StreamSaver can still reference it.
     Object.defineProperty(streamSaver, 'TransformStream', {
       configurable: false,
       writable: false,
       value: TransformStream
     })
+    // supportsTransferable intentionally left false
   })
 
   function loadTransporter () {

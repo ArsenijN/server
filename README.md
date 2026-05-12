@@ -1,7 +1,7 @@
-# server `v0.16.0.3`
+# server `v0.16.0.4`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Fix the ZIP streaming, window modal, some other things***
+*Release note: **StreamSaver fixes?***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

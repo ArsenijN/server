@@ -26,6 +26,13 @@ upload (anyone or only FluxDrop users)
 - [ ] Trash bin folder preview
 
 ### UX
+- [ ] `⚠ can't access property "port1", channel is null` replaced with 
+the `Cancelled` (catch if user cancel the download via browser)
+- [ ] Add catcher or something so Firefox will not fail with "Програма-браузер 
+несподівано завершила роботу."
+- [ ] StreamSaver and browser can get out-of-sync
+- [ ] Fix StreamSaver doesn't utilize full power of the download resuming 
+(browser keeps downloading again fully instead of attempt to resume)
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items -- made for status page, later for 
 - [ ] Add server ability to push the additional data before client will request 

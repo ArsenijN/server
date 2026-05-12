@@ -1,8 +1,8 @@
-# server `v0.16.0.8`
+# server `v0.16.0.9`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Everything is broken (again, worse than before) || PENDING 
-RELEASE MESSAGE || 
+*Release note: **Everything is broken (again, worse than before, no it's not - 
+cached version did it's bad work, all is ok) || PENDING RELEASE MESSAGE || 
                  StreamSaver fixes, download fixes. Now updates of the caches 
 are handled via build script, so there's no way of out-of-sync between `sw.js` 
 and `script.js`. Fixed the streamed ZIP download (folder downloads), TOS and 

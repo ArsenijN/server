@@ -26,6 +26,8 @@ upload (anyone or only FluxDrop users)
 - [ ] Trash bin folder preview
 
 ### UX
+- [ ] Not implemented (regression): `TOS and PP acceptance modal showing when 
+the token is not valid (user was forced to scroll to the bottom to skip it)`
 - [ ] `⚠ can't access property "port1", channel is null` replaced with 
 the `Cancelled` (catch if user cancel the download via browser)
 - [ ] Add catcher or something so Firefox will not fail with "Програма-браузер 

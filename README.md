@@ -1,14 +1,17 @@
-# server `v0.16.0.9`
+# server `v0.17.0`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Everything is broken (again, worse than before, no it's not - 
-cached version did it's bad work, all is ok) || PENDING RELEASE MESSAGE || 
-                 StreamSaver fixes, download fixes. Now updates of the caches 
-are handled via build script, so there's no way of out-of-sync between `sw.js` 
-and `script.js`. Fixed the streamed ZIP download (folder downloads), TOS and 
-PP acceptance modal showing when the roken is not valid (user was forced to 
-scroll to the bottom to skip it), fixed the caching versions problems, other 
-small changes***
+*Release note: **Mainstream: StreamSaver and download fixes. 
+Now updates of the caches are handled via `build.sh` script, so there is no 
+way that cache version out-of-sync can be caused between `sw.js` and 
+`script.js`. Fixed the streamed ZIP download (folder download as ZIP) with 
+new window that will appear if the files from archive is missing from the 
+files that are on the server (possible errors in code on server-side so that 
+is bad but better than nothing, for now please do not use ZIP download feature 
+until it will be fully tested), fixed the caching versions problems that 
+caused code regressions and then progressions when was acknowledged and fixed, 
+other small changes. Regressions: "acceptance" modal still shows when token is 
+purged - needs further fixes or recover from older files***
 
 Currently, the server is ready for public usage, (see: 
 [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

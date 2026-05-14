@@ -46,7 +46,8 @@
         max-width: 500px;
     }
 
-    #message-modal, #preview-modal { z-index: 9999; }
+    /* Must be above policy-acceptance overlay (z-index:10001) */
+    #message-modal, #preview-modal { z-index: 10500; }
 
     #preview-modal .preview-modal-content {
         background: #0f172a;

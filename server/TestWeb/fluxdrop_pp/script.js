@@ -562,8 +562,8 @@ async function checkAndShowPolicies(onAllAccepted) {
     try {
         const resp = await apiCall('/api/v1/policy/status', 'GET', null, true);
         status = resp;
-    } catch {
-        // If the endpoint doesn't exist yet (server not updated), skip gracefully
+    } catch (err) {
+        if (err.message === 'SESSION_EXPIRED') return;
         onAllAccepted();
         return;
     }
@@ -661,6 +661,10 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             overlay.remove();
             onAccepted();
         } catch (err) {
+            if (err.message === 'SESSION_EXPIRED') {
+                overlay.remove();
+                return;
+            }
             agreeBtn.disabled = false;
             agreeBtn.textContent = `I agree to the ${label}`;
             showMessage('Error', `Could not save your agreement: ${err.message}`);
@@ -5464,7 +5468,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-d9b038a7'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-e63c40fb'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

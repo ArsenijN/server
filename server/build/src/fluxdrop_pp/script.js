@@ -562,8 +562,8 @@ async function checkAndShowPolicies(onAllAccepted) {
     try {
         const resp = await apiCall('/api/v1/policy/status', 'GET', null, true);
         status = resp;
-    } catch {
-        // If the endpoint doesn't exist yet (server not updated), skip gracefully
+    } catch (err) {
+        if (err.message === 'SESSION_EXPIRED') return;
         onAllAccepted();
         return;
     }
@@ -661,6 +661,10 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             overlay.remove();
             onAccepted();
         } catch (err) {
+            if (err.message === 'SESSION_EXPIRED') {
+                overlay.remove();
+                return;
+            }
             agreeBtn.disabled = false;
             agreeBtn.textContent = `I agree to the ${label}`;
             showMessage('Error', `Could not save your agreement: ${err.message}`);

@@ -1,7 +1,8 @@
-# server `v0.17.0.1`
+# server `v0.17.0.2`
 Just backend code of my server, nothing else, anyone can use it
 
-*Release note: **Mainstream: StreamSaver and download fixes. 
+*Release notes:*
+***Mainstream: StreamSaver and download fixes. 
 Now updates of the caches are handled via `build.sh` script, so there is no 
 way that cache version out-of-sync can be caused between `sw.js` and 
 `script.js`. Fixed the streamed ZIP download (folder download as ZIP) with 
@@ -10,14 +11,18 @@ files that are on the server (possible errors in code on server-side so that
 is bad but better than nothing, for now please do not use ZIP download feature 
 until it will be fully tested); fixed the caching versions problems that 
 caused code regressions and then progressions when was acknowledged and fixed; 
-other small changes. Regressions: "acceptance" modal still shows when token is 
-purged, and error message appears under it - needs further fixes or recover 
-from older files; ZIP download modal that shows the missing from archive files 
-may not be implemented due to code regression, checks are pending. 
-Patch notes: changed the `README.md` release note, no server push is needed***
+other small changes. 
 
-`server` is ready for public usage according to the data from `April 28, 
-2026`, (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
+Regressions: "acceptance" modal still shows when token is purged, and error 
+message appears under it - needs further fixes or recover from older files; 
+ZIP download modal that shows the missing from archive files may not be 
+implemented due to code regression, checks are pending.***
+
+*Patch notes: **Show error message above the acceptance modal, close the 
+acceptance modal if token is invalid after attempt to push to server***
+
+`server` is ready for public usage according to the data from `April 28, 2026`. 
+(see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
 
 The future code updates would cover important code logic/safety issues 
 first, then ToDo entries, then user feedback/issue tracker list on GitHub

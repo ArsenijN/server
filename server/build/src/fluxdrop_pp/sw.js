@@ -194,9 +194,23 @@ self.addEventListener('fetch', event => {
     }
 
     // Static shell assets: cache-first with background revalidation.
+    // Exception: requests with cache:no-store (e.g. the version staleness check
+    // in script.js) must bypass the SW cache entirely and go straight to the
+    // network — otherwise the check always compares cached vs. cached and never
+    // detects that a new version has been deployed.
+    const cacheControl = event.request.headers.get('Cache-Control') || '';
+    const pragma       = event.request.headers.get('Pragma') || '';
+    const bypassCache  = cacheControl.includes('no-store') || cacheControl.includes('no-cache') || pragma === 'no-cache';
+
     const isShellAsset = PRECACHE_URLS.some(p =>
         path === p || path === p.replace(/\/+$/, '')
     );
+
+    if (isShellAsset && bypassCache) {
+        // Pass straight through to network; don't read from or write to cache.
+        // If the network is down this will surface as a fetch error in the caller.
+        return;
+    }
 
     if (isShellAsset) {
         event.respondWith(

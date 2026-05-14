@@ -46,7 +46,8 @@
         max-width: 500px;
     }
 
-    /* Must be above policy-acceptance overlay (z-index:10001) */
+    /* Must be above policy-acceptance overlay (z-index:10001) so errors/messages
+       triggered during acceptance (e.g. 401 token expiry) are always visible. */
     #message-modal, #preview-modal { z-index: 10500; }
 
     #preview-modal .preview-modal-content {

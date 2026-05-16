@@ -1,4 +1,4 @@
-# server `v0.17.1.3`
+# server `v0.17.1.4`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release notes:*
@@ -18,7 +18,10 @@ message appears under it - needs further fixes or recover from older files;
 ZIP download modal that shows the missing from archive files may not be 
 implemented due to code regression, checks are pending.***
 
-*Patch notes: **Fix the service worker to work properly, attempt #1***
+*Patch notes: **Fix the service worker to work properly, attempt #1, test #1 
+(successfull); fix the console errors because code wanted to load the home 
+page as media after clicking to the darken background to exit in the preview 
+modal***
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

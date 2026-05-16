@@ -2274,12 +2274,22 @@ async function _previewTrashFile(trashId, filename) {
 }
 
 window.closePreview = function() {
-    // Cancel any in-progress background fetch (text, markdown, HEIC, etc.)
-    if (_previewAbortCtrl) { _previewAbortCtrl.abort(); _previewAbortCtrl = null; }
+    // Cancel any in-progress background fetch (text, markdown, HEIC, etc.)\n    if (_previewAbortCtrl) { _previewAbortCtrl.abort(); _previewAbortCtrl = null; }
     const modal = document.getElementById('preview-modal');
     modal.classList.add('hidden');
     const body = document.getElementById('preview-body');
-    body.querySelectorAll('video,audio').forEach(el => { el.pause(); el.src = ''; });
+    // Properly tear down media elements before clearing innerHTML.
+    // Setting el.src = '' resolves to the current page URL, causing Firefox
+    // to attempt to load the HTML page as a media resource and log
+    // 'HTTP Content-Type of text/html is not supported' warnings.
+    // The correct teardown is: pause → remove <source> children →
+    // removeAttribute('src') → call load() to reset internal state.
+    body.querySelectorAll('video,audio').forEach(el => {
+        el.pause();
+        Array.from(el.querySelectorAll('source')).forEach(s => s.remove());
+        el.removeAttribute('src');
+        el.load();   // resets the media element's network state to NETWORK_EMPTY
+    });
     body.innerHTML = '';
     document.getElementById('preview-download-btn').style.display = 'none';
 };
@@ -5628,7 +5638,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-d393249a'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-8407cd7a'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

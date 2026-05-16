@@ -26,7 +26,10 @@ upload (anyone or only FluxDrop users)
 - [ ] Trash bin folder preview
 
 ### UX
-- [ ] (unchecked) "fetch if the script.js changed" (at around 5472 line) may 
+- [ ] Show "Loading the acceptances..." for the acceptance modal if loading 
+times are long, with some placeholder (like the current gradient-like for the 
+main file manager UI)
+- [x] (unchecked) "fetch if the script.js changed" (at around 5472 line) may 
 make cached fetch (the "Передано" shows "service worker"), so actually it 
 doesn't make a fetch for updated version (or at least not always, or it's 
 intended to be not always/after some time the cache version is on device?). 
@@ -35,7 +38,7 @@ root, and if version is different inside the script.js or sw.js - update..?
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
  or at least the N times
-- [ ] Not implemented (regression): `TOS and PP acceptance modal showing when 
+- [x] Not implemented (regression): `TOS and PP acceptance modal showing when 
 the token is not valid (user was forced to scroll to the bottom to skip it)`
 - [ ] `⚠ can't access property "port1", channel is null` replaced with 
 the `Cancelled` (catch if user cancel the download via browser)

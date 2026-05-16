@@ -313,6 +313,18 @@ class _FastThreadingHTTPServer(ThreadingHTTPServer):
 class AuthHandler(SimpleHTTPRequestHandler):
     server_version = "FluxDrop/4.0-Auth"
 
+    # Route all HTTP access/error log lines through the logging module instead
+    # of writing directly to sys.stderr (BaseHTTPRequestHandler's default).
+    # This eliminates duplicate log lines that appear when both the HTTP and
+    # HTTPS server threads share the same root logger handler — the base class
+    # wrote to stderr once per request, and logging.basicConfig wrote the same
+    # line again via its StreamHandler(sys.stderr).
+    def log_message(self, fmt, *args):
+        logging.info('%s - %s', self.address_string(), fmt % args)
+
+    def log_error(self, fmt, *args):
+        logging.warning('%s - %s', self.address_string(), fmt % args)
+
     # --- Route Patterns ---
     # Add mkdir to supported FluxDrop commands
     fluxdrop_api_pattern = re.compile(r'^/api/(v[1-3])/(list|download|upload|delete|rename|mkdir|versions)(/.*)?$')
@@ -1955,6 +1967,25 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._handle_notifications_list()
 
         # For any other GET request, assume it's a static file.
+        # Policy files (versions.json and *.md under /policies/) must never be
+        # cached — the SW and browser must always fetch the current version so
+        # that policy-version checks and document rendering are never stale.
+        parsed_static = urlparse(self.path)
+        static_path   = parsed_static.path.rstrip('/')
+        if static_path.endswith('policies/versions.json') or \
+                re.search(r'/policies/[^/]+/[^/]+/[^/]+\.md$', static_path):
+            def patched_end_headers_nocache():
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Accept-Ranges', 'bytes')
+                self._send_cors_headers()
+                super(AuthHandler, self).end_headers()
+            old_end_headers = self.end_headers
+            self.end_headers = patched_end_headers_nocache
+            try:
+                return super().do_GET()
+            finally:
+                self.end_headers = old_end_headers
+
         # Patch end_headers to include CORS and Accept-Ranges, then call base handler.
         def patched_end_headers():
             self.send_header('Accept-Ranges', 'bytes')
@@ -2275,14 +2306,30 @@ class AuthHandler(SimpleHTTPRequestHandler):
             f'accepted_pp={accepted_pp!r} vs current={current_pp!r} → needs_pp={needs_pp}'
         )
 
-        return self._send_response(200, json.dumps({
+        body = json.dumps({
             'current_tos':  current_tos,
             'current_pp':   current_pp,
             'accepted_tos': accepted_tos,
             'accepted_pp':  accepted_pp,
             'needs_tos':    needs_tos,
             'needs_pp':     needs_pp,
-        }), 'application/json')
+            # False when the bearer token was missing or invalid.  The client
+            # uses this to distinguish "genuinely needs to accept policy" from
+            # "session expired — redirect to login", without relying on
+            # needs_tos/needs_pp which are meaningless for unauthenticated requests.
+            'token_valid':  user_id is not None,
+        })
+        # Must not be cached — stale policy status silently bypasses version checks.
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(body.encode('utf-8'))))
+            self.send_header('Cache-Control', 'no-store')
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body.encode('utf-8'))
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _handle_policy_accept(self):
         """POST /api/v1/policy/accept

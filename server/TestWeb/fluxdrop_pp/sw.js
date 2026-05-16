@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v-8407cd7a';  // replaced by build.sh — do not edit manually
+const CACHE_NAME  = 'fluxdrop-v-35853da2';  // replaced by build.sh — do not edit manually
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 
@@ -193,13 +193,17 @@ self.addEventListener('fetch', event => {
     }
 
     // Static shell assets: cache-first with background revalidation.
-    // Exception: requests with cache:no-store (e.g. the version staleness check
-    // in script.js) must bypass the SW cache entirely and go straight to the
-    // network — otherwise the check always compares cached vs. cached and never
-    // detects that a new version has been deployed.
-    const cacheControl = event.request.headers.get('Cache-Control') || '';
-    const pragma       = event.request.headers.get('Pragma') || '';
-    const bypassCache  = cacheControl.includes('no-store') || cacheControl.includes('no-cache') || pragma === 'no-cache';
+    // Exception: requests whose cache mode is 'no-store' or 'no-cache' must
+    // bypass the SW cache entirely and go straight to the network.
+    //
+    // IMPORTANT: `cache: 'no-store'` in fetch() sets request.cache on the
+    // Request object — it does NOT add a Cache-Control header that the SW can
+    // read via event.request.headers.get('Cache-Control').  That header is
+    // only present when the *caller* explicitly sets it in the headers dict.
+    // Checking event.request.headers was therefore always false and every
+    // no-store fetch was silently served from the SW cache anyway.
+    const reqCacheMode = event.request.cache; // 'default'|'no-store'|'no-cache'|'reload'|'force-cache'|'only-if-cached'
+    const bypassCache  = reqCacheMode === 'no-store' || reqCacheMode === 'no-cache' || reqCacheMode === 'reload';
 
     const isShellAsset = PRECACHE_URLS.some(p =>
         path === p || path === p.replace(/\/+$/, '')
@@ -212,6 +216,13 @@ self.addEventListener('fetch', event => {
     }
 
     if (isShellAsset) {
+        // HEAD requests (e.g. the staleness probe in script.js) must not be
+        // stored in the cache — storing a bodyless HEAD response would replace
+        // the full GET response and break the next page load.  Let them fall
+        // through to the network-first path below so they always reach the
+        // server and never corrupt the cache.
+        if (event.request.method === 'HEAD') return;
+
         event.respondWith(
             caches.open(CACHE_NAME).then(async cache => {
                 const cached = await cache.match(event.request);

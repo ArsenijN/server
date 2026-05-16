@@ -572,6 +572,15 @@ async function checkAndShowPolicies(onAllAccepted) {
     }
 
     const queue = [];
+    // token_valid: false means the bearer token was missing or rejected by the
+    // server.  In this case needs_tos/needs_pp are meaningless (the server
+    // compared against null accepted versions), so we must not show the policy
+    // modal — instead treat it identically to a SESSION_EXPIRED error.
+    if (status.token_valid === false) {
+        renderApp('login');
+        showMessage('Session expired', 'Your session has expired. Please log in again.');
+        return;
+    }
     if (status.needs_tos) queue.push({ type: 'tos', version: status.current_tos });
     if (status.needs_pp)  queue.push({ type: 'pp',  version: status.current_pp  });
 
@@ -889,7 +898,17 @@ function renderFileBrowserView() {
         const match = window.location.pathname.match(
             new RegExp('^' + escapedBase + '\/files(\/.*)?$')
         );
-        if (match) currentPath = match[1] || '/';
+        if (match) {
+            // Browsers percent-encode spaces/special chars in pathname before
+            // JS sees it (e.g. "My Folder" becomes "My%20Folder").  Decode
+            // back to the raw path so encodePath() doesn't double-encode
+            // (%20 → %2520) when building API URLs → "Directory not found".
+            try {
+                currentPath = decodeURIComponent(match[1] || '/');
+            } catch (_) {
+                currentPath = match[1] || '/'; // malformed % sequence — use as-is
+            }
+        }
         _syncUrlToPath(currentPath);
     })();
     // Initial load
@@ -5654,8 +5673,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     if (!netResp.ok) return false; // server error → don't nag
 
-                    // What does the cache have?
-                    const cached = await cache.match(url);
+                    // What does the cache have for this URL?
+                    // ignoreMethod:true ensures we read the cached GET entry
+                    // even though the probe was a HEAD request.
+                    const cached = await cache.match(url, { ignoreMethod: true });
                     if (!cached) return true; // not cached at all → stale
 
                     // Compare by ETag first, Last-Modified as fallback

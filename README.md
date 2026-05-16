@@ -1,4 +1,4 @@
-# server `v0.17.1.1`
+# server `v0.17.1.2`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release notes:*
@@ -18,8 +18,7 @@ message appears under it - needs further fixes or recover from older files;
 ZIP download modal that shows the missing from archive files may not be 
 implemented due to code regression, checks are pending.***
 
-*Patch notes: **~~Fix the service worker to work properly, attempt #1~~Add the 
-support page template for my site***
+*Patch notes: **~~Fix the service worker to work properly, attempt #1~~ Changed the support page***
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

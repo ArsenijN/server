@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v-923e28f8';  // replaced by build.sh — do not edit manually
+const CACHE_NAME  = 'fluxdrop-v-d393249a';  // replaced by build.sh — do not edit manually
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 
@@ -26,9 +26,15 @@ const _ssMap = new Map();
 self.addEventListener('message', event => {
     // ── FluxDrop: hard-reload cache clear ────────────────────────────────
     if (event.data && event.data.type === 'SKIP_AND_CLEAR') {
+        // Only remove OLD caches (name ≠ CACHE_NAME).  Wiping the current
+        // cache causes the SW to re-run install/activate on the next load,
+        // which sends SW_UPDATED to an already-fresh page — the "new version"
+        // banner would reappear on a page that is already up to date.
         event.waitUntil(
             caches.keys()
-                .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+                .then(keys => Promise.all(
+                    keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+                ))
                 .then(() => {
                     if (event.ports && event.ports[0]) event.ports[0].postMessage('cleared');
                 })
@@ -100,12 +106,22 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
     event.waitUntil(
         caches.keys()
-            .then(keys => Promise.all(
-                keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-            ))
-            .then(() => self.clients.claim())
-            .then(() => self.clients.matchAll({ type: 'window' }))
-            .then(clients => clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' })))
+            .then(keys => {
+                const oldKeys = keys.filter(k => k !== CACHE_NAME);
+                // Only broadcast SW_UPDATED when we're genuinely replacing an
+                // older version (old cache folders exist).  On a first install,
+                // or after SKIP_AND_CLEAR wiped everything, there are no old
+                // caches — the page already has the current code and doesn't
+                // need a "new version available" banner.
+                const isUpgrade = oldKeys.length > 0;
+                return Promise.all(oldKeys.map(k => caches.delete(k)))
+                    .then(() => self.clients.claim())
+                    .then(() => {
+                        if (!isUpgrade) return;
+                        return self.clients.matchAll({ type: 'window' })
+                            .then(clients => clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' })));
+                    });
+            })
     );
 });
 
@@ -122,23 +138,6 @@ function _ssCreateStream(port) {
         cancel() { port.postMessage({ abort: true }); }
     });
 }
-
-
-// ── Message: SKIP_AND_CLEAR ───────────────────────────────────────────────
-// Sent by _fdHardReload() in script.js before triggering location.reload().
-// Deletes all caches so the reload fetches everything fresh from the server.
-self.addEventListener('message', event => {
-    if (event.data && event.data.type === 'SKIP_AND_CLEAR') {
-        event.waitUntil(
-            caches.keys()
-                .then(keys => Promise.all(keys.map(k => caches.delete(k))))
-                .then(() => {
-                    // Reply so _fdHardReload's Promise resolves promptly
-                    if (event.ports && event.ports[0]) event.ports[0].postMessage('cleared');
-                })
-        );
-    }
-});
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {

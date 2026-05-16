@@ -97,13 +97,13 @@ function _showUpdateBanner() {
         </button>`;
     document.body.appendChild(banner);
 }
-// Hard reload: clears ALL SW caches first so the next load fetches fresh
-// files from the server, then reloads.  Without this, clicking "Reload"
-// while a SW is active just serves the (stale) cached version again.
+// Hard reload: asks the SW to evict only OLD caches (not the current one),
+// then reloads the page.  Keeping the current cache means the SW won't
+// re-run install/activate on the reloaded page and won't fire SW_UPDATED
+// on a page that is already running the latest code.
 async function _fdHardReload() {
     try {
         if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-            // Ask the SW to wipe its caches via a message, then reload
             await new Promise((resolve) => {
                 const ch = new MessageChannel();
                 ch.port1.onmessage = resolve;
@@ -115,8 +115,9 @@ async function _fdHardReload() {
             });
         }
     } catch { /* non-fatal */ }
-    // location.reload() respects the SW; window.location.href with cache-bust doesn't
-    // But since we just cleared the cache above, reload() will go to network
+    // Set a flag so the staleness check on the next page load knows this is
+    // a deliberate update-reload and skips the banner immediately.
+    try { sessionStorage.setItem('fd_just_updated', '1'); } catch (_) {}
     location.reload();
 }
 
@@ -5606,6 +5607,16 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(async () => {
         // Only bother when a SW is actually controlling this page
         if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+
+        // If this page load was triggered by _fdHardReload (user clicked the
+        // update banner), the page is already running the latest code — skip
+        // the staleness check so the banner doesn't immediately reappear.
+        try {
+            if (sessionStorage.getItem('fd_just_updated') === '1') {
+                sessionStorage.removeItem('fd_just_updated');
+                return;
+            }
+        } catch (_) {}
 
         // Files whose staleness we track.  Both must match for the page to be
         // considered fresh — a stale script.js with a fresh index.html is

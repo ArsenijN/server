@@ -1,4 +1,12 @@
         // ======================================================================
+        // --- DEBUG ---
+        // ======================================================================
+// Current version of script.js is: fluxdrop-@@CACHE_VER@@
+// Or via var:
+const DEBUG_VER = 'fluxdrop-@@CACHE_VER@@'
+// (if previous doesn't work)
+
+        // ======================================================================
         // --- CONFIGURATION ---
         // ======================================================================
 // Prefer HTTPS, but fall back to HTTP if HTTPS is unreachable
@@ -5493,8 +5501,13 @@ function openInterruptedManager(onClose) {
 document.addEventListener('DOMContentLoaded', () => {
     // ── Service Worker registration ───────────────────────────────────────
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch(() => {
-            // Registration failure is non-fatal; app still works online
+        navigator.serviceWorker.register(
+            _APP_BASE + '/sw.js',
+            { scope: _APP_BASE + '/' }
+        ).catch(err => {
+            // Registration failure is non-fatal; app still works online.
+            // Log it though — a failed registration is worth knowing about.
+            console.warn('[FluxDrop] SW registration failed:', err);
         });
     }
 

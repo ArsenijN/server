@@ -1,4 +1,4 @@
-# server `v0.17.1.5`
+# server `v0.17.1.6`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release notes:*
@@ -20,7 +20,8 @@ implemented due to code regression, checks are pending.***
 
 *Patch notes: **Acceptance modal now checks if the token is expired, 
 progression from regression; fix the problems with service working caching the 
-HEAD requests for the version checks (untested)***
+HEAD requests for the version checks (untested), fix the service worker 
+declaration***
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

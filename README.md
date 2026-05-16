@@ -1,5 +1,7 @@
-# server `v0.17.2`
+# server `v0.17.2.1`
 Just backend code of my server, nothing else, anyone can use it
+
+---
 
 *Release notes:*
 ***Mainstream: QoL improvements and more robust update system.***
@@ -24,7 +26,11 @@ size; other small changes like `README.md` formatting.***
 download modal that shows the missing from archive files may not be 
 implemented due to code regression, checks are pending.***
 
-*Patch notes: **push the past patches (revisions) as full patch version***
+*Patch notes: **Removed the unnecessary ToDo list at the end of file;
+now the revisions will be pushed to the `dev` branch and then merged to the 
+`main` branch***
+
+---
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

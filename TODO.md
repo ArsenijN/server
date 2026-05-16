@@ -79,6 +79,8 @@ content)
 states - make it appear before new entry in `Uploads` or `Downloads` appears, 
 also, bring the label to the static part so it will not scroll
 - [ ] Add image placeholders between image fetch and display
+- [ ] Add ability to preload the JPEG previews and for other files (contribute 
+to the background media scan via FFmpeg)
 - [ ] Check why HEIF files are slow to decode (on client, it takes ~5 seconds 
 even on i5 10400)
 - [ ] Add folder downloads and size to the `share` snippet
@@ -181,87 +183,3 @@ https) -- needs CDN migration to regular HTTP/HTTPS ports or single port to fix
 
 ## Done items that are pending for removal:
 
-
-
-
-
-# FluxDrop — TODO (pending as new style but also and mainly as priority list)
-
-Items are grouped by area and sorted within each group by priority.
-Priorities: 🔴 critical (data loss / security / broken) · 🟡 high (noticeably broken UX) · 🟢 normal · ⚪ low / future
-
----
-
-## 🔧 Server / Backend
-
-### 🔴 Critical
-- [ ] **Quota enforcement is too loose** — a single upload can exceed the user's quota (e.g. a 200 GB file when quota is 50 GB). Pre-flight size check needed before accepting the upload session.
-- [ ] **ZIP archive streaming can corrupt or truncate** at ~6 GB when the folder contains files larger than ~20 GB — already partially patched; needs full regression test with a real 25+ GB folder.
-- [ ] **CatBox API has no file size limit** — enforce `MAX_UPLOAD_BYTES` (or a separate limit) on all CatBox upload paths.
-
-### 🟡 High
-- [ ] **Download speed limited by double TLS** — proxy hop (HTTPS server → CDN) encrypts every byte twice since both sides use TLS on loopback. Fix: bypass proxy for large file downloads by redirecting browser directly to CDN port, keeping proxy only for small API calls.
-- [ ] **`foldersize` endpoint has no cache** — walks HDD on every call. Apply same `_dir_cache` pattern already used in `status.py`.
-- [ ] **Chunk timeout causes full re-upload** — when a chunk times out, the client retries the whole file from the failed chunk rather than only the missing chunk. Fix: track which chunks are confirmed server-side and only request those.
-- [ ] **`"Allow only FluxDrop users to upload"` share setting does not enforce correctly** — anyone can still upload to a folder with this flag set.
-
-### 🟢 Normal
-- [ ] **Pre-push / server-sent hints** — push folder structure, quota, and pre-generated download tokens to the client before it asks (reduces round-trips on bad connections; especially useful for preview tokens).
-- [ ] **Download resume broken in file manager** — `resumeDownload()` re-navigates correctly now but the tray entry doesn't reflect progress for native browser downloads. Consider polling `bytes_confirmed` from the download token.
-- [ ] **Self-resume after network switch** — offline banner shows/hides correctly but interrupted downloads and uploads do not auto-retry when connectivity returns.
-- [ ] **Quota space analyzer** — tree-view showing which folders/files consume the most space (like WizTree/Filelight), accessible from the storage quota bar.
-- [ ] **Background file integrity hashes** — compute SHA-256 (via `nice`) for stored files in the background; surface corrupted-file warnings to the user; optionally store par2 parchives.
-- [ ] **Server-side filename sanitisation** — strip or replace characters illegal on Windows/macOS (`< > : " / \ | ? *`) at upload time.
-- [ ] **Explicit move and copy API endpoints** — current rename-path workaround is fragile for cross-directory operations.
-
-### ⚪ Low / Future
-- [ ] **Quad9 health-check false positives** — probe failures occasionally trigger "external outage" incorrectly. Add a secondary probe or increase failure threshold before alerting.
-- [ ] **HTTP 206 not working for trash bin preview** — Range requests fail for files in `.trash/`.
-- [ ] **Remove dead `/cdn/` route** (`server_cdn.py` line 5718) — appears to be an undocumented leftover with no active use case.
-- [ ] **HSTS redirect for file manager** — HTTP → HTTPS redirect inside the CDN file manager still not working as intended; depends on proxy migration being fully deployed.
-- [ ] **AV1 transcoding for "slow internet mode"** — re-encode uploaded videos server-side with FFmpeg (low priority; needs significant CPU or a background queue).
-- [ ] **FFmpeg thumbnail generation** — background job producing thumbnails for all file types FFmpeg can decode; thumbnails optionally count toward / excluded from quota.
-- [ ] **Replace server hardware** — current setup (i3 370m + old Toshiba HDD) is the hardware ceiling; plan for proper NAS with faster drives.
-
----
-
-## 🖥️ Frontend / UI
-
-### 🟡 High
-- [ ] **URL-encode bug in path persistence** — navigating to a folder named `New Folder` encodes it as `New%20Folder` in the URL, and on reload the app tries to fetch `New%2520Folder` (double-encode). Decode before building API paths.
-- [ ] **Expired token should skip TOS/PP modal** — currently shows the policy acceptance modal even when the session is already expired. Should silently purge token and redirect to landing page instead.
-- [ ] **Variable chunk size based on measured speed** — current fixed 25 MB chunks are too large on bad LTE (long stall before first progress). Auto-tune chunk size from the speed probe result.
-- [ ] **Background media continues playing after preview closes** — audio/video keeps playing when the preview modal is closed on a bad connection. Stop and unload the media element on close.
-- [ ] **Upload spinner between "prepare" and tray entry appearing** — no visual feedback during the init API call before the upload tray entry is created. Add a spinner to the Upload button during this gap.
-
-### 🟢 Normal
-- [ ] **AJAX-style file list updates** — avoid full visual re-render of the file list on every operation (rename, delete, upload complete). Patch the in-memory list and update only the affected DOM rows.
-- [ ] **File multi-select** — checkbox-style selection with standard keyboard shortcuts: `Shift+click` for range, `Ctrl+click` for individual, `Ctrl+A` for all.
-- [ ] **Double-click to open** — currently requires clicking the filename link; double-clicking the row border should open file/folder.
-- [ ] **Custom context menu** — right-click on file/folder shows a compact context menu (open, rename, move, delete, share, copy link) instead of relying on the action buttons.
-- [ ] **Loading indicator for stats/share panel** — bad internet causes multi-second waits with no feedback. Show a spinner or skeleton while fetching.
-- [ ] **Progress bar for blob fetches** — preview modal shows no progress while fetching large files for in-browser preview.
-- [ ] **Image loading placeholders** — show a grey skeleton or blurred low-res placeholder while full-resolution images are fetching.
-- [ ] **Chunk upload retry shows full re-upload** — progress bar resets to 0 on retry instead of showing only the failed chunk being re-sent. Fix progress accounting.
-- [ ] **Links manager: close on backdrop click** — clicking the dimmed background behind the share manager should close it.
-- [ ] **Links manager: sticky close button** — the `✕` button scrolls out of view on long share lists. Pin it to the top of the panel.
-- [ ] **Folder size and download in share snippet** — the public share page for directories does not show total size or offer a folder-level download button.
-- [ ] **Auto-detect upload type** — detect whether the dropped/selected item is a file or folder and switch the upload mode automatically.
-- [ ] **Dark theme** — add a theme toggle; verify browser extension compatibility.
-- [ ] **File info modal** — show modify time, size, MIME type, path. Later: hash values once background computation is done.
-- [ ] **Preview support for `.7z`, `.rar`, `.docx`, `.pptx`, `.odt`, `.ods`** — show at minimum a file-type icon and metadata; full content preview where feasible.
-- [ ] **HEIF decode slowness** — `<img>` decoding a HEIF file takes ~5s even on modern CPUs. Investigate whether server-side conversion to JPEG/AVIF on first preview request would help.
-- [ ] **Trash bin folder preview** — currently the trash bin only shows flat file list; show folder structure.
-- [ ] **Add progressbar / skeleton for "proper" loading states** — operations like rename, apply settings, etc. should show at least 1 second of visual feedback so fast operations feel confirmed rather than instant-and-silent.
-
-### ⚪ Low / Future
-- [ ] **CatBox browser UI** — landing page + usage stats page for the CatBox API endpoint.
-- [ ] **User avatars** — upload, auto-scale to 64×64, store as AVIF or JPEG; show in profile menu and (optionally) in the file manager header.
-- [ ] **Proper header and footer** — replace the minimal header with a proper nav bar; add a footer with version info and links.
-- [ ] **Batch TAR upload UI** — surface the `batch_tar_upload.py` functionality (stream many files as one TAR) in the file manager UI.
-- [ ] **i18n** — internationalisation framework; Ukrainian and English already have some groundwork in the policy system.
-- [ ] **Group / family accounts** — shared root directory with configurable per-member read/write/admin privileges and shared quota pool.
-- [ ] **No-JS shared file downloads** — users without JavaScript should be able to download a shared file via a plain `<a>` link (no fetch/token required).
-- [ ] **Mobile optimisation and PWA** — responsive layout for all screens; PWA installable via Chrome; optionally a native Android Material Design app.
-- [ ] **Connectivity debug console** — optional one-liner overlay in settings showing the current in-flight request (URL, status) for diagnosing bad-internet issues.
-- [ ] **Split snippets into separate HTML/JS/CSS files** — cosmetic/maintenance; low urgency.

@@ -1,4 +1,4 @@
-# server `v0.17.1.6`
+# server `v0.17.1.7`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release notes:*
@@ -13,15 +13,13 @@ until it will be fully tested); fixed the caching versions problems that
 caused code regressions and then progressions when was acknowledged and fixed; 
 other small changes. 
 
-Regressions: "acceptance" modal still shows when token is purged, and error 
-message appears under it - needs further fixes or recover from older files; 
-ZIP download modal that shows the missing from archive files may not be 
-implemented due to code regression, checks are pending.***
+Regressions: ZIP download modal that shows the missing from archive files may 
+not be implemented due to code regression, checks are pending.***
 
 *Patch notes: **Acceptance modal now checks if the token is expired, 
 progression from regression; fix the problems with service working caching the 
-HEAD requests for the version checks (untested), fix the service worker 
-declaration***
+HEAD requests for the version checks (tested), fixed the DDoS on the server 
+caused by loop in the `status` fetch***
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

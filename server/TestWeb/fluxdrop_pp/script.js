@@ -1,10 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-3298ba6e
-// Or via var:
-const DEBUG_VER = 'fluxdrop-v-3298ba6e'
-// (if previous doesn't work)
+// Current version of script.js is: fluxdrop-v-b1b63193
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -334,16 +331,27 @@ function renderAuthControls() {
     }
 }
 
+let _renderAppBusy = false;
 function renderApp(route = null) {
-    renderAuthControls();
-    if (!authToken) {
-        if (route === 'register') renderRegisterView();
-        else if (route === 'login') renderLoginView();
-        else renderLandingView();   // ← default: show landing page
-        return;
+    // Guard against re-entrant calls (e.g. a 401 inside checkAndShowPolicies
+    // calling renderApp('login') while a previous renderApp is still awaiting
+    // the policy/status fetch — without this the policy fetch loop runs again
+    // immediately, hammering the server with requests on every bad token.
+    if (_renderAppBusy) return;
+    _renderAppBusy = true;
+    try {
+        renderAuthControls();
+        if (!authToken) {
+            if (route === 'register') renderRegisterView();
+            else if (route === 'login') renderLoginView();
+            else renderLandingView();   // ← default: show landing page
+            return;
+        }
+        _requestNotificationPermission();
+        checkAndShowPolicies(() => renderFileBrowserView());
+    } finally {
+        _renderAppBusy = false;
     }
-    _requestNotificationPermission();
-    checkAndShowPolicies(() => renderFileBrowserView());
 }
 
 function renderLandingView() {
@@ -585,6 +593,13 @@ async function checkAndShowPolicies(onAllAccepted) {
     // compared against null accepted versions), so we must not show the policy
     // modal — instead treat it identically to a SESSION_EXPIRED error.
     if (status.token_valid === false) {
+        // Clear the stale/invalid token BEFORE calling renderApp — otherwise
+        // renderApp sees a truthy authToken, calls checkAndShowPolicies again,
+        // gets token_valid:false again, and loops indefinitely (DoS on server).
+        authToken = null;
+        currentUsername = null;
+        localStorage.removeItem('fluxdrop_token');
+        localStorage.removeItem('fluxdrop_username');
         renderApp('login');
         showMessage('Session expired', 'Your session has expired. Please log in again.');
         return;
@@ -1070,6 +1085,9 @@ async function loadDirectory(path) {
             `<tbody>${rows}</tbody></table>`;
         attachRowListeners();
     } catch (err) {
+        // SESSION_EXPIRED: apiCall already cleared the token and called
+        // renderApp('login') — don't overwrite the login view with an error.
+        if (err.message === 'SESSION_EXPIRED') return;
         fileList.innerHTML = `<p class="text-sm text-red-600" style="padding:1rem">Failed to load directory: ${escapeHtml(err.message)}</p>`;
     }
 }
@@ -5670,7 +5688,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-3298ba6e'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-b1b63193'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

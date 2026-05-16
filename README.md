@@ -1,4 +1,4 @@
-# server `v0.17.1`
+# server `v0.17.1.1`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release notes:*
@@ -18,10 +18,8 @@ message appears under it - needs further fixes or recover from older files;
 ZIP download modal that shows the missing from archive files may not be 
 implemented due to code regression, checks are pending.***
 
-*Patch notes: **Switched to HEAD requests for version changes of the frontend; 
-fixed the problem with service worker caching the fetch specifically for 
-version change, causing almost always false-negative "is stale"; add the 
-`AbortError`s for cancelled and paused download tasks; other things***
+*Patch notes: **~~Fix the service worker to work properly, attempt #1~~Add the 
+support page template for my site***
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

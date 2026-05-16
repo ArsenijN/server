@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v-e63c40fb';  // replaced by build.sh — do not edit manually
+const CACHE_NAME  = 'fluxdrop-v-923e28f8';  // replaced by build.sh — do not edit manually
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 
@@ -194,9 +194,23 @@ self.addEventListener('fetch', event => {
     }
 
     // Static shell assets: cache-first with background revalidation.
+    // Exception: requests with cache:no-store (e.g. the version staleness check
+    // in script.js) must bypass the SW cache entirely and go straight to the
+    // network — otherwise the check always compares cached vs. cached and never
+    // detects that a new version has been deployed.
+    const cacheControl = event.request.headers.get('Cache-Control') || '';
+    const pragma       = event.request.headers.get('Pragma') || '';
+    const bypassCache  = cacheControl.includes('no-store') || cacheControl.includes('no-cache') || pragma === 'no-cache';
+
     const isShellAsset = PRECACHE_URLS.some(p =>
         path === p || path === p.replace(/\/+$/, '')
     );
+
+    if (isShellAsset && bypassCache) {
+        // Pass straight through to network; don't read from or write to cache.
+        // If the network is down this will surface as a fetch error in the caller.
+        return;
+    }
 
     if (isShellAsset) {
         event.respondWith(

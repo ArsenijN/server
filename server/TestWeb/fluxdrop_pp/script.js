@@ -563,7 +563,9 @@ async function checkAndShowPolicies(onAllAccepted) {
         const resp = await apiCall('/api/v1/policy/status', 'GET', null, true);
         status = resp;
     } catch (err) {
+        // SESSION_EXPIRED: apiCall already handled the redirect + message, don't proceed.
         if (err.message === 'SESSION_EXPIRED') return;
+        // If the endpoint doesn't exist yet (server not updated), skip gracefully
         onAllAccepted();
         return;
     }
@@ -661,6 +663,9 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             overlay.remove();
             onAccepted();
         } catch (err) {
+            // SESSION_EXPIRED: apiCall already navigated to login and called
+            // showMessage — but the overlay would bury the error modal.
+            // Remove the overlay first so the message is visible.
             if (err.message === 'SESSION_EXPIRED') {
                 overlay.remove();
                 return;
@@ -1318,32 +1323,61 @@ async function _runDownload(path, dl) {
     if (authToken && !headers['Authorization']) headers['Authorization'] = `Bearer ${authToken}`;
     if (dl._resumeFrom > 0) headers['Range'] = `bytes=${dl._resumeFrom}-`;
 
+    // ── Transient-error retry ─────────────────────────────────────────────
+    // On network-level failures (TypeError: failed to fetch), retry up to
+    // MAX_RETRIES times with exponential backoff before surfacing an error.
+    // AbortError (user pause/cancel) is never retried.
+    const MAX_RETRIES   = 3;
+    const RETRY_BASE_MS = 2000;
+
     try {
-        const resp = await fetchWithFallback(dl._dlUrl, {
-            headers,
-            signal: dl._abort.signal,
-        });
 
-        if (!resp.ok && resp.status !== 206) {
-            throw new Error(`Server returned HTTP ${resp.status}`);
+    let resp;
+    for (let attempt = 0; ; attempt++) {
+        try {
+            resp = await fetchWithFallback(dl._dlUrl, {
+                headers,
+                signal: dl._abort.signal,
+            });
+            break; // success
+        } catch (fetchErr) {
+            if (fetchErr.name === 'AbortError') throw fetchErr; // re-throw; caught below
+            if (attempt >= MAX_RETRIES) throw fetchErr;
+            const wait = RETRY_BASE_MS * Math.pow(2, attempt);
+            dl.status = 'downloading';
+            dl.error  = `Network error — retrying in ${Math.round(wait / 1000)}s… (${attempt + 1}/${MAX_RETRIES})`;
+            renderDownloadTray();
+            // Honour abort during the wait
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(resolve, wait);
+                dl._abort.signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); });
+            });
+            dl.error = null;
+            renderDownloadTray();
         }
+    }
 
-        // Update total from Content-Range on resume
-        const cr = resp.headers.get('Content-Range');
-        if (cr) {
-            const m = cr.match(/bytes \d+-\d+\/(\d+)/);
-            if (m) dl.totalSize = parseInt(m[1]);
-        } else if (!dl.totalSize) {
-            const cl = resp.headers.get('Content-Length');
-            if (cl) dl.totalSize = parseInt(cl);
-        }
-        renderDownloadTray();
+    if (!resp.ok && resp.status !== 206) {
+        throw new Error(`Server returned HTTP ${resp.status}`);
+    }
 
-        // 4. Stream pipe
-        const reader = resp.body.getReader();
-        let lastLoaded = dl.bytesReceived;
-        let lastTime   = Date.now();
+    // Update total from Content-Range on resume
+    const cr = resp.headers.get('Content-Range');
+    if (cr) {
+        const m = cr.match(/bytes \d+-\d+\/(\d+)/);
+        if (m) dl.totalSize = parseInt(m[1]);
+    } else if (!dl.totalSize) {
+        const cl = resp.headers.get('Content-Length');
+        if (cl) dl.totalSize = parseInt(cl);
+    }
+    renderDownloadTray();
 
+    // 4. Stream pipe
+    const reader = resp.body.getReader();
+    let lastLoaded = dl.bytesReceived;
+    let lastTime   = Date.now();
+
+    try {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -1351,10 +1385,7 @@ async function _runDownload(path, dl) {
             // Write chunk to destination
             if (dl._mode === 'blob') {
                 dl._chunks.push(value);
-            } else if (dl._mode === 'picker') {
-                await dl._writer.write(value);
             } else {
-                // StreamSaver WritableStreamDefaultWriter
                 await dl._writer.write(value);
             }
 
@@ -1372,58 +1403,108 @@ async function _runDownload(path, dl) {
             }
             renderDownloadTray();
         }
-
-        // 5. Finalise
-        if (dl._mode === 'blob') {
-            // Last-resort: trigger browser save from memory
-            const blob = new Blob(dl._chunks);
-            dl._chunks = [];  // free ASAP
-            const a    = document.createElement('a');
-            a.href     = URL.createObjectURL(blob);
-            a.download = dl.filename;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
-        } else if (dl._mode === 'picker') {
-            await dl._writer.close();
-            dl._writer = null;
-        } else {
-            await dl._writer.close();
-            dl._writer = null;
-        }
-
-        dl.status = 'done';
-        dl.speed  = null;
-        dl.eta    = null;
-        const delay = getTrayDismissDelay();
-        if (delay > 0 && !dl._dismissScheduled) {
-            dl._dismissScheduled = true;
-            setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, delay);
-        }
-        renderDownloadTray();
-
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            dl.status = 'paused';
-        } else {
-            dl.status = 'error';
-            dl.error  = err.message;
-            // Close writer so the partial file is flushed/discarded cleanly
+    } catch (streamErr) {
+        // ── StreamSaver channel death detection ───────────────────────────
+        // When the browser drops/cancels the download from its download
+        // manager (e.g. Firefox pausing then aborting), StreamSaver's internal
+        // MessageChannel gets nulled.  The next writer.write() throws something
+        // like "can't access property 'port1', channel is null".
+        // This is NOT resumable via Range — the browser's download entry is
+        // gone.  Mark as 'cancelled' so Resume restarts from byte 0.
+        if (streamErr.name !== 'AbortError' &&
+            (streamErr.message?.includes('channel') ||
+             streamErr.message?.includes('port1')   ||
+             streamErr.message?.includes('port2'))) {
             if (dl._writer) {
-                try { await dl._writer.abort?.() ?? dl._writer.close(); } catch (_) {}
+                try { dl._writer.abort?.(); } catch (_) {}
                 dl._writer = null;
             }
+            dl.status      = 'cancelled';
+            dl._resumeFrom = 0;            // must restart — browser lost the download
+            dl.bytesReceived = 0;
+            dl.error = 'Browser dropped the download. Click Resume to start over.';
+            renderDownloadTray();
+            return;
         }
-        renderDownloadTray();
+        throw streamErr; // re-throw for the outer catch
     }
+
+    // 5. Finalise
+    if (dl._mode === 'blob') {
+        // Last-resort: trigger browser save from memory
+        const blob = new Blob(dl._chunks);
+        dl._chunks = [];  // free ASAP
+        const a    = document.createElement('a');
+        a.href     = URL.createObjectURL(blob);
+        a.download = dl.filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+    } else {
+        await dl._writer.close();
+        dl._writer = null;
+    }
+
+    dl.status = 'done';
+    dl.speed  = null;
+    dl.eta    = null;
+    const delay = getTrayDismissDelay();
+    if (delay > 0 && !dl._dismissScheduled) {
+        dl._dismissScheduled = true;
+        setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); }, delay);
+    }
+    renderDownloadTray();
+
+} catch (err) {
+    if (err.name === 'AbortError') {
+        // Distinguish user-initiated cancel (via Cancel button → abort()) from
+        // the browser pausing a download (also triggers AbortError).
+        // We use dl._userCancelled flag set by cancelDownload() to tell them apart.
+        dl.status = dl._userCancelled ? 'cancelled' : 'paused';
+        if (dl._userCancelled) {
+            dl.error = 'Download cancelled.';
+            dl._userCancelled = false;
+        }
+    } else {
+        dl.status = 'error';
+        dl.error  = err.message;
+        // Close writer so the partial file is flushed/discarded cleanly
+        if (dl._writer) {
+            try { await dl._writer.abort?.() ?? dl._writer.close(); } catch (_) {}
+            dl._writer = null;
+        }
+    }
+    renderDownloadTray();
+}
 }
 
 // ── Resume ────────────────────────────────────────────────────────────────────
-// Override the old resumeDownload — now just re-enters _runDownload from
-// where we left off (_resumeFrom is already set).
 window.resumeDownload = async function(safePath) {
     const path = decodeURIComponent(safePath);
     const dl   = activeDownloads.get(path);
     if (!dl) return;
+
+    // 'cancelled' means the browser dropped the download (StreamSaver channel
+    // death) — the write stream is gone and we must start completely over.
+    // _resumeFrom and bytesReceived were already reset to 0 at cancel time.
+    if (dl.status === 'cancelled') {
+        dl.error        = null;
+        dl.speed        = null;
+        dl.eta          = null;
+        dl._writer      = null;
+        dl._resumeFrom  = 0;
+        dl.bytesReceived = 0;
+        dl.totalSize    = null;
+        dl._chunks      = [];
+        // ZIP: re-enter downloadFolderZip so the writer is re-created properly
+        if (dl._isZip) {
+            activeDownloads.delete(path);
+            renderDownloadTray();
+            const folderPath = path.startsWith('__zip__') ? path.slice('__zip__'.length) : path;
+            window.downloadFolderZip(folderPath);
+            return;
+        }
+        // Non-ZIP: fall through — _runDownload will re-open the writer
+    }
 
     // Re-mint token so it's still valid after a long pause
     if (!dl._isZip) {
@@ -1440,20 +1521,24 @@ window.resumeDownload = async function(safePath) {
         }
     }
 
-    // Re-open picker/writer if closed on error
-    if (!dl._writer && dl._mode !== 'blob') {
-        // For picker mode the FileHandle is lost after close — need a new one.
-        // Simplest UX: let _runDownload open a new picker for the remainder.
-        dl._writer = null;
-        // We DON'T want keepExistingData here because the file was partially
-        // written but not seekable from JS.  The server will send only the
-        // missing bytes; we need a fresh file and the Range header starting at
-        // the confirmed server offset.
-        // Reset resume from server-confirmed byte so we don't have a gap.
+    dl.error  = null;
+    dl.speed  = null;
+    dl.eta    = null;
+
+    // ZIP resume (non-cancelled): re-enter the stream loop via _runDownload.
+    // _runDownload supports Range headers so it will continue from _resumeFrom.
+    // Re-open StreamSaver writer if it was closed.
+    if (dl._isZip && !dl._writer && dl._mode === 'streamsaver') {
+        try {
+            const ws   = streamSaver.createWriteStream(dl.filename);
+            dl._writer = ws.getWriter();
+        } catch (_) {
+            dl._mode   = 'blob';
+            dl._writer = null;
+        }
     }
 
-    dl.speed = null;
-    dl.eta   = null;
+    dl._writer = dl._isZip ? dl._writer : null; // let _runDownload re-open picker/SS for files
     await _runDownload(path, dl);
 };
 
@@ -1462,6 +1547,7 @@ window.cancelDownload = function(path) {
     try { path = decodeURIComponent(path); } catch (_) {}
     const dl = activeDownloads.get(path);
     if (dl) {
+        dl._userCancelled = true;   // distinguish from browser-initiated abort
         dl._abort?.abort();
         if (dl._writer) {
             dl._writer.abort?.().catch(() => {});
@@ -1555,38 +1641,65 @@ window.downloadFolderZip = async function(path) {
     renderDownloadTray();
 
     try {
-        const resp = await fetchWithFallback(zipUrl, {
-            method:  'GET',
-            headers: authHdr,
-            signal:  dl._abort.signal,
-        });
 
-        if (!resp.ok) {
-            const errBody = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
-            throw new Error(errBody.error || `HTTP ${resp.status}`);
+    // Build request headers — support Range for resuming (ZIP endpoint has 206 support)
+    const zipHeaders = { ...authHdr };
+    if (dl._resumeFrom > 0) zipHeaders['Range'] = `bytes=${dl._resumeFrom}-`;
+
+    // ── Transient-error retry (same policy as _runDownload) ───────────────
+    let resp;
+    for (let attempt = 0; ; attempt++) {
+        try {
+            resp = await fetchWithFallback(dl._dlUrl, {
+                method:  'GET',
+                headers: zipHeaders,
+                signal:  dl._abort.signal,
+            });
+            break;
+        } catch (fetchErr) {
+            if (fetchErr.name === 'AbortError') throw fetchErr;
+            if (attempt >= 3) throw fetchErr;
+            const wait = 2000 * Math.pow(2, attempt);
+            dl.error = `Network error — retrying in ${Math.round(wait / 1000)}s… (${attempt + 1}/3)`;
+            renderDownloadTray();
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(resolve, wait);
+                dl._abort.signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); });
+            });
+            dl.error = null;
+            renderDownloadTray();
         }
+    }
 
-        // Read Content-Length NOW from the actual response — the server
-        // pre-walks the tree and sends this before streaming the first byte.
+    if (!resp.ok && resp.status !== 206) {
+        const errBody = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+        throw new Error(errBody.error || `HTTP ${resp.status}`);
+    }
+
+    // Read Content-Length / Content-Range — server pre-walks and sends before first byte.
+    const crZip = resp.headers.get('Content-Range');
+    if (crZip) {
+        const m = crZip.match(/bytes \d+-\d+\/(\d+)/);
+        if (m) dl.totalSize = parseInt(m[1]);
+    } else {
         const cl = resp.headers.get('Content-Length');
         if (cl) {
             dl.totalSize = parseInt(cl, 10);
-
-            // Late blob-mode warning now that we know the size
+            // Late blob-mode warning
             if (dl._mode === 'blob' && dl.totalSize > 512 * 1024 * 1024) {
-                // Can't show confirm() here without pausing the stream, so
-                // show a non-blocking notice in the tray instead.
                 dl.error = `⚠ Large file (${formatBytes(dl.totalSize)}) buffered in RAM — consider Chrome/Edge`;
                 renderDownloadTray();
-                dl.error = null; // clear so it doesn't show as "error" state
+                dl.error = null;
             }
         }
-        renderDownloadTray();
+    }
+    renderDownloadTray();
 
-        const reader = resp.body.getReader();
-        let lastLoaded = 0;
-        let lastTime   = Date.now();
+    const reader = resp.body.getReader();
+    let lastLoaded = dl.bytesReceived;
+    let lastTime   = Date.now();
 
+    try {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -1611,44 +1724,72 @@ window.downloadFolderZip = async function(path) {
             }
             renderDownloadTray();
         }
-
-        // Finalise
-        if (dl._mode === 'blob') {
-            const blob = new Blob(dl._chunks, { type: 'application/zip' });
-            dl._chunks = [];
-            const a    = document.createElement('a');
-            a.href     = URL.createObjectURL(blob);
-            a.download = filename;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
-        } else {
-            await dl._writer.close();
-            dl._writer = null;
-        }
-
-        dl.status = 'done';
-        dl.speed  = null;
-        dl.eta    = null;
-        const delay = getTrayDismissDelay();
-        if (delay > 0 && !dl._dismissScheduled) {
-            dl._dismissScheduled = true;
-            setTimeout(() => { activeDownloads.delete(zipKey); renderDownloadTray(); }, delay);
-        }
-        renderDownloadTray();
-
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            dl.status = 'paused';
-        } else {
-            dl.status = 'error';
-            dl.error  = err.message;
+    } catch (streamErr) {
+        // ── StreamSaver channel death (same as _runDownload) ─────────────
+        // ZIP cannot resume via Range after the browser drops the download
+        // because the new writer starts a new file from byte 0.
+        // Reset everything so Resume does a clean restart.
+        if (streamErr.name !== 'AbortError' &&
+            (streamErr.message?.includes('channel') ||
+             streamErr.message?.includes('port1')   ||
+             streamErr.message?.includes('port2'))) {
             if (dl._writer) {
-                try { await dl._writer.abort?.() ?? dl._writer.close(); } catch (_) {}
+                try { dl._writer.abort?.(); } catch (_) {}
                 dl._writer = null;
             }
+            dl.status        = 'cancelled';
+            dl._resumeFrom   = 0;
+            dl.bytesReceived = 0;
+            dl.totalSize     = null;  // will re-read from Content-Length on restart
+            dl._chunks       = [];
+            dl.error = 'Browser dropped the download. Click Resume to start over.';
+            renderDownloadTray();
+            return;
         }
-        renderDownloadTray();
+        throw streamErr;
     }
+
+    // Finalise
+    if (dl._mode === 'blob') {
+        const blob = new Blob(dl._chunks, { type: 'application/zip' });
+        dl._chunks = [];
+        const a    = document.createElement('a');
+        a.href     = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+    } else {
+        await dl._writer.close();
+        dl._writer = null;
+    }
+
+    dl.status = 'done';
+    dl.speed  = null;
+    dl.eta    = null;
+    const delay = getTrayDismissDelay();
+    if (delay > 0 && !dl._dismissScheduled) {
+        dl._dismissScheduled = true;
+        setTimeout(() => { activeDownloads.delete(zipKey); renderDownloadTray(); }, delay);
+    }
+    renderDownloadTray();
+
+} catch (err) {
+    if (err.name === 'AbortError') {
+        dl.status = dl._userCancelled ? 'cancelled' : 'paused';
+        if (dl._userCancelled) {
+            dl.error = 'Download cancelled.';
+            dl._userCancelled = false;
+        }
+    } else {
+        dl.status = 'error';
+        dl.error  = err.message;
+        if (dl._writer) {
+            try { await dl._writer.abort?.() ?? dl._writer.close(); } catch (_) {}
+            dl._writer = null;
+        }
+    }
+    renderDownloadTray();
+}
 };
 
 // ── Tiny MIME helper ──────────────────────────────────────────────────────────
@@ -1792,7 +1933,7 @@ function renderDownloadTray() {
         }
 
         // Update dynamic fields
-        const statusIcon = { downloading:'⬇', paused:'⏸', error:'⚠', done:'✅' };
+        const statusIcon = { downloading:'⬇', paused:'⏸', error:'⚠', done:'✅', cancelled:'🚫' };
         row.querySelector('.dl-name').textContent = (statusIcon[dl.status] || '') + ' ' + name;
         row.querySelector('.dl-bytes').textContent = `${recv} / ${total}`;
         row.querySelector('.dl-bar').style.width = pct + '%';
@@ -1806,6 +1947,10 @@ function renderDownloadTray() {
             if (parts.length)     statusText = parts.join(' · ');
         } else if (dl.status === 'error') {
             statusText = '⚠ ' + (dl.error || 'failed');
+        } else if (dl.status === 'cancelled') {
+            statusText = dl.error || 'Cancelled';
+        } else if (dl.status === 'paused') {
+            statusText = 'Paused';
         }
         row.querySelector('.dl-status').textContent = statusText;
 
@@ -1817,6 +1962,10 @@ function renderDownloadTray() {
         } else if (dl.status === 'paused' || dl.status === 'error') {
             actionsDiv.appendChild(resumeBtn);
             actionsDiv.appendChild(abortBtn);
+        } else if (dl.status === 'cancelled') {
+            // Cancelled = browser dropped it; Resume will restart from scratch
+            actionsDiv.appendChild(resumeBtn);
+            actionsDiv.appendChild(dismissBtn);
         } else if (dl.status === 'done') {
             actionsDiv.appendChild(dismissBtn);
         }
@@ -5468,12 +5617,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-e63c40fb'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-923e28f8'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {
-                    // Fetch fresh copy from the server (cache:no-store skips SW + HTTP cache)
+                    // HEAD fetch with cache:no-store so the SW passes it through
+                    // to the network instead of serving from its own cache.
+                    // Without no-store the SW would return the cached copy and
+                    // the comparison would always show "up to date" even when a
+                    // new version has been deployed.
                     const netResp = await fetch(url, {
+                        method: 'HEAD',
                         cache:  'no-store',
                         signal: AbortSignal.timeout(8000),
                     });

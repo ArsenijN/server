@@ -1,24 +1,30 @@
-# server `v0.17.1.9`
+# server `v0.17.2`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release notes:*
-***Mainstream: StreamSaver and download fixes. 
-Now updates of the caches are handled via `build.sh` script, so there is no 
-way that cache version out-of-sync can be caused between `sw.js` and 
-`script.js`. Fixed the streamed ZIP download (folder download as ZIP) with 
-new window that will appear if the files from archive is missing from the 
-files that are on the server (possible errors in code on server-side so that 
-is bad but better than nothing, for now please do not use ZIP download feature 
-until it will be fully tested); fixed the caching versions problems that 
-caused code regressions and then progressions when was acknowledged and fixed; 
-other small changes.***
+***Mainstream: QoL improvements and more robust update system.***
 
-***Regressions: ZIP download modal that shows the missing from archive files 
-may not be implemented due to code regression, checks are pending.***
+***The "close modal by click outside" no longer makes console noise; acceptance 
+modal now not shows if token is expired (server sends an value + 401 catchers); 
+fixed problems that Service Worker cached the HEAD requests to the server, 
+causing "local loop" (Service Worker would never know that there's new version, 
+until the cache will drop); fixed an issue that Service Worker may silently be 
+not loaded; fixed an issue with loop of the "status" fetches, developed from 
+the recent code changes; CDN now suppresses the peer connection drops to 
+one-liners, including better formatting of the cause "why it dropped"; fixed an 
+issue that StreamSaver may not be loaded, causing folders to be download 
+entirely into the RAM without any restrictions - added the catcher so if 
+StreamSaver will not be loaded by any reason, FluxDrop will catch the archives 
+that are bigger than 512MB, if it's loaded - work normally; fixed an issue that 
+on browser cancel of download, FluxDrop continues to download in background 
+invisibly; added ability to download the shared folders and view the folder's 
+size; other small changes like `README.md` formatting.***
 
-*Patch notes: **Fixed background download continues even after cancel by 
-browser; added download as ZIP for shared links (share snippet); fixed the 
-service worker... again; added folder size for shared snippet***
+***Regressions: (from the past updates, will be moved to the ToDo soon) ZIP 
+download modal that shows the missing from archive files may not be 
+implemented due to code regression, checks are pending.***
+
+*Patch notes: **push the past patches (revisions) as full patch version***
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

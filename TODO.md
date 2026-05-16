@@ -8,6 +8,7 @@ user feedback or ideas for future development.
 ## Items that are pending for implementations:
 
 ### UI
+- [ ] i18n support (language changes)
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF or 
@@ -26,24 +27,22 @@ upload (anyone or only FluxDrop users)
 - [ ] Trash bin folder preview
 
 ### UX
+- [ ] Upload can fail on slow internet, causing unability to upload the files 
+to server
+- [ ] Add fix for the timed out chunks causing full file reupload from the part 
+where it's failed instead of pushing only the unloaded/wrong part of the file 
+(aka reduce very large internet overhead)
+- [ ] FluxDrop didn't stop the background download of ZIP if " 🚫 
+shareables.zip 0 B / ? Browser dropped the download. Click Resume to start 
+over."
+- [ ] Pre-load StreamSaver for ZIP downloads since otherwize FluxDrop didn't 
+try to stop downloading 60GB folder into the RAM
 - [ ] Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
 main file manager UI)
-- [x] (unchecked) "fetch if the script.js changed" (at around 5472 line) may 
-make cached fetch (the "Передано" shows "service worker"), so actually it 
-doesn't make a fetch for updated version (or at least not always, or it's 
-intended to be not always/after some time the cache version is on device?). 
-Think about changing the system so it will fetch, like, "version.json" in the 
-root, and if version is different inside the script.js or sw.js - update..?
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
  or at least the N times
-- [x] Not implemented (regression): `TOS and PP acceptance modal showing when 
-the token is not valid (user was forced to scroll to the bottom to skip it)`
-- [ ] `⚠ can't access property "port1", channel is null` replaced with 
-the `Cancelled` (catch if user cancel the download via browser)
-- [ ] Add catcher or something so Firefox will not fail with "Програма-браузер 
-несподівано завершила роботу."
 - [ ] StreamSaver and browser can get out-of-sync
 - [ ] Fix StreamSaver doesn't utilize full power of the download resuming 
 (browser keeps downloading again fully instead of attempt to resume)
@@ -91,21 +90,9 @@ them
 download or/and upload
 - [ ] Add handler for dropped connection mid upload/download with relable way 
 to tell it (via pings or continuous connections)
-- [ ] i18n support (language changes)
-- [ ] Fix URL-encode issues with the "path persist" (so then it tried to access 
-folder with name `New%20Folder` instead of `New Folder`)
-- [ ] Do not show the window to "agree with the TOS and PP" when user token is 
-expired - immediatelly "kick out" the user with purged token to the landing 
-page
 - [ ] Add close by click on the dimmed space into the links manager
 - [ ] Make "X" non-scrollable in links manager (so can be closed without need 
 to scroll to the top)
-- [ ] Add fix for the timed out chunks causing full file reupload from the part 
-where it's failed instead of pushing only the unloaded/wrong part of the file 
-(aka reduce very large internet overhead)
-- [ ] Fix the background media playing if internet is very bad and seems like 
-only when attempt to reach for file was made after the preview window is 
-closed (internet hang)
 - [ ] Add stats window loading wheel/bar since bad internet causes high wait 
 times without knowing what it is doing
 - [ ] Add progressbar for blob fetches
@@ -124,7 +111,6 @@ times without knowing what it is doing
 manager)
 - [ ] Add variable chunk sizes on demand for different internet speeds and 
 optimizations -- uploads, downloads is an issue
-- [ ] Add the update notifier back
 
 - [ ] **Family/Group accounts**
   - [ ] Let two or more usernames share a common root directory with mutual
@@ -142,45 +128,40 @@ optimizations -- uploads, downloads is an issue
 ### Server-side changes:
 
 #### Critical:
-- [ ] Fix StreamSaver not working - pending from V0.16.0.2
+- [ ] Fix problems with the Quad9 pings "failing" and firing the external 
+outage
 - [ ] Fix archive streaming may fail at ~6 GB of streamed files (including few 
-20+ GB in the streamed archive folder)
-- [ ] Fix issue with quota being very greedy, allowing to over-use the 
-available space - probably, even if the quota is 50 GB, user, in theory, still 
-would be able to upload one single 200 GB file
+20+ GB in the streamed archive folder) -- should be already fixed by ZIP64, 
+needs checks
 - [ ] Ensure that CatBox API have file size limits
-- [ ] Zip download are handled as in-RAM operation, causing memory exhaust on 
-client's device
 
 
 #### Medium:
-- [ ] Fix double TLS for proxy aka fix the file download speeds
+
 
 
 #### Low:
-- [ ] Fix problems with the Quad9 pings "failing" and firing the external 
-outage
 - [ ] Fix 206 not working in trash bin preview
-- [ ] Delete "CDN" path as it serves no purpose and doesn't work (line 5718 in 
-`server_cdn.py`). Seems like it was made to make "shared" folder for any user 
-of FluxDrop, but true usage is unknown since it's seems like undocumented and 
-was introduced in one of the edit sessions without need to be made
-- [x] Migration to other host platform for HTTP and HTTPS efficiency and 
-optimizations (Python; go to gunicorn or something else) - WIP
-- [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper 
-storage media)
-- [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
-- [ ] Discover ways to build own page via modules (zero-code; not necessary 
-since I can just remember CSS and HTML, and do that by hands)
-- [ ] Make special player with "video preview support", aka "slow internet 
-mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
-bandwidth and resolution)
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
 any type of file that's supported, thumbs can be included into the quota, or 
 excluded from quota)
 - [ ] Add partial content support for CatBox API and CDN itself for it's 
 static hoster
+- [ ] Make special player with "video preview support", aka "slow internet 
+mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
+bandwidth and resolution)
+- [ ] Delete "CDN" path as it serves no purpose and doesn't work (line 5718 in 
+`server_cdn.py`). Seems like it was made to make "shared" folder for any user 
+of FluxDrop, but true usage is unknown since it's seems like undocumented and 
+was introduced in one of the edit sessions without need to be made
+- [ ] Migration to other host platform for HTTP and HTTPS efficiency and 
+optimizations (Python; go to gunicorn or something else) - WIP
+- [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper 
+storage media)
+- [ ] (not necessary) Divide snippets to dedicated HTML, JS and CSS
+- [ ] Discover ways to build own page via modules (zero-code; not necessary 
+since I can just remember CSS and HTML, and do that by hands)
 
 ---
 
@@ -190,12 +171,44 @@ static hoster
 means http to https on cdn (file manager) since login works ok (forwards to 
 https) -- needs CDN migration to regular HTTP/HTTPS ports or single port to fix
  -- already WIP, implemented, not migrated due to some specific problems -- 
- doesn't work right now as intended to
+ doesn't work right now as intended to -- seems like it will work, needs 
+ testing to be sure
 
 ---
 
 ## Done items that are pending for removal:
+- [x] Fix URL-encode issues with the "path persist" (so then it tried to access 
+folder with name `New%20Folder` instead of `New Folder`)
+- [x] (unchecked) "fetch if the script.js changed" (at around 5472 line) may 
+make cached fetch (the "Передано" shows "service worker"), so actually it 
+doesn't make a fetch for updated version (or at least not always, or it's 
+intended to be not always/after some time the cache version is on device?). 
+Think about changing the system so it will fetch, like, "version.json" in the 
+root, and if version is different inside the script.js or sw.js - update..?
+- [x] Not implemented (regression): `TOS and PP acceptance modal showing when 
+the token is not valid (user was forced to scroll to the bottom to skip it)`
+- [x] `⚠ can't access property "port1", channel is null` replaced with 
+the `Cancelled` (catch if user cancel the download via browser)
+- [x] Add catcher or something so Firefox will not fail with "Програма-браузер 
+несподівано завершила роботу." - can be skipped since can't be resolved 
+without spoofing
+- [x] Do not show the window to "agree with the TOS and PP" when user token is 
+expired - immediatelly "kick out" the user with purged token to the landing 
+page
+- [x] Fix the background media playing if internet is very bad and seems like 
+only when attempt to reach for file was made after the preview window is 
+closed (internet hang)
+- [x] Add the update notifier back
 
+- [x] Fix StreamSaver not working - pending from V0.16.0.2
+- [x] Fix issue with quota being very greedy, allowing to over-use the 
+available space - probably, even if the quota is 50 GB, user, in theory, still 
+would be able to upload one single 200 GB file
+- [x] Zip download are handled as in-RAM operation, causing memory exhaust on 
+client's device
+
+- [x] Fix double TLS for proxy aka fix the file download speeds -- they're ok, 
+idk, fixed but not fully, not a problem of double TLS right now
 
 
 

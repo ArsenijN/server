@@ -1,4 +1,4 @@
-# server `v0.17.1.7`
+# server `v0.17.1.8`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release notes:*
@@ -16,10 +16,10 @@ other small changes.
 Regressions: ZIP download modal that shows the missing from archive files may 
 not be implemented due to code regression, checks are pending.***
 
-*Patch notes: **Acceptance modal now checks if the token is expired, 
-progression from regression; fix the problems with service working caching the 
-HEAD requests for the version checks (tested), fixed the DDoS on the server 
-caused by loop in the `status` fetch***
+*Patch notes: **~~Suppressed the peer connection drops for CDN, fixed StreamSaver 
+not being pre-loaded so the folder downloads as ZIP lands into the RAM, added 
+limiter for safe-in-RAM download (if StreamSaver will fail by any reason) by 
+512 MB~~ Marked out the ToDo entries, added some new ones***
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))

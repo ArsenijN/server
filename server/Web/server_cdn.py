@@ -2771,14 +2771,17 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
                 self.send_header("Content-Length", str(length))
                 self.end_headers()
-                with open(target_fs, "rb") as f:
-                    f.seek(start)
-                    remaining = length
-                    while remaining > 0:
-                        chunk = f.read(min(65536, remaining))
-                        if not chunk: break
-                        self.wfile.write(chunk)
-                        remaining -= len(chunk)
+                try:
+                    with open(target_fs, "rb") as f:
+                        f.seek(start)
+                        remaining = length
+                        while remaining > 0:
+                            chunk = f.read(min(65536, remaining))
+                            if not chunk: break
+                            self.wfile.write(chunk)
+                            remaining -= len(chunk)
+                except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError) as _disc:
+                    logging.debug('Share download: client disconnected (%s)', _disc)
             else:
                 self.send_response(200)
                 self._send_cors_headers()
@@ -2788,17 +2791,41 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Content-Length", str(file_size))
                 self.end_headers()
-                with open(target_fs, "rb") as f:
-                    while True:
-                        chunk = f.read(65536)
-                        if not chunk: break
-                        self.wfile.write(chunk)
+                try:
+                    with open(target_fs, "rb") as f:
+                        while True:
+                            chunk = f.read(65536)
+                            if not chunk: break
+                            self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError) as _disc:
+                    logging.debug('Share download: client disconnected (%s)', _disc)
             return
 
         # --- Directory listing page ---
         if os.path.isdir(target_fs):
             if share["track_stats"]:
                 _log_share_access(token, visitor_user_id, action="view")
+
+            qs = parse_qs(parsed_url.query)
+
+            # ?foldersize=1 — return JSON total size of the shared (sub-)folder
+            if qs.get('foldersize', ['0'])[0] == '1':
+                total = 0
+                try:
+                    for dirpath, _dirs, files in os.walk(target_fs):
+                        for fn in files:
+                            try: total += os.path.getsize(os.path.join(dirpath, fn))
+                            except OSError: pass
+                except Exception: pass
+                return self._send_response(200, json.dumps({'size': total}))
+
+            # ?zip=1 — stream the shared folder as a ZIP archive
+            if qs.get('zip', ['0'])[0] == '1':
+                # Re-use the authenticated ZIP handler but temporarily satisfy its
+                # auth check by delegating directly to _handle_zip_fs which takes
+                # an already-resolved filesystem path.
+                return self._handle_zip_share(target_fs, os.path.basename(target_fs.rstrip('/')) or 'download')
+
             return self._send_response(200, self._render_share_page(share, token, target_fs, base_fs, sub_path or ""), "text/html")
 
         return self._send_response(404, "<h1>404 — Not Found</h1>", "text/html")
@@ -2838,13 +2865,20 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 mtime = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
                 pad = indent * 20
                 if os.path.isdir(entry_fs):
+                    zip_url  = entry_url + "?zip=1"
+                    size_url = entry_url + "?foldersize=1"
                     rows += f"""<tr class="entry-row">
                         <td style="padding:8px 12px 8px {12+pad}px">
                             <a href="{entry_url}" style="color:#3b82f6;text-decoration:none;font-weight:500">📁 {name}</a>
                         </td>
-                        <td style="padding:8px 12px;color:#94a3b8">—</td>
+                        <td style="padding:8px 12px;color:#94a3b8" id="fsz-{rel_from_base.replace('/','_')}">
+                            <span style="font-size:11px;color:#cbd5e1;cursor:pointer" onclick="loadShareFolderSize(this,{repr(size_url)})">— (load)</span>
+                        </td>
                         <td style="padding:8px 12px;color:#94a3b8">{mtime}</td>
-                        <td style="padding:8px 12px"></td>
+                        <td style="padding:8px 12px">
+                            <a href="{zip_url}" download
+                               style="background:#0ea5e9;color:white;text-decoration:none;padding:3px 10px;border-radius:5px;font-size:12px">⬇ ZIP</a>
+                        </td>
                     </tr>"""
                     # If we're viewing this directory or a parent of it, expand its children
                     if sub_path_clean == rel_from_base or sub_path_clean.startswith(rel_from_base + "/"):
@@ -2969,6 +3003,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if share["require_account"] else ''
         )
 
+        # Current-folder ZIP and size URLs (for the page header download button)
+        current_zip_url  = f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?zip=1"
+        current_size_url = f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?foldersize=1"
+
         return _render_snippet('share_folder_page.html',
             PUBLIC_DOMAIN=PUBLIC_DOMAIN,
             current_title=current_title,
@@ -2979,6 +3017,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             crumbs_html=crumbs_html,
             entries_html=entries_html,
             upload_section=upload_section,
+            current_zip_url=current_zip_url,
+            current_size_url=current_size_url,
         )
 
     def _render_share_login_page(self, token):
@@ -2997,6 +3037,23 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return _render_snippet('share_not_found_page.html',PUBLIC_DOMAIN=PUBLIC_DOMAIN)
 
     # --- FluxDrop API Handlers ---
+
+    def _handle_zip_share(self, base_fs: str, folder_name: str):
+        """Stream a ZIP of base_fs to the client.  Path already validated by caller."""
+        # Build a minimal fake match so we can reuse _handle_zip's inner logic.
+        # Simpler: just inline the same streaming call with the resolved path.
+        # We do this by temporarily monkeypatching _check_token_auth to return a
+        # sentinel so _handle_zip passes auth, then restoring it.  But that's
+        # fragile.  Instead, factor the core of _handle_zip into a static helper.
+        # For now: call _handle_zip with a CDN-style path trick isn't clean either.
+        # Cleanest: just duplicate the 10-line setup and delegate to the shared body.
+        # _handle_zip already accepts a path_segment — we'd need to bypass its auth.
+        # Easiest robust solution: set a short-lived flag.
+        self._zip_share_override = base_fs
+        try:
+            return self._handle_zip('/__share_override__')
+        finally:
+            self._zip_share_override = None
 
     # --- Folder ZIP download (streaming, ZIP_STORED) ---
 
@@ -3215,22 +3272,29 @@ class AuthHandler(SimpleHTTPRequestHandler):
         import struct  as _st
         import zlib    as _zl
 
-        user_id = self._check_token_auth()
-        if not user_id:
-            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
-
-        relative_path = unquote(path_segment)
-        user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
-
-        if relative_path.startswith('/cdn'):
-            cdn_rel = relative_path[len('/cdn'):]
-            base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
-            if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
-                return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
+        # Share path override: _handle_zip_share already resolved and validated
+        # the filesystem path — skip auth and path resolution entirely.
+        share_override = getattr(self, '_zip_share_override', None)
+        if share_override is not None:
+            base_fs = share_override
+            user_id = 'share'   # for the log line only
         else:
-            base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
-            if not os.path.realpath(base_fs).startswith(user_root):
-                return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+
+            relative_path = unquote(path_segment)
+            user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+
+            if relative_path.startswith('/cdn'):
+                cdn_rel = relative_path[len('/cdn'):]
+                base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
+                if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+                    return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
+            else:
+                base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
+                if not os.path.realpath(base_fs).startswith(user_root):
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
 
         if not os.path.isdir(base_fs):
             return self._send_response(404, json.dumps({'error': 'Not a directory.'}))
@@ -4100,8 +4164,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
                                 last_confirmed = bytes_sent
                     _update_token_progress(token_id, bytes_sent)
                     return
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError) as _disc:
+                logging.debug('Download: client disconnected (%s)', _disc)
+                return
             except Exception as e:
-                logging.exception("Download failed")
+                logging.error('Download failed (non-client error): %s', e)
                 return self._send_response(500, json.dumps({"error": f"Download failed: {e}"}))
 
         # Fallback for unimplemented commands

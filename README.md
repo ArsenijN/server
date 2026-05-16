@@ -1,4 +1,4 @@
-# server `v0.17.1.8`
+# server `v0.17.1.9`
 Just backend code of my server, nothing else, anyone can use it
 
 *Release notes:*
@@ -11,15 +11,14 @@ files that are on the server (possible errors in code on server-side so that
 is bad but better than nothing, for now please do not use ZIP download feature 
 until it will be fully tested); fixed the caching versions problems that 
 caused code regressions and then progressions when was acknowledged and fixed; 
-other small changes. 
+other small changes.***
 
-Regressions: ZIP download modal that shows the missing from archive files may 
-not be implemented due to code regression, checks are pending.***
+***Regressions: ZIP download modal that shows the missing from archive files 
+may not be implemented due to code regression, checks are pending.***
 
-*Patch notes: **~~Suppressed the peer connection drops for CDN, fixed StreamSaver 
-not being pre-loaded so the folder downloads as ZIP lands into the RAM, added 
-limiter for safe-in-RAM download (if StreamSaver will fail by any reason) by 
-512 MB~~ Marked out the ToDo entries, added some new ones***
+*Patch notes: **Fixed background download continues even after cancel by 
+browser; added download as ZIP for shared links (share snippet); fixed the 
+service worker... again; added folder size for shared snippet***
 
 `server` is ready for public usage according to the data from `April 28, 2026`. 
 (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
@@ -162,7 +161,8 @@ journalctl -u webserver-https -f
 ## Keeping the server up to date
 
 The `sync_to_server.sh` script performs a one-way mirror from your local
-`./server` tree to the Debian host and restarts all three services automatically:
+`./server` tree to the Debian host and restarts all three services 
+automatically:
 ```bash
 ./sync_to_server.sh
 ```

@@ -115,13 +115,10 @@ async function _fdHardReload() {
                 navigator.serviceWorker.controller.postMessage(
                     { type: 'SKIP_AND_CLEAR' }, [ch.port2]
                 );
-                // Safety timeout — reload even if SW doesn't respond
                 setTimeout(resolve, 800);
             });
         }
     } catch { /* non-fatal */ }
-    // Set a flag so the staleness check on the next page load knows this is
-    // a deliberate update-reload and skips the banner immediately.
     try { sessionStorage.setItem('fd_just_updated', '1'); } catch (_) {}
     location.reload();
 }
@@ -1423,6 +1420,13 @@ async function _runDownload(path, dl) {
     let lastLoaded = dl.bytesReceived;
     let lastTime   = Date.now();
 
+    // If the AbortController fires (Cancel button, etc.), cancel the reader
+    // immediately so the underlying fetch connection is torn down and the
+    // server stops streaming.  Without this the server keeps sending data
+    // even after the browser's download manager cancels the download.
+    const abortHandler = () => { try { reader.cancel('aborted'); } catch (_) {} };
+    dl._abort.signal.addEventListener('abort', abortHandler, { once: true });
+
     try {
         while (true) {
             const { done, value } = await reader.read();
@@ -1473,6 +1477,8 @@ async function _runDownload(path, dl) {
             return;
         }
         throw streamErr; // re-throw for the outer catch
+    } finally {
+        dl._abort.signal.removeEventListener('abort', abortHandler);
     }
 
     // 5. Finalise
@@ -1614,12 +1620,42 @@ window.downloadFolderZip = async function(path) {
     const zipUrl     = `${API_BASE_URL}/api/v1/zip${path.split('/').map(encodeURIComponent).join('/')}`;
     const authHdr    = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
-    // Determine write mode now (before the dialog, if picker)
+    // Determine write mode — must eagerly load StreamSaver here because
+    // _streamSaverLoaded is only true after the first _runDownload file
+    // download.  On a fresh page load it's false, causing ZIP to silently
+    // fall back to blob mode (full RAM buffer) every time.
     let mode = 'blob';
     if (_CAN_PICK) {
         mode = 'picker';
-    } else if (_streamSaverLoaded && typeof streamSaver !== 'undefined') {
-        mode = 'streamsaver';
+    } else {
+        try {
+            await _loadStreamSaver();
+            if (typeof streamSaver !== 'undefined') mode = 'streamsaver';
+        } catch (_) { /* stay blob */ }
+    }
+
+    // Pre-flight size check for blob mode: query Content-Length before
+    // starting so we can warn the user if the folder exceeds the safe
+    // RAM-buffer limit (512 MB) — the late warning inside the stream loop
+    // comes too late to cancel without wasting bandwidth.
+    if (mode === 'blob') {
+        try {
+            const headResp = await fetchWithFallback(zipUrl, {
+                method: 'HEAD',
+                headers: authHdr,
+                signal:  AbortSignal.timeout(5000),
+            });
+            const cl = headResp.headers.get('Content-Length');
+            if (cl && parseInt(cl, 10) > 512 * 1024 * 1024) {
+                const proceed = confirm(
+                    `⚠ Your browser doesn't support streaming downloads to disk.\n\n` +
+                    `This folder is ${formatBytes(parseInt(cl, 10))} and will be buffered ` +
+                    `entirely in RAM before saving — this may freeze or crash the tab.\n\n` +
+                    `Use Chrome or Edge for large folders. Continue anyway?`
+                );
+                if (!proceed) return;
+            }
+        } catch (_) { /* HEAD failed — proceed without size check */ }
     }
 
     const dl = {
@@ -1745,6 +1781,11 @@ window.downloadFolderZip = async function(path) {
     let lastLoaded = dl.bytesReceived;
     let lastTime   = Date.now();
 
+    // Same as _runDownload: wire abort → reader.cancel() so the server stops
+    // streaming when the browser cancels the download externally.
+    const zipAbortHandler = () => { try { reader.cancel('aborted'); } catch (_) {} };
+    dl._abort.signal.addEventListener('abort', zipAbortHandler, { once: true });
+
     try {
         while (true) {
             const { done, value } = await reader.read();
@@ -1793,6 +1834,8 @@ window.downloadFolderZip = async function(path) {
             return;
         }
         throw streamErr;
+    } finally {
+        dl._abort.signal.removeEventListener('abort', zipAbortHandler);
     }
 
     // Finalise
@@ -5687,8 +5730,18 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-@@CACHE_VER@@'); // replaced by build.sh — do not edit manually
+            // Find the active FluxDrop cache dynamically — using the hardcoded
+            // 'fluxdrop-@@CACHE_VER@@' name only works if this exact script.js
+            // was built with the matching cache version.  When an old script.js
+            // runs after a deploy its cached @@CACHE_VER@@ is stale and it would
+            // open the wrong (already-deleted) cache and always find nothing.
+            const allKeys  = await caches.keys();
+            const cacheKey = allKeys.find(k => k.startsWith('fluxdrop-'));
+            if (!cacheKey) {
+                // No cache at all — SW not yet installed, skip check.
+                return;
+            }
+            const cache = await caches.open(cacheKey);
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

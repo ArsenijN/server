@@ -16,7 +16,7 @@
 </style>
 </head><body>
 <div class="card">
-  <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
     <div style="font-size:36px;line-height:1">{share_icon}</div>
     <div style="flex:1;min-width:0">
       <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{current_title}</h1>
@@ -24,6 +24,12 @@
         Shared by <strong style="color:#475569">{owner_name}</strong>
         {require_account_badge}
         {expiry_badge}
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <a href="{current_zip_url}" download
+           style="background:#0ea5e9;color:white;text-decoration:none;padding:5px 14px;border-radius:7px;font-size:13px;font-weight:600">⬇ Download as ZIP</a>
+        <span id="current-folder-size" style="font-size:12px;color:#94a3b8;cursor:pointer"
+              onclick="loadShareFolderSize(this, '{current_size_url}')">📦 Load folder size</span>
       </div>
     </div>
   </div>
@@ -100,10 +106,37 @@ async function previewShareFile(url, name, event) {
 function closeSharePreview() {
   const overlay = document.getElementById('sp-preview-overlay');
   overlay.style.display = 'none';
-  document.getElementById('sp-preview-body').querySelectorAll('video,audio').forEach(el=>{el.pause();el.src='';});
-  document.getElementById('sp-preview-body').innerHTML = '';
+  const body = document.getElementById('sp-preview-body');
+  body.querySelectorAll('video,audio').forEach(el => {
+    el.pause();
+    Array.from(el.querySelectorAll('source')).forEach(s => s.remove());
+    el.removeAttribute('src');
+    el.load();
+  });
+  body.innerHTML = '';
   document.removeEventListener('keydown', _spKeyHandler);
 }
 function _spKeyHandler(e) { if (e.key === 'Escape') closeSharePreview(); }
+
+async function loadShareFolderSize(el, url) {
+  el.textContent = '⏳ Loading…';
+  el.style.cursor = 'default';
+  el.onclick = null;
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    const bytes = d.size || 0;
+    const str = bytes < 1048576
+      ? (bytes / 1024).toFixed(1) + ' KB'
+      : bytes < 1073741824
+        ? (bytes / 1048576).toFixed(2) + ' MB'
+        : (bytes / 1073741824).toFixed(2) + ' GB';
+    el.textContent = '📦 ' + str;
+  } catch(e) {
+    el.textContent = '⚠ Failed';
+    el.style.cursor = 'pointer';
+    el.onclick = () => loadShareFolderSize(el, url);
+  }
+}
 </script>
 </body></html>

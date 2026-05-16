@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v-b1b63193';  // replaced by build.sh — do not edit manually
+const CACHE_NAME  = 'fluxdrop-v-36f6cd59';  // replaced by build.sh — do not edit manually
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 
@@ -216,24 +216,35 @@ self.addEventListener('fetch', event => {
     }
 
     if (isShellAsset) {
-        // HEAD requests (e.g. the staleness probe in script.js) must not be
-        // stored in the cache — storing a bodyless HEAD response would replace
-        // the full GET response and break the next page load.  Let them fall
-        // through to the network-first path below so they always reach the
-        // server and never corrupt the cache.
+        // HEAD requests (e.g. the staleness probe in script.js) must reach the
+        // network directly — never serve from cache, never write to cache.
         if (event.request.method === 'HEAD') return;
 
+        // Pure cache-first (no background revalidation).
+        //
+        // Background reval was removed deliberately: it served the old cached
+        // file, updated the cache silently in the background, and then the
+        // staleness check found the cache already matched the server — so the
+        // "update available" banner never appeared even though the running page
+        // was still using the old code.
+        //
+        // The correct update path is the SW lifecycle itself:
+        //   install  → fetches ALL assets fresh into a new versioned cache
+        //   activate → deletes old caches, posts SW_UPDATED to open tabs
+        //
+        // The cache is always fully fresh at activate time, so there is no
+        // need to revalidate individual assets during normal page loads.
         event.respondWith(
-            caches.open(CACHE_NAME).then(async cache => {
-                const cached = await cache.match(event.request);
-                // Always revalidate in background — keeps cache warm without blocking
-                const networkFetch = fetch(event.request).then(netResp => {
+            caches.match(event.request).then(cached => {
+                if (cached) return cached;
+                // Not in cache yet (e.g. first load before install finishes) —
+                // fetch from network and cache the result.
+                return fetch(event.request).then(netResp => {
                     if (netResp && netResp.status === 200) {
-                        cache.put(event.request, netResp.clone());
+                        caches.open(CACHE_NAME).then(c => c.put(event.request, netResp.clone()));
                     }
                     return netResp;
-                }).catch(() => null);
-                return cached || networkFetch || caches.match(OFFLINE_URL);
+                }).catch(() => caches.match(OFFLINE_URL));
             })
         );
         return;

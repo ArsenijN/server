@@ -137,6 +137,9 @@ needs checks
 
 
 #### Medium:
+- [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
+now I can't replicate it so I don't know why and I can't give any clues when 
+that happens and after what
 
 
 
@@ -177,38 +180,6 @@ https) -- needs CDN migration to regular HTTP/HTTPS ports or single port to fix
 ---
 
 ## Done items that are pending for removal:
-- [x] Fix URL-encode issues with the "path persist" (so then it tried to access 
-folder with name `New%20Folder` instead of `New Folder`)
-- [x] (unchecked) "fetch if the script.js changed" (at around 5472 line) may 
-make cached fetch (the "Передано" shows "service worker"), so actually it 
-doesn't make a fetch for updated version (or at least not always, or it's 
-intended to be not always/after some time the cache version is on device?). 
-Think about changing the system so it will fetch, like, "version.json" in the 
-root, and if version is different inside the script.js or sw.js - update..?
-- [x] Not implemented (regression): `TOS and PP acceptance modal showing when 
-the token is not valid (user was forced to scroll to the bottom to skip it)`
-- [x] `⚠ can't access property "port1", channel is null` replaced with 
-the `Cancelled` (catch if user cancel the download via browser)
-- [x] Add catcher or something so Firefox will not fail with "Програма-браузер 
-несподівано завершила роботу." - can be skipped since can't be resolved 
-without spoofing
-- [x] Do not show the window to "agree with the TOS and PP" when user token is 
-expired - immediatelly "kick out" the user with purged token to the landing 
-page
-- [x] Fix the background media playing if internet is very bad and seems like 
-only when attempt to reach for file was made after the preview window is 
-closed (internet hang)
-- [x] Add the update notifier back
-
-- [x] Fix StreamSaver not working - pending from V0.16.0.2
-- [x] Fix issue with quota being very greedy, allowing to over-use the 
-available space - probably, even if the quota is 50 GB, user, in theory, still 
-would be able to upload one single 200 GB file
-- [x] Zip download are handled as in-RAM operation, causing memory exhaust on 
-client's device
-
-- [x] Fix double TLS for proxy aka fix the file download speeds -- they're ok, 
-idk, fixed but not fully, not a problem of double TLS right now
 
 
 

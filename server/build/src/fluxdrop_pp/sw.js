@@ -41,6 +41,13 @@ self.addEventListener('message', event => {
         );
         return;
     }
+    // Return the SW version when requested by the UI
+    if (event.data && event.data.type === 'GET_VERSION') {
+        // Strips "fluxdrop-" or "fluxdrop-v-" from the cache name
+        const ver = CACHE_NAME.replace(/^fluxdrop-(v-)?/, '');
+        event.ports[0].postMessage({ version: ver });
+        return;
+    }
 
     // ── StreamSaver: keepalive ping ───────────────────────────────────────
     if (event.data === 'ping') return;
@@ -96,10 +103,42 @@ const PRECACHE_URLS = [
 
 // ── Install ───────────────────────────────────────────────────────────────
 self.addEventListener('install', event => {
+    self.skipWaiting(); // Ensure the new SW takes over immediately
+    const assetsToCache = [
+        APP_BASE + '/',
+        APP_BASE + '/index.html',
+        APP_BASE + '/script.js',
+        APP_BASE + '/tailwindcss.css',
+        APP_BASE + '/icon.svg',
+        APP_BASE + '/offline.html',
+        APP_BASE + '/assets/all.min.css',
+        APP_BASE + '/assets/heic2any.min.js',
+        APP_BASE + '/assets/Inter.css',
+        APP_BASE + '/assets/jszip.min.js',
+        APP_BASE + '/assets/marked.min.js',
+        APP_BASE + '/assets/untar.min.js',
+        APP_BASE + '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2',
+        APP_BASE + '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2',
+        APP_BASE + '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2',
+        APP_BASE + '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7SUc.woff2',
+        APP_BASE + '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2',
+        APP_BASE + '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2',
+        APP_BASE + '/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2',
+        APP_BASE + '/assets/streamsaver/StreamSaver.js',
+        APP_BASE + '/assets/streamsaver/mitm.html',
+        APP_BASE + '/assets/streamsaver/sw.js',
+    ];
     event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE_URLS))
+        caches.open(CACHE_NAME).then(cache => {
+            // FIX: Force network fetch, bypassing the browser's HTTP cache
+            return Promise.all(assetsToCache.map(url => {
+                return fetch(new Request(url, { cache: 'no-cache' })).then(response => {
+                    if (!response.ok) throw new Error(`Failed to fetch ${url}`);
+                    return cache.put(url, response);
+                });
+            }));
+        })
     );
-    self.skipWaiting();
 });
 
 // ── Activate ─────────────────────────────────────────────────────────────

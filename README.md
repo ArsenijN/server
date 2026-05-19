@@ -1,4 +1,4 @@
-# server `v0.17.2.4`
+# server `v0.17.2.5`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -35,9 +35,7 @@ and untracked files will be triggered automatically at time period of 23:00 to
 
 *Patch notes: **~~Fixed an issue that UI didn't show the explanatory of why the 
 preparation time is so long (I mean it says just "downloading", nothing more);~~
-Added text to the release notes, slowly going ready for release;
-Added some TODO entries;
-Attempt to manually change the way how `sw.js` updates the caches***
+Service worker now works properly!!!!!!!!!!! (thx Gemini)***
 
 ---
 

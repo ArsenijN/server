@@ -10,6 +10,9 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
+const SCRIPT_VERSION_RAW = '@@CACHE_VER@@'; // Replaced by your build script
+const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^fluxdrop-(v-)?/, '');
+
 // Pick a sensible base URL depending on how the page was loaded.  We
 // default to the same protocol in order to avoid mixed‑content issues when
 // the UI is served over plain HTTP, and we also provide a fallback helper
@@ -5640,3 +5643,52 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 2000);
 });
+        // ======================================================================
+        // --- FOOTER UI ---
+        // ======================================================================
+function initFooter() {
+    const footer = document.createElement('footer');
+    footer.id = 'fluxdrop-footer';
+
+    // Unobtrusive styling
+    Object.assign(footer.style, {
+        position: 'fixed',
+        bottom: '10px',
+        right: '15px',
+        color: '#a0a0a0', // Light gray
+        fontSize: '11px',
+        fontFamily: 'sans-serif',
+        fontWeight: '300',
+        textAlign: 'right',
+        zIndex: '9999',
+        pointerEvents: 'auto',
+        lineHeight: '1.4'
+    });
+
+    // Helper to generate the HTML
+    const renderContent = (swVer) => `
+        <div>FluxDrop Preview Program</div>
+        <div>&copy; 2025 Arsenii Nochevnyi. <a href="/tos" style="color: #a0a0a0; text-decoration: underline;">TOS</a> | <a href="/privacy" style="color: #a0a0a0; text-decoration: underline;">Privacy Policy</a></div>
+        <div>Script v${SCRIPT_VERSION}, Service Worker v${swVer}</div>
+    `;
+
+    // Set initial state
+    footer.innerHTML = renderContent('Loading...');
+    document.body.appendChild(footer);
+
+    // Request the exact Service Worker version
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        const messageChannel = new MessageChannel();
+        messageChannel.port1.onmessage = (event) => {
+            if (event.data && event.data.version) {
+                footer.innerHTML = renderContent(event.data.version);
+            }
+        };
+        navigator.serviceWorker.controller.postMessage({ type: 'GET_VERSION' }, [messageChannel.port2]);
+    } else {
+        footer.innerHTML = renderContent('N/A');
+    }
+}
+
+// Initialize when the DOM is ready
+document.addEventListener('DOMContentLoaded', initFooter);

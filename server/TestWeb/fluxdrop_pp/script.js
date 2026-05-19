@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-7a872174
+// Current version of script.js is: fluxdrop-v-f5293066
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -116,7 +116,7 @@ async function _fdHardReload() {
                     { type: 'SKIP_AND_CLEAR' }, [ch.port2]
                 );
                 // Safety timeout — reload even if SW doesn't respond
-                setTimeout(resolve, 800);
+                setTimeout(resolve, 5000);
             });
         }
     } catch { /* non-fatal */ }
@@ -5581,7 +5581,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-7a872174'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-f5293066'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

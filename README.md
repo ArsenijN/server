@@ -1,20 +1,43 @@
-# server `v0.17.2.3`
+# server `v0.17.2.4`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes:*
-***Mainstream: text is pending.***
+*Release notes:*                             -- this is will be for ver v0.17.3
 
-***text is pending***
+***Mainstream: Now only the stable builds will be released to `main` branch.***
+
+- ***`main` branch from now will contain only the stable and tested builds of 
+the code, meaning less need in the updates (if using some kind of auto-sync 
+with GitHub repo for updating). If you want the latest builds that are 
+available at the time, and you agree with the instability fact, consider to 
+switch to using the `dev` branch. Be cautious: author (me) will not provide any 
+responsibility or acts for `dev` branch since it's considered unstable and 
+meant to be used for development and tests of new features only. DO NOT USE IT 
+AS MAIN REPOSITORY FOR ANY REASON EXCEPT THE EXPLAINED BEFORE.***
+- ***Now streamed ZIPs are resumable due to significant changes in the code for 
+that, and with that new ability - now files on server are checksummed! This 
+means that server would be able to scan your files in the background to be sure 
+that they're the same as before! (Note: the checksum algorithm that is used is 
+`CRC32` because it was natively used in ZIPs and needs to be created anyway for 
+streaming, and instead of making them on-fly (resource-intense and will 
+increase the prepare times significantly), it's made in 2 ways: on file upload 
+or as background activity for older files. See the note at the end of that 
+message)***
+- ***Shared folders now have the same ability to download the ZIPs, as the 
+FluxDrop users in their file manager***
+
+***Important note: the background media hashing activity for any remaining, old 
+and untracked files will be triggered automatically at time period of 23:00 to 
+4:00 EEST***
 
 ***Regressions: none***
 
-*Patch notes: **Fixing the streamed ZIP implementation because new one killed 
-the whole purpose of streaming (by making a local archive and then streaming 
-it);
-FluxDrop UI is broken in ZIP streaming, but it works for shared folders;
-CRC 32 are now saved for each file..?***
+*Patch notes: **~~Fixed an issue that UI didn't show the explanatory of why the 
+preparation time is so long (I mean it says just "downloading", nothing more);~~
+Added text to the release notes, slowly going ready for release;
+Added some TODO entries;
+Attempt to manually change the way how `sw.js` updates the caches***
 
 ---
 

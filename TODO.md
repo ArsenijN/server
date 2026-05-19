@@ -7,6 +7,10 @@ user feedback or ideas for future development.
 
 ## Items that are pending for implementations:
 
+### Important without category
+- [ ] ServiceWorker updater are still works not as intended (at least if 
+browser have more than 1 tab with FluxDrop opened)
+
 ### UI
 - [ ] i18n support (language changes)
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
@@ -27,6 +31,9 @@ upload (anyone or only FluxDrop users)
 - [ ] Trash bin folder preview
 
 ### UX
+- [ ] Add small text at the bottom of the screen (most right) with current 
+FluxDrop version; make versioning system the same as the current with server 
+(like v0.17.2.4)
 - [ ] Add Welcome screen for new users that will explain (almost) everything 
 about FluxDrop
 - [ ] Upload can fail on slow internet, causing unability to upload the files 
@@ -36,7 +43,7 @@ where it's failed instead of pushing only the unloaded/wrong part of the file
 (aka reduce very large internet overhead)
 - [ ] FluxDrop didn't stop the background download of ZIP if " 🚫 
 shareables.zip 0 B / ? Browser dropped the download. Click Resume to start 
-over."
+over." -- still there at V0.17.2.3
 - [ ] Pre-load StreamSaver for ZIP downloads since otherwize FluxDrop didn't 
 try to stop downloading 60GB folder into the RAM
 - [ ] Show "Loading the acceptances..." for the acceptance modal if loading 

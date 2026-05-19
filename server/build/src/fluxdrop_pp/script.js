@@ -116,7 +116,7 @@ async function _fdHardReload() {
                     { type: 'SKIP_AND_CLEAR' }, [ch.port2]
                 );
                 // Safety timeout — reload even if SW doesn't respond
-                setTimeout(resolve, 800);
+                setTimeout(resolve, 5000);
             });
         }
     } catch { /* non-fatal */ }

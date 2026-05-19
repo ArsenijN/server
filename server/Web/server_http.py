@@ -475,7 +475,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        print(f"HTTP: {format % args}")
+        logging.info('HTTP %s - %s', self.address_string(), format % args)
+
+    def log_error(self, format, *args):
+        logging.warning('HTTP %s - %s', self.address_string(), format % args)
 
 # --- Main Server Logic ---
 if __name__ == "__main__":

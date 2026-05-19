@@ -16,7 +16,7 @@
 </style>
 </head><body>
 <div class="card">
-    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+  <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
     <div style="font-size:36px;line-height:1">{share_icon}</div>
     <div style="flex:1;min-width:0">
       <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{current_title}</h1>
@@ -25,10 +25,10 @@
         {require_account_badge}
         {expiry_badge}
       </div>
-      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow:hidden">
         <a href="{current_zip_url}" download
-           style="background:#0ea5e9;color:white;text-decoration:none;padding:5px 14px;border-radius:7px;font-size:13px;font-weight:600">⬇ Download as ZIP</a>
-        <span id="current-folder-size" style="font-size:12px;color:#94a3b8;cursor:pointer"
+           style="flex-shrink:0;background:#0ea5e9;color:white;text-decoration:none;padding:5px 12px;border-radius:7px;font-size:13px;font-weight:600;white-space:nowrap">⬇ ZIP</a>
+        <span id="current-folder-size" style="font-size:12px;color:#94a3b8;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
               onclick="loadShareFolderSize(this, '{current_size_url}')">📦 Load folder size</span>
       </div>
     </div>

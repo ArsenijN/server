@@ -593,11 +593,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        """
-        Overrides the default log_message to route logs through our custom logger.
-        """
-        # This message will be routed through our CustomLogger due to sys.stdout/stderr redirect
-        print(f"HTTPS: {format % args}")
+        logging.info('HTTPS %s - %s', self.address_string(), format % args)
+
+    def log_error(self, format, *args):
+        logging.warning('HTTPS %s - %s', self.address_string(), format % args)
 
 # --- Main Server Logic ---
 if __name__ == "__main__":

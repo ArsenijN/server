@@ -130,6 +130,8 @@ optimizations -- uploads, downloads is an issue
 ### Server-side changes:
 
 #### Critical:
+- [ ] ZIP download modal that shows the missing from archive files may not be 
+implemented due to code regression, checks are pending.
 - [ ] Fix problems with the Quad9 pings "failing" and firing the external 
 outage
 - [ ] Fix archive streaming may fail at ~6 GB of streamed files (including few 

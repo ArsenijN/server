@@ -202,6 +202,30 @@ SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
 # Path to the versions file — same directory as the policies folder
 _POLICY_VERSIONS_FILE = os.getenv('POLICY_VERSIONS_FILE', str(os.path.dirname(os.path.abspath(__file__)) + 'policies\\versions.json'))
 
+# ── Resumable ZIP token registry ──────────────────────────────────────────────
+# Maps uuid → {path: str, expires: float, filename: str}
+# The ZIP temp file lives at UPLOAD_TMP_DIR/zip_<uuid>.zip
+# Entries expire after ZIP_DL_TTL seconds of inactivity.
+import uuid as _uuid_mod
+_zip_dl_tokens: dict = {}
+_zip_dl_lock = threading.Lock()
+ZIP_DL_TTL = int(os.getenv('ZIP_DL_TTL', str(15 * 60)))   # 15 minutes default
+
+def _zip_dl_cleanup():
+    """Background thread: remove expired zip temp files."""
+    while True:
+        time.sleep(60)
+        now = time.time()
+        with _zip_dl_lock:
+            expired = [k for k, v in _zip_dl_tokens.items() if v['expires'] < now]
+            for k in expired:
+                tmp = os.path.join(UPLOAD_TMP_DIR, f'zip_{k}.zip')
+                try: os.unlink(tmp)
+                except OSError: pass
+                del _zip_dl_tokens[k]
+
+threading.Thread(target=_zip_dl_cleanup, daemon=True, name='ZipDlCleanup').start()
+
 def _get_policy_versions() -> dict:
     try:
         with open(_POLICY_VERSIONS_FILE, encoding='utf-8') as f:
@@ -336,6 +360,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     catbox_api_path = '/user/api.php'
     auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify)$')
     zip_pattern          = re.compile(r'^/api/(v[1-3])/zip(/.*)?$')
+    zip_dl_pattern       = re.compile(r'^/api/(v[1-3])/zip_dl/([0-9a-f\-]{36})$')
     foldersize_pattern   = re.compile(r'^/api/(v[1-3])/foldersize(/.*)?$')
     archive_tree_pattern = re.compile(r'^/api/(v[1-3])/archive_tree(/.*)?$')
     # Chunked resumable upload API:
@@ -1860,6 +1885,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _zip_m = self.zip_pattern.match(parsed_url.path)
         if _zip_m:
             return self._handle_zip(_zip_m.group(2) or '/')
+        _zip_dl_m = self.zip_dl_pattern.match(parsed_url.path)
+        if _zip_dl_m:
+            return self._handle_zip_dl(_zip_dl_m.group(2))
 
         # Archive file-tree listing (no full download — reads ZIP central dir only)
         _at_m = self.archive_tree_pattern.match(parsed_url.path)
@@ -3360,177 +3388,197 @@ class AuthHandler(SimpleHTTPRequestHandler):
         folder_name  = os.path.basename(base_fs.rstrip('/')) or 'download'
         zip_filename = folder_name + '.zip'
 
-        # ── Send headers ─────────────────────────────────────────────────────────
-        try:
-            self.send_response(200)
-            self._send_cors_headers()
-            self.send_header('Content-Type', 'application/zip')
-            self.send_header('Content-Disposition', self._content_disposition(zip_filename))
-            self.send_header('Content-Length', str(total_cl))
-            if missing_files:
-                import urllib.parse as _up
-                self.send_header('X-Zip-Missing-Files',
-                                 _up.quote(json.dumps(missing_files), safe=''))
-            self.end_headers()
-        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
-            return
+        # ── Write ZIP to a temp file (enables resumable Range downloads) ─────────
+        # Instead of streaming directly to the wire, we build the ZIP on disk first,
+        # then return a short-lived UUID token.  The client fetches
+        # /api/v1/zip_dl/<uuid> which serves the file with Accept-Ranges so any
+        # interrupted download can be resumed with a Range request.
+        tok      = str(_uuid_mod.uuid4())
+        tmp_path = os.path.join(UPLOAD_TMP_DIR, f'zip_{tok}.zip')
+        os.makedirs(UPLOAD_TMP_DIR, exist_ok=True)
 
-        READ_BUF = 2 * 1024 * 1024
-        offset   = 0          # running byte offset (Python int, no overflow)
+        READ_BUF   = 2 * 1024 * 1024
+        offset     = 0
         cd_entries = []
+        actual_missing: list = []
 
-        def _write(data: bytes):
+        def _write(data: bytes, fh):
             nonlocal offset
-            try:
-                self.wfile.write(data)
-            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
-                raise
+            fh.write(data)
             offset += len(data)
 
         try:
-            for abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date in files_info:
-                fn_len = len(arcname_bytes)
-                local_offset = offset   # record start of this entry
+            with open(tmp_path, 'wb') as fh:
+                for abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date in files_info:
+                    fn_len       = len(arcname_bytes)
+                    local_offset = offset
 
-                # ── ZIP64 extra field for LFH ────────────────────────────────
-                z64_extra = _st.pack('<HH QQ',
-                    0x0001,          # tag = ZIP64
-                    16,              # size of following data
-                    file_size,       # uncompressed  (Q = uint64)
-                    file_size,       # compressed    (Q = uint64)
-                )
+                    z64_extra = _st.pack('<HH QQ', 0x0001, 16, file_size, file_size)
+                    lfh = _st.pack('<4sHHHHHIIIHH',
+                        LFH_SIG, 45, FLAG_DD, METHOD_STORED,
+                        dos_time, dos_date,
+                        0, UINT32_MAX, UINT32_MAX,
+                        fn_len, len(z64_extra),
+                    ) + arcname_bytes + z64_extra
+                    _write(lfh, fh)
 
-                # ── Local file header ────────────────────────────────────────
-                # Sizes in header = 0xFFFFFFFF signals "see ZIP64 extra field"
-                lfh = _st.pack('<4sHHHHHIIIHH',
-                    LFH_SIG,
-                    45,             # version needed: 4.5 (ZIP64)
-                    FLAG_DD,
-                    METHOD_STORED,
-                    dos_time, dos_date,
-                    0,              # CRC placeholder (real value in descriptor)
-                    UINT32_MAX,     # compressed   size → ZIP64
-                    UINT32_MAX,     # uncompressed size → ZIP64
-                    fn_len,
-                    len(z64_extra),
-                ) + arcname_bytes + z64_extra
-                _write(lfh)
+                    crc = 0
+                    bytes_written = 0
+                    try:
+                        with open(abs_path, 'rb') as src_f:
+                            remaining = file_size
+                            while remaining > 0:
+                                chunk = src_f.read(min(READ_BUF, remaining))
+                                if not chunk:
+                                    break
+                                _write(chunk, fh)
+                                crc = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
+                                bytes_written += len(chunk)
+                                remaining -= len(chunk)
+                    except OSError:
+                        logging.warning(f'ZIP64: file vanished during build: {abs_path!r}')
+                        actual_missing.append(arcname)
+                    if bytes_written < file_size:
+                        pad = bytes(file_size - bytes_written)
+                        _write(pad, fh)
+                        crc = _zl.crc32(pad, crc) & 0xFFFF_FFFF
+                        bytes_written = file_size
 
-                # ── File data ────────────────────────────────────────────────
-                crc = 0
-                bytes_written = 0
-                try:
-                    with open(abs_path, 'rb') as f:
-                        remaining = file_size
-                        while remaining > 0:
-                            chunk = f.read(min(READ_BUF, remaining))
-                            if not chunk:
-                                break
-                            _write(chunk)
-                            crc = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
-                            bytes_written += len(chunk)
-                            remaining -= len(chunk)
-                except OSError:
-                    logging.warning(f'ZIP64: file vanished mid-stream: {abs_path!r} (arcname: {arcname!r})')
-                if bytes_written < file_size:
-                    pad = bytes(file_size - bytes_written)
-                    _write(pad)
-                    crc = _zl.crc32(pad, crc) & 0xFFFF_FFFF
-                    bytes_written = file_size
+                    dd = _st.pack('<4s I QQ', DD_SIG, crc, bytes_written, bytes_written)
+                    _write(dd, fh)
 
-                # ── ZIP64 data descriptor ────────────────────────────────────
-                dd = _st.pack('<4s I QQ',
-                    DD_SIG,
-                    crc,
-                    bytes_written,   # compressed   (Q)
-                    bytes_written,   # uncompressed (Q)
-                )
-                _write(dd)
+                    z64_cdh_extra = _st.pack('<HH QQQ', 0x0001, 24,
+                        bytes_written, bytes_written, local_offset)
+                    cdh = _st.pack('<4sHHHHHHIIIHHHHHII',
+                        CDH_SIG, 45, 45, FLAG_DD, METHOD_STORED,
+                        dos_time, dos_date, crc,
+                        UINT32_MAX, UINT32_MAX,
+                        fn_len, len(z64_cdh_extra),
+                        0, 0, 0, 0, UINT32_MAX,
+                    ) + arcname_bytes + z64_cdh_extra
+                    cd_entries.append(cdh)
 
-                # ── Central directory entry ──────────────────────────────────
-                # ZIP64 extra for CDH: uncompressed + compressed + local header offset
-                z64_cdh_extra = _st.pack('<HH QQQ',
-                    0x0001, 24,
-                    bytes_written,   # uncompressed
-                    bytes_written,   # compressed
-                    local_offset,    # local header offset (Q)
-                )
-                cdh = _st.pack('<4sHHHHHHIIIHHHHHII',
-                    CDH_SIG,
-                    45, 45,          # version made by / needed
-                    FLAG_DD,
-                    METHOD_STORED,
-                    dos_time, dos_date,
-                    crc,
-                    UINT32_MAX,      # compressed   → ZIP64
-                    UINT32_MAX,      # uncompressed → ZIP64
-                    fn_len,
-                    len(z64_cdh_extra),
-                    0,               # file comment
-                    0,               # disk start
-                    0,               # internal attr
-                    0,               # external attr
-                    UINT32_MAX,      # local header offset → ZIP64
-                ) + arcname_bytes + z64_cdh_extra
-                cd_entries.append(cdh)
+                cd_start      = offset
+                for cdh in cd_entries:
+                    _write(cdh, fh)
+                cd_end        = offset
+                cd_total_size = cd_end - cd_start
+                n_entries     = len(cd_entries)
 
-            # ── Central directory ────────────────────────────────────────────────
-            cd_start = offset
-            for cdh in cd_entries:
-                _write(cdh)
-            cd_end = offset
-            cd_total_size = cd_end - cd_start
-            n_entries = len(cd_entries)
+                zip64_eocd = _st.pack('<4s Q HHII QQ QQ',
+                    ZIP64_EOCD_SIG, 44, 45, 45, 0, 0,
+                    n_entries, n_entries, cd_total_size, cd_start)
+                _write(zip64_eocd, fh)
 
-            # ── ZIP64 End of Central Directory record ────────────────────────────
-            # Size of zip64 EOCD record = total_size - 12 (sig + size field itself)
-            zip64_eocd = _st.pack('<4s Q HHII QQ QQ',
-                ZIP64_EOCD_SIG,
-                44,              # size of remaining record (= 56 - 12)
-                45,              # version made by
-                45,              # version needed
-                0,               # disk number
-                0,               # disk with CD
-                n_entries,       # entries on this disk  (Q)
-                n_entries,       # total entries         (Q)
-                cd_total_size,   # CD size               (Q)
-                cd_start,        # CD offset             (Q)
-            )
-            _write(zip64_eocd)
+                zip64_locator = _st.pack('<4s I Q I', ZIP64_EOCD_LOCATOR, 0, cd_end, 1)
+                _write(zip64_locator, fh)
 
-            # ── ZIP64 EOCD locator ───────────────────────────────────────────────
-            zip64_locator = _st.pack('<4s I Q I',
-                ZIP64_EOCD_LOCATOR,
-                0,               # disk with start of zip64 EOCD
-                cd_end,          # offset of zip64 EOCD record
-                1,               # total number of disks
-            )
-            _write(zip64_locator)
+                eocd = _st.pack('<4s HH HH II H',
+                    EOCD_SIG, 0, 0,
+                    min(n_entries, UINT16_MAX), min(n_entries, UINT16_MAX),
+                    min(cd_total_size, UINT32_MAX), min(cd_start, UINT32_MAX),
+                    0)
+                _write(eocd, fh)
 
-            # ── Classic EOCD (required — points to ZIP64 structures) ────────────
-            eocd = _st.pack('<4s HH HH II H',
-                EOCD_SIG,
-                0, 0,            # disk / disk with CD
-                min(n_entries, UINT16_MAX),
-                min(n_entries, UINT16_MAX),
-                min(cd_total_size, UINT32_MAX),
-                min(cd_start,      UINT32_MAX),
-                0,               # comment length
-            )
-            _write(eocd)
+        except Exception as e:
+            logging.error(f'ZIP64 build failed: {e}')
+            try: os.unlink(tmp_path)
+            except OSError: pass
+            return self._send_response(500, json.dumps({'error': 'Failed to build ZIP archive'}))
 
+        # Register token so _handle_zip_dl can serve the file
+        all_missing = missing_files + actual_missing
+        with _zip_dl_lock:
+            _zip_dl_tokens[tok] = {
+                'path':     tmp_path,
+                'filename': zip_filename,
+                'size':     offset,
+                'expires':  time.time() + ZIP_DL_TTL,
+                'missing':  all_missing,
+                'user_id':  user_id,
+            }
+
+        logging.info(
+            f'ZIP64 prepared: {zip_filename} '
+            f'({len(files_info)} files, {offset} bytes, '
+            f'{len(all_missing)} missing) user={user_id} token={tok[:8]}…'
+        )
+        return self._send_response(200, json.dumps({
+            'token':    tok,
+            'filename': zip_filename,
+            'size':     offset,
+            'ttl':      ZIP_DL_TTL,
+            'missing':  all_missing,
+            'url':      f'/api/v1/zip_dl/{tok}',
+        }))
+
+    def _handle_zip_dl(self, token: str):
+        """GET /api/v1/zip_dl/<uuid> — serve a pre-built ZIP temp file with Range support.
+
+        The token was issued by _handle_zip.  The file is served with
+        Accept-Ranges: bytes so the browser / download manager can resume a
+        partial download after a network drop without re-building the archive.
+        The token expires after ZIP_DL_TTL seconds (default 15 min) and the
+        temp file is deleted by the background cleanup thread.
+        """
+        with _zip_dl_lock:
+            entry = _zip_dl_tokens.get(token)
+
+        if not entry:
+            return self._send_response(404, json.dumps({'error': 'ZIP token not found or expired'}))
+
+        # Refresh expiry on access so an active download doesn't time out
+        with _zip_dl_lock:
+            if token in _zip_dl_tokens:
+                _zip_dl_tokens[token]['expires'] = time.time() + ZIP_DL_TTL
+
+        tmp_path  = entry['path']
+        filename  = entry['filename']
+        file_size = entry['size']
+
+        if not os.path.exists(tmp_path):
+            return self._send_response(410, json.dumps({'error': 'ZIP file no longer available'}))
+
+        # Parse Range header
+        range_header = self.headers.get('Range', '')
+        start, end = 0, file_size - 1
+        status = 200
+        if range_header.startswith('bytes='):
             try:
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+                parts = range_header[6:].split('-')
+                start = int(parts[0]) if parts[0] else 0
+                end   = int(parts[1]) if parts[1] else file_size - 1
+                end   = min(end, file_size - 1)
+                status = 206
+            except (ValueError, IndexError):
                 pass
 
-            logging.info(
-                f'ZIP64 streamed: {zip_filename} '
-                f'({len(files_info)} files, {total_cl} bytes) user={user_id}'
-            )
+        length = end - start + 1
+        try:
+            self.send_response(status)
+            self._send_cors_headers()
+            self.send_header('Content-Type', 'application/zip')
+            self.send_header('Content-Disposition', self._content_disposition(filename))
+            self.send_header('Content-Length', str(length))
+            self.send_header('Accept-Ranges', 'bytes')
+            if status == 206:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{file_size}')
+            self.end_headers()
 
-        except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
-            pass   # client disconnected mid-stream
+            with open(tmp_path, 'rb') as fh:
+                fh.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = fh.read(min(2 * 1024 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError) as _disc:
+            logging.debug('ZIP dl: client disconnected (%s)', _disc)
+        except Exception as e:
+            logging.error(f'ZIP dl error: {e}')
 
     # --- Lazy folder size ---
 

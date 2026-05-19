@@ -1,34 +1,23 @@
-# server `v0.17.2.1`
+# server `v0.17.2.2`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
 *Release notes:*
-***Mainstream: QoL improvements and more robust update system.***
+***Mainstream: text is pending.***
 
-***The "close modal by click outside" no longer makes console noise; acceptance 
-modal now not shows if token is expired (server sends an value + 401 catchers); 
-fixed problems that Service Worker cached the HEAD requests to the server, 
-causing "local loop" (Service Worker would never know that there's new version, 
-until the cache will drop); fixed an issue that Service Worker may silently be 
-not loaded; fixed an issue with loop of the "status" fetches, developed from 
-the recent code changes; CDN now suppresses the peer connection drops to 
-one-liners, including better formatting of the cause "why it dropped"; fixed an 
-issue that StreamSaver may not be loaded, causing folders to be download 
-entirely into the RAM without any restrictions - added the catcher so if 
-StreamSaver will not be loaded by any reason, FluxDrop will catch the archives 
-that are bigger than 512MB, if it's loaded - work normally; fixed an issue that 
-on browser cancel of download, FluxDrop continues to download in background 
-invisibly; added ability to download the shared folders and view the folder's 
-size; other small changes like `README.md` formatting.***
+***text is pending***
 
-***Regressions: (from the past updates, will be moved to the ToDo soon) ZIP 
-download modal that shows the missing from archive files may not be 
-implemented due to code regression, checks are pending.***
+***Regressions: none***
 
-*Patch notes: **Removed the unnecessary ToDo list at the end of file;
-now the revisions will be pushed to the `dev` branch and then merged to the 
-`main` branch***
+*Patch notes: **First push to the `dev` branch was successfull;
+- Now ZIP is kinda resumable, needs testing;
+- Logs are, again, no longer dublicated for `server_http` and `server_https` 
+(and maybe `server_cdn`);
+- Now ZIPs are should be resumable;
+- If ZIP missing the files in the archive from the folder - the message should 
+be displayed to user now;
+- Share snippet now have ZIP download button not "new-lined"***
 
 ---
 

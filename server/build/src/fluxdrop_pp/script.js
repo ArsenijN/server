@@ -115,10 +115,13 @@ async function _fdHardReload() {
                 navigator.serviceWorker.controller.postMessage(
                     { type: 'SKIP_AND_CLEAR' }, [ch.port2]
                 );
+                // Safety timeout — reload even if SW doesn't respond
                 setTimeout(resolve, 800);
             });
         }
     } catch { /* non-fatal */ }
+    // Set a flag so the staleness check on the next page load knows this is
+    // a deliberate update-reload and skips the banner immediately.
     try { sessionStorage.setItem('fd_just_updated', '1'); } catch (_) {}
     location.reload();
 }
@@ -1420,10 +1423,8 @@ async function _runDownload(path, dl) {
     let lastLoaded = dl.bytesReceived;
     let lastTime   = Date.now();
 
-    // If the AbortController fires (Cancel button, etc.), cancel the reader
-    // immediately so the underlying fetch connection is torn down and the
-    // server stops streaming.  Without this the server keeps sending data
-    // even after the browser's download manager cancels the download.
+    // Wire abort → reader.cancel() so the underlying fetch connection closes
+    // when the browser's download manager cancels externally (not just our button).
     const abortHandler = () => { try { reader.cancel('aborted'); } catch (_) {} };
     dl._abort.signal.addEventListener('abort', abortHandler, { once: true });
 
@@ -1612,18 +1613,67 @@ window.cancelDownload = function(path) {
 
 // ── ZIP folder download — now also streaming ──────────────────────────────────
 window.downloadFolderZip = async function(path) {
-    const zipKey = '__zip__' + path;
+    const zipKey  = '__zip__' + path;
     if (activeDownloads.has(zipKey)) { renderDownloadTray(); return; }
 
-    const folderName = path.split('/').filter(Boolean).pop() || 'download';
-    const filename   = folderName + '.zip';
-    const zipUrl     = `${API_BASE_URL}/api/v1/zip${path.split('/').map(encodeURIComponent).join('/')}`;
-    const authHdr    = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    const authHdr = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    const buildUrl = `${API_BASE_URL}/api/v1/zip${path.split('/').map(encodeURIComponent).join('/')}`;
 
-    // Determine write mode — must eagerly load StreamSaver here because
-    // _streamSaverLoaded is only true after the first _runDownload file
-    // download.  On a fresh page load it's false, causing ZIP to silently
-    // fall back to blob mode (full RAM buffer) every time.
+    // Phase 1 — ask the server to build the ZIP.
+    // The server writes the archive to a temp file and returns:
+    //   { token, url, filename, size, ttl, missing[] }
+    // The download itself happens in phase 3 via _runDownload, which supports
+    // Range requests — so the browser can resume after a network drop without
+    // rebuilding the archive.
+    const dl = {
+        filename:      (path.split('/').filter(Boolean).pop() || 'download') + '.zip',
+        totalSize:     null,
+        bytesReceived: 0,
+        status:        'downloading',
+        speed:         null,
+        eta:           null,
+        error:         'Building archive\u2026',
+        _writer:       null,
+        _abort:        new AbortController(),
+        _resumeFrom:   0,
+        _chunks:       [],
+        _mode:         'blob',
+        _dlUrl:        null,
+        _path:         zipKey,
+        _isZip:        true,
+        _authHeader:   authHdr,
+    };
+    activeDownloads.set(zipKey, dl);
+    renderDownloadTray();
+
+    let buildResp;
+    try {
+        const resp = await fetchWithFallback(buildUrl, {
+            headers: authHdr,
+            signal:  dl._abort.signal,
+        });
+        buildResp = await resp.json();
+        if (!resp.ok) throw new Error(buildResp.error || `HTTP ${resp.status}`);
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            dl.status = dl._userCancelled ? 'cancelled' : 'paused';
+        } else {
+            dl.status = 'error';
+            dl.error  = err.message;
+        }
+        renderDownloadTray();
+        return;
+    }
+
+    // Show missing-files warning non-blocking in the download tray
+    dl.error     = (buildResp.missing && buildResp.missing.length > 0)
+        ? `\u26a0 ${buildResp.missing.length} file(s) skipped (unreadable)`
+        : null;
+    dl.filename  = buildResp.filename || dl.filename;
+    dl.totalSize = buildResp.size     || null;
+    dl._dlUrl    = `${API_BASE_URL}${buildResp.url}`;
+
+    // Phase 2 — determine write mode and open writer
     let mode = 'blob';
     if (_CAN_PICK) {
         mode = 'picker';
@@ -1631,256 +1681,44 @@ window.downloadFolderZip = async function(path) {
         try {
             await _loadStreamSaver();
             if (typeof streamSaver !== 'undefined') mode = 'streamsaver';
-        } catch (_) { /* stay blob */ }
+        } catch (_) {}
+    }
+    dl._mode = mode;
+
+    // Exact size known now — warn before any bytes transfer
+    if (mode === 'blob' && dl.totalSize > 512 * 1024 * 1024) {
+        const proceed = confirm(
+            '\u26a0 Your browser doesn\'t support streaming downloads to disk.\n\n' +
+            `This archive is ${formatBytes(dl.totalSize)} and will be buffered ` +
+            'entirely in RAM before saving \u2014 this may freeze or crash the tab.\n\n' +
+            'Use Chrome or Edge for large folders. Continue anyway?'
+        );
+        if (!proceed) { activeDownloads.delete(zipKey); renderDownloadTray(); return; }
     }
 
-    // Pre-flight size check for blob mode: query Content-Length before
-    // starting so we can warn the user if the folder exceeds the safe
-    // RAM-buffer limit (512 MB) — the late warning inside the stream loop
-    // comes too late to cancel without wasting bandwidth.
-    if (mode === 'blob') {
-        try {
-            const headResp = await fetchWithFallback(zipUrl, {
-                method: 'HEAD',
-                headers: authHdr,
-                signal:  AbortSignal.timeout(5000),
-            });
-            const cl = headResp.headers.get('Content-Length');
-            if (cl && parseInt(cl, 10) > 512 * 1024 * 1024) {
-                const proceed = confirm(
-                    `⚠ Your browser doesn't support streaming downloads to disk.\n\n` +
-                    `This folder is ${formatBytes(parseInt(cl, 10))} and will be buffered ` +
-                    `entirely in RAM before saving — this may freeze or crash the tab.\n\n` +
-                    `Use Chrome or Edge for large folders. Continue anyway?`
-                );
-                if (!proceed) return;
-            }
-        } catch (_) { /* HEAD failed — proceed without size check */ }
-    }
-
-    const dl = {
-        filename,
-        totalSize:     null,   // filled in once GET response headers arrive
-        bytesReceived: 0,
-        status:        'downloading',
-        speed:         null,
-        eta:           null,
-        error:         null,
-        _writer:       null,
-        _abort:        new AbortController(),
-        _resumeFrom:   0,
-        _chunks:       [],
-        _mode:         mode,
-        _dlUrl:        zipUrl,
-        _path:         zipKey,
-        _isZip:        true,
-        _authHeader:   authHdr,
-    };
-
-    activeDownloads.set(zipKey, dl);
-    renderDownloadTray();
-
-    // Open the save-file picker BEFORE the fetch so the user gesture is still
-    // in scope (browsers require showSaveFilePicker to be called synchronously
-    // within a user gesture; we're inside a click handler so this is fine).
-    if (dl._mode === 'picker') {
+    if (mode === 'picker') {
         try {
             const fh = await window.showSaveFilePicker({
-                suggestedName: filename,
+                suggestedName: dl.filename,
                 types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
             });
             dl._writer = await fh.createWritable({ keepExistingData: false });
         } catch (err) {
-            if (err.name === 'AbortError') {
-                // User cancelled the save dialog — clean up silently
-                activeDownloads.delete(zipKey);
-                renderDownloadTray();
-                return;
-            }
-            // Any other error (e.g. SecurityError on some browsers) → fall back to blob
-            dl._mode   = 'blob';
-            dl._writer = null;
-            logging_warn('showSaveFilePicker failed for ZIP, falling back to blob:', err);
+            if (err.name === 'AbortError') { activeDownloads.delete(zipKey); renderDownloadTray(); return; }
+            dl._mode = 'blob'; dl._writer = null;
         }
-    } else if (dl._mode === 'streamsaver') {
+    } else if (mode === 'streamsaver') {
         try {
-            const ws   = streamSaver.createWriteStream(filename);
+            const ws = streamSaver.createWriteStream(dl.filename, { size: dl.totalSize });
             dl._writer = ws.getWriter();
-        } catch (err) {
-            dl._mode   = 'blob';
-            dl._writer = null;
-        }
+        } catch (_) { dl._mode = 'blob'; dl._writer = null; }
     }
 
-    // Warn for blob mode on large folders (we don't know size yet, so warn at start)
-    if (dl._mode === 'blob') {
-        // We'll warn after we read Content-Length from the response if it's huge.
-        // Nothing to do here yet.
-    }
-
-    // ── Stream the ZIP ────────────────────────────────────────────────────
-    dl._abort = new AbortController();
-    renderDownloadTray();
-
-    try {
-
-    // Build request headers — support Range for resuming (ZIP endpoint has 206 support)
-    const zipHeaders = { ...authHdr };
-    if (dl._resumeFrom > 0) zipHeaders['Range'] = `bytes=${dl._resumeFrom}-`;
-
-    // ── Transient-error retry (same policy as _runDownload) ───────────────
-    let resp;
-    for (let attempt = 0; ; attempt++) {
-        try {
-            resp = await fetchWithFallback(dl._dlUrl, {
-                method:  'GET',
-                headers: zipHeaders,
-                signal:  dl._abort.signal,
-            });
-            break;
-        } catch (fetchErr) {
-            if (fetchErr.name === 'AbortError') throw fetchErr;
-            if (attempt >= 3) throw fetchErr;
-            const wait = 2000 * Math.pow(2, attempt);
-            dl.error = `Network error — retrying in ${Math.round(wait / 1000)}s… (${attempt + 1}/3)`;
-            renderDownloadTray();
-            await new Promise((resolve, reject) => {
-                const t = setTimeout(resolve, wait);
-                dl._abort.signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); });
-            });
-            dl.error = null;
-            renderDownloadTray();
-        }
-    }
-
-    if (!resp.ok && resp.status !== 206) {
-        const errBody = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
-        throw new Error(errBody.error || `HTTP ${resp.status}`);
-    }
-
-    // Read Content-Length / Content-Range — server pre-walks and sends before first byte.
-    const crZip = resp.headers.get('Content-Range');
-    if (crZip) {
-        const m = crZip.match(/bytes \d+-\d+\/(\d+)/);
-        if (m) dl.totalSize = parseInt(m[1]);
-    } else {
-        const cl = resp.headers.get('Content-Length');
-        if (cl) {
-            dl.totalSize = parseInt(cl, 10);
-            // Late blob-mode warning
-            if (dl._mode === 'blob' && dl.totalSize > 512 * 1024 * 1024) {
-                dl.error = `⚠ Large file (${formatBytes(dl.totalSize)}) buffered in RAM — consider Chrome/Edge`;
-                renderDownloadTray();
-                dl.error = null;
-            }
-        }
-    }
-    renderDownloadTray();
-
-    const reader = resp.body.getReader();
-    let lastLoaded = dl.bytesReceived;
-    let lastTime   = Date.now();
-
-    // Same as _runDownload: wire abort → reader.cancel() so the server stops
-    // streaming when the browser cancels the download externally.
-    const zipAbortHandler = () => { try { reader.cancel('aborted'); } catch (_) {} };
-    dl._abort.signal.addEventListener('abort', zipAbortHandler, { once: true });
-
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            if (dl._mode === 'blob') {
-                dl._chunks.push(value);
-            } else {
-                await dl._writer.write(value);
-            }
-
-            dl.bytesReceived  += value.byteLength;
-            dl._resumeFrom    += value.byteLength;
-
-            const now = Date.now(), dt = (now - lastTime) / 1000;
-            if (dt >= 0.4) {
-                dl.speed = (dl.bytesReceived - lastLoaded) / dt;
-                dl.eta   = (dl.speed > 0 && dl.totalSize)
-                    ? (dl.totalSize - dl.bytesReceived) / dl.speed
-                    : null;
-                lastLoaded = dl.bytesReceived;
-                lastTime   = now;
-            }
-            renderDownloadTray();
-        }
-    } catch (streamErr) {
-        // ── StreamSaver channel death (same as _runDownload) ─────────────
-        // ZIP cannot resume via Range after the browser drops the download
-        // because the new writer starts a new file from byte 0.
-        // Reset everything so Resume does a clean restart.
-        if (streamErr.name !== 'AbortError' &&
-            (streamErr.message?.includes('channel') ||
-             streamErr.message?.includes('port1')   ||
-             streamErr.message?.includes('port2'))) {
-            if (dl._writer) {
-                try { dl._writer.abort?.(); } catch (_) {}
-                dl._writer = null;
-            }
-            dl.status        = 'cancelled';
-            dl._resumeFrom   = 0;
-            dl.bytesReceived = 0;
-            dl.totalSize     = null;  // will re-read from Content-Length on restart
-            dl._chunks       = [];
-            dl.error = 'Browser dropped the download. Click Resume to start over.';
-            renderDownloadTray();
-            return;
-        }
-        throw streamErr;
-    } finally {
-        dl._abort.signal.removeEventListener('abort', zipAbortHandler);
-    }
-
-    // Finalise
-    if (dl._mode === 'blob') {
-        const blob = new Blob(dl._chunks, { type: 'application/zip' });
-        dl._chunks = [];
-        const a    = document.createElement('a');
-        a.href     = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
-    } else {
-        await dl._writer.close();
-        dl._writer = null;
-    }
-
-    dl.status = 'done';
-    dl.speed  = null;
-    dl.eta    = null;
-    const delay = getTrayDismissDelay();
-    if (delay > 0 && !dl._dismissScheduled) {
-        dl._dismissScheduled = true;
-        setTimeout(() => { activeDownloads.delete(zipKey); renderDownloadTray(); }, delay);
-    }
-    renderDownloadTray();
-
-} catch (err) {
-    if (err.name === 'AbortError') {
-        dl.status = dl._userCancelled ? 'cancelled' : 'paused';
-        if (dl._userCancelled) {
-            dl.error = 'Download cancelled.';
-            dl._userCancelled = false;
-        }
-    } else {
-        dl.status = 'error';
-        dl.error  = err.message;
-        if (dl._writer) {
-            try { await dl._writer.abort?.() ?? dl._writer.close(); } catch (_) {}
-            dl._writer = null;
-        }
-    }
-    renderDownloadTray();
-}
+    // Phase 3 — stream /api/v1/zip_dl/<token> with Range support
+    await _runDownload(zipKey, dl);
 };
 
+// Active downloads map
 // ── Tiny MIME helper ──────────────────────────────────────────────────────────
 function _mimeForExt(ext) {
     const m = {
@@ -5730,18 +5568,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            // Find the active FluxDrop cache dynamically — using the hardcoded
-            // 'fluxdrop-@@CACHE_VER@@' name only works if this exact script.js
-            // was built with the matching cache version.  When an old script.js
-            // runs after a deploy its cached @@CACHE_VER@@ is stale and it would
-            // open the wrong (already-deleted) cache and always find nothing.
-            const allKeys  = await caches.keys();
-            const cacheKey = allKeys.find(k => k.startsWith('fluxdrop-'));
-            if (!cacheKey) {
-                // No cache at all — SW not yet installed, skip check.
-                return;
-            }
-            const cache = await caches.open(cacheKey);
+            // Ask the cache what ETags/Last-Modified values it has stored
+            const cache = await caches.open('fluxdrop-@@CACHE_VER@@'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

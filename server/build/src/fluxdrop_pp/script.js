@@ -11,7 +11,7 @@ const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
 const SCRIPT_VERSION_RAW = '@@CACHE_VER@@'; // Replaced by your build script
-const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^fluxdrop-(v-)?/, '');
+const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
 // default to the same protocol in order to avoid mixed‑content issues when
@@ -5667,9 +5667,9 @@ function initFooter() {
 
     // Helper to generate the HTML
     const renderContent = (swVer) => `
-        <div>FluxDrop Preview Program</div>
-        <div>&copy; 2025 Arsenii Nochevnyi. <a href="/tos" style="color: #a0a0a0; text-decoration: underline;">TOS</a> | <a href="/privacy" style="color: #a0a0a0; text-decoration: underline;">Privacy Policy</a></div>
-        <div>Script v${SCRIPT_VERSION}, Service Worker v${swVer}</div>
+        <div>FluxDrop Preview Program | <a href="https://github.com/ArsenijN/server/" style="color: #a0a0a0; text-decoration: underline;">GitHub repo</a></div>
+        <div>&copy; 2025-2026 Arsenii Nochevnyi. <button onclick="showPolicyModal('tos')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
+        <div>Script v.${SCRIPT_VERSION}, Service Worker v.${swVer}</div>
     `;
 
     // Set initial state

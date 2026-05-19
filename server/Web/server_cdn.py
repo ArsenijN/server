@@ -202,29 +202,37 @@ SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
 # Path to the versions file — same directory as the policies folder
 _POLICY_VERSIONS_FILE = os.getenv('POLICY_VERSIONS_FILE', str(os.path.dirname(os.path.abspath(__file__)) + 'policies\\versions.json'))
 
-# ── Resumable ZIP token registry ──────────────────────────────────────────────
-# Maps uuid → {path: str, expires: float, filename: str}
-# The ZIP temp file lives at UPLOAD_TMP_DIR/zip_<uuid>.zip
-# Entries expire after ZIP_DL_TTL seconds of inactivity.
+# ── Resumable ZIP session registry ────────────────────────────────────────────
+# Maps session_id (uuid) → {
+#   'files':    [(abs_path, arcname_bytes, file_size, crc32, dos_time, dos_date,
+#                 lf_offset, data_offset, data_end, dd_end), ...],
+#   'cd_entries': [bytes, ...],   # pre-built central-directory entry bytes
+#   'total_size': int,            # exact Content-Length
+#   'filename':   str,
+#   'missing':    [str, ...],
+#   'expires':    float,
+#   'user_id':    str,
+# }
+# Sessions are built once (pre-walk + CRC32 scan) and stream directly to wire
+# on each GET.  Range requests seek into the virtual stream using the offset
+# table — no temp files, no /tmp usage.
 import uuid as _uuid_mod
-_zip_dl_tokens: dict = {}
-_zip_dl_lock = threading.Lock()
-ZIP_DL_TTL = int(os.getenv('ZIP_DL_TTL', str(15 * 60)))   # 15 minutes default
+_zip_sessions: dict = {}
+_zip_sessions_lock  = threading.Lock()
+ZIP_SESSION_TTL     = int(os.getenv('ZIP_SESSION_TTL', str(20 * 60)))   # 20 min
 
-def _zip_dl_cleanup():
-    """Background thread: remove expired zip temp files."""
+def _zip_sessions_cleanup():
     while True:
         time.sleep(60)
         now = time.time()
-        with _zip_dl_lock:
-            expired = [k for k, v in _zip_dl_tokens.items() if v['expires'] < now]
+        with _zip_sessions_lock:
+            expired = [k for k, v in _zip_sessions.items() if v['expires'] < now]
             for k in expired:
-                tmp = os.path.join(UPLOAD_TMP_DIR, f'zip_{k}.zip')
-                try: os.unlink(tmp)
-                except OSError: pass
-                del _zip_dl_tokens[k]
+                del _zip_sessions[k]
+        if expired:
+            logging.debug('ZIP sessions: evicted %d expired entries', len(expired))
 
-threading.Thread(target=_zip_dl_cleanup, daemon=True, name='ZipDlCleanup').start()
+threading.Thread(target=_zip_sessions_cleanup, daemon=True, name='ZipSessionCleanup').start()
 
 def _get_policy_versions() -> dict:
     try:
@@ -360,7 +368,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
     catbox_api_path = '/user/api.php'
     auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify)$')
     zip_pattern          = re.compile(r'^/api/(v[1-3])/zip(/.*)?$')
-    zip_dl_pattern       = re.compile(r'^/api/(v[1-3])/zip_dl/([0-9a-f\-]{36})$')
+    zip_meta_pattern     = re.compile(r'^/api/(v[1-3])/zip_meta(/.*)?$')
+    zip_stream_pattern   = re.compile(r'^/api/(v[1-3])/zip_stream/([0-9a-f\-]{36})$')
     foldersize_pattern   = re.compile(r'^/api/(v[1-3])/foldersize(/.*)?$')
     archive_tree_pattern = re.compile(r'^/api/(v[1-3])/archive_tree(/.*)?$')
     # Chunked resumable upload API:
@@ -1885,9 +1894,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _zip_m = self.zip_pattern.match(parsed_url.path)
         if _zip_m:
             return self._handle_zip(_zip_m.group(2) or '/')
-        _zip_dl_m = self.zip_dl_pattern.match(parsed_url.path)
-        if _zip_dl_m:
-            return self._handle_zip_dl(_zip_dl_m.group(2))
+        _zip_meta_m = self.zip_meta_pattern.match(parsed_url.path)
+        if _zip_meta_m:
+            return self._handle_zip_meta(_zip_meta_m.group(2) or '/')
+        _zip_stream_m = self.zip_stream_pattern.match(parsed_url.path)
+        if _zip_stream_m:
+            return self._handle_zip_stream(_zip_stream_m.group(2))
 
         # Archive file-tree listing (no full download — reads ZIP central dir only)
         _at_m = self.archive_tree_pattern.match(parsed_url.path)
@@ -2904,8 +2916,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         </td>
                         <td style="padding:8px 12px;color:#94a3b8">{mtime}</td>
                         <td style="padding:8px 12px">
-                            <a href="{zip_url}" download
-                               style="background:#0ea5e9;color:white;text-decoration:none;padding:3px 10px;border-radius:5px;font-size:12px">⬇ ZIP</a>
+                            <button onclick="startShareZip({repr(zip_url)})"
+                               style="background:#0ea5e9;color:white;border:none;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer">⬇ ZIP</button>
                         </td>
                     </tr>"""
                     # If we're viewing this directory or a parent of it, expand its children
@@ -3067,19 +3079,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
     # --- FluxDrop API Handlers ---
 
     def _handle_zip_share(self, base_fs: str, folder_name: str):
-        """Stream a ZIP of base_fs to the client.  Path already validated by caller."""
-        # Build a minimal fake match so we can reuse _handle_zip's inner logic.
-        # Simpler: just inline the same streaming call with the resolved path.
-        # We do this by temporarily monkeypatching _check_token_auth to return a
-        # sentinel so _handle_zip passes auth, then restoring it.  But that's
-        # fragile.  Instead, factor the core of _handle_zip into a static helper.
-        # For now: call _handle_zip with a CDN-style path trick isn't clean either.
-        # Cleanest: just duplicate the 10-line setup and delegate to the shared body.
-        # _handle_zip already accepts a path_segment — we'd need to bypass its auth.
-        # Easiest robust solution: set a short-lived flag.
+        """Build a ZIP session for base_fs (already validated by caller) and
+        return the JSON metadata so the client can stream/resume via zip_stream."""
         self._zip_share_override = base_fs
         try:
-            return self._handle_zip('/__share_override__')
+            return self._handle_zip_meta('/__share_override__')
         finally:
             self._zip_share_override = None
 
@@ -3388,172 +3392,404 @@ class AuthHandler(SimpleHTTPRequestHandler):
         folder_name  = os.path.basename(base_fs.rstrip('/')) or 'download'
         zip_filename = folder_name + '.zip'
 
-        # ── Write ZIP to a temp file (enables resumable Range downloads) ─────────
-        # Instead of streaming directly to the wire, we build the ZIP on disk first,
-        # then return a short-lived UUID token.  The client fetches
-        # /api/v1/zip_dl/<uuid> which serves the file with Accept-Ranges so any
-        # interrupted download can be resumed with a Range request.
-        tok      = str(_uuid_mod.uuid4())
-        tmp_path = os.path.join(UPLOAD_TMP_DIR, f'zip_{tok}.zip')
-        os.makedirs(UPLOAD_TMP_DIR, exist_ok=True)
+        # ── Send headers ─────────────────────────────────────────────────────────
+        try:
+            self.send_response(200)
+            self._send_cors_headers()
+            self.send_header('Content-Type', 'application/zip')
+            self.send_header('Content-Disposition', self._content_disposition(zip_filename))
+            self.send_header('Content-Length', str(total_cl))
+            if missing_files:
+                import urllib.parse as _up
+                self.send_header('X-Zip-Missing-Files',
+                                 _up.quote(json.dumps(missing_files), safe=''))
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            return
 
-        READ_BUF   = 2 * 1024 * 1024
-        offset     = 0
+        READ_BUF = 2 * 1024 * 1024
+        offset   = 0          # running byte offset (Python int, no overflow)
         cd_entries = []
-        actual_missing: list = []
 
-        def _write(data: bytes, fh):
+        def _write(data: bytes):
             nonlocal offset
-            fh.write(data)
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+                raise
             offset += len(data)
 
         try:
-            with open(tmp_path, 'wb') as fh:
-                for abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date in files_info:
-                    fn_len       = len(arcname_bytes)
-                    local_offset = offset
+            for abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date in files_info:
+                fn_len = len(arcname_bytes)
+                local_offset = offset   # record start of this entry
 
-                    z64_extra = _st.pack('<HH QQ', 0x0001, 16, file_size, file_size)
-                    lfh = _st.pack('<4sHHHHHIIIHH',
-                        LFH_SIG, 45, FLAG_DD, METHOD_STORED,
-                        dos_time, dos_date,
-                        0, UINT32_MAX, UINT32_MAX,
-                        fn_len, len(z64_extra),
-                    ) + arcname_bytes + z64_extra
-                    _write(lfh, fh)
+                # ── ZIP64 extra field for LFH ────────────────────────────────
+                z64_extra = _st.pack('<HH QQ',
+                    0x0001,          # tag = ZIP64
+                    16,              # size of following data
+                    file_size,       # uncompressed  (Q = uint64)
+                    file_size,       # compressed    (Q = uint64)
+                )
 
-                    crc = 0
-                    bytes_written = 0
-                    try:
-                        with open(abs_path, 'rb') as src_f:
-                            remaining = file_size
-                            while remaining > 0:
-                                chunk = src_f.read(min(READ_BUF, remaining))
-                                if not chunk:
-                                    break
-                                _write(chunk, fh)
-                                crc = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
-                                bytes_written += len(chunk)
-                                remaining -= len(chunk)
-                    except OSError:
-                        logging.warning(f'ZIP64: file vanished during build: {abs_path!r}')
-                        actual_missing.append(arcname)
-                    if bytes_written < file_size:
-                        pad = bytes(file_size - bytes_written)
-                        _write(pad, fh)
-                        crc = _zl.crc32(pad, crc) & 0xFFFF_FFFF
-                        bytes_written = file_size
+                # ── Local file header ────────────────────────────────────────
+                # Sizes in header = 0xFFFFFFFF signals "see ZIP64 extra field"
+                lfh = _st.pack('<4sHHHHHIIIHH',
+                    LFH_SIG,
+                    45,             # version needed: 4.5 (ZIP64)
+                    FLAG_DD,
+                    METHOD_STORED,
+                    dos_time, dos_date,
+                    0,              # CRC placeholder (real value in descriptor)
+                    UINT32_MAX,     # compressed   size → ZIP64
+                    UINT32_MAX,     # uncompressed size → ZIP64
+                    fn_len,
+                    len(z64_extra),
+                ) + arcname_bytes + z64_extra
+                _write(lfh)
 
-                    dd = _st.pack('<4s I QQ', DD_SIG, crc, bytes_written, bytes_written)
-                    _write(dd, fh)
+                # ── File data ────────────────────────────────────────────────
+                crc = 0
+                bytes_written = 0
+                try:
+                    with open(abs_path, 'rb') as f:
+                        remaining = file_size
+                        while remaining > 0:
+                            chunk = f.read(min(READ_BUF, remaining))
+                            if not chunk:
+                                break
+                            _write(chunk)
+                            crc = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
+                            bytes_written += len(chunk)
+                            remaining -= len(chunk)
+                except OSError:
+                    logging.warning(f'ZIP64: file vanished mid-stream: {abs_path!r} (arcname: {arcname!r})')
+                if bytes_written < file_size:
+                    pad = bytes(file_size - bytes_written)
+                    _write(pad)
+                    crc = _zl.crc32(pad, crc) & 0xFFFF_FFFF
+                    bytes_written = file_size
 
-                    z64_cdh_extra = _st.pack('<HH QQQ', 0x0001, 24,
-                        bytes_written, bytes_written, local_offset)
-                    cdh = _st.pack('<4sHHHHHHIIIHHHHHII',
-                        CDH_SIG, 45, 45, FLAG_DD, METHOD_STORED,
-                        dos_time, dos_date, crc,
-                        UINT32_MAX, UINT32_MAX,
-                        fn_len, len(z64_cdh_extra),
-                        0, 0, 0, 0, UINT32_MAX,
-                    ) + arcname_bytes + z64_cdh_extra
-                    cd_entries.append(cdh)
+                # ── ZIP64 data descriptor ────────────────────────────────────
+                dd = _st.pack('<4s I QQ',
+                    DD_SIG,
+                    crc,
+                    bytes_written,   # compressed   (Q)
+                    bytes_written,   # uncompressed (Q)
+                )
+                _write(dd)
 
-                cd_start      = offset
-                for cdh in cd_entries:
-                    _write(cdh, fh)
-                cd_end        = offset
-                cd_total_size = cd_end - cd_start
-                n_entries     = len(cd_entries)
+                # ── Central directory entry ──────────────────────────────────
+                # ZIP64 extra for CDH: uncompressed + compressed + local header offset
+                z64_cdh_extra = _st.pack('<HH QQQ',
+                    0x0001, 24,
+                    bytes_written,   # uncompressed
+                    bytes_written,   # compressed
+                    local_offset,    # local header offset (Q)
+                )
+                cdh = _st.pack('<4sHHHHHHIIIHHHHHII',
+                    CDH_SIG,
+                    45, 45,          # version made by / needed
+                    FLAG_DD,
+                    METHOD_STORED,
+                    dos_time, dos_date,
+                    crc,
+                    UINT32_MAX,      # compressed   → ZIP64
+                    UINT32_MAX,      # uncompressed → ZIP64
+                    fn_len,
+                    len(z64_cdh_extra),
+                    0,               # file comment
+                    0,               # disk start
+                    0,               # internal attr
+                    0,               # external attr
+                    UINT32_MAX,      # local header offset → ZIP64
+                ) + arcname_bytes + z64_cdh_extra
+                cd_entries.append(cdh)
 
-                zip64_eocd = _st.pack('<4s Q HHII QQ QQ',
-                    ZIP64_EOCD_SIG, 44, 45, 45, 0, 0,
-                    n_entries, n_entries, cd_total_size, cd_start)
-                _write(zip64_eocd, fh)
+            # ── Central directory ────────────────────────────────────────────────
+            cd_start = offset
+            for cdh in cd_entries:
+                _write(cdh)
+            cd_end = offset
+            cd_total_size = cd_end - cd_start
+            n_entries = len(cd_entries)
 
-                zip64_locator = _st.pack('<4s I Q I', ZIP64_EOCD_LOCATOR, 0, cd_end, 1)
-                _write(zip64_locator, fh)
+            # ── ZIP64 End of Central Directory record ────────────────────────────
+            # Size of zip64 EOCD record = total_size - 12 (sig + size field itself)
+            zip64_eocd = _st.pack('<4s Q HHII QQ QQ',
+                ZIP64_EOCD_SIG,
+                44,              # size of remaining record (= 56 - 12)
+                45,              # version made by
+                45,              # version needed
+                0,               # disk number
+                0,               # disk with CD
+                n_entries,       # entries on this disk  (Q)
+                n_entries,       # total entries         (Q)
+                cd_total_size,   # CD size               (Q)
+                cd_start,        # CD offset             (Q)
+            )
+            _write(zip64_eocd)
 
-                eocd = _st.pack('<4s HH HH II H',
-                    EOCD_SIG, 0, 0,
-                    min(n_entries, UINT16_MAX), min(n_entries, UINT16_MAX),
-                    min(cd_total_size, UINT32_MAX), min(cd_start, UINT32_MAX),
-                    0)
-                _write(eocd, fh)
+            # ── ZIP64 EOCD locator ───────────────────────────────────────────────
+            zip64_locator = _st.pack('<4s I Q I',
+                ZIP64_EOCD_LOCATOR,
+                0,               # disk with start of zip64 EOCD
+                cd_end,          # offset of zip64 EOCD record
+                1,               # total number of disks
+            )
+            _write(zip64_locator)
 
-        except Exception as e:
-            logging.error(f'ZIP64 build failed: {e}')
-            try: os.unlink(tmp_path)
-            except OSError: pass
-            return self._send_response(500, json.dumps({'error': 'Failed to build ZIP archive'}))
+            # ── Classic EOCD (required — points to ZIP64 structures) ────────────
+            eocd = _st.pack('<4s HH HH II H',
+                EOCD_SIG,
+                0, 0,            # disk / disk with CD
+                min(n_entries, UINT16_MAX),
+                min(n_entries, UINT16_MAX),
+                min(cd_total_size, UINT32_MAX),
+                min(cd_start,      UINT32_MAX),
+                0,               # comment length
+            )
+            _write(eocd)
 
-        # Register token so _handle_zip_dl can serve the file
-        all_missing = missing_files + actual_missing
-        with _zip_dl_lock:
-            _zip_dl_tokens[tok] = {
-                'path':     tmp_path,
-                'filename': zip_filename,
-                'size':     offset,
-                'expires':  time.time() + ZIP_DL_TTL,
-                'missing':  all_missing,
-                'user_id':  user_id,
-            }
+            try:
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+                pass
+
+            logging.info(
+                f'ZIP64 streamed: {zip_filename} '
+                f'({len(files_info)} files, {total_cl} bytes) user={user_id}'
+            )
+
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+            pass   # client disconnected mid-stream
+
+
+    def _handle_zip_meta(self, path_segment: str):
+        """GET /api/v1/zip_meta/<path>
+        Pre-walk the folder, compute CRC32 for every file, build the complete
+        ZIP offset table in memory, store as a session, return JSON metadata.
+        The client then streams /api/v1/zip_stream/<session_id> which supports
+        Range requests for resume without writing anything to disk.
+        """
+        import struct as _st
+        import zlib   as _zl
+
+        share_override = getattr(self, '_zip_share_override', None)
+        if share_override is not None:
+            base_fs = share_override
+            user_id = 'share'
+        else:
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+            relative_path = unquote(path_segment)
+            user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+            if relative_path.startswith('/cdn'):
+                cdn_rel = relative_path[len('/cdn'):]
+                base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
+                if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+                    return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
+            else:
+                base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
+                if not os.path.realpath(base_fs).startswith(user_root):
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+
+        if not os.path.isdir(base_fs):
+            return self._send_response(404, json.dumps({'error': 'Not a directory.'}))
+
+        LFH_SIG           = b'PK\x03\x04'
+        DD_SIG            = b'PK\x07\x08'
+        CDH_SIG           = b'PK\x01\x02'
+        EOCD_SIG          = b'PK\x05\x06'
+        ZIP64_EOCD_SIG    = b'PK\x06\x06'
+        ZIP64_EOCD_LOCATOR = b'PK\x06\x07'
+        FLAG_NONE     = 0x0000      # no data-descriptor — sizes/CRC in LFH
+        METHOD_STORED = 0
+        UINT32_MAX    = 0xFFFF_FFFF
+        UINT16_MAX    = 0xFFFF
+        Z64_LFH_EXTRA  = 20
+        Z64_CDH_EXTRA  = 28
+
+        # ── Pre-walk ─────────────────────────────────────────────────────────
+        raw_files = []
+        missing   = []
+        for dirpath, _dirs, filenames in os.walk(base_fs):
+            for fname in sorted(filenames):
+                if fname in ('.placeholder', '.create_marker'):
+                    continue
+                abs_path = os.path.join(dirpath, fname)
+                arcname  = os.path.relpath(abs_path, base_fs).replace(os.sep, '/')
+                try:
+                    st  = os.stat(abs_path)
+                    fsz = st.st_size
+                    import time as _time
+                    lt       = _time.localtime(st.st_mtime)
+                    dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
+                    dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
+                except OSError:
+                    missing.append(arcname)
+                    continue
+                raw_files.append((abs_path, arcname, arcname.encode('utf-8'), fsz, dos_time, dos_date))
+
+        # ── CRC32 pre-scan ───────────────────────────────────────────────────
+        # Read every file once to compute CRC32.  This lets us write the header
+        # WITHOUT a data-descriptor (FLAG_NONE), so the ZIP is fully seekable —
+        # a Range request can skip ahead to any file boundary without re-reading
+        # earlier files.  Memory cost: ~100 bytes per file for the metadata.
+        READ_BUF   = 2 * 1024 * 1024
+        scanned    = []
+        actual_missing = []
+        for abs_path, arcname, arcname_bytes, fsz, dos_time, dos_date in raw_files:
+            crc = 0
+            actual_size = 0
+            try:
+                with open(abs_path, 'rb') as fh:
+                    while True:
+                        chunk = fh.read(READ_BUF)
+                        if not chunk:
+                            break
+                        crc = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
+                        actual_size += len(chunk)
+            except OSError:
+                logging.warning('zip_meta: CRC scan failed for %r', abs_path)
+                actual_missing.append(arcname)
+                fsz = 0; crc = 0
+            # Use actual_size to guard against files that grew/shrank since stat
+            fsz = actual_size
+            scanned.append((abs_path, arcname, arcname_bytes, fsz, crc, dos_time, dos_date))
+
+        all_missing = missing + actual_missing
+
+        # ── Build offset table and pre-render LFH/CDH bytes ─────────────────
+        # With CRC32 and sizes known, headers are complete — no data-descriptor.
+        offset = 0
+        files_built = []   # (abs_path, arcname_bytes, fsz, lf_offset, data_offset, cdh_bytes)
+        for abs_path, arcname, arcname_bytes, fsz, crc, dos_time, dos_date in scanned:
+            fn_len      = len(arcname_bytes)
+            lf_offset   = offset
+
+            # LFH ZIP64 extra: known sizes, no placeholder
+            z64_lfh = _st.pack('<HH QQ', 0x0001, 16, fsz, fsz)
+            lfh = _st.pack('<4sHHHHHIIIHH',
+                LFH_SIG, 45, FLAG_NONE, METHOD_STORED,
+                dos_time, dos_date,
+                crc, UINT32_MAX, UINT32_MAX,
+                fn_len, len(z64_lfh),
+            ) + arcname_bytes + z64_lfh
+            offset += len(lfh)
+            data_offset = offset
+            offset += fsz     # no data descriptor
+
+            # CDH entry (built now, written after all file data)
+            z64_cdh = _st.pack('<HH QQQ', 0x0001, 24, fsz, fsz, lf_offset)
+            cdh = _st.pack('<4sHHHHHHIIIHHHHHII',
+                CDH_SIG, 45, 45, FLAG_NONE, METHOD_STORED,
+                dos_time, dos_date, crc,
+                UINT32_MAX, UINT32_MAX,
+                fn_len, len(z64_cdh),
+                0, 0, 0, 0, UINT32_MAX,
+            ) + arcname_bytes + z64_cdh
+
+            files_built.append({
+                'abs_path':    abs_path,
+                'arcname_bytes': arcname_bytes,
+                'size':        fsz,
+                'crc':         crc,
+                'lf_offset':   lf_offset,
+                'data_offset': data_offset,
+                'lfh':         lfh,
+                'cdh':         cdh,
+            })
+
+        # Central directory
+        cd_start = offset
+        cd_bytes = b''.join(e['cdh'] for e in files_built)
+        offset  += len(cd_bytes)
+        cd_size  = len(cd_bytes)
+        n        = len(files_built)
+
+        zip64_eocd = _st.pack('<4s Q HHII QQ QQ',
+            ZIP64_EOCD_SIG, 44, 45, 45, 0, 0, n, n, cd_size, cd_start)
+        zip64_loc  = _st.pack('<4s I Q I', ZIP64_EOCD_LOCATOR, 0, offset, 1)
+        offset    += len(zip64_eocd) + len(zip64_loc)
+        eocd       = _st.pack('<4s HH HH II H',
+            EOCD_SIG, 0, 0,
+            min(n, UINT16_MAX), min(n, UINT16_MAX),
+            min(cd_size, UINT32_MAX), min(cd_start, UINT32_MAX), 0)
+        offset    += len(eocd)
+
+        total_size = offset
+
+        folder_name = os.path.basename(base_fs.rstrip('/')) or 'download'
+        filename    = folder_name + '.zip'
+        session_id  = str(_uuid_mod.uuid4())
+
+        session = {
+            'files':       files_built,
+            'cd_bytes':    cd_bytes,
+            'zip64_eocd':  zip64_eocd,
+            'zip64_loc':   zip64_loc,
+            'eocd':        eocd,
+            'cd_start':    cd_start,
+            'total_size':  total_size,
+            'filename':    filename,
+            'missing':     all_missing,
+            'expires':     time.time() + ZIP_SESSION_TTL,
+            'user_id':     user_id,
+        }
+        with _zip_sessions_lock:
+            _zip_sessions[session_id] = session
 
         logging.info(
-            f'ZIP64 prepared: {zip_filename} '
-            f'({len(files_info)} files, {offset} bytes, '
-            f'{len(all_missing)} missing) user={user_id} token={tok[:8]}…'
+            'zip_meta: %s — %d files, %d bytes, %d missing, session=%s…',
+            filename, len(files_built), total_size, len(all_missing), session_id[:8]
         )
         return self._send_response(200, json.dumps({
-            'token':    tok,
-            'filename': zip_filename,
-            'size':     offset,
-            'ttl':      ZIP_DL_TTL,
-            'missing':  all_missing,
-            'url':      f'/api/v1/zip_dl/{tok}',
+            'session_id': session_id,
+            'filename':   filename,
+            'size':       total_size,
+            'ttl':        ZIP_SESSION_TTL,
+            'missing':    all_missing,
+            'url':        f'/api/v1/zip_stream/{session_id}',
         }))
 
-    def _handle_zip_dl(self, token: str):
-        """GET /api/v1/zip_dl/<uuid> — serve a pre-built ZIP temp file with Range support.
-
-        The token was issued by _handle_zip.  The file is served with
-        Accept-Ranges: bytes so the browser / download manager can resume a
-        partial download after a network drop without re-building the archive.
-        The token expires after ZIP_DL_TTL seconds (default 15 min) and the
-        temp file is deleted by the background cleanup thread.
+    def _handle_zip_stream(self, session_id: str):
+        """GET /api/v1/zip_stream/<session_id>[  Range: bytes=N-M ]
+        Streams the ZIP using the pre-built session.  Supports Range requests
+        so interrupted downloads can resume without rebuilding the archive.
+        No data is written to disk — everything streams directly to the wire.
         """
-        with _zip_dl_lock:
-            entry = _zip_dl_tokens.get(token)
+        with _zip_sessions_lock:
+            session = _zip_sessions.get(session_id)
 
-        if not entry:
-            return self._send_response(404, json.dumps({'error': 'ZIP token not found or expired'}))
+        if not session:
+            return self._send_response(404, json.dumps({'error': 'ZIP session not found or expired'}))
 
-        # Refresh expiry on access so an active download doesn't time out
-        with _zip_dl_lock:
-            if token in _zip_dl_tokens:
-                _zip_dl_tokens[token]['expires'] = time.time() + ZIP_DL_TTL
+        # Refresh expiry on access
+        with _zip_sessions_lock:
+            if session_id in _zip_sessions:
+                _zip_sessions[session_id]['expires'] = time.time() + ZIP_SESSION_TTL
 
-        tmp_path  = entry['path']
-        filename  = entry['filename']
-        file_size = entry['size']
-
-        if not os.path.exists(tmp_path):
-            return self._send_response(410, json.dumps({'error': 'ZIP file no longer available'}))
+        total_size = session['total_size']
+        filename   = session['filename']
 
         # Parse Range header
-        range_header = self.headers.get('Range', '')
-        start, end = 0, file_size - 1
+        range_hdr = self.headers.get('Range', '')
+        req_start, req_end = 0, total_size - 1
         status = 200
-        if range_header.startswith('bytes='):
+        if range_hdr.startswith('bytes='):
             try:
-                parts = range_header[6:].split('-')
-                start = int(parts[0]) if parts[0] else 0
-                end   = int(parts[1]) if parts[1] else file_size - 1
-                end   = min(end, file_size - 1)
-                status = 206
+                parts     = range_hdr[6:].split('-')
+                req_start = int(parts[0]) if parts[0] else 0
+                req_end   = int(parts[1]) if len(parts) > 1 and parts[1] else total_size - 1
+                req_end   = min(req_end, total_size - 1)
+                status    = 206
             except (ValueError, IndexError):
                 pass
 
-        length = end - start + 1
+        length = req_end - req_start + 1
+
         try:
             self.send_response(status)
             self._send_cors_headers()
@@ -3562,24 +3798,99 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Length', str(length))
             self.send_header('Accept-Ranges', 'bytes')
             if status == 206:
-                self.send_header('Content-Range', f'bytes {start}-{end}/{file_size}')
+                self.send_header('Content-Range', f'bytes {req_start}-{req_end}/{total_size}')
             self.end_headers()
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            return
 
-            with open(tmp_path, 'rb') as fh:
-                fh.seek(start)
-                remaining = length
-                while remaining > 0:
-                    chunk = fh.read(min(2 * 1024 * 1024, remaining))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    remaining -= len(chunk)
-            self.wfile.flush()
+        READ_BUF    = 2 * 1024 * 1024
+        pos         = 0      # current position in the virtual ZIP stream
+        remaining   = length # bytes left to send
+
+        def _send_slice(data: bytes) -> bool:
+            """Send the portion of data that overlaps [req_start, req_end].
+            Returns False if the client disconnected."""
+            nonlocal pos, remaining
+            if remaining <= 0:
+                pos += len(data)
+                return True
+            data_start = pos
+            data_end   = pos + len(data)
+            pos       += len(data)
+            # Overlap with [req_start, req_end]?
+            ol_start = max(data_start, req_start)
+            ol_end   = min(data_end,   req_end + 1)
+            if ol_start >= ol_end:
+                return True
+            chunk = data[ol_start - data_start : ol_end - data_start]
+            try:
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+                return True
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+                return False
+
+        try:
+            # Stream each file entry
+            for entry in session['files']:
+                lf_offset   = entry['lf_offset']
+                data_offset = entry['data_offset']
+                fsz         = entry['size']
+                file_end    = data_offset + fsz
+
+                # Skip entries entirely before req_start
+                if file_end + 30 < req_start:
+                    pos = file_end
+                    continue
+
+                # LFH
+                if not _send_slice(entry['lfh']):
+                    return
+
+                # File data — seek into the correct file position if resuming
+                if fsz > 0:
+                    skip_in_file = max(0, req_start - data_offset)
+                    try:
+                        with open(entry['abs_path'], 'rb') as fh:
+                            if skip_in_file:
+                                fh.seek(skip_in_file)
+                            bytes_sent = 0
+                            while bytes_sent < fsz - skip_in_file:
+                                chunk = fh.read(min(READ_BUF, fsz - skip_in_file - bytes_sent))
+                                if not chunk:
+                                    break
+                                if not _send_slice(chunk):
+                                    return
+                                bytes_sent += len(chunk)
+                    except OSError:
+                        # File disappeared — send zeros to keep the stream length correct
+                        # (CRC mismatch will alert the unzip tool, but the stream stays intact)
+                        logging.warning('zip_stream: file vanished during send: %r', entry['abs_path'])
+                        zeros_remaining = fsz - skip_in_file
+                        while zeros_remaining > 0:
+                            chunk = bytes(min(READ_BUF, zeros_remaining))
+                            if not _send_slice(chunk):
+                                return
+                            zeros_remaining -= len(chunk)
+
+                if remaining <= 0:
+                    break
+
+            # Central directory + EOCD
+            for data in (session['cd_bytes'], session['zip64_eocd'],
+                         session['zip64_loc'], session['eocd']):
+                if not _send_slice(data):
+                    return
+
+            try:
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
+                pass
+
         except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError) as _disc:
-            logging.debug('ZIP dl: client disconnected (%s)', _disc)
-        except Exception as e:
-            logging.error(f'ZIP dl error: {e}')
+            logging.debug('zip_stream: client disconnected (%s)', _disc)
 
+    # --- Lazy folder size ---
     # --- Lazy folder size ---
 
     def _handle_foldersize(self, path_segment: str):

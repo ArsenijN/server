@@ -27,6 +27,8 @@ upload (anyone or only FluxDrop users)
 - [ ] Trash bin folder preview
 
 ### UX
+- [ ] Add Welcome screen for new users that will explain (almost) everything 
+about FluxDrop
 - [ ] Upload can fail on slow internet, causing unability to upload the files 
 to server
 - [ ] Add fix for the timed out chunks causing full file reupload from the part 
@@ -48,11 +50,7 @@ ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
 (browser keeps downloading again fully instead of attempt to resume)
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items -- made for status page, later for 
-- [ ] Add server ability to push the additional data before client will request 
-them (pre-caching; like folder structures, quota, file properties, download 
-tokens (pre-generate the download tokens for files to fasten up the ping 
-issues (aka preview tokens), or resolve the issues that FluxDrop is very 
-unstable in bad internet areas) or something else)
+FluxDrop file manager
 - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
 will display what files takes the most, where and what)
 - [ ] Fix issues with resuming the download (in FluxDrop file manager at least)
@@ -148,6 +146,11 @@ that happens and after what
 
 
 #### Low:
+- [ ] Add server ability to push the additional data before client will request 
+them (pre-caching; like folder structures, quota, file properties, download 
+tokens (pre-generate the download tokens for files to fasten up the ping 
+issues (aka preview tokens), or resolve the issues that FluxDrop is very 
+unstable in bad internet areas) or something else)
 - [ ] Fix 206 not working in trash bin preview
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 

@@ -1,4 +1,4 @@
-# server `v0.17.2.2`
+# server `v0.17.2.3`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -10,14 +10,11 @@ Just backend code of my server, nothing else, anyone can use it
 
 ***Regressions: none***
 
-*Patch notes: **First push to the `dev` branch was successfull;
-- Now ZIP is kinda resumable, needs testing;
-- Logs are, again, no longer dublicated for `server_http` and `server_https` 
-(and maybe `server_cdn`);
-- Now ZIPs are should be resumable;
-- If ZIP missing the files in the archive from the folder - the message should 
-be displayed to user now;
-- Share snippet now have ZIP download button not "new-lined"***
+*Patch notes: **Fixing the streamed ZIP implementation because new one killed 
+the whole purpose of streaming (by making a local archive and then streaming 
+it);
+FluxDrop UI is broken in ZIP streaming, but it works for shared folders;
+CRC 32 are now saved for each file..?***
 
 ---
 

@@ -26,8 +26,8 @@
         {expiry_badge}
       </div>
       <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow:hidden">
-        <a href="{current_zip_url}" download
-           style="flex-shrink:0;background:#0ea5e9;color:white;text-decoration:none;padding:5px 12px;border-radius:7px;font-size:13px;font-weight:600;white-space:nowrap">⬇ ZIP</a>
+        <button onclick="startShareZip('{current_zip_url}')"
+           style="flex-shrink:0;background:#0ea5e9;color:white;border:none;padding:5px 12px;border-radius:7px;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer">⬇ ZIP</button>
         <span id="current-folder-size" style="font-size:12px;color:#94a3b8;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
               onclick="loadShareFolderSize(this, '{current_size_url}')">📦 Load folder size</span>
       </div>
@@ -117,6 +117,35 @@ function closeSharePreview() {
   document.removeEventListener('keydown', _spKeyHandler);
 }
 function _spKeyHandler(e) { if (e.key === 'Escape') closeSharePreview(); }
+
+async function startShareZip(metaUrl) {
+  // Phase 1: ask server to pre-scan folder and build session (no temp file).
+  const btn = event && event.currentTarget;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Building…'; }
+  try {
+    const r    = await fetch(metaUrl);
+    const meta = await r.json();
+    if (!r.ok) throw new Error(meta.error || 'Failed to prepare ZIP');
+    if (meta.missing && meta.missing.length > 0) {
+      console.warn('ZIP: ' + meta.missing.length + ' file(s) skipped:', meta.missing);
+    }
+    // Phase 2: trigger browser download from the stream endpoint.
+    // Using an <a> + click gives the browser its normal Save-As / resume UI.
+    const a = document.createElement('a');
+    a.href     = meta.url;
+    a.download = meta.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (meta.missing && meta.missing.length > 0) {
+      alert('\u26a0 ' + meta.missing.length + ' file(s) could not be read and were skipped from the archive.');
+    }
+  } catch(e) {
+    alert('ZIP failed: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '\u2b07 ZIP'; }
+  }
+}
 
 async function loadShareFolderSize(el, url) {
   el.textContent = '⏳ Loading…';

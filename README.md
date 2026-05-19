@@ -1,4 +1,4 @@
-# server `v0.17.2.6`
+# server `v0.17.2.7`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -35,8 +35,10 @@ and untracked files will be triggered automatically at time period of 23:00 to
 
 *Patch notes: **~~Fixed an issue that UI didn't show the explanatory of why the 
 preparation time is so long (I mean it says just "downloading", nothing more);~~
-Slight changes in the footer;
-Policies update***
+Footer no longer on top of anything (z-index are 0 from 9999), maybe would be 
+changed so it will not appear over the download tray but will over the dark 
+background of some of the modals;
+Added a few TODO entries***
 
 ---
 

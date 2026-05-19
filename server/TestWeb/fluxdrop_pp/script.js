@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-cb75f645
+// Current version of script.js is: fluxdrop-v-f9f7f088
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-cb75f645'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-f9f7f088'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -5584,7 +5584,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-cb75f645'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-f9f7f088'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {
@@ -5660,7 +5660,7 @@ function initFooter() {
         fontFamily: 'sans-serif',
         fontWeight: '300',
         textAlign: 'right',
-        zIndex: '9999',
+        zIndex: '0',
         pointerEvents: 'auto',
         lineHeight: '1.4'
     });
@@ -5668,7 +5668,7 @@ function initFooter() {
     // Helper to generate the HTML
     const renderContent = (swVer) => `
         <div>FluxDrop Preview Program | <a href="https://github.com/ArsenijN/server/" style="color: #a0a0a0; text-decoration: underline;">GitHub repo</a></div>
-        <div>&copy; 2025-2026 Arsenii Nochevnyi. <button onclick="showPolicyModal('tos')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
+        <div>&copy; 2025-2026 by Arsenii Nochevnyi. <button onclick="showPolicyModal('tos')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
         <div>Script v.${SCRIPT_VERSION}, Service Worker v.${swVer}</div>
     `;
 

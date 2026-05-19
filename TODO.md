@@ -8,8 +8,7 @@ user feedback or ideas for future development.
 ## Items that are pending for implementations:
 
 ### Important without category
-- [ ] ServiceWorker updater are still works not as intended (at least if 
-browser have more than 1 tab with FluxDrop opened)
+- [ ] Do not allow user to exit the tab when uploading (simple thing)
 
 ### UI
 - [ ] i18n support (language changes)
@@ -31,9 +30,10 @@ upload (anyone or only FluxDrop users)
 - [ ] Trash bin folder preview
 
 ### UX
-- [ ] Add small text at the bottom of the screen (most right) with current 
-FluxDrop version; make versioning system the same as the current with server 
-(like v0.17.2.4)
+- [ ] Add ability to disallow with the terms, following by the message about 
+need in the acceptance and logging out the user
+- [ ] Footer versioning: make versioning system the same as the current with 
+server (like v0.17.2.4)
 - [ ] Add Welcome screen for new users that will explain (almost) everything 
 about FluxDrop
 - [ ] Upload can fail on slow internet, causing unability to upload the files 
@@ -151,7 +151,6 @@ now I can't replicate it so I don't know why and I can't give any clues when
 that happens and after what
 
 
-
 #### Low:
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching; like folder structures, quota, file properties, download 
@@ -171,7 +170,8 @@ bandwidth and resolution)
 - [ ] Delete "CDN" path as it serves no purpose and doesn't work (line 5718 in 
 `server_cdn.py`). Seems like it was made to make "shared" folder for any user 
 of FluxDrop, but true usage is unknown since it's seems like undocumented and 
-was introduced in one of the edit sessions without need to be made
+was introduced in one of the edit sessions without need to be made -- in the 
+Terms and Policy, the same CDN may be mentioned
 - [ ] Migration to other host platform for HTTP and HTTPS efficiency and 
 optimizations (Python; go to gunicorn or something else) - WIP
 - [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper 
@@ -194,4 +194,7 @@ https) -- needs CDN migration to regular HTTP/HTTPS ports or single port to fix
 ---
 
 ## Done items that are pending for removal:
-
+- [x] Add small text at the bottom of the screen (most right) with current 
+FluxDrop version
+- [x] ServiceWorker updater are still works not as intended (at least if 
+browser have more than 1 tab with FluxDrop opened) -- fixed at ~V0.17.2.6

@@ -3694,8 +3694,17 @@ async function uploadChunked(file, destRel, opts = {}) {
     return await completeRes.json();
 }
 
+function windowLock() {
+    // Cancel the event as per the standard.
+    event.preventDefault();
+    // Included for legacy support and specific browser requirements (e.g., Chrome)
+    event.returnValue = '';
+}
+
 async function handleUploadForm(e) {
     e.preventDefault();
+    window.addEventListener('beforeunload', windowLock);
+
     const fileInput = document.getElementById('upload-file');
     if (!fileInput.files.length) { showMessage('Upload', 'No file selected'); return; }
     const files = Array.from(fileInput.files);
@@ -3735,6 +3744,7 @@ async function handleUploadForm(e) {
             _hideUploadSpinner();
             _notifyUploadDone(1);   // P10
             showMessage('Upload successful', `${items[0].file.name} uploaded successfully.`);
+            window.removeEventListener('beforeunload', windowLock);
             loadDirectory(currentPath);
         } catch (err) {
             _hideUploadSpinner();
@@ -3769,6 +3779,7 @@ async function handleUploadForm(e) {
                 } catch (err) {
                     if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
                         showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
+                        window.removeEventListener('beforeunload', windowLock);
                     }
                 }
                 // Next from queue
@@ -3779,6 +3790,7 @@ async function handleUploadForm(e) {
                     item = null;
                     _notifyUploadDone(_lastUploadBatchCount);   // P10
                     _lastUploadBatchCount = 0;                  // P10: reset for next batch
+                    window.removeEventListener('beforeunload', windowLock);
                 }
             }
         }

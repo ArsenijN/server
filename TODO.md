@@ -7,8 +7,9 @@ user feedback or ideas for future development.
 
 ## Items that are pending for implementations:
 
-### Important without category
-- [ ] Do not allow user to exit the tab when uploading (simple thing)
+### Important without category (critical before release)
+- [ ] Folder upload doesn't utilize the new file strategy, leading to the 
+`/tmp` dir exaustion. Needs immediate fixes before next release
 
 ### UI
 - [ ] i18n support (language changes)
@@ -194,7 +195,4 @@ https) -- needs CDN migration to regular HTTP/HTTPS ports or single port to fix
 ---
 
 ## Done items that are pending for removal:
-- [x] Add small text at the bottom of the screen (most right) with current 
-FluxDrop version
-- [x] ServiceWorker updater are still works not as intended (at least if 
-browser have more than 1 tab with FluxDrop opened) -- fixed at ~V0.17.2.6
+- [x] Do not allow user to exit the tab when uploading (simple thing)

@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-f9f7f088
+// Current version of script.js is: fluxdrop-v-fd1e9b8d
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-f9f7f088'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-fd1e9b8d'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -3694,8 +3694,17 @@ async function uploadChunked(file, destRel, opts = {}) {
     return await completeRes.json();
 }
 
+function windowLock() {
+    // Cancel the event as per the standard.
+    event.preventDefault();
+    // Included for legacy support and specific browser requirements (e.g., Chrome)
+    event.returnValue = '';
+}
+
 async function handleUploadForm(e) {
     e.preventDefault();
+    window.addEventListener('beforeunload', windowLock);
+
     const fileInput = document.getElementById('upload-file');
     if (!fileInput.files.length) { showMessage('Upload', 'No file selected'); return; }
     const files = Array.from(fileInput.files);
@@ -3735,6 +3744,7 @@ async function handleUploadForm(e) {
             _hideUploadSpinner();
             _notifyUploadDone(1);   // P10
             showMessage('Upload successful', `${items[0].file.name} uploaded successfully.`);
+            window.removeEventListener('beforeunload', windowLock);
             loadDirectory(currentPath);
         } catch (err) {
             _hideUploadSpinner();
@@ -3769,6 +3779,7 @@ async function handleUploadForm(e) {
                 } catch (err) {
                     if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
                         showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
+                        window.removeEventListener('beforeunload', windowLock);
                     }
                 }
                 // Next from queue
@@ -3779,6 +3790,7 @@ async function handleUploadForm(e) {
                     item = null;
                     _notifyUploadDone(_lastUploadBatchCount);   // P10
                     _lastUploadBatchCount = 0;                  // P10: reset for next batch
+                    window.removeEventListener('beforeunload', windowLock);
                 }
             }
         }
@@ -5584,7 +5596,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-f9f7f088'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-fd1e9b8d'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

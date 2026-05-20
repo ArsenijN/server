@@ -9,7 +9,7 @@ user feedback or ideas for future development.
 
 ### Important without category (critical before release)
 - [ ] Folder upload doesn't utilize the new file strategy, leading to the 
-`/tmp` dir exaustion. Needs immediate fixes before next release
+`/tmp` dir exaustion on server. Needs immediate fixes before next release
 
 ### UI
 - [ ] i18n support (language changes)
@@ -31,6 +31,7 @@ upload (anyone or only FluxDrop users)
 - [ ] Trash bin folder preview
 
 ### UX
+- [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
 - [ ] Add ability to disallow with the terms, following by the message about 
 need in the acceptance and logging out the user
 - [ ] Footer versioning: make versioning system the same as the current with 
@@ -41,19 +42,17 @@ about FluxDrop
 to server
 - [ ] Add fix for the timed out chunks causing full file reupload from the part 
 where it's failed instead of pushing only the unloaded/wrong part of the file 
-(aka reduce very large internet overhead)
+(aka reduce very large internet overhead) -- immediatelly on error, not need in 
+the page reload to bring that
 - [ ] FluxDrop didn't stop the background download of ZIP if " 🚫 
 shareables.zip 0 B / ? Browser dropped the download. Click Resume to start 
 over." -- still there at V0.17.2.3
-- [ ] Pre-load StreamSaver for ZIP downloads since otherwize FluxDrop didn't 
-try to stop downloading 60GB folder into the RAM
 - [ ] Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
 main file manager UI)
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
  or at least the N times
-- [ ] StreamSaver and browser can get out-of-sync
 - [ ] Fix StreamSaver doesn't utilize full power of the download resuming 
 (browser keeps downloading again fully instead of attempt to resume)
 - [ ] Make caching or optimize the quota size counting for reducing the time 
@@ -63,9 +62,9 @@ FluxDrop file manager
 will display what files takes the most, where and what)
 - [ ] Fix issues with resuming the download (in FluxDrop file manager at least)
 - [ ] Make download work as chunk-based in FluxDrop UI, keeping the regular 
-octet-stream for legacy usage
+octet-stream for legacy usage -- or just resumable
 - [ ] Add self-resume on network switch (offline handler shows and hides, but 
-download doesn't continue)
+download doesn't continue successfully)
 - [ ] Add file picker to file browser (checkbox-styled or as "click on the 
 `border-t` to select one)
   - [ ] Add ability to use regular keyboard shortcuts (shift for multiple file 
@@ -88,8 +87,7 @@ also, bring the label to the static part so it will not scroll
 - [ ] Add ability to preload the JPEG previews and for other files (contribute 
 to the background media scan via FFmpeg)
 - [ ] Check why HEIF files are slow to decode (on client, it takes ~5 seconds 
-even on i5 10400)
-- [ ] Add folder downloads and size to the `share` snippet
+on i5 8350U)
 - [ ] Auto negotiation for upload type (folder or file)
 - [ ] Add dark theme switch, or at least make addons work properly and test 
 them
@@ -143,7 +141,8 @@ outage
 - [ ] Fix archive streaming may fail at ~6 GB of streamed files (including few 
 20+ GB in the streamed archive folder) -- should be already fixed by ZIP64, 
 needs checks
-- [ ] Ensure that CatBox API have file size limits
+- [x] Ensure that CatBox API have file size limits -- should have
+- [ ] Check the CatBox API file size limit
 
 
 #### Medium:
@@ -195,4 +194,7 @@ https) -- needs CDN migration to regular HTTP/HTTPS ports or single port to fix
 ---
 
 ## Done items that are pending for removal:
-- [x] Do not allow user to exit the tab when uploading (simple thing)
+- [x] Pre-load StreamSaver for ZIP downloads since otherwize FluxDrop didn't 
+try to stop downloading 60GB folder into the RAM -- fixed already?
+- [x] StreamSaver and browser can get out-of-sync -- already fixed?
+- [x] Add folder downloads and size to the `share` snippet

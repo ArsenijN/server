@@ -1,4 +1,4 @@
-# server `v0.17.2.8`
+# server `v0.17.2.9`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -28,7 +28,7 @@ message)***
 FluxDrop users in their file manager***
 - ***Now browser will kindly asks you if you really want to exit the tab when 
 you upload the files to FluxDrop! No more "Ahh, I accidentally closed the 
-tab((" because you are safe!***
+tab((" because you are safe from that to happen!***
 
 ***Important note: the background media hashing activity for any remaining, old 
 and untracked files will be triggered automatically at time period of 23:00 to 
@@ -39,8 +39,8 @@ and untracked files will be triggered automatically at time period of 23:00 to
 *Patch notes: **~~Fixed an issue that UI didn't show the explanatory of why the 
 preparation time is so long (I mean that it said just "downloading", nothing 
 more);~~
-Added an important TODO entry that will be implemented before release, one of 
-them are implemented (seems like to be) successfully***
+~~New features arrival;~~
+Slight changes in the readme and todo***
 
 ---
 

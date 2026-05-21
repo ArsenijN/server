@@ -9,9 +9,12 @@ user feedback or ideas for future development.
 
 ### Important without category (critical before release)
 - [ ] Folder upload doesn't utilize the new file strategy, leading to the 
-`/tmp` dir exaustion on server. Needs immediate fixes before next release
+`/tmp` dir exaustion on server. Needs immediate fixes before next release 
+-- only the first file is affected
 - [ ] Fix problems with the Quad9 pings "failing" and firing the external 
 outage -- critical issue before big release
+- [ ] Folders and files downloaded as ZIP contain gibberish if the filename is 
+non-latin -- are this issue existed before, or it appeared recently?
 
 ### UI
 - [ ] i18n support (language changes)

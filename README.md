@@ -1,4 +1,4 @@
-# server `v0.17.2.15`
+# server `v0.17.2.16`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -48,8 +48,7 @@ old and untracked files will be triggered automatically at time period of
 keeping the "resumability" of the archive's download by browser or external 
 download tool (seems to be like) this;
 This patch missing the actual code changes because they're pending;
-Fixed the upload problem, but again, I'll not mention since that issue came 
-inside the dev branch and not the public one***
+Find another problem with the downloading folder and it's content as ZIP***
 
 ---
 

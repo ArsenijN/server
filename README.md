@@ -1,9 +1,10 @@
-# server `v0.17.2.12`
+# server `v0.17.2.13`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes:*                             -- this is will be for ver v0.17.3
+*Release notes:*                              -- this is will be for ver v0.18.0
+                                              since there's a lot of changes
 
 ***Mainstream: Now only the stable builds will be released to `main` branch.***
 
@@ -11,28 +12,35 @@ Just backend code of my server, nothing else, anyone can use it
 the code, meaning less need in the updates (if using some kind of auto-sync 
 with GitHub repo for updating). If you want the latest builds that are 
 available at the time, and you agree with the instability fact, consider to 
-switch to using the `dev` branch. Be cautious: author (me) will not provide any 
-responsibility or acts for `dev` branch since it's considered unstable and 
-meant to be used for development and tests of new features only. DO NOT USE IT 
-AS MAIN REPOSITORY FOR ANY REASON EXCEPT THE EXPLAINED BEFORE.***
-- ***Now streamed ZIPs are resumable due to significant changes in the code for 
-that, and with that new ability - now files on server are checksummed! This 
-means that server would be able to scan your files in the background to be sure 
-that they're the same as before! (Note: the checksum algorithm that is used is 
-`CRC32` because it was natively used in ZIPs and needs to be created anyway for 
-streaming, and instead of making them on-fly (resource-intense and will 
-increase the prepare times significantly), it's made in 2 ways: on file upload 
-or as background activity for older files. See the note at the end of that 
+switch to use the `dev` branch. Be cautious: author (me) will not provide any 
+responsibility or acts for `dev` branch since it's considered unstable, 
+unreliable and meant to be used for development and tests of new features only. 
+DO NOT USE IT AS A MAIN REPOSITORY FOR ANY REASON EXCEPT THE EXPLAINED 
+EARLIER.***
+- ***Now streamed ZIPs are resumable and faster to be downloaded due to 
+significant changes in the code for that, and with that new ability arrival - 
+now files on server are checksummed! This means that server would be able to 
+scan your files in the background to be sure that they're the same as before! 
+(Note: the checksum algorithm that is used is `CRC32` because it is natively 
+used in ZIPs and needs to be created anyway for ability of streaming the 
+archive, and instead of making them on-fly (resource-intense and will increase 
+the preparation times significantly), it is made in 2 ways: on file upload, or
+as background activity (for older files). See the note at the end of that 
 message)***
-- ***Shared folders now have the same ability to download the ZIPs, as the 
-FluxDrop users in their file manager***
+- ***Shared folders now have the ability to be downloaded as ZIP the same as 
+the FluxDrop users can download folders in their file manager***
 - ***Now browser will kindly asks you if you really want to exit the tab when 
 you upload the files to FluxDrop! No more "Ahh, I accidentally closed the 
 tab((" because you are safe from that to happen!***
+- ***Status page: fixed an issue where Quad9 almost always triggered as a 
+problem of outage***
+- ***Backend: now upload from folder will no longer overflow the `/tmp` (or 
+custom path) directory because it used the predecessor implementation of the 
+file upload handler***
 
-***Important note: the background media hashing activity for any remaining, old 
-and untracked files will be triggered automatically at time period of 23:00 to 
-4:00 EEST***
+***Important note: the background media hashing activity for any remainings, 
+old and untracked files will be triggered automatically at time period of 
+23:00 to 4:00 EEST***
 
 ***Regressions: none***
 
@@ -43,7 +51,7 @@ This patch missing the actual code changes because they're pending;
 Slight code changes to reduce amount of imports inside the loops/cycles, but 
 concerning and can be reverted back, needs assistance to be sure that it's 
 safe to do that. I think those changes will be reverted back...;
-TODO checked entries removed***
+TODO's marked entries removed***
 
 ---
 

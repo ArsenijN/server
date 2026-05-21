@@ -137,6 +137,7 @@ that happens and after what
 
 
 #### Low:
+- [ ] Reduce amount of re-imports inside the code
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching; like folder structures, quota, file properties, download 
 tokens (pre-generate the download tokens for files to fasten up the ping 

@@ -12,9 +12,6 @@ user feedback or ideas for future development.
 `/tmp` dir exaustion on server. Needs immediate fixes before next release
 - [ ] Fix problems with the Quad9 pings "failing" and firing the external 
 outage -- critical issue before big release
-- [ ] Literally "завантаження скрніів-3-001(2).zip: name '_choose_strategy' is 
-not defined"? none of the upload types works, I'll temporarely revert back the 
-code on the server so it will work... No I will not since that may break the DB
 
 ### UI
 - [ ] i18n support (language changes)
@@ -185,3 +182,8 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
+- [x] Literally "завантаження скрніів-3-001(2).zip: name '_choose_strategy' is 
+not defined"? none of the upload types works, I'll temporarely revert back the 
+code on the server so it will work... No I will not since that may break the DB 
+-- fixed the issue with code insert gone wrong and removed the def declaration 
+that is caused that issue

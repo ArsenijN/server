@@ -103,7 +103,7 @@ def _rel_path_for(dest_path: str, session: dict) -> str | None:
     except Exception:
         return None
 
-
+def _choose_strategy(dest_path: str) -> str:
     """Return 'direct' or 'buffer' based on device IDs."""
     try:
         dest_dev = os.stat(os.path.dirname(dest_path)).st_dev

@@ -1,10 +1,10 @@
-# server `v0.17.2.13`
+# server `v0.17.2.14`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
 *Release notes:*                              -- this is will be for ver v0.18.0
-                                              since there's a lot of changes
+                                              since there's a lot of changes now
 
 ***Mainstream: Now only the stable builds will be released to `main` branch.***
 
@@ -48,10 +48,10 @@ old and untracked files will be triggered automatically at time period of
 keeping the "resumability" of the archive's download by browser or external 
 download tool (seems to be like) this;
 This patch missing the actual code changes because they're pending;
-Slight code changes to reduce amount of imports inside the loops/cycles, but 
-concerning and can be reverted back, needs assistance to be sure that it's 
-safe to do that. I think those changes will be reverted back...;
-TODO's marked entries removed***
+Important TODO added that is noticed only recently;
+I think that there in the notes for release will be only the things that 
+appeared in the release, not dev, so I will not mention that some of the dev 
+versions break the upload function***
 
 ---
 

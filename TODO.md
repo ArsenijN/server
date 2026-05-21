@@ -12,6 +12,9 @@ user feedback or ideas for future development.
 `/tmp` dir exaustion on server. Needs immediate fixes before next release
 - [ ] Fix problems with the Quad9 pings "failing" and firing the external 
 outage -- critical issue before big release
+- [ ] Literally "завантаження скрніів-3-001(2).zip: name '_choose_strategy' is 
+not defined"? none of the upload types works, I'll temporarely revert back the 
+code on the server so it will work... No I will not since that may break the DB
 
 ### UI
 - [ ] i18n support (language changes)
@@ -128,6 +131,8 @@ manager)
 implemented due to code regression, checks are pending. -- by comments seems 
 like to be implemented
 - [ ] Check the CatBox API for file size limits
+- [ ] Make separate "testing" server where I would be able to test everything 
+before pushing to the real one
 
 
 #### Medium:

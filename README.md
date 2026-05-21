@@ -1,4 +1,4 @@
-# server `v0.17.2.11`
+# server `v0.17.2.12`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -36,13 +36,14 @@ and untracked files will be triggered automatically at time period of 23:00 to
 
 ***Regressions: none***
 
-*Patch notes: **Testing of the new ZIP download is successfull, very fast if 
-the files are "indexed" (hashed) before;
-FluxDrop will drop the download modal for ZIPs in favor of keeping the 
-"resumability" of the archive's download by browser or external download tool 
-(seems to be like) this;
+*Patch notes: **FluxDrop will drop the download modal for ZIPs in favor of 
+keeping the "resumability" of the archive's download by browser or external 
+download tool (seems to be like) this;
 This patch missing the actual code changes because they're pending;
-A lot of revise in the TODO***
+Slight code changes to reduce amount of imports inside the loops/cycles, but 
+concerning and can be reverted back, needs assistance to be sure that it's 
+safe to do that. I think those changes will be reverted back...;
+TODO checked entries removed***
 
 ---
 

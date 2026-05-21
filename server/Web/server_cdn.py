@@ -95,11 +95,23 @@ from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
 import gzip as _gzip_mod
+import socket as _socket
+import mimetypes
+import uuid as _uuid_mod
+import datetime as _dt
+import zlib     as _zl
+import tarfile as _tf
+import io as _io
+import hashlib as _hl
+import re as _re
+import zipfile as _zf
+import struct  as _st
+import time as _time
+import urllib.parse as _up
+
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
-import socket as _socket
-import mimetypes
 
 # Importing core modules
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
@@ -217,7 +229,6 @@ _POLICY_VERSIONS_FILE = os.getenv('POLICY_VERSIONS_FILE', str(os.path.dirname(os
 # Sessions are built once (pre-walk + CRC32 scan) and stream directly to wire
 # on each GET.  Range requests seek into the virtual stream using the offset
 # table — no temp files, no /tmp usage.
-import uuid as _uuid_mod
 _zip_sessions: dict = {}
 _zip_sessions_lock  = threading.Lock()
 ZIP_SESSION_TTL     = int(os.getenv('ZIP_SESSION_TTL', str(20 * 60)))   # 20 min
@@ -248,8 +259,6 @@ _BG_SCAN_WINDOW_END   = int(os.getenv('BG_SCAN_END_UTC',     '1'))  # 04:00 EEST
 
 
 def _bg_crc32_scanner():
-    import datetime as _dt
-    import zlib     as _zl
 
     def _in_window() -> bool:
         h = _dt.datetime.utcnow().hour
@@ -549,8 +558,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
         ------------
         On completion a notification is fired (see _fire_upload_notification).
         """
-        import tarfile as _tf
-        import io as _io
 
         user_id = self._check_token_auth()
         if not user_id:
@@ -674,7 +681,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     hasher = None
                     expected_sha = sha256_manifest.get(name) or sha256_manifest.get(safe_name)
                     if expected_sha:
-                        import hashlib as _hl
                         try:
                             hasher = _hl.sha256(usedforsecurity=False)
                         except TypeError:
@@ -1042,10 +1048,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         Returns current live metrics (no auth required — same info as /status page)
         plus the 90-day daily uptime history from the DB.
         """
-        import socket as _s2
         def _port_open(port):
             try:
-                with _s2.create_connection(('127.0.0.1', port), timeout=1): return True
+                with _socket.create_connection(('127.0.0.1', port), timeout=1): return True
             except Exception: return False
 
         http_up  = _port_open(HTTP_PORT)
@@ -1138,7 +1143,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
           sampled_at, status, http_up, https_up, db_ok, mem_pct, disk_pct, cause
         No auth required (same visibility as /status).
         """
-        import re as _re
         if not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
             self._send_response(400, json.dumps({'error': 'invalid date'}), 'application/json')
             return
@@ -2562,7 +2566,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(
                 400, json.dumps({'error': 'One or more fields exceed the maximum allowed length.'})
             )
-        import re as _re
         if not _re.match(r'^[A-Za-z0-9_\-\.]{3,64}$', username):
             return self._send_response(
                 400, json.dumps({'error': 'Username must be 3–64 characters: letters, digits, _ - .'})
@@ -2889,8 +2892,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if os.path.isfile(target_fs):
             # Choose content type and disposition based on mode
             if _preview_mode or _cdn_embed:
-                import mimetypes as _mt
-                content_type = _mt.guess_type(target_fs)[0] or "application/octet-stream"
+                content_type = mimetypes.guess_type(target_fs)[0] or "application/octet-stream"
                 disposition = None  # inline — no Content-Disposition header
                 action = "preview" if _preview_mode and not _cdn_embed else "embed"
             else:
@@ -3408,9 +3410,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
 
     def _handle_zip(self, path_segment: str):
-        import zipfile as _zf
-        import struct  as _st
-        import zlib    as _zl
 
         # Share path override: _handle_zip_share already resolved and validated
         # the filesystem path — skip auth and path resolution entirely.
@@ -3466,7 +3465,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 try:
                     st       = os.stat(abs_path)
                     fsz      = st.st_size
-                    import time as _time
                     lt       = _time.localtime(st.st_mtime)
                     dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
                     dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
@@ -3508,7 +3506,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Disposition', self._content_disposition(zip_filename))
             self.send_header('Content-Length', str(total_cl))
             if missing_files:
-                import urllib.parse as _up
                 self.send_header('X-Zip-Missing-Files',
                                  _up.quote(json.dumps(missing_files), safe=''))
             self.end_headers()
@@ -3680,8 +3677,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
         The client then streams /api/v1/zip_stream/<session_id> which supports
         Range requests for resume without writing anything to disk.
         """
-        import struct as _st
-        import zlib   as _zl
 
         share_override = getattr(self, '_zip_share_override', None)
         if share_override is not None:
@@ -3731,7 +3726,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 try:
                     st  = os.stat(abs_path)
                     fsz = st.st_size
-                    import time as _time
                     lt       = _time.localtime(st.st_mtime)
                     dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
                     dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
@@ -4074,7 +4068,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
         Returns JSON: { entries: [{name, size, is_dir}], format: 'zip'|'tar' }
         Requires a valid session + download token (same auth as /api/v1/download).
         """
-        import zipfile as _zf
 
         user_id = self._check_token_auth()
         if not user_id:
@@ -4130,7 +4123,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
             elif ext in ('tar', 'gz', 'tgz'):
                 # Stream tar headers only — skip over file data without reading it.
-                import tarfile as _tf
                 entries = []
                 mode = 'r:gz' if ext in ('gz', 'tgz') else 'r:'
                 with _tf.open(base_fs, mode) as tf:
@@ -4382,7 +4374,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if dl_token_early:
                 # We don't know the canonical path yet for CDN files, but we
                 # can do a loose lookup by token hash alone to get the user_id.
-                import hashlib as _hl
                 th = _hl.sha256(dl_token_early.encode()).hexdigest()
                 try:
                     with _db_connect() as _conn:
@@ -5269,10 +5260,9 @@ def _token_purge_worker():
 
         # ── Record a status snapshot for uptime history ──────────────────
         try:
-            import socket as _ss
             def _p(port):
                 try:
-                    with _ss.create_connection(('127.0.0.1', port), timeout=1): return True
+                    with _socket.create_connection(('127.0.0.1', port), timeout=1): return True
                 except Exception: return False
             _http  = _p(HTTP_PORT)
             _https = _p(HTTPS_PORT)

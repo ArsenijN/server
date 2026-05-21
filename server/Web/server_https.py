@@ -12,8 +12,14 @@ from werkzeug.formparser import parse_form_data # For parsing multipart/form-dat
 from urllib.parse import quote_plus
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
-from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, current_blacklist, blacklist_lock, stop_update_event
-from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN
+from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, \
+    current_blacklist, blacklist_lock, stop_update_event
+from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
+    KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN
+import urllib.request as _urllib_req
+import urllib.error   as _urllib_err
+import posixpath as _psp
+import re
 
 # --- Configuration ---
 # Read bind IP and SSL port from environment. Default to 0.0.0.0 and non-privileged 8443.
@@ -47,9 +53,6 @@ _CDN_PROXY_PREFIXES = (
     '/CB_uploads/',
 )
 
-import urllib.request as _urllib_req
-import urllib.error   as _urllib_err
-
 def _proxy_to_cdn(handler, method: str = 'GET'):
     """Forward the current request to the CDN server and stream the response back.
 
@@ -80,10 +83,9 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
     req.add_header('X-Forwarded-For', handler.client_address[0])
 
     # Use an SSL context that trusts the self-signed cert on the CDN
-    import ssl as _ssl
-    ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
-    ctx.verify_mode = _ssl.CERT_NONE
+    ctx.verify_mode = ssl.CERT_NONE
 
     # Stream the response in chunks — never buffer the entire body.
     # This is critical for large file downloads (10-30 GB) where .read()
@@ -191,7 +193,6 @@ def verify_captcha(captcha_id, user_answer):
 
 
 # --- Request Handler ---
-import posixpath as _psp
 
 def _cache_control_for_path(path: str) -> str:
     _ext  = _psp.splitext(path.split('?')[0])[1].lower()
@@ -263,8 +264,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             # An asset file continues with a non-slash character (e.g. '/files/script.js').
             _is_nav = (_after == '' or _after.startswith('/') or _after.startswith('?'))
             # Extra safety: don't rewrite if the path ends with a known static extension.
-            import posixpath as _pp
-            _ext = _pp.splitext(_clean_path)[1].lower()
+            _ext = _psp.splitext(_clean_path)[1].lower()
             _static_exts = {'.js', '.css', '.html', '.svg', '.png', '.ico',
                             '.jpg', '.jpeg', '.gif', '.webp', '.woff', '.woff2',
                             '.ttf', '.eot', '.map', '.json', '.txt'}
@@ -286,7 +286,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         range_header = self.headers.get('Range')
         if range_header:
-            import re
             m = re.match(r'bytes=(\d+)-(\d*)', range_header)
             if m:
                 start = int(m.group(1))
@@ -382,7 +381,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
         range_header = self.headers.get('Range')
         if range_header:
-            import re
             m = re.match(r'bytes=(\d+)-(\d*)', range_header)
             if m:
                 start = int(m.group(1))

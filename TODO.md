@@ -179,29 +179,3 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
-- [x] Fix archive streaming may fail at ~6 GB of streamed files (including few 
-20+ GB in the streamed archive folder) -- should be already fixed by ZIP64, 
-needs checks
-- [x] Ensure that CatBox API have file size limits -- should have
-- [x] Fix issues with resuming the download (in FluxDrop file manager at least) 
--- merged into the related TODO entry
-- [x] Make download work as chunk-based in FluxDrop UI, keeping the regular 
-octet-stream for legacy usage -- or just resumable -- merged into the related 
-TODO entry
-- [x] Fix every FluxDrop snippet and site (UIs) to work properly with mobile 
-and non-16:9 screens -- merged into the related TODO entry
-- [x] Add self-resume on network switch (offline handler shows and hides, but 
-download doesn't continue successfully) -- merged into the related TODO entry
-- [x] Add auto-reconnect on dropped connection (e.g. switched networks) - this 
-means semi-constant pings to the server on download or/and upload -- merged 
-into the related TODO entry
-- [x] Add handler for dropped connection mid upload/download with relable way 
-to tell it (via pings or continuous connections) -- merged into the related 
-TODO entry
-- [x] Add variable chunk sizes on demand for different internet speeds and 
-optimizations like internet drops -- uploads, downloads is an issue -- merged 
-into the related TODO entry
-- [x] Add loading wheel to the right of "Upload" button between prep and upload 
-states - make it appear before new entry in `Uploads` or `Downloads` appears, 
-also, bring the label to the static part so it will not scroll -- merged into 
-the related TODO entry

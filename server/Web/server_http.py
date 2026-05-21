@@ -5,9 +5,17 @@ import time
 import os
 import sys
 from config import SERVE_DIRECTORY, LOG_FILE_HTTP, BLACKLIST_FILE
-from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, current_blacklist, blacklist_lock, stop_update_event, server_ready
+from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
+from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, \
+    current_blacklist, blacklist_lock, stop_update_event, server_ready
 import datetime
 import logging # Using standard logging module for better control
+import urllib.request as _urllib_req
+import urllib.error   as _urllib_err
+import posixpath as _psp
+import re
+import socket
+
 HTTP_PORT = int(os.getenv('HTTP_PORT', os.getenv('SERVER_PORT', '8080')))
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
 BLACKLIST_UPDATE_INTERVAL = 60 # seconds
@@ -16,7 +24,6 @@ BLACKLIST_UPDATE_INTERVAL = 60 # seconds
 # the user visits over plain HTTP (rare, but handled gracefully).
 CDN_HTTP_PORT = int(os.getenv('CDN_HTTP_PORT', '63512'))
 # PUBLIC_DOMAIN is used to build the redirect URL
-from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
 
  
 
@@ -31,9 +38,6 @@ _CDN_PROXY_PREFIXES = (
     '/cdn/',
     '/CB_uploads/',
 )
-
-import urllib.request as _urllib_req
-import urllib.error   as _urllib_err
 
 def _proxy_to_cdn_http(handler, method: str = 'GET'):
     """Forward request to the CDN HTTP listener on the loopback interface."""
@@ -81,9 +85,6 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
         handler.send_header('Content-Length', str(len(msg)))
         handler.end_headers()
         handler.wfile.write(msg)
-
-
-import posixpath as _psp
 
 def _cache_control_for_path(path: str) -> str:
     """Return the appropriate Cache-Control value for a static file path."""
@@ -173,8 +174,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             # An asset file continues with a non-slash character (e.g. '/files/script.js').
             _is_nav = (_after == '' or _after.startswith('/') or _after.startswith('?'))
             # Extra safety: don't rewrite if the path ends with a known static extension.
-            import posixpath as _pp
-            _ext = _pp.splitext(_clean_path)[1].lower()
+            _ext = _psp.splitext(_clean_path)[1].lower()
             _static_exts = {'.js', '.css', '.html', '.svg', '.png', '.ico',
                             '.jpg', '.jpeg', '.gif', '.webp', '.woff', '.woff2',
                             '.ttf', '.eot', '.map', '.json', '.txt'}
@@ -192,7 +192,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         range_header = self.headers.get('Range')
         if range_header:
-            import re
             m = re.match(r'bytes=(\d+)-(\d*)', range_header)
             if m:
                 start = int(m.group(1))
@@ -292,7 +291,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         
         range_header = self.headers.get('Range')
         if range_header:
-            import re
             m = re.match(r'bytes=(\d+)-(\d*)', range_header)
             if m:
                 start = int(m.group(1))
@@ -514,7 +512,6 @@ if __name__ == "__main__":
         time.sleep(2)
         
         # Test if server is actually listening
-        import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             result = sock.connect_ex((SERVER_IP, HTTP_PORT))

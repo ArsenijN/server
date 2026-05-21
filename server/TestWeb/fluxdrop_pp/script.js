@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-fd1e9b8d
+// Current version of script.js is: fluxdrop-v-4d635857
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-fd1e9b8d'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-4d635857'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -1643,7 +1643,7 @@ window.downloadFolderZip = async function(path) {
         status:        'downloading',
         speed:         null,
         eta:           null,
-        error:         'Building archive\u2026',
+        error:         null,   // "Building…" / "Hashing…" shown via statusText logic
         _writer:       null,
         _abort:        new AbortController(),
         _resumeFrom:   0,
@@ -1704,7 +1704,8 @@ window.downloadFolderZip = async function(path) {
         return;
     }
 
-    // Missing files — show in tray (non-blocking)
+    // Missing files + needs_hashing flag — both affect what the tray shows
+    dl._needsHashing = !!metaData.needs_hashing;
     dl.error     = (metaData.missing && metaData.missing.length > 0)
         ? `\u26a0 ${metaData.missing.length} file(s) skipped (unreadable)`
         : null;
@@ -1886,9 +1887,23 @@ function renderDownloadTray() {
             const parts = [];
             if (dl.speed != null) parts.push(formatSpeed(dl.speed));
             if (dl.eta   != null) parts.push('ETA ' + formatEta(dl.eta));
-            if (parts.length)     statusText = parts.join(' · ');
+            if (parts.length) {
+                statusText = parts.join(' \u00b7 ');
+            } else if (dl._isZip && !dl._dlUrl) {
+                // zip_meta fetch still in progress
+                statusText = dl._needsHashing
+                    ? 'Hashing files on demand\u2026'
+                    : 'Building archive\u2026';
+            } else if (dl._isZip && dl.bytesReceived === 0) {
+                // zip_meta done, stream not started yet
+                statusText = dl._needsHashing
+                    ? 'Hashing files on demand\u2026'
+                    : 'Preparing stream\u2026';
+            } else {
+                statusText = '';
+            }
         } else if (dl.status === 'error') {
-            statusText = '⚠ ' + (dl.error || 'failed');
+            statusText = '\u26a0 ' + (dl.error || 'failed');
         } else if (dl.status === 'cancelled') {
             statusText = dl.error || 'Cancelled';
         } else if (dl.status === 'paused') {
@@ -5596,7 +5611,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-fd1e9b8d'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-4d635857'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

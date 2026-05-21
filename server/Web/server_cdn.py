@@ -103,12 +103,13 @@ import mimetypes
 
 # Importing core modules
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
-                    _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear
+                    _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear, \
+                    checksum_get, checksum_put, checksum_is_fresh
 from core.rate_limit import _rate_limit
 from core.notifications import _fire_upload_notification
 from core.upload import MAX_JSON_BODY, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, _upload_init, _upload_get, _upload_receive_chunk, \
     _upload_session_status, _upload_assemble, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, _purge_abandoned_upload_sessions, UPLOAD_TMP_DIR, \
-    _cancel_upload_session
+    _cancel_upload_session, compute_and_store_crc32
 from core.shares import _get_share, _get_shares_for_user, _create_share, _update_share, _delete_share, _get_share_stats, _get_share_raw, \
     _is_share_expired, _log_share_access, _parse_expiry
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
@@ -233,6 +234,113 @@ def _zip_sessions_cleanup():
             logging.debug('ZIP sessions: evicted %d expired entries', len(expired))
 
 threading.Thread(target=_zip_sessions_cleanup, daemon=True, name='ZipSessionCleanup').start()
+
+# ── Background CRC32 integrity scanner ───────────────────────────────────────
+# Runs daily inside the maintenance window (23:00–04:00 EEST = 20:00–01:00 UTC).
+# Walks every user's FluxDrop directory and hashes any file that has no stored
+# checksum or whose mtime/size has changed since the last scan.
+# Throttled to ~5 MB/s by default — adjustable via BG_SCAN_RATE_BYTES env var.
+
+_BG_SCAN_READ_BUF     = int(os.getenv('BG_SCAN_READ_BUF',   str(2 * 1024 * 1024)))
+_BG_SCAN_RATE_BYTES_S = int(os.getenv('BG_SCAN_RATE_BYTES',  str(5 * 1024 * 1024)))
+_BG_SCAN_WINDOW_START = int(os.getenv('BG_SCAN_START_UTC',  '20'))  # 23:00 EEST
+_BG_SCAN_WINDOW_END   = int(os.getenv('BG_SCAN_END_UTC',     '1'))  # 04:00 EEST
+
+
+def _bg_crc32_scanner():
+    import datetime as _dt
+    import zlib     as _zl
+
+    def _in_window() -> bool:
+        h = _dt.datetime.utcnow().hour
+        # Window crosses midnight (20 … 23 … 0)
+        if _BG_SCAN_WINDOW_START > _BG_SCAN_WINDOW_END:
+            return h >= _BG_SCAN_WINDOW_START or h < _BG_SCAN_WINDOW_END
+        return _BG_SCAN_WINDOW_START <= h < _BG_SCAN_WINDOW_END
+
+    time.sleep(300)          # let the server finish starting up
+
+    while True:
+        while not _in_window():
+            time.sleep(60)
+
+        logging.info('BG CRC32 scanner: maintenance window started')
+        scanned = skipped = errors = 0
+        bytes_read   = 0
+        window_start = time.time()
+        done         = False
+
+        try:
+            user_root = os.path.join(SERVE_ROOT, 'FluxDrop')
+            if not os.path.isdir(user_root):
+                logging.warning('BG CRC32: %r not found — skipping', user_root)
+                time.sleep(3600)
+                continue
+
+            for user_entry in os.scandir(user_root):
+                if done:
+                    break
+                if not user_entry.is_dir():
+                    continue
+                try:
+                    uid = int(user_entry.name)
+                except ValueError:
+                    continue
+
+                for dirpath, _dirs, filenames in os.walk(user_entry.path):
+                    if not _in_window():
+                        done = True; break
+                    for fname in sorted(filenames):
+                        if not _in_window():
+                            done = True; break
+                        abs_path = os.path.join(dirpath, fname)
+                        rel_path = ('/' +
+                            os.path.relpath(abs_path, user_entry.path)
+                               .replace(os.sep, '/'))
+                        try:
+                            st = os.stat(abs_path)
+                        except OSError:
+                            continue
+                        stored = checksum_get(rel_path, uid)
+                        if stored and checksum_is_fresh(stored, abs_path):
+                            skipped += 1
+                            continue
+                        # Compute and store
+                        crc = 0; read_b = 0
+                        try:
+                            with open(abs_path, 'rb') as fh:
+                                while True:
+                                    chunk = fh.read(_BG_SCAN_READ_BUF)
+                                    if not chunk: break
+                                    crc    = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
+                                    read_b += len(chunk)
+                            checksum_put(rel_path, uid, crc, st.st_size,
+                                         int(st.st_mtime_ns), 'background')
+                            scanned    += 1
+                            bytes_read += read_b
+                            # Rate-limit
+                            if _BG_SCAN_RATE_BYTES_S > 0:
+                                elapsed  = time.time() - window_start + 0.001
+                                budget   = elapsed * _BG_SCAN_RATE_BYTES_S
+                                if bytes_read > budget:
+                                    time.sleep(
+                                        (bytes_read - budget) / _BG_SCAN_RATE_BYTES_S
+                                    )
+                        except OSError as e:
+                            logging.debug('BG CRC32: error %r: %s', abs_path, e)
+                            errors += 1
+        except Exception as e:
+            logging.error('BG CRC32 scanner: unexpected error: %s', e)
+
+        logging.info(
+            'BG CRC32 scanner: done — scanned=%d skipped=%d errors=%d bytes=%d',
+            scanned, skipped, errors, bytes_read,
+        )
+        time.sleep(20 * 3600)   # earliest next scan in 20 h
+
+
+threading.Thread(target=_bg_crc32_scanner, daemon=True, name='CRC32BgScanner').start()
+
 
 def _get_policy_versions() -> dict:
     try:
@@ -3632,31 +3740,44 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     continue
                 raw_files.append((abs_path, arcname, arcname.encode('utf-8'), fsz, dos_time, dos_date))
 
-        # ── CRC32 pre-scan ───────────────────────────────────────────────────
-        # Read every file once to compute CRC32.  This lets us write the header
-        # WITHOUT a data-descriptor (FLAG_NONE), so the ZIP is fully seekable —
-        # a Range request can skip ahead to any file boundary without re-reading
-        # earlier files.  Memory cost: ~100 bytes per file for the metadata.
-        READ_BUF   = 2 * 1024 * 1024
-        scanned    = []
+        # ── CRC32 scan (checksum cache + on-demand) ───────────────────────────
+        # For each file check the file_checksums table first.  If a fresh entry
+        # exists (mtime_ns + file_size both match), use the stored value directly
+        # — no disk read needed.  For files without a fresh entry, compute CRC32
+        # now ("on demand"), store the result, and set needs_hashing=True so the
+        # client can show "Hashing files on demand…" instead of "Building archive…".
+        #
+        # user_id for shared paths is 'share'; map that to None for the DB query.
+        _cs_uid       = None if user_id == 'share' else user_id
+        scanned       = []
         actual_missing = []
+        needs_hashing  = False   # True when any file was hashed on-demand
+
         for abs_path, arcname, arcname_bytes, fsz, dos_time, dos_date in raw_files:
-            crc = 0
-            actual_size = 0
-            try:
-                with open(abs_path, 'rb') as fh:
-                    while True:
-                        chunk = fh.read(READ_BUF)
-                        if not chunk:
-                            break
-                        crc = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
-                        actual_size += len(chunk)
-            except OSError:
-                logging.warning('zip_meta: CRC scan failed for %r', abs_path)
-                actual_missing.append(arcname)
-                fsz = 0; crc = 0
-            # Use actual_size to guard against files that grew/shrank since stat
-            fsz = actual_size
+            crc = None
+
+            # Try cached checksum
+            stored = checksum_get(arcname, _cs_uid)
+            if stored and checksum_is_fresh(stored, abs_path):
+                crc = stored['crc32']
+                fsz = stored['file_size']   # use stored size — matches what was hashed
+
+            if crc is None:
+                # Not cached or stale — compute on demand via upload helper
+                needs_hashing = True
+                try:
+                    crc = compute_and_store_crc32(abs_path, arcname,
+                                                  _cs_uid, 'on_demand')
+                    try:
+                        fsz = os.stat(abs_path).st_size
+                    except OSError:
+                        pass
+                except OSError:
+                    logging.warning('zip_meta: CRC scan failed for %r', abs_path)
+                    actual_missing.append(arcname)
+                    fsz = 0
+                    crc = 0
+
             scanned.append((abs_path, arcname, arcname_bytes, fsz, crc, dos_time, dos_date))
 
         all_missing = missing + actual_missing
@@ -3742,16 +3863,18 @@ class AuthHandler(SimpleHTTPRequestHandler):
             _zip_sessions[session_id] = session
 
         logging.info(
-            'zip_meta: %s — %d files, %d bytes, %d missing, session=%s…',
-            filename, len(files_built), total_size, len(all_missing), session_id[:8]
+            'zip_meta: %s — %d files, %d bytes, %d missing, needs_hashing=%s, session=%s…',
+            filename, len(files_built), total_size, len(all_missing),
+            needs_hashing, session_id[:8]
         )
         return self._send_response(200, json.dumps({
-            'session_id': session_id,
-            'filename':   filename,
-            'size':       total_size,
-            'ttl':        ZIP_SESSION_TTL,
-            'missing':    all_missing,
-            'url':        f'/api/v1/zip_stream/{session_id}',
+            'session_id':    session_id,
+            'filename':      filename,
+            'size':          total_size,
+            'ttl':           ZIP_SESSION_TTL,
+            'missing':       all_missing,
+            'needs_hashing': needs_hashing,
+            'url':           f'/api/v1/zip_stream/{session_id}',
         }))
 
     def _handle_zip_stream(self, session_id: str):

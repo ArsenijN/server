@@ -299,6 +299,30 @@ def init_db():
                 UNIQUE(user_id, policy_type, version)
             )
         ''')
+        # CRC32 checksums for user files.
+        # Used by the ZIP-meta builder (avoids re-scanning on every archive request)
+        # and by the background integrity checker.
+        #
+        # relative_path : path relative to the user's FluxDrop root (e.g. /docs/f.txt)
+        # user_id       : owner (NULL for CDN/shared files without a named owner)
+        # crc32         : unsigned 32-bit CRC32 stored as INTEGER
+        # file_size     : byte size at scan time (detect truncation)
+        # mtime_ns      : st_mtime_ns at scan time — checksum is stale when this changes
+        # computed_at   : unix timestamp of last successful scan
+        # scan_source   : 'upload' | 'on_demand' | 'background'
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS file_checksums (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                relative_path TEXT    NOT NULL,
+                user_id       INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                crc32         INTEGER NOT NULL,
+                file_size     INTEGER NOT NULL,
+                mtime_ns      INTEGER NOT NULL,
+                computed_at   REAL    NOT NULL DEFAULT 0,
+                scan_source   TEXT    NOT NULL DEFAULT 'background',
+                UNIQUE(relative_path, user_id)
+            )
+        ''')
         conn.commit()
 
     # ── Schema migrations (safe to run on every startup) ──────────────────
@@ -328,9 +352,89 @@ def init_db():
             )
         except Exception:
             pass
+        try:
+            conn.execute(
+                '''CREATE INDEX IF NOT EXISTS idx_file_checksums_path_user
+                   ON file_checksums (relative_path, user_id)'''
+            )
+        except Exception:
+            pass
         conn.commit()
 
     logging.info("Database initialized successfully.")
+
+# ── CRC32 checksum helpers ────────────────────────────────────────────────────
+
+def checksum_get(relative_path: str, user_id) -> dict | None:
+    """Return the stored checksum row for (relative_path, user_id), or None.
+    user_id may be an int or None (for CDN/share files without an owner)."""
+    with _db_connect() as conn:
+        row = conn.execute(
+            '''SELECT crc32, file_size, mtime_ns, computed_at, scan_source
+               FROM file_checksums
+               WHERE relative_path = ?
+                 AND (user_id IS ? OR user_id = ?)''',
+            (relative_path, user_id, user_id)
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        'crc32':       row[0],
+        'file_size':   row[1],
+        'mtime_ns':    row[2],
+        'computed_at': row[3],
+        'scan_source': row[4],
+    }
+
+
+def checksum_put(relative_path: str, user_id, crc32: int,
+                 file_size: int, mtime_ns: int,
+                 scan_source: str = 'background') -> None:
+    """Upsert a checksum record.  Overwrites any existing row for the same
+    (relative_path, user_id) pair."""
+    import time as _t
+    with _db_connect() as conn:
+        conn.execute(
+            '''INSERT INTO file_checksums
+                   (relative_path, user_id, crc32, file_size,
+                    mtime_ns, computed_at, scan_source)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(relative_path, user_id)
+               DO UPDATE SET
+                   crc32       = excluded.crc32,
+                   file_size   = excluded.file_size,
+                   mtime_ns    = excluded.mtime_ns,
+                   computed_at = excluded.computed_at,
+                   scan_source = excluded.scan_source''',
+            (relative_path, user_id, crc32, file_size,
+             mtime_ns, _t.time(), scan_source)
+        )
+        conn.commit()
+
+
+def checksum_delete(relative_path: str, user_id) -> None:
+    """Remove a checksum record (call after file deletion or rename)."""
+    with _db_connect() as conn:
+        conn.execute(
+            '''DELETE FROM file_checksums
+               WHERE relative_path = ?
+                 AND (user_id IS ? OR user_id = ?)''',
+            (relative_path, user_id, user_id)
+        )
+        conn.commit()
+
+
+def checksum_is_fresh(row: dict, abs_path: str) -> bool:
+    """Return True if the stored checksum is still valid for abs_path.
+    Checks both st_size and st_mtime_ns — both must match for the checksum
+    to be considered trustworthy."""
+    try:
+        st = os.stat(abs_path)
+        return (st.st_size == row['file_size'] and
+                int(st.st_mtime_ns) == row['mtime_ns'])
+    except OSError:
+        return False
+
 
 # Per-upload-session lock to serialise concurrent chunk writes.
 # Without this, 4 parallel XHRs all read the same chunks_received list

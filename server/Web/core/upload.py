@@ -1,7 +1,8 @@
-import os, json, shutil, secrets, hashlib, time, logging, threading
+import os, json, shutil, secrets, hashlib, time, logging, threading, zlib
 from datetime import datetime, timedelta
 from core.db import _db_connect, _get_chunk_lock, _release_chunk_lock, \
-                    _assembly_progress_set, _assembly_progress_clear
+                    _assembly_progress_set, _assembly_progress_clear, \
+                    checksum_put, checksum_is_fresh, checksum_get
 from core.notifications import _fire_upload_notification
 from config import UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, MAX_JSON_BODY, \
                    MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, UPLOAD_TMP_DIR, SERVE_ROOT
@@ -24,7 +25,85 @@ from config import UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, MAX_JSON_BODY, \
 # fails (e.g. FAT32, some network filesystems) we fall back to 'buffer'.
 # ---------------------------------------------------------------------------
 
-def _choose_strategy(dest_path: str) -> str:
+# ---------------------------------------------------------------------------
+# Post-upload CRC32 queue
+# ---------------------------------------------------------------------------
+# After a file is fully assembled we enqueue it here.  A dedicated daemon
+# thread drains the queue, computes CRC32, and stores the result in the
+# file_checksums table tagged as 'upload'.
+#
+# queue_crc32_after_upload() is called from _assemble_direct / _assemble_buffer.
+# compute_and_store_crc32() is called directly from zip_meta for on-demand
+# hashing of files that don't have a stored checksum yet.
+# ---------------------------------------------------------------------------
+import queue as _queue
+
+_crc32_upload_queue: _queue.Queue = _queue.Queue()
+_CRC32_READ_BUF = 4 * 1024 * 1024  # 4 MB read buffer
+
+
+def compute_and_store_crc32(abs_path: str, relative_path: str,
+                             user_id, scan_source: str = 'on_demand') -> int:
+    """Read abs_path, compute CRC32, persist it, and return the value.
+    Raises OSError if the file cannot be read."""
+    st  = os.stat(abs_path)
+    crc = 0
+    with open(abs_path, 'rb') as fh:
+        while True:
+            chunk = fh.read(_CRC32_READ_BUF)
+            if not chunk:
+                break
+            crc = zlib.crc32(chunk, crc) & 0xFFFF_FFFF
+    checksum_put(relative_path, user_id, crc, st.st_size,
+                 int(st.st_mtime_ns), scan_source)
+    return crc
+
+
+def queue_crc32_after_upload(dest_path: str, relative_path: str, user_id) -> None:
+    """Non-blocking — enqueue a file for background CRC32 computation."""
+    _crc32_upload_queue.put((dest_path, relative_path, user_id))
+
+
+def _crc32_upload_worker() -> None:
+    """Daemon thread: drain the post-upload CRC32 queue."""
+    while True:
+        try:
+            dest_path, relative_path, user_id = _crc32_upload_queue.get(timeout=5)
+            try:
+                compute_and_store_crc32(dest_path, relative_path,
+                                        user_id, 'upload')
+                logging.debug('CRC32 upload: %r uid=%s', relative_path, user_id)
+            except OSError as e:
+                logging.warning('CRC32 worker: read error %r: %s', dest_path, e)
+            except Exception as e:
+                logging.error('CRC32 worker: unexpected error: %s', e)
+            finally:
+                _crc32_upload_queue.task_done()
+        except _queue.Empty:
+            continue
+
+
+threading.Thread(
+    target=_crc32_upload_worker,
+    daemon=True,
+    name='CRC32UploadWorker',
+).start()
+
+
+def _rel_path_for(dest_path: str, session: dict) -> str | None:
+    """Derive the relative_path (e.g. '/Music/track.mp3') for a finished upload.
+    Returns None if owner_type is not 'user' or path can't be resolved."""
+    if session.get('owner_type') != 'user':
+        return None
+    try:
+        user_root = os.path.join(SERVE_ROOT, 'FluxDrop',
+                                 str(session['owner_ref']))
+        rel = os.path.relpath(dest_path, user_root).replace(os.sep, '/')
+        return '/' + rel
+    except Exception:
+        return None
+
+
     """Return 'direct' or 'buffer' based on device IDs."""
     try:
         dest_dev = os.stat(os.path.dirname(dest_path)).st_dev
@@ -453,6 +532,9 @@ def _assemble_direct(session: dict, dest_path: str, total_size: int,
         f'Upload assembled (direct): {dest_path} '
         f'({actual_sha256[:12] if actual_sha256 else "no-hash"}…)'
     )
+    rel = _rel_path_for(dest_path, session)
+    if rel:
+        queue_crc32_after_upload(dest_path, rel, int(session['owner_ref']))
     return dest_path, actual_sha256
 
 
@@ -597,6 +679,9 @@ def _assemble_buffer(session: dict, dest_path: str, total_size: int,
         f'Upload assembled (buffer): {dest_path} '
         f'({actual_sha256[:12] if actual_sha256 else "no-hash"}…)'
     )
+    rel = _rel_path_for(dest_path, session)
+    if rel:
+        queue_crc32_after_upload(dest_path, rel, int(session['owner_ref']))
     return dest_path, actual_sha256
 
 

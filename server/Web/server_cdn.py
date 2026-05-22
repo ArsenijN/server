@@ -273,10 +273,22 @@ _BG_SCAN_WINDOW_START = int(os.getenv('BG_SCAN_START_UTC',  '20'))  # 23:00 EEST
 _BG_SCAN_WINDOW_END   = int(os.getenv('BG_SCAN_END_UTC',     '1'))  # 04:00 EEST
 
 
+_MAINTENANCE_LOG = os.getenv(
+    'MAINTENANCE_LOG',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'maintenance.log')
+)
+
+def _mlog(fh, msg: str) -> None:
+    """Write a timestamped line to the open maintenance log file handle."""
+    ts = _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    fh.write(f'[{ts}] {msg}\n')
+    fh.flush()
+
+
 def _bg_crc32_scanner():
 
     def _in_window() -> bool:
-        h = _dt.datetime.utcnow().hour
+        h = _dt.datetime.now(_dt.timezone.utc).hour
         # Window crosses midnight (20 … 23 … 0)
         if _BG_SCAN_WINDOW_START > _BG_SCAN_WINDOW_END:
             return h >= _BG_SCAN_WINDOW_START or h < _BG_SCAN_WINDOW_END
@@ -288,17 +300,39 @@ def _bg_crc32_scanner():
         while not _in_window():
             time.sleep(60)
 
-        logging.info('BG CRC32 scanner: maintenance window started')
+        run_start    = _dt.datetime.now(_dt.timezone.utc)
+        run_start_ts = time.time()
         scanned = skipped = errors = 0
-        bytes_read   = 0
-        window_start = time.time()
-        done         = False
+        bytes_read = 0
+        done       = False
+
+        # Open maintenance log (append mode — one file, runs accumulate)
+        try:
+            mlog_fh = open(_MAINTENANCE_LOG, 'a', encoding='utf-8')
+        except OSError as e:
+            logging.error('BG CRC32 scanner: cannot open maintenance log %r: %s',
+                          _MAINTENANCE_LOG, e)
+            mlog_fh = None
+
+        def _ml(msg: str) -> None:
+            if mlog_fh:
+                _mlog(mlog_fh, msg)
+            logging.info('BG CRC32: %s', msg)
+
+        SEP = '=' * 72
+        _ml(SEP)
+        _ml('MAINTENANCE WINDOW STARTED')
+        _ml(f'Window : {_BG_SCAN_WINDOW_START:02d}:00–{_BG_SCAN_WINDOW_END:02d}:00 UTC')
+        _ml(f'Rate   : {_BG_SCAN_RATE_BYTES_S // 1024} KB/s  |  read buf: {_BG_SCAN_READ_BUF // 1024} KB')
+        _ml(SEP)
 
         try:
             user_root = os.path.join(SERVE_ROOT, 'FluxDrop')
             if not os.path.isdir(user_root):
-                logging.warning('BG CRC32: %r not found — skipping', user_root)
+                _ml(f'ERROR  : {user_root!r} not found — aborting scan')
                 time.sleep(3600)
+                if mlog_fh:
+                    mlog_fh.close()
                 continue
 
             for user_entry in os.scandir(user_root):
@@ -311,11 +345,16 @@ def _bg_crc32_scanner():
                 except ValueError:
                     continue
 
+                user_scanned = user_skipped = user_errors = 0
+                _ml(f'USER   : id={uid}  path={user_entry.path!r}')
+
                 for dirpath, _dirs, filenames in os.walk(user_entry.path):
                     if not _in_window():
+                        _ml('WINDOW : maintenance window ended mid-scan — stopping early')
                         done = True; break
                     for fname in sorted(filenames):
                         if not _in_window():
+                            _ml('WINDOW : maintenance window ended mid-scan — stopping early')
                             done = True; break
                         abs_path = os.path.join(dirpath, fname)
                         rel_path = ('/' +
@@ -327,7 +366,7 @@ def _bg_crc32_scanner():
                             continue
                         stored = checksum_get(rel_path, uid)
                         if stored and checksum_is_fresh(stored, abs_path):
-                            skipped += 1
+                            skipped += 1; user_skipped += 1
                             continue
                         # Compute and store
                         crc = 0; read_b = 0
@@ -340,26 +379,46 @@ def _bg_crc32_scanner():
                                     read_b += len(chunk)
                             checksum_put(rel_path, uid, crc, st.st_size,
                                          int(st.st_mtime_ns), 'background')
-                            scanned    += 1
+                            scanned    += 1; user_scanned += 1
                             bytes_read += read_b
+                            _ml(f'  HASH : {rel_path}  crc={crc:08x}  size={st.st_size}')
                             # Rate-limit
                             if _BG_SCAN_RATE_BYTES_S > 0:
-                                elapsed  = time.time() - window_start + 0.001
-                                budget   = elapsed * _BG_SCAN_RATE_BYTES_S
+                                elapsed = time.time() - run_start_ts + 0.001
+                                budget  = elapsed * _BG_SCAN_RATE_BYTES_S
                                 if bytes_read > budget:
                                     time.sleep(
                                         (bytes_read - budget) / _BG_SCAN_RATE_BYTES_S
                                     )
                         except OSError as e:
                             logging.debug('BG CRC32: error %r: %s', abs_path, e)
-                            errors += 1
+                            _ml(f'  ERROR: {rel_path}  {e}')
+                            errors += 1; user_errors += 1
+
+                _ml(f'  DONE  user={uid}: hashed={user_scanned} '
+                    f'skipped={user_skipped} errors={user_errors}')
+
         except Exception as e:
             logging.error('BG CRC32 scanner: unexpected error: %s', e)
+            _ml(f'FATAL  : unexpected exception: {e}')
 
-        logging.info(
-            'BG CRC32 scanner: done — scanned=%d skipped=%d errors=%d bytes=%d',
-            scanned, skipped, errors, bytes_read,
-        )
+        elapsed_s = time.time() - run_start_ts
+        _ml(SEP)
+        _ml('SUMMARY')
+        _ml(f'  Started  : {run_start.strftime("%Y-%m-%d %H:%M:%S UTC")}')
+        _ml(f'  Elapsed  : {int(elapsed_s // 60)}m {int(elapsed_s % 60)}s')
+        _ml(f'  Hashed   : {scanned} file(s)  ({bytes_read / 1024 / 1024:.1f} MB read)')
+        _ml(f'  Skipped  : {skipped} file(s)  (checksum already fresh)')
+        _ml(f'  Errors   : {errors}')
+        _ml(f'  Complete : {"NO — window closed early" if done else "YES"}')
+        _ml(SEP + '\n')
+
+        if mlog_fh:
+            try:
+                mlog_fh.close()
+            except OSError:
+                pass
+
         time.sleep(20 * 3600)   # earliest next scan in 20 h
 
 
@@ -4018,11 +4077,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 lf_offset   = entry['lf_offset']
                 data_offset = entry['data_offset']
                 fsz         = entry['size']
-                file_end    = data_offset + fsz
 
-                # Skip entries entirely before req_start
-                if file_end + 30 < req_start:
-                    pos = file_end
+                # Skip entries entirely before req_start — advance pos to keep virtual
+                # position in sync so _send_slice's overlap math stays correct.
+                # entry_end is data_offset + file_size (no data-descriptor; STORED method).
+                entry_end = data_offset + fsz
+                if entry_end <= req_start:
+                    pos = entry_end
                     continue
 
                 # LFH

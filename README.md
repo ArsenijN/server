@@ -1,4 +1,4 @@
-# server `v0.17.2.19`
+# server `v0.17.2.20`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -44,12 +44,10 @@ old and untracked files will be triggered automatically at time period of
 
 ***Regressions: none***
 
-*Patch notes: **FluxDrop will drop the download modal for ZIPs in favor of 
-keeping the "resumability" of the archive's download by browser or external 
-download tool (seems to be like) this;
-This patch missing the actual code changes because they're pending;
-This is a slightly broken code - ZIP downloads can't finish but works almost 
-ok - pausing drops a few megabytes, leaving the client without full archive***
+*Patch notes: **This is a slightly broken code - ZIP downloads can't finish but 
+works almost ok - pausing drops a few megabytes, leaving the client without 
+full archive -- needs testing with new code;
+New code ~~added~~ fixed the background media scan***
 
 Note to myself: this is weird
 ```
@@ -77,6 +75,7 @@ Note to myself: this is weird
 [2026-05-22 01:17:15] 2026-05-22 01:17:15,791 [INFO] (Thread-658 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
 [2026-05-22 01:17:15] 2026-05-22 01:17:15,791 [INFO] (Thread-658 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
 ```
+Is that the "config" 404s caused on client that was mentioned in the TODO?
 
 ---
 

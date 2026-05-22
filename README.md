@@ -1,4 +1,4 @@
-# server `v0.17.2.20`
+# server `v0.17.2.21`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -17,7 +17,7 @@ responsibility or acts for `dev` branch since it's considered unstable,
 unreliable and meant to be used for development and tests of new features only. 
 DO NOT USE IT AS A MAIN REPOSITORY FOR ANY REASON EXCEPT THE EXPLAINED 
 EARLIER.***
-- ***Now streamed ZIPs are resumable and faster to be downloaded due to 
+- ***Now streamed ZIPs are resumable and blazingly fast to download due to 
 significant changes in the code for that, and with that new ability arrival - 
 now files on server are checksummed! This means that server would be able to 
 scan your files in the background to be sure that they're the same as before! 
@@ -46,8 +46,8 @@ old and untracked files will be triggered automatically at time period of
 
 *Patch notes: **This is a slightly broken code - ZIP downloads can't finish but 
 works almost ok - pausing drops a few megabytes, leaving the client without 
-full archive -- needs testing with new code;
-New code ~~added~~ fixed the background media scan***
+full archive -- needs testing with new code -- needs testing with new new 
+code -- tests ok, code checked, everything works I guess***
 
 Note to myself: this is weird
 ```

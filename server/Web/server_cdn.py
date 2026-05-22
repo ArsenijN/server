@@ -4044,85 +4044,109 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             return
 
-        READ_BUF    = 2 * 1024 * 1024
-        pos         = 0      # current position in the virtual ZIP stream
-        remaining   = length # bytes left to send
+        READ_BUF  = 2 * 1024 * 1024
+        remaining = length   # bytes left to send to the client
 
-        def _send_slice(data: bytes) -> bool:
-            """Send the portion of data that overlaps [req_start, req_end].
-            Returns False if the client disconnected."""
-            nonlocal pos, remaining
-            if remaining <= 0:
-                pos += len(data)
+        def _write(data: bytes) -> bool:
+            """Send up to `remaining` bytes of data. Returns False on disconnect."""
+            nonlocal remaining
+            if remaining <= 0 or not data:
                 return True
-            data_start = pos
-            data_end   = pos + len(data)
-            pos       += len(data)
-            # Overlap with [req_start, req_end]?
-            ol_start = max(data_start, req_start)
-            ol_end   = min(data_end,   req_end + 1)
-            if ol_start >= ol_end:
-                return True
-            chunk = data[ol_start - data_start : ol_end - data_start]
+            send = data[:remaining]
             try:
-                self.wfile.write(chunk)
-                remaining -= len(chunk)
+                self.wfile.write(send)
+                remaining -= len(send)
                 return True
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
                 return False
 
+        def _write_clipped(data: bytes, virt_start: int) -> bool:
+            """Send the portion of `data` (whose first byte is at virtual offset
+            `virt_start`) that falls within [req_start, req_end].
+            Returns False on disconnect."""
+            virt_end = virt_start + len(data)
+            ol_s = max(virt_start, req_start)
+            ol_e = min(virt_end,   req_end + 1)
+            if ol_s >= ol_e:
+                return True
+            return _write(data[ol_s - virt_start : ol_e - virt_start])
+
         try:
-            # Stream each file entry
+            # ── File entries ──────────────────────────────────────────────────
+            # Since the ZIP uses STORED (no compression) every virtual offset is
+            # deterministic and pre-computed in the session.  We can therefore
+            # jump directly to the entry that contains req_start without reading
+            # or re-hashing anything before it.
             for entry in session['files']:
-                lf_offset   = entry['lf_offset']
-                data_offset = entry['data_offset']
-                fsz         = entry['size']
-
-                # Skip entries entirely before req_start — advance pos to keep virtual
-                # position in sync so _send_slice's overlap math stays correct.
-                # entry_end is data_offset + file_size (no data-descriptor; STORED method).
-                entry_end = data_offset + fsz
-                if entry_end <= req_start:
-                    pos = entry_end
-                    continue
-
-                # LFH
-                if not _send_slice(entry['lfh']):
-                    return
-
-                # File data — seek into the correct file position if resuming
-                if fsz > 0:
-                    skip_in_file = max(0, req_start - data_offset)
-                    try:
-                        with open(entry['abs_path'], 'rb') as fh:
-                            if skip_in_file:
-                                fh.seek(skip_in_file)
-                            bytes_sent = 0
-                            while bytes_sent < fsz - skip_in_file:
-                                chunk = fh.read(min(READ_BUF, fsz - skip_in_file - bytes_sent))
-                                if not chunk:
-                                    break
-                                if not _send_slice(chunk):
-                                    return
-                                bytes_sent += len(chunk)
-                    except OSError:
-                        # File disappeared — send zeros to keep the stream length correct
-                        # (CRC mismatch will alert the unzip tool, but the stream stays intact)
-                        logging.warning('zip_stream: file vanished during send: %r', entry['abs_path'])
-                        zeros_remaining = fsz - skip_in_file
-                        while zeros_remaining > 0:
-                            chunk = bytes(min(READ_BUF, zeros_remaining))
-                            if not _send_slice(chunk):
-                                return
-                            zeros_remaining -= len(chunk)
-
                 if remaining <= 0:
                     break
 
-            # Central directory + EOCD
-            for data in (session['cd_bytes'], session['zip64_eocd'],
-                         session['zip64_loc'], session['eocd']):
-                if not _send_slice(data):
+                lf_offset   = entry['lf_offset']
+                data_offset = entry['data_offset']
+                fsz         = entry['size']
+                entry_end   = data_offset + fsz   # first byte of the next entry
+
+                # This entry ends entirely before req_start — skip it with zero I/O.
+                if entry_end <= req_start:
+                    continue
+
+                # This entry starts entirely after req_end — nothing more to send.
+                if lf_offset > req_end:
+                    break
+
+                # ── LFH (fixed-size header for this entry) ───────────────────
+                lfh = entry['lfh']
+                if not _write_clipped(lfh, lf_offset):
+                    return
+
+                # ── File data ────────────────────────────────────────────────
+                if fsz > 0:
+                    # How many bytes of this file's data lie before req_start?
+                    # Seek past them directly — no disk read, no _write call.
+                    file_skip  = max(0, req_start - data_offset)
+                    # How many bytes of this file's data lie after req_end?
+                    file_trail = max(0, entry_end - (req_end + 1))
+                    # Bytes we actually need to read and send from this file.
+                    read_len   = fsz - file_skip - file_trail
+
+                    if read_len > 0:
+                        try:
+                            with open(entry['abs_path'], 'rb') as fh:
+                                if file_skip:
+                                    fh.seek(file_skip)
+                                sent = 0
+                                while sent < read_len:
+                                    chunk = fh.read(min(READ_BUF, read_len - sent))
+                                    if not chunk:
+                                        break
+                                    if not _write(chunk):
+                                        return
+                                    sent += len(chunk)
+                        except OSError:
+                            # File disappeared mid-stream — pad with zeros so the
+                            # stream length stays correct (CRC will flag the file).
+                            logging.warning('zip_stream: file vanished during send: %r',
+                                            entry['abs_path'])
+                            pad = read_len
+                            while pad > 0:
+                                chunk = bytes(min(READ_BUF, pad))
+                                if not _write(chunk):
+                                    return
+                                pad -= len(chunk)
+
+            # ── Central directory + EOCD ──────────────────────────────────────
+            # cd_start is stored in the session; the other structs follow it.
+            cd_start = session['cd_start']
+            tail_parts = [
+                (session['cd_bytes'],    cd_start),
+                (session['zip64_eocd'],  cd_start + len(session['cd_bytes'])),
+                (session['zip64_loc'],   cd_start + len(session['cd_bytes']) + len(session['zip64_eocd'])),
+                (session['eocd'],        cd_start + len(session['cd_bytes']) + len(session['zip64_eocd']) + len(session['zip64_loc'])),
+            ]
+            for data, virt_start in tail_parts:
+                if remaining <= 0:
+                    break
+                if not _write_clipped(data, virt_start):
                     return
 
             try:

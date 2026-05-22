@@ -119,31 +119,67 @@ function closeSharePreview() {
 function _spKeyHandler(e) { if (e.key === 'Escape') closeSharePreview(); }
 
 async function startShareZip(metaUrl) {
-  // Phase 1: ask server to pre-scan folder and build session (no temp file).
   const btn = event && event.currentTarget;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Building…'; }
+
   try {
-    const r    = await fetch(metaUrl);
-    const meta = await r.json();
-    if (!r.ok) throw new Error(meta.error || 'Failed to prepare ZIP');
-    if (meta.missing && meta.missing.length > 0) {
-      console.warn('ZIP: ' + meta.missing.length + ' file(s) skipped:', meta.missing);
+    // Phase 1: kick off the background scan — returns 202 + job_id immediately
+    const initResp = await fetch(metaUrl);
+    const initData = await initResp.json();
+    if (!initResp.ok) throw new Error(initData.error || 'Failed to start ZIP');
+
+    // If the server returned the old synchronous shape (no job_id), handle it
+    // gracefully so old server versions still work.
+    if (initData.url) {
+      _triggerZipDownload(initData);
+      return;
     }
-    // Phase 2: trigger browser download from the stream endpoint.
-    // Using an <a> + click gives the browser its normal Save-As / resume UI.
-    const a = document.createElement('a');
-    a.href     = meta.url;
-    a.download = meta.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    if (meta.missing && meta.missing.length > 0) {
-      alert('\u26a0 ' + meta.missing.length + ' file(s) could not be read and were skipped from the archive.');
+
+    const pollUrl = initData.poll_url;
+    if (!pollUrl) throw new Error('Server did not return a poll URL');
+
+    // Phase 2: poll zip_status until status='ready' or 'error'
+    let meta = null;
+    while (true) {
+      await new Promise(r => setTimeout(r, 900));
+      const pollResp = await fetch(pollUrl);
+      const pollData = await pollResp.json();
+      if (!pollResp.ok) throw new Error(pollData.error || 'Polling failed');
+
+      if (pollData.status === 'ready') {
+        meta = pollData;
+        break;
+      } else if (pollData.status === 'error') {
+        throw new Error(pollData.error || 'ZIP build failed');
+      } else if (pollData.status === 'scanning') {
+        // Update button with progress if available
+        if (btn && pollData.total) {
+          btn.textContent = `⏳ ${pollData.progress || 0}/${pollData.total}`;
+        }
+      }
     }
+
+    _triggerZipDownload(meta);
+
   } catch(e) {
     alert('ZIP failed: ' + e.message);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '\u2b07 ZIP'; }
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ ZIP'; }
+  }
+}
+
+function _triggerZipDownload(meta) {
+  if (meta.missing && meta.missing.length > 0) {
+    console.warn('ZIP: ' + meta.missing.length + ' file(s) skipped:', meta.missing);
+  }
+  const a = document.createElement('a');
+  a.href     = meta.url;
+  a.download = meta.filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  if (meta.missing && meta.missing.length > 0) {
+    alert('\u26a0 ' + meta.missing.length + ' file(s) could not be read and were skipped from the archive.');
   }
 }
 

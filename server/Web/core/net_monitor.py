@@ -42,23 +42,51 @@ def _net_probe_once() -> tuple[bool, float | None]:
 
 
 def _dd_check_google() -> bool | None:
-    """Probe a third independent host to confirm whether an outage is external.
+    """Probe multiple independent hosts to confirm whether an outage is external.
 
-    Previously scraped DownDetector HTML (fragile, layout-dependent).
-    Now does a direct TCP connect to Quad9 (9.9.9.9:53) — independent of both
-    Google and Cloudflare which are the primary probes.
+    Uses TCP connect only (no DNS, no HTTP) against hosts that are unlikely
+    to all be unreachable simultaneously unless there is a genuine ISP/upstream
+    outage.  Port 53 alone is filtered by some ISPs (including some Ukrainian
+    carriers), so we also try port 80 on each host as a fallback — a server
+    that listens on port 53 almost certainly also has something on port 80.
 
-    Returns True  → Quad9 also unreachable → likely an ISP/external outage
-            False → Quad9 responds         → outage looks local/server-side
-            None  → unexpected error
+    Returns True  → majority of hosts unreachable → likely external outage
+            False → majority of hosts respond     → outage looks local/server-side
+            None  → all probes raised unexpected errors
     """
-    try:
-        with socket.create_connection(('9.9.9.9', 53), timeout=_NET_PROBE_TIMEOUT):
-            return False
-    except OSError:
-        return True
-    except Exception:
-        return None
+    # (host, [ports_to_try_in_order])
+    _EXTERNAL_PROBES = [
+        ('9.9.9.9',   [53, 80]),   # Quad9
+        ('208.67.222.222', [53, 80]),  # OpenDNS
+        ('1.0.0.1',   [53, 80]),   # Cloudflare secondary (different from primary probes)
+    ]
+
+    def _try_host(host: str, ports: list) -> bool:
+        """Return True if we can TCP-connect to ANY of the given ports."""
+        for port in ports:
+            try:
+                with socket.create_connection((host, port),
+                                              timeout=_NET_PROBE_TIMEOUT):
+                    return True
+            except OSError:
+                continue
+        return False
+
+    results = []
+    for host, ports in _EXTERNAL_PROBES:
+        try:
+            results.append(_try_host(host, ports))
+        except Exception:
+            pass   # unexpected — skip this probe
+
+    if not results:
+        return None   # all probes failed unexpectedly — can't determine
+
+    reachable = sum(results)
+    # Declare external only when a clear majority of probes are unreachable.
+    # With 3 probes: 0 reachable → external, 1 reachable → external,
+    # 2 reachable → local, 3 reachable → local.
+    return reachable < len(results) / 2
 
 
 def _reconcile_open_outages() -> None:

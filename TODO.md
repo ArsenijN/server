@@ -8,11 +8,11 @@ user feedback or ideas for future development.
 ## Items that are pending for implementations:
 
 ### Important without category (critical before release)
-- [ ] Folder upload doesn't utilize the new file strategy, leading to the 
+- [x] Folder upload doesn't utilize the new file strategy, leading to the 
 `/tmp` dir exaustion on server. Needs immediate fixes before next release 
 -- only the first file is affected
-- [ ] Fix problems with the Quad9 pings "failing" and firing the external 
-outage -- critical issue before big release
+- [x] Fix problems with the Quad9 pings "failing" and firing the external 
+outage -- critical issue before big release -- fixed?
 
 ### UI
 - [ ] i18n support (language changes)
@@ -183,10 +183,3 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
-- [x] Literally "завантаження скрніів-3-001(2).zip: name '_choose_strategy' is 
-not defined"? none of the upload types works, I'll temporarely revert back the 
-code on the server so it will work... No I will not since that may break the DB 
--- fixed the issue with code insert gone wrong and removed the def declaration 
-that is caused that issue
-- [x] Folders and files downloaded as ZIP contain gibberish if the filename is 
-non-latin -- are this issue existed before, or it appeared recently?

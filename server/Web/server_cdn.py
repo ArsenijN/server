@@ -478,9 +478,7 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
                     logging.warning('zip_build: CRC failed %r', abs_path)
                     actual_missing.append(arcname); crc = 0; fsz = 0
             scanned.append((abs_path, arcname, arcname_bytes, fsz, crc, dos_t, dos_d))
-            if (i + 1) % 10 == 0:
-                _upd(progress=i + 1)
-        _upd(progress=len(raw_files))
+            _upd(progress=i + 1)
 
         # Build offset table and pre-render headers
         LFH_SIG            = b'PK\x03\x04'

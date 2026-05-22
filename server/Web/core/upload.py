@@ -104,12 +104,27 @@ def _rel_path_for(dest_path: str, session: dict) -> str | None:
         return None
 
 def _choose_strategy(dest_path: str) -> str:
-    """Return 'direct' or 'buffer' based on device IDs."""
+    """Return 'direct' or 'buffer' based on device IDs.
+
+    When the destination parent directory doesn't exist yet (e.g. a new
+    sub-folder being created by a folder upload), walk up the tree to the
+    nearest existing ancestor so we still get the correct st_dev.  Without
+    this, os.stat() raises OSError on a missing directory and the strategy
+    always falls back to 'buffer', causing every file in a new sub-folder
+    to land in /tmp instead of the destination drive.
+    """
     try:
-        dest_dev = os.stat(os.path.dirname(dest_path)).st_dev
-        tmp_dev  = os.stat(UPLOAD_TMP_DIR).st_dev
-        if dest_dev != tmp_dev:
-            return 'direct'
+        tmp_dev   = os.stat(UPLOAD_TMP_DIR).st_dev
+        # Find the nearest existing ancestor of dest_path's parent dir.
+        candidate = os.path.dirname(dest_path)
+        while candidate and candidate != os.path.dirname(candidate):
+            try:
+                dest_dev = os.stat(candidate).st_dev
+                if dest_dev != tmp_dev:
+                    return 'direct'
+                break   # same device as /tmp — use buffer
+            except OSError:
+                candidate = os.path.dirname(candidate)
     except OSError:
         pass
     return 'buffer'

@@ -1,4 +1,4 @@
-# server `v0.17.2.17`
+# server `v0.17.2.18`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -48,7 +48,7 @@ old and untracked files will be triggered automatically at time period of
 keeping the "resumability" of the archive's download by browser or external 
 download tool (seems to be like) this;
 This patch missing the actual code changes because they're pending;
-This is a broken code...***
+This is not a broken code...? Needs testing***
 
 Note to myself: this is weird
 ```

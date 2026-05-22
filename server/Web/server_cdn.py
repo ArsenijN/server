@@ -95,23 +95,13 @@ from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
 import gzip as _gzip_mod
-import socket as _socket
-import mimetypes
-import uuid as _uuid_mod
-import datetime as _dt
-import zlib     as _zl
-import tarfile as _tf
-import io as _io
-import hashlib as _hl
-import re as _re
-import zipfile as _zf
-import struct  as _st
-import time as _time
-import urllib.parse as _up
-
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
+import socket as _socket
+import mimetypes
+import datetime as _dt
+import zlib     as _zl
 
 # Importing core modules
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
@@ -229,9 +219,20 @@ _POLICY_VERSIONS_FILE = os.getenv('POLICY_VERSIONS_FILE', str(os.path.dirname(os
 # Sessions are built once (pre-walk + CRC32 scan) and stream directly to wire
 # on each GET.  Range requests seek into the virtual stream using the offset
 # table — no temp files, no /tmp usage.
+import uuid as _uuid_mod
 _zip_sessions: dict = {}
 _zip_sessions_lock  = threading.Lock()
 ZIP_SESSION_TTL     = int(os.getenv('ZIP_SESSION_TTL', str(20 * 60)))   # 20 min
+
+# ── Async ZIP job registry ────────────────────────────────────────────────────
+# zip_meta kicks off a background scan and returns a job_id immediately.
+# The client polls /api/v1/zip_status/<job_id> every second until status='ready'.
+# Job states: 'scanning' → 'ready' | 'error'
+# Once ready the job entry also carries the full session payload (same keys as
+# _zip_sessions) so zip_stream can serve it directly.
+_zip_jobs: dict        = {}
+_zip_jobs_lock         = threading.Lock()
+ZIP_JOB_TTL            = int(os.getenv('ZIP_JOB_TTL', str(30 * 60)))    # 30 min
 
 def _zip_sessions_cleanup():
     while True:
@@ -241,10 +242,16 @@ def _zip_sessions_cleanup():
             expired = [k for k, v in _zip_sessions.items() if v['expires'] < now]
             for k in expired:
                 del _zip_sessions[k]
-        if expired:
-            logging.debug('ZIP sessions: evicted %d expired entries', len(expired))
+        with _zip_jobs_lock:
+            expired_jobs = [k for k, v in _zip_jobs.items() if v.get('expires', 0) < now]
+            for k in expired_jobs:
+                del _zip_jobs[k]
+        if expired or expired_jobs:
+            logging.debug('ZIP cleanup: sessions=%d jobs=%d evicted',
+                          len(expired), len(expired_jobs))
 
 threading.Thread(target=_zip_sessions_cleanup, daemon=True, name='ZipSessionCleanup').start()
+
 
 # ── Background CRC32 integrity scanner ───────────────────────────────────────
 # Runs daily inside the maintenance window (23:00–04:00 EEST = 20:00–01:00 UTC).
@@ -349,6 +356,132 @@ def _bg_crc32_scanner():
 
 
 threading.Thread(target=_bg_crc32_scanner, daemon=True, name='CRC32BgScanner').start()
+
+
+def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None:
+    """Background thread: build a ZIP session for job_id.
+    Updates _zip_jobs[job_id] with progress, then sets status='ready' or 'error'.
+    """
+    import struct as _st
+    import zlib   as _zl
+
+    def _upd(**kw):
+        with _zip_jobs_lock:
+            if job_id in _zip_jobs:
+                _zip_jobs[job_id].update(kw)
+
+    try:
+        # Pre-walk
+        raw_files = []
+        missing   = []
+        for dirpath, _dirs, filenames in os.walk(base_fs):
+            for fname in sorted(filenames):
+                if fname in ('.placeholder', '.create_marker'):
+                    continue
+                abs_path = os.path.join(dirpath, fname)
+                arcname  = os.path.relpath(abs_path, base_fs).replace(os.sep, '/')
+                try:
+                    st      = os.stat(abs_path)
+                    lt      = time.localtime(st.st_mtime)
+                    dos_t   = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
+                    dos_d   = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
+                    raw_files.append((abs_path, arcname, arcname.encode('utf-8'),
+                                      st.st_size, dos_t, dos_d))
+                except OSError:
+                    missing.append(arcname)
+        _upd(total=len(raw_files))
+
+        # CRC32 scan (checksum cache + on-demand)
+        _cs_uid        = None if user_id == 'share' else user_id
+        scanned        = []
+        actual_missing = []
+        needs_hashing  = False
+        for i, (abs_path, arcname, arcname_bytes, fsz, dos_t, dos_d) in enumerate(raw_files):
+            crc    = None
+            stored = checksum_get(arcname, _cs_uid)
+            if stored and checksum_is_fresh(stored, abs_path):
+                crc = stored['crc32']
+                fsz = stored['file_size']
+            if crc is None:
+                needs_hashing = True
+                try:
+                    crc = compute_and_store_crc32(abs_path, arcname, _cs_uid, 'on_demand')
+                    fsz = os.stat(abs_path).st_size
+                except OSError:
+                    logging.warning('zip_build: CRC failed %r', abs_path)
+                    actual_missing.append(arcname); crc = 0; fsz = 0
+            scanned.append((abs_path, arcname, arcname_bytes, fsz, crc, dos_t, dos_d))
+            if (i + 1) % 10 == 0:
+                _upd(progress=i + 1)
+        _upd(progress=len(raw_files))
+
+        # Build offset table and pre-render headers
+        LFH_SIG            = b'PK\x03\x04'
+        CDH_SIG            = b'PK\x01\x02'
+        EOCD_SIG           = b'PK\x05\x06'
+        ZIP64_EOCD_SIG     = b'PK\x06\x06'
+        ZIP64_EOCD_LOCATOR = b'PK\x06\x07'
+        FLAG_NONE = 0; METHOD_STORED = 0; UINT32_MAX = 0xFFFF_FFFF; UINT16_MAX = 0xFFFF
+        offset = 0; files_built = []
+        for abs_path, arcname, arcname_bytes, fsz, crc, dos_t, dos_d in scanned:
+            fn_len      = len(arcname_bytes)
+            lf_offset   = offset
+            z64_lfh     = _st.pack('<HH QQ', 0x0001, 16, fsz, fsz)
+            lfh         = _st.pack('<4sHHHHHIIIHH',
+                LFH_SIG, 45, FLAG_NONE, METHOD_STORED, dos_t, dos_d,
+                crc, UINT32_MAX, UINT32_MAX, fn_len, len(z64_lfh),
+            ) + arcname_bytes + z64_lfh
+            offset     += len(lfh); data_offset = offset; offset += fsz
+            z64_cdh     = _st.pack('<HH QQQ', 0x0001, 24, fsz, fsz, lf_offset)
+            cdh         = _st.pack('<4sHHHHHHIIIHHHHHII',
+                CDH_SIG, 45, 45, FLAG_NONE, METHOD_STORED, dos_t, dos_d, crc,
+                UINT32_MAX, UINT32_MAX, fn_len, len(z64_cdh), 0, 0, 0, 0, UINT32_MAX,
+            ) + arcname_bytes + z64_cdh
+            files_built.append({
+                'abs_path': abs_path, 'arcname_bytes': arcname_bytes,
+                'size': fsz, 'crc': crc, 'lf_offset': lf_offset,
+                'data_offset': data_offset, 'lfh': lfh, 'cdh': cdh,
+            })
+        cd_start   = offset
+        cd_bytes   = b''.join(e['cdh'] for e in files_built)
+        offset    += len(cd_bytes); n = len(files_built); cd_size = len(cd_bytes)
+        zip64_eocd = _st.pack('<4s Q HHII QQ QQ',
+            ZIP64_EOCD_SIG, 44, 45, 45, 0, 0, n, n, cd_size, cd_start)
+        zip64_loc  = _st.pack('<4s I Q I', ZIP64_EOCD_LOCATOR, 0, offset, 1)
+        offset    += len(zip64_eocd) + len(zip64_loc)
+        eocd       = _st.pack('<4s HH HH II H',
+            EOCD_SIG, 0, 0,
+            min(n, UINT16_MAX), min(n, UINT16_MAX),
+            min(cd_size, UINT32_MAX), min(cd_start, UINT32_MAX), 0)
+        offset    += len(eocd)
+
+        all_missing = missing + actual_missing
+        filename    = folder_name + '.zip'
+        session_id  = str(_uuid_mod.uuid4())
+        session     = {
+            'files': files_built, 'cd_bytes': cd_bytes,
+            'zip64_eocd': zip64_eocd, 'zip64_loc': zip64_loc, 'eocd': eocd,
+            'cd_start': cd_start, 'total_size': offset,
+            'filename': filename, 'missing': all_missing,
+            'expires': time.time() + ZIP_SESSION_TTL, 'user_id': user_id,
+        }
+        with _zip_sessions_lock:
+            _zip_sessions[session_id] = session
+
+        logging.info(
+            'zip_build: %s — %d files, %d bytes, %d missing, '
+            'needs_hashing=%s session=%s\u2026',
+            filename, len(files_built), offset, len(all_missing),
+            needs_hashing, session_id[:8],
+        )
+        _upd(status='ready', session=session_id, filename=filename,
+             size=offset, missing=all_missing, needs_hashing=needs_hashing,
+             expires=time.time() + ZIP_JOB_TTL)
+
+    except Exception as e:
+        logging.error('zip_build job %s failed: %s', job_id[:8], e)
+        _upd(status='error', error=str(e))
+
 
 
 def _get_policy_versions() -> dict:
@@ -486,6 +619,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify)$')
     zip_pattern          = re.compile(r'^/api/(v[1-3])/zip(/.*)?$')
     zip_meta_pattern     = re.compile(r'^/api/(v[1-3])/zip_meta(/.*)?$')
+    zip_status_pattern   = re.compile(r'^/api/(v[1-3])/zip_status/([0-9a-f\-]{36})$')
     zip_stream_pattern   = re.compile(r'^/api/(v[1-3])/zip_stream/([0-9a-f\-]{36})$')
     foldersize_pattern   = re.compile(r'^/api/(v[1-3])/foldersize(/.*)?$')
     archive_tree_pattern = re.compile(r'^/api/(v[1-3])/archive_tree(/.*)?$')
@@ -558,6 +692,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         ------------
         On completion a notification is fired (see _fire_upload_notification).
         """
+        import tarfile as _tf
+        import io as _io
 
         user_id = self._check_token_auth()
         if not user_id:
@@ -681,6 +817,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     hasher = None
                     expected_sha = sha256_manifest.get(name) or sha256_manifest.get(safe_name)
                     if expected_sha:
+                        import hashlib as _hl
                         try:
                             hasher = _hl.sha256(usedforsecurity=False)
                         except TypeError:
@@ -1048,9 +1185,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         Returns current live metrics (no auth required — same info as /status page)
         plus the 90-day daily uptime history from the DB.
         """
+        import socket as _s2
         def _port_open(port):
             try:
-                with _socket.create_connection(('127.0.0.1', port), timeout=1): return True
+                with _s2.create_connection(('127.0.0.1', port), timeout=1): return True
             except Exception: return False
 
         http_up  = _port_open(HTTP_PORT)
@@ -1143,6 +1281,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
           sampled_at, status, http_up, https_up, db_ok, mem_pct, disk_pct, cause
         No auth required (same visibility as /status).
         """
+        import re as _re
         if not _re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
             self._send_response(400, json.dumps({'error': 'invalid date'}), 'application/json')
             return
@@ -2009,6 +2148,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _zip_meta_m = self.zip_meta_pattern.match(parsed_url.path)
         if _zip_meta_m:
             return self._handle_zip_meta(_zip_meta_m.group(2) or '/')
+        _zip_status_m = self.zip_status_pattern.match(parsed_url.path)
+        if _zip_status_m:
+            return self._handle_zip_status(_zip_status_m.group(2))
         _zip_stream_m = self.zip_stream_pattern.match(parsed_url.path)
         if _zip_stream_m:
             return self._handle_zip_stream(_zip_stream_m.group(2))
@@ -2566,6 +2708,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(
                 400, json.dumps({'error': 'One or more fields exceed the maximum allowed length.'})
             )
+        import re as _re
         if not _re.match(r'^[A-Za-z0-9_\-\.]{3,64}$', username):
             return self._send_response(
                 400, json.dumps({'error': 'Username must be 3–64 characters: letters, digits, _ - .'})
@@ -2892,7 +3035,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if os.path.isfile(target_fs):
             # Choose content type and disposition based on mode
             if _preview_mode or _cdn_embed:
-                content_type = mimetypes.guess_type(target_fs)[0] or "application/octet-stream"
+                import mimetypes as _mt
+                content_type = _mt.guess_type(target_fs)[0] or "application/octet-stream"
                 disposition = None  # inline — no Content-Disposition header
                 action = "preview" if _preview_mode and not _cdn_embed else "embed"
             else:
@@ -3410,6 +3554,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
 
     def _handle_zip(self, path_segment: str):
+        import zipfile as _zf
+        import struct  as _st
+        import zlib    as _zl
 
         # Share path override: _handle_zip_share already resolved and validated
         # the filesystem path — skip auth and path resolution entirely.
@@ -3465,6 +3612,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 try:
                     st       = os.stat(abs_path)
                     fsz      = st.st_size
+                    import time as _time
                     lt       = _time.localtime(st.st_mtime)
                     dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
                     dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
@@ -3506,6 +3654,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Disposition', self._content_disposition(zip_filename))
             self.send_header('Content-Length', str(total_cl))
             if missing_files:
+                import urllib.parse as _up
                 self.send_header('X-Zip-Missing-Files',
                                  _up.quote(json.dumps(missing_files), safe=''))
             self.end_headers()
@@ -3672,12 +3821,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def _handle_zip_meta(self, path_segment: str):
         """GET /api/v1/zip_meta/<path>
-        Pre-walk the folder, compute CRC32 for every file, build the complete
-        ZIP offset table in memory, store as a session, return JSON metadata.
-        The client then streams /api/v1/zip_stream/<session_id> which supports
-        Range requests for resume without writing anything to disk.
+        Auth + path resolution only — returns a job_id immediately (status='scanning').
+        The actual CRC32 scan and offset-table build runs in a background thread.
+        Client polls GET /api/v1/zip_status/<job_id> until status='ready'.
         """
-
         share_override = getattr(self, '_zip_share_override', None)
         if share_override is not None:
             base_fs = share_override
@@ -3701,175 +3848,85 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not os.path.isdir(base_fs):
             return self._send_response(404, json.dumps({'error': 'Not a directory.'}))
 
-        LFH_SIG           = b'PK\x03\x04'
-        DD_SIG            = b'PK\x07\x08'
-        CDH_SIG           = b'PK\x01\x02'
-        EOCD_SIG          = b'PK\x05\x06'
-        ZIP64_EOCD_SIG    = b'PK\x06\x06'
-        ZIP64_EOCD_LOCATOR = b'PK\x06\x07'
-        FLAG_NONE     = 0x0000      # no data-descriptor — sizes/CRC in LFH
-        METHOD_STORED = 0
-        UINT32_MAX    = 0xFFFF_FFFF
-        UINT16_MAX    = 0xFFFF
-        Z64_LFH_EXTRA  = 20
-        Z64_CDH_EXTRA  = 28
-
-        # ── Pre-walk ─────────────────────────────────────────────────────────
-        raw_files = []
-        missing   = []
-        for dirpath, _dirs, filenames in os.walk(base_fs):
-            for fname in sorted(filenames):
-                if fname in ('.placeholder', '.create_marker'):
-                    continue
-                abs_path = os.path.join(dirpath, fname)
-                arcname  = os.path.relpath(abs_path, base_fs).replace(os.sep, '/')
-                try:
-                    st  = os.stat(abs_path)
-                    fsz = st.st_size
-                    lt       = _time.localtime(st.st_mtime)
-                    dos_time = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
-                    dos_date = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
-                except OSError:
-                    missing.append(arcname)
-                    continue
-                raw_files.append((abs_path, arcname, arcname.encode('utf-8'), fsz, dos_time, dos_date))
-
-        # ── CRC32 scan (checksum cache + on-demand) ───────────────────────────
-        # For each file check the file_checksums table first.  If a fresh entry
-        # exists (mtime_ns + file_size both match), use the stored value directly
-        # — no disk read needed.  For files without a fresh entry, compute CRC32
-        # now ("on demand"), store the result, and set needs_hashing=True so the
-        # client can show "Hashing files on demand…" instead of "Building archive…".
-        #
-        # user_id for shared paths is 'share'; map that to None for the DB query.
-        _cs_uid       = None if user_id == 'share' else user_id
-        scanned       = []
-        actual_missing = []
-        needs_hashing  = False   # True when any file was hashed on-demand
-
-        for abs_path, arcname, arcname_bytes, fsz, dos_time, dos_date in raw_files:
-            crc = None
-
-            # Try cached checksum
-            stored = checksum_get(arcname, _cs_uid)
-            if stored and checksum_is_fresh(stored, abs_path):
-                crc = stored['crc32']
-                fsz = stored['file_size']   # use stored size — matches what was hashed
-
-            if crc is None:
-                # Not cached or stale — compute on demand via upload helper
-                needs_hashing = True
-                try:
-                    crc = compute_and_store_crc32(abs_path, arcname,
-                                                  _cs_uid, 'on_demand')
-                    try:
-                        fsz = os.stat(abs_path).st_size
-                    except OSError:
-                        pass
-                except OSError:
-                    logging.warning('zip_meta: CRC scan failed for %r', abs_path)
-                    actual_missing.append(arcname)
-                    fsz = 0
-                    crc = 0
-
-            scanned.append((abs_path, arcname, arcname_bytes, fsz, crc, dos_time, dos_date))
-
-        all_missing = missing + actual_missing
-
-        # ── Build offset table and pre-render LFH/CDH bytes ─────────────────
-        # With CRC32 and sizes known, headers are complete — no data-descriptor.
-        offset = 0
-        files_built = []   # (abs_path, arcname_bytes, fsz, lf_offset, data_offset, cdh_bytes)
-        for abs_path, arcname, arcname_bytes, fsz, crc, dos_time, dos_date in scanned:
-            fn_len      = len(arcname_bytes)
-            lf_offset   = offset
-
-            # LFH ZIP64 extra: known sizes, no placeholder
-            z64_lfh = _st.pack('<HH QQ', 0x0001, 16, fsz, fsz)
-            lfh = _st.pack('<4sHHHHHIIIHH',
-                LFH_SIG, 45, FLAG_NONE, METHOD_STORED,
-                dos_time, dos_date,
-                crc, UINT32_MAX, UINT32_MAX,
-                fn_len, len(z64_lfh),
-            ) + arcname_bytes + z64_lfh
-            offset += len(lfh)
-            data_offset = offset
-            offset += fsz     # no data descriptor
-
-            # CDH entry (built now, written after all file data)
-            z64_cdh = _st.pack('<HH QQQ', 0x0001, 24, fsz, fsz, lf_offset)
-            cdh = _st.pack('<4sHHHHHHIIIHHHHHII',
-                CDH_SIG, 45, 45, FLAG_NONE, METHOD_STORED,
-                dos_time, dos_date, crc,
-                UINT32_MAX, UINT32_MAX,
-                fn_len, len(z64_cdh),
-                0, 0, 0, 0, UINT32_MAX,
-            ) + arcname_bytes + z64_cdh
-
-            files_built.append({
-                'abs_path':    abs_path,
-                'arcname_bytes': arcname_bytes,
-                'size':        fsz,
-                'crc':         crc,
-                'lf_offset':   lf_offset,
-                'data_offset': data_offset,
-                'lfh':         lfh,
-                'cdh':         cdh,
-            })
-
-        # Central directory
-        cd_start = offset
-        cd_bytes = b''.join(e['cdh'] for e in files_built)
-        offset  += len(cd_bytes)
-        cd_size  = len(cd_bytes)
-        n        = len(files_built)
-
-        zip64_eocd = _st.pack('<4s Q HHII QQ QQ',
-            ZIP64_EOCD_SIG, 44, 45, 45, 0, 0, n, n, cd_size, cd_start)
-        zip64_loc  = _st.pack('<4s I Q I', ZIP64_EOCD_LOCATOR, 0, offset, 1)
-        offset    += len(zip64_eocd) + len(zip64_loc)
-        eocd       = _st.pack('<4s HH HH II H',
-            EOCD_SIG, 0, 0,
-            min(n, UINT16_MAX), min(n, UINT16_MAX),
-            min(cd_size, UINT32_MAX), min(cd_start, UINT32_MAX), 0)
-        offset    += len(eocd)
-
-        total_size = offset
+        # Create job entry immediately so the client can start polling
+        job_id = str(_uuid_mod.uuid4())
+        with _zip_jobs_lock:
+            _zip_jobs[job_id] = {
+                'status':   'scanning',
+                'progress': 0,      # files scanned so far
+                'total':    None,   # total files (set after pre-walk)
+                'error':    None,
+                'expires':  time.time() + ZIP_JOB_TTL,
+                # session payload set when scan completes:
+                'session':  None,
+                'filename': None,
+                'size':     None,
+                'missing':  None,
+                'needs_hashing': False,
+            }
 
         folder_name = os.path.basename(base_fs.rstrip('/')) or 'download'
-        filename    = folder_name + '.zip'
-        session_id  = str(_uuid_mod.uuid4())
 
-        session = {
-            'files':       files_built,
-            'cd_bytes':    cd_bytes,
-            'zip64_eocd':  zip64_eocd,
-            'zip64_loc':   zip64_loc,
-            'eocd':        eocd,
-            'cd_start':    cd_start,
-            'total_size':  total_size,
-            'filename':    filename,
-            'missing':     all_missing,
-            'expires':     time.time() + ZIP_SESSION_TTL,
-            'user_id':     user_id,
-        }
-        with _zip_sessions_lock:
-            _zip_sessions[session_id] = session
+        # Launch the heavy scan in a background thread so this request returns fast
+        threading.Thread(
+            target=_zip_build_job,
+            args=(job_id, base_fs, folder_name, user_id),
+            daemon=True,
+            name=f'ZipBuild-{job_id[:8]}',
+        ).start()
 
-        logging.info(
-            'zip_meta: %s — %d files, %d bytes, %d missing, needs_hashing=%s, session=%s…',
-            filename, len(files_built), total_size, len(all_missing),
-            needs_hashing, session_id[:8]
-        )
-        return self._send_response(200, json.dumps({
-            'session_id':    session_id,
-            'filename':      filename,
-            'size':          total_size,
-            'ttl':           ZIP_SESSION_TTL,
-            'missing':       all_missing,
-            'needs_hashing': needs_hashing,
-            'url':           f'/api/v1/zip_stream/{session_id}',
+        logging.info('zip_meta: job %s started for %r user=%s', job_id[:8], base_fs, user_id)
+        return self._send_response(202, json.dumps({
+            'job_id':  job_id,
+            'status':  'scanning',
+            'poll_url': f'/api/v1/zip_status/{job_id}',
         }))
+
+    def _handle_zip_status(self, job_id: str):
+        """GET /api/v1/zip_status/<job_id>
+        Returns current job state.  When status='ready' the response also
+        includes the stream URL, filename, size, missing list, and needs_hashing.
+        """
+        # Auth: just check token validity — the job was already auth-gated at creation
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+
+        with _zip_jobs_lock:
+            job = _zip_jobs.get(job_id)
+
+        if not job:
+            return self._send_response(404, json.dumps({'error': 'Job not found or expired'}))
+
+        # Refresh TTL on poll so active clients keep the job alive
+        with _zip_jobs_lock:
+            if job_id in _zip_jobs:
+                _zip_jobs[job_id]['expires'] = time.time() + ZIP_JOB_TTL
+
+        status = job['status']
+        resp   = {'job_id': job_id, 'status': status}
+
+        if status == 'scanning':
+            resp['progress'] = job['progress']
+            resp['total']    = job['total']
+
+        elif status == 'ready':
+            session_id = job['session']
+            resp.update({
+                'session_id':    session_id,
+                'filename':      job['filename'],
+                'size':          job['size'],
+                'ttl':           ZIP_SESSION_TTL,
+                'missing':       job['missing'],
+                'needs_hashing': job['needs_hashing'],
+                'url':           f'/api/v1/zip_stream/{session_id}',
+            })
+
+        elif status == 'error':
+            resp['error'] = job['error']
+
+        return self._send_response(200, json.dumps(resp))
+
 
     def _handle_zip_stream(self, session_id: str):
         """GET /api/v1/zip_stream/<session_id>[  Range: bytes=N-M ]
@@ -4068,6 +4125,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         Returns JSON: { entries: [{name, size, is_dir}], format: 'zip'|'tar' }
         Requires a valid session + download token (same auth as /api/v1/download).
         """
+        import zipfile as _zf
 
         user_id = self._check_token_auth()
         if not user_id:
@@ -4123,6 +4181,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
             elif ext in ('tar', 'gz', 'tgz'):
                 # Stream tar headers only — skip over file data without reading it.
+                import tarfile as _tf
                 entries = []
                 mode = 'r:gz' if ext in ('gz', 'tgz') else 'r:'
                 with _tf.open(base_fs, mode) as tf:
@@ -4374,6 +4433,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if dl_token_early:
                 # We don't know the canonical path yet for CDN files, but we
                 # can do a loose lookup by token hash alone to get the user_id.
+                import hashlib as _hl
                 th = _hl.sha256(dl_token_early.encode()).hexdigest()
                 try:
                     with _db_connect() as _conn:
@@ -5260,9 +5320,10 @@ def _token_purge_worker():
 
         # ── Record a status snapshot for uptime history ──────────────────
         try:
+            import socket as _ss
             def _p(port):
                 try:
-                    with _socket.create_connection(('127.0.0.1', port), timeout=1): return True
+                    with _ss.create_connection(('127.0.0.1', port), timeout=1): return True
                 except Exception: return False
             _http  = _p(HTTP_PORT)
             _https = _p(HTTPS_PORT)

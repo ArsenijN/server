@@ -1,4 +1,4 @@
-# server `v0.17.2.16`
+# server `v0.17.2.17`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -48,7 +48,34 @@ old and untracked files will be triggered automatically at time period of
 keeping the "resumability" of the archive's download by browser or external 
 download tool (seems to be like) this;
 This patch missing the actual code changes because they're pending;
-Find another problem with the downloading folder and it's content as ZIP***
+This is a broken code...***
+
+Note to myself: this is weird
+```
+...
+[2026-05-22 01:15:15] 2026-05-22 01:15:15,526 [INFO] (Thread-654 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
+[2026-05-22 01:15:15] 2026-05-22 01:15:15,526 [INFO] (Thread-654 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
+[2026-05-22 01:15:21] Updating blacklist...
+[2026-05-22 01:15:21] Updating blacklist...
+[2026-05-22 01:15:21] Blacklist loaded: 79 entries.
+[2026-05-22 01:15:21] Blacklist loaded: 79 entries.
+[2026-05-22 01:15:58] 2026-05-22 01:15:58,044 [WARNING] (Thread-655 (process_request_thread)) 127.0.0.1 - code 404, message File not found
+[2026-05-22 01:15:58] 2026-05-22 01:15:58,044 [WARNING] (Thread-655 (process_request_thread)) 127.0.0.1 - code 404, message File not found
+[2026-05-22 01:15:58] 2026-05-22 01:15:58,049 [INFO] (Thread-655 (process_request_thread)) 127.0.0.1 - "GET /api/.env HTTP/1.1" 404 -
+[2026-05-22 01:15:58] 2026-05-22 01:15:58,049 [INFO] (Thread-655 (process_request_thread)) 127.0.0.1 - "GET /api/.env HTTP/1.1" 404 -
+[2026-05-22 01:16:02] 2026-05-22 01:16:02,801 [WARNING] (Thread-656 (process_request_thread)) 127.0.0.1 - code 404, message File not found
+[2026-05-22 01:16:02] 2026-05-22 01:16:02,801 [WARNING] (Thread-656 (process_request_thread)) 127.0.0.1 - code 404, message File not found
+[2026-05-22 01:16:02] 2026-05-22 01:16:02,802 [INFO] (Thread-656 (process_request_thread)) 127.0.0.1 - "GET /api/test HTTP/1.1" 404 -
+[2026-05-22 01:16:02] 2026-05-22 01:16:02,802 [INFO] (Thread-656 (process_request_thread)) 127.0.0.1 - "GET /api/test HTTP/1.1" 404 -
+[2026-05-22 01:16:15] 2026-05-22 01:16:15,649 [INFO] (Thread-657 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
+[2026-05-22 01:16:15] 2026-05-22 01:16:15,649 [INFO] (Thread-657 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
+[2026-05-22 01:16:21] Updating blacklist...
+[2026-05-22 01:16:21] Updating blacklist...
+[2026-05-22 01:16:21] Blacklist loaded: 79 entries.
+[2026-05-22 01:16:21] Blacklist loaded: 79 entries.
+[2026-05-22 01:17:15] 2026-05-22 01:17:15,791 [INFO] (Thread-658 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
+[2026-05-22 01:17:15] 2026-05-22 01:17:15,791 [INFO] (Thread-658 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
+```
 
 ---
 

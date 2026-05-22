@@ -1614,28 +1614,10 @@ window.downloadFolderZip = async function(path) {
 
     const folderName = path.split('/').filter(Boolean).pop() || 'download';
     const filename   = folderName + '.zip';
-    // Phase 1: zip_meta — pre-walk + CRC32 scan, builds in-memory session.
-    // Returns {session_id, url, filename, size, ttl, missing[]}.
-    // No temp file is written; the session lives in server RAM only.
-    const metaUrl = `${API_BASE_URL}/api/v1/zip_meta${path.split('/').map(encodeURIComponent).join('/')}`;
-    const authHdr = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    const metaUrl    = `${API_BASE_URL}/api/v1/zip_meta${path.split('/').map(encodeURIComponent).join('/')}`;
+    const authHdr    = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
-    // Determine write mode eagerly — _streamSaverLoaded is only set after a
-    // file download has run; on a fresh page load it would default to blob.
-    let mode = 'blob';
-    if (_CAN_PICK) {
-        mode = 'picker';
-    } else {
-        try {
-            await _loadStreamSaver();
-            if (typeof streamSaver !== 'undefined') mode = 'streamsaver';
-        } catch (_) {}
-    }
-
-    // Phase 1: call zip_meta — server pre-walks folder, CRC32-scans all files,
-    // builds an in-memory session with a complete offset table.
-    // Returns {session_id, url, filename, size, ttl, missing[]}.
-    // No temp file is written — the ZIP is generated fresh on each stream request.
+    // Register a tray entry immediately so the user sees feedback
     const dl = {
         filename,
         totalSize:     null,
@@ -1643,96 +1625,136 @@ window.downloadFolderZip = async function(path) {
         status:        'downloading',
         speed:         null,
         eta:           null,
-        error:         null,   // "Building…" / "Hashing…" shown via statusText logic
+        error:         null,           // status text shows "Building…"/"Hashing…"
         _writer:       null,
         _abort:        new AbortController(),
         _resumeFrom:   0,
         _chunks:       [],
-        _mode:         mode,
-        _dlUrl:        null,   // set after zip_meta responds
+        _mode:         'native',       // ZIP always uses native <a> download
+        _dlUrl:        null,
         _path:         zipKey,
         _isZip:        true,
         _authHeader:   authHdr,
+        _needsHashing: false,
+        _jobId:        null,           // set after zip_meta responds
     };
     activeDownloads.set(zipKey, dl);
     renderDownloadTray();
 
-    // Open the save-file picker BEFORE the async meta fetch so the user gesture
-    // (click) is still in scope — browsers require showSaveFilePicker to be
-    // called synchronously within a user interaction.
-    if (mode === 'picker') {
-        try {
-            const fh = await window.showSaveFilePicker({
-                suggestedName: filename,
-                types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
-            });
-            dl._writer = await fh.createWritable({ keepExistingData: false });
-        } catch (err) {
-            if (err.name === 'AbortError') {
-                activeDownloads.delete(zipKey);
-                renderDownloadTray();
-                return;
-            }
-            dl._mode = 'blob'; dl._writer = null;
-        }
-    } else if (mode === 'streamsaver') {
-        try {
-            // Size unknown yet — set after meta returns; StreamSaver can cope
-            const ws = streamSaver.createWriteStream(filename);
-            dl._writer = ws.getWriter();
-        } catch (_) { dl._mode = 'blob'; dl._writer = null; }
-    }
-
-    // Phase 1: fetch zip_meta
-    let metaData;
+    // ── Phase 1: kick off async job ────────────────────────────────────────
+    // Server returns {job_id, status:'scanning', poll_url} immediately —
+    // no waiting for the CRC32 scan to finish.
+    let jobResp;
     try {
-        const metaResp = await fetchWithFallback(metaUrl, {
+        const r = await fetchWithFallback(metaUrl, {
             headers: authHdr,
             signal:  dl._abort.signal,
         });
-        metaData = await metaResp.json();
-        if (!metaResp.ok) throw new Error(metaData.error || `HTTP ${metaResp.status}`);
+        jobResp = await r.json();
+        if (!r.ok) throw new Error(jobResp.error || `HTTP ${r.status}`);
     } catch (err) {
-        if (err.name === 'AbortError') {
-            dl.status = dl._userCancelled ? 'cancelled' : 'paused';
-        } else {
-            dl.status = 'error';
-            dl.error  = err.message;
-        }
-        if (dl._writer) { try { dl._writer.abort?.(); } catch (_) {} dl._writer = null; }
+        dl.status = err.name === 'AbortError'
+            ? (dl._userCancelled ? 'cancelled' : 'paused')
+            : 'error';
+        dl.error  = err.name === 'AbortError' ? null : err.message;
         renderDownloadTray();
         return;
     }
 
-    // Missing files + needs_hashing flag — both affect what the tray shows
-    dl._needsHashing = !!metaData.needs_hashing;
-    dl.error     = (metaData.missing && metaData.missing.length > 0)
-        ? `\u26a0 ${metaData.missing.length} file(s) skipped (unreadable)`
-        : null;
-    dl.filename  = metaData.filename || dl.filename;
-    dl.totalSize = metaData.size     || null;
-    // Phase 2 URL: /api/v1/zip_stream/<session_id> — supports Range
-    dl._dlUrl    = `${API_BASE_URL}${metaData.url}`;
+    dl._jobId = jobResp.job_id;
+    const pollUrl = `${API_BASE_URL}${jobResp.poll_url}`;
+    renderDownloadTray();
 
-    // Blob mode size guard — we now know the exact size
-    if (dl._mode === 'blob' && dl.totalSize > 512 * 1024 * 1024) {
-        const proceed = confirm(
-            '\u26a0 Your browser doesn\'t support streaming downloads to disk.\n\n' +
-            `This archive is ${formatBytes(dl.totalSize)} and will be buffered ` +
-            'entirely in RAM before saving \u2014 this may freeze or crash the tab.\n\n' +
-            'Use Chrome or Edge for large folders. Continue anyway?'
-        );
-        if (!proceed) {
-            if (dl._writer) { try { dl._writer.abort?.(); } catch (_) {} dl._writer = null; }
-            activeDownloads.delete(zipKey);
+    // ── Phase 2: poll zip_status until ready ───────────────────────────────
+    // Ping every second.  The tray shows progress (N / total files scanned).
+    let metaData = null;
+    while (true) {
+        if (dl._abort.signal.aborted) {
+            dl.status = dl._userCancelled ? 'cancelled' : 'paused';
             renderDownloadTray();
             return;
         }
+        await new Promise(resolve => {
+            const t = setTimeout(resolve, 1000);
+            dl._abort.signal.addEventListener('abort',
+                () => { clearTimeout(t); resolve(); }, { once: true });
+        });
+        if (dl._abort.signal.aborted) {
+            dl.status = dl._userCancelled ? 'cancelled' : 'paused';
+            renderDownloadTray();
+            return;
+        }
+        let statusResp;
+        try {
+            const r = await fetchWithFallback(pollUrl, {
+                headers: authHdr,
+                signal:  dl._abort.signal,
+            });
+            statusResp = await r.json();
+            if (!r.ok) throw new Error(statusResp.error || `HTTP ${r.status}`);
+        } catch (err) {
+            if (err.name === 'AbortError') continue;
+            dl.status = 'error';
+            dl.error  = err.message;
+            renderDownloadTray();
+            return;
+        }
+        if (statusResp.status === 'error') {
+            dl.status = 'error';
+            dl.error  = statusResp.error || 'Server error building archive';
+            renderDownloadTray();
+            return;
+        }
+        if (statusResp.status === 'scanning') {
+            // Update progress in tray (files scanned / total)
+            const prog  = statusResp.progress ?? 0;
+            const total = statusResp.total;
+            dl._needsHashing = true;  // if we're polling, at least some files needed hashing
+            dl._scanProgress = { prog, total };
+            renderDownloadTray();
+            continue;
+        }
+        if (statusResp.status === 'ready') {
+            metaData = statusResp;
+            break;
+        }
     }
 
-    // Phase 2: stream /api/v1/zip_stream/<session_id> via _runDownload.
-    // _runDownload handles Range requests, retry on network error, and resume.
-    await _runDownload(zipKey, dl);
+    // ── Phase 3: trigger native browser download ───────────────────────────
+    // The stream endpoint sends Content-Length + Accept-Ranges so the browser
+    // can pause and resume the download natively via its download manager.
+    // We don't use StreamSaver here — native <a href> downloads support
+    // Range requests directly; StreamSaver can't pass Range headers.
+    dl._needsHashing = !!metaData.needs_hashing;
+    dl.totalSize     = metaData.size || null;
+    dl.filename      = metaData.filename || dl.filename;
+    dl.error         = (metaData.missing && metaData.missing.length > 0)
+        ? `\u26a0 ${metaData.missing.length} file(s) skipped (unreadable)`
+        : null;
+
+    // Build the stream URL with auth token as query param so the <a> tag works
+    // (fetch headers can't be set on a plain link click).
+    // _check_token_auth on the server already accepts ?token= as a fallback.
+    const streamBase = `${API_BASE_URL}${metaData.url}`;
+    const streamUrl  = authToken
+        ? `${streamBase}?token=${encodeURIComponent(authToken)}`
+        : streamBase;
+
+    const a       = document.createElement('a');
+    a.href        = streamUrl;
+    a.download    = dl.filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    // Mark done — browser's download manager owns the rest from here
+    dl.status = 'done';
+    renderDownloadTray();
+    const delay = getTrayDismissDelay();
+    if (delay > 0) {
+        setTimeout(() => { activeDownloads.delete(zipKey); renderDownloadTray(); }, delay);
+    }
 };
 
 // ── Tiny MIME helper ──────────────────────────────────────────────────────────
@@ -1889,16 +1911,17 @@ function renderDownloadTray() {
             if (dl.eta   != null) parts.push('ETA ' + formatEta(dl.eta));
             if (parts.length) {
                 statusText = parts.join(' \u00b7 ');
+            } else if (dl._isZip && dl._mode === 'native' && dl._dlUrl) {
+                statusText = 'Downloading via browser\u2026';
             } else if (dl._isZip && !dl._dlUrl) {
-                // zip_meta fetch still in progress
-                statusText = dl._needsHashing
+                // Polling: show scan progress if available
+                const sp = dl._scanProgress;
+                const hint = sp && sp.total
+                    ? ` (${sp.prog}/${sp.total} files)`
+                    : '';
+                statusText = (dl._needsHashing
                     ? 'Hashing files on demand\u2026'
-                    : 'Building archive\u2026';
-            } else if (dl._isZip && dl.bytesReceived === 0) {
-                // zip_meta done, stream not started yet
-                statusText = dl._needsHashing
-                    ? 'Hashing files on demand\u2026'
-                    : 'Preparing stream\u2026';
+                    : 'Building archive\u2026') + hint;
             } else {
                 statusText = '';
             }

@@ -1,4 +1,4 @@
-# server `v0.17.2.22`
+# server `v0.17.2.23`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -37,6 +37,8 @@ problem of outage***
 - ***Backend: now upload from folder will no longer overflow the `/tmp` (or 
 custom path) directory because it used the predecessor implementation of the 
 file upload handler***
+- ***Backend: fixed an issue with proxy, causing any error-related page to load 
+as JSON file with/without gibberish as text***
 
 ***Important note: the background media hashing activity for any remainings, 
 old and untracked files will be triggered automatically at time period of 
@@ -44,38 +46,11 @@ old and untracked files will be triggered automatically at time period of
 
 ***Regressions: none***
 
-*Patch notes: **This is a slightly broken code - ZIP downloads can't finish but 
-works almost ok - pausing drops a few megabytes, leaving the client without 
-full archive -- needs testing with new code -- needs testing with new new 
-code -- tests ok, code checked, everything works I guess***
-
-Note to myself: this is weird
-```
-...
-[2026-05-22 01:15:15] 2026-05-22 01:15:15,526 [INFO] (Thread-654 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
-[2026-05-22 01:15:15] 2026-05-22 01:15:15,526 [INFO] (Thread-654 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
-[2026-05-22 01:15:21] Updating blacklist...
-[2026-05-22 01:15:21] Updating blacklist...
-[2026-05-22 01:15:21] Blacklist loaded: 79 entries.
-[2026-05-22 01:15:21] Blacklist loaded: 79 entries.
-[2026-05-22 01:15:58] 2026-05-22 01:15:58,044 [WARNING] (Thread-655 (process_request_thread)) 127.0.0.1 - code 404, message File not found
-[2026-05-22 01:15:58] 2026-05-22 01:15:58,044 [WARNING] (Thread-655 (process_request_thread)) 127.0.0.1 - code 404, message File not found
-[2026-05-22 01:15:58] 2026-05-22 01:15:58,049 [INFO] (Thread-655 (process_request_thread)) 127.0.0.1 - "GET /api/.env HTTP/1.1" 404 -
-[2026-05-22 01:15:58] 2026-05-22 01:15:58,049 [INFO] (Thread-655 (process_request_thread)) 127.0.0.1 - "GET /api/.env HTTP/1.1" 404 -
-[2026-05-22 01:16:02] 2026-05-22 01:16:02,801 [WARNING] (Thread-656 (process_request_thread)) 127.0.0.1 - code 404, message File not found
-[2026-05-22 01:16:02] 2026-05-22 01:16:02,801 [WARNING] (Thread-656 (process_request_thread)) 127.0.0.1 - code 404, message File not found
-[2026-05-22 01:16:02] 2026-05-22 01:16:02,802 [INFO] (Thread-656 (process_request_thread)) 127.0.0.1 - "GET /api/test HTTP/1.1" 404 -
-[2026-05-22 01:16:02] 2026-05-22 01:16:02,802 [INFO] (Thread-656 (process_request_thread)) 127.0.0.1 - "GET /api/test HTTP/1.1" 404 -
-[2026-05-22 01:16:15] 2026-05-22 01:16:15,649 [INFO] (Thread-657 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
-[2026-05-22 01:16:15] 2026-05-22 01:16:15,649 [INFO] (Thread-657 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
-[2026-05-22 01:16:21] Updating blacklist...
-[2026-05-22 01:16:21] Updating blacklist...
-[2026-05-22 01:16:21] Blacklist loaded: 79 entries.
-[2026-05-22 01:16:21] Blacklist loaded: 79 entries.
-[2026-05-22 01:17:15] 2026-05-22 01:17:15,791 [INFO] (Thread-658 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
-[2026-05-22 01:17:15] 2026-05-22 01:17:15,791 [INFO] (Thread-658 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
-```
-Is that the "config" 404s caused on client that was mentioned in the TODO?
+*Patch notes: **Fixed a proxy issue that caused any error-related pages appear 
+as JSON without mention of gzip compression, causing or improper page format, 
+or gibberish inside JSON parser;
+Needs fix with shared folder download as ZIP since it doesn't work and fails 
+with 401***
 
 ---
 

@@ -1394,7 +1394,10 @@ function _fmtUtc(s) {
         if (ddBadge) {
           const outages = d.net_outages || [];
           const last = outages[0];
-          if (last && last.confirmed_external) {
+          // Only flag EXTERNAL while an outage is actively open and confirmed.
+          // Once the outage resolves, revert to All clear — the per-row table
+          // still shows the EXTERNAL tag for historical reference.
+          if (last && last.is_open && last.confirmed_external) {
             ddBadge.textContent = 'EXTERNAL'; ddBadge.style.background = 'rgba(239,68,68,0.15)'; ddBadge.style.color = 'var(--red)';
           } else if (last && last.is_open) {
             ddBadge.textContent = 'CHECKING…'; ddBadge.style.background = 'rgba(234,179,8,0.12)'; ddBadge.style.color = 'var(--yellow)';

@@ -45,6 +45,7 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
         'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
         'te', 'trailers', 'transfer-encoding', 'upgrade', 'host',
     })
+    _PROXY_BUF = 256 * 1024   # 256 KiB — matches the HTTPS proxy
     target = f"http://127.0.0.1:{CDN_HTTP_PORT}{handler.path}"
     body = None
     cl = handler.headers.get('Content-Length')
@@ -60,9 +61,34 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
     req.add_header('X-Forwarded-For', handler.client_address[0])
     try:
         with _urllib_req.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
             handler.send_response(resp.status)
             for k, v in resp.headers.items():
+                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
+                    try:
+                        handler.send_header(k, v)
+                    except Exception:
+                        pass
+            handler.end_headers()
+            # Stream chunk by chunk — never buffer the full body in RAM.
+            while True:
+                chunk = resp.read(_PROXY_BUF)
+                if not chunk:
+                    break
+                try:
+                    handler.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+    except _urllib_err.HTTPError as e:
+        # Forward the CDN's error response with its original headers intact.
+        # Do NOT hardcode Content-Type — the CDN may have sent gzip-encoded
+        # content, and dropping Content-Encoding causes garbled browser output.
+        try:
+            raw = e.read() or b''
+        except Exception:
+            raw = b''
+        try:
+            handler.send_response(e.code)
+            for k, v in e.headers.items():
                 if k.lower() not in _HOP_BY_HOP | {'content-length'}:
                     try:
                         handler.send_header(k, v)
@@ -71,20 +97,18 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
             handler.send_header('Content-Length', str(len(raw)))
             handler.end_headers()
             handler.wfile.write(raw)
-    except _urllib_err.HTTPError as e:
-        raw = e.read() or b''
-        handler.send_response(e.code)
-        handler.send_header('Content-Type', 'application/json')
-        handler.send_header('Content-Length', str(len(raw)))
-        handler.end_headers()
-        handler.wfile.write(raw)
+        except Exception:
+            pass
     except Exception as exc:
         msg = f'{{"error":"proxy error: {exc}"}}'.encode()
-        handler.send_response(502)
-        handler.send_header('Content-Type', 'application/json')
-        handler.send_header('Content-Length', str(len(msg)))
-        handler.end_headers()
-        handler.wfile.write(msg)
+        try:
+            handler.send_response(502)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+        except Exception:
+            pass
 
 def _cache_control_for_path(path: str) -> str:
     """Return the appropriate Cache-Control value for a static file path."""

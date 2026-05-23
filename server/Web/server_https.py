@@ -112,13 +112,22 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
                 except (BrokenPipeError, ConnectionResetError):
                     break   # client disconnected mid-download — normal for seeks/cancels
     except _urllib_err.HTTPError as e:
+        # Forward the CDN's error response with its original headers intact.
+        # Do NOT hardcode Content-Type or Content-Encoding — the CDN may have
+        # sent gzip-compressed HTML/JSON, and overriding the headers causes the
+        # browser to render garbled output.
         try:
             raw = e.read() or b''
         except Exception:
             raw = b''
         try:
             handler.send_response(e.code)
-            handler.send_header('Content-Type', 'application/json')
+            for k, v in e.headers.items():
+                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
+                    try:
+                        handler.send_header(k, v)
+                    except Exception:
+                        pass
             handler.send_header('Content-Length', str(len(raw)))
             handler.end_headers()
             handler.wfile.write(raw)

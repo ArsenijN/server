@@ -1,4 +1,4 @@
-# server `v0.17.2.23`
+# server `v0.17.2.24`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -33,7 +33,7 @@ the FluxDrop users can download folders in their file manager***
 you upload the files to FluxDrop! No more "Ahh, I accidentally closed the 
 tab((" because you are safe from that to happen!***
 - ***Status page: fixed an issue where Quad9 almost always triggered as a 
-problem of outage***
+problem in outage (false-positive)***
 - ***Backend: now upload from folder will no longer overflow the `/tmp` (or 
 custom path) directory because it used the predecessor implementation of the 
 file upload handler***
@@ -46,11 +46,7 @@ old and untracked files will be triggered automatically at time period of
 
 ***Regressions: none***
 
-*Patch notes: **Fixed a proxy issue that caused any error-related pages appear 
-as JSON without mention of gzip compression, causing or improper page format, 
-or gibberish inside JSON parser;
-Needs fix with shared folder download as ZIP since it doesn't work and fails 
-with 401***
+*Patch notes: **Fixed shared folder download as ZIP failing with 401***
 
 ---
 

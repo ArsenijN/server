@@ -3922,6 +3922,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 'total':    None,   # total files (set after pre-walk)
                 'error':    None,
                 'expires':  time.time() + ZIP_JOB_TTL,
+                'user_id':  user_id,  # 'share' for share-initiated jobs — used by zip_status auth
                 # session payload set when scan completes:
                 'session':  None,
                 'filename': None,
@@ -3952,10 +3953,20 @@ class AuthHandler(SimpleHTTPRequestHandler):
         Returns current job state.  When status='ready' the response also
         includes the stream URL, filename, size, missing list, and needs_hashing.
         """
-        # Auth: just check token validity — the job was already auth-gated at creation
-        user_id = self._check_token_auth()
-        if not user_id:
-            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        with _zip_jobs_lock:
+            job = _zip_jobs.get(job_id)
+
+        if not job:
+            return self._send_response(404, json.dumps({'error': 'Job not found or expired'}))
+
+        # Auth: share-initiated jobs (user_id=='share') are public — the job_id
+        # itself is the access token (UUIDv4, unguessable).  Authenticated jobs
+        # require a valid Bearer token, but we don't re-verify ownership because
+        # the job was already auth-gated at creation time.
+        if job.get('user_id') != 'share':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
 
         with _zip_jobs_lock:
             job = _zip_jobs.get(job_id)

@@ -1,4 +1,4 @@
-# server `v0.17.2.25`
+# server `v0.17.2.26`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -47,20 +47,25 @@ old and untracked files will be triggered automatically at time period of
 ***Regressions: none***
 
 *Patch notes: **Fixes:***
-- ***Dublicated logs for CDN and static hosters;***
+- ***Dublicated logs for CDN and static hosters; -- okay, good enough***
 - ***CRC32 hashes from maintenance time are not used for Folder Download As 
-ZIP because of the path handler;***
-- ***CatBox API file size limit is checked;***
+ZIP because of the path handler; -- needs additional checks since large files 
+that should be already hashed isn't***
+- ***CatBox API file size limit is checked; -- yes***
 - ***Upload policies are fixed: now anons can't upload if "Only FluxDrop users"
-are used;***
-- ***Missing ZIP files are never displayed on client;***
-- ***Upload settings are now styled dropdown;***
-- ***Policies now can be declined;***
+are used; -- yes but it didn't pickup the token from local storage despite 
+that it is there***
+- ***Missing ZIP files are never displayed on client; -- ***
+- ***Upload settings are now styled dropdown; -- works***
+- ***Policies now can be declined; -- works***
 - ***Links manager now can be closed by clicking on dark background or by "X"
-mark even if scrolled;***
+mark even if scrolled; -- works***
 
 ***Other changes are pending, the checks for "rightness" of those changes are 
 also***
+
+***Basically, some of the features are implemented ok and will be removed from 
+being pending***
 
 ---
 

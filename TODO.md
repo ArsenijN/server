@@ -121,7 +121,7 @@ manager)
 ### Server-side changes:
 
 #### Critical:
-- [ ] ZIP download modal that shows the missing from archive files may not be 
+- [x] ZIP download modal that shows the missing from archive files may not be 
 implemented due to code regression, checks are pending. -- by comments seems 
 like to be implemented -- needs testing, right now keep as-is
 - [x] Check the CatBox API for file size limits
@@ -133,6 +133,9 @@ before pushing to the real one
 - [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what
+- [ ] Folder size for shared links with FluxDrop account access requirement
+fails to auth and didn't display the size of folder, can't navigate the 
+shared folder, nor download the folder as ZIP
 
 
 #### Low:

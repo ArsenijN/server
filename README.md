@@ -1,4 +1,4 @@
-# server `v0.17.2.27`
+# server `v0.17.2.28`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -47,23 +47,13 @@ old and untracked files will be triggered automatically at time period of
 ***Regressions: none***
 
 *Patch notes: **Fixes:***
-- ***CRC32 hashes from maintenance time are not used for Folder Download As 
-ZIP because of the path handler; -- needs additional checks since large files 
-that should be already hashed isn't***
 - ***Upload policies are fixed: now anons can't upload if "Only FluxDrop users"
 are used; -- yes but it didn't pickup the token from local storage despite 
 that it is there***
 - ***Missing ZIP files are never displayed on client; -- didn't tested yet***
-- ***Cancelled downloads with browser are no longer continues in background***
 - ***Fix for background random fetch of downloading file as cache***
 - ***Fix token isn't picked up for shared folder link page***
 - ***Other fixes may be applied***
-
-***Other changes are pending, the checks for "rightness" of those changes are 
-also***
-
-***Basically, some of the features are implemented ok and will be removed from 
-being pending***
 
 ---
 

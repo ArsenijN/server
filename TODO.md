@@ -6,6 +6,9 @@ user feedback or ideas for future development.
 ---
 
 ## Items that are pending for implementations:
+- [ ] Show "Loading the acceptances..." for the acceptance modal if loading 
+times are long, with some placeholder (like the current gradient-like for the 
+main file manager UI)
 
 ### Important without category (critical before release)
 
@@ -20,11 +23,6 @@ with files)
 - [ ] Add "view background connectivity debug console" in settings to see small 
 one-liner somewhere at the bottom of the UI that will say what site currently 
 try to fetch or do (at least via Internet)
-- [x] Fix "Allow only FluxDrop users to upload" doesn't work as intended ( - 
-expected to be so no one can upload to folder except the registered users on 
-FluxDrop)
-- [x] Make upload settings as drop-out menu for choosing who actually can 
-upload (anyone or only FluxDrop users)
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Trash bin folder preview
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
@@ -50,8 +48,6 @@ ratios
       was unrecoverable 
 
 ### UX
-- [x] Add ability to disallow with the terms, following by the message about 
-need in the acceptance and logging out the user
 - [ ] Add Welcome screen for new users that will explain (almost) everything 
 about FluxDrop
 - [ ] Upload can fail on slow internet, causing unability to upload the files 
@@ -60,13 +56,6 @@ to server
 where it's failed instead of pushing only the unloaded/wrong part of the file 
 (aka reduce very large internet overhead) -- immediatelly on error, not need in 
 the page reload to bring that
-- [ ] FluxDrop didn't stop the background download of files if " 🚫 
-shareables.zip 0 B / ? Browser dropped the download. Click Resume to start 
-over." -- still there at V0.17.2.3 -- seems like this is now not a problem 
-anymore -- it's not fixed
-- [ ] Show "Loading the acceptances..." for the acceptance modal if loading 
-times are long, with some placeholder (like the current gradient-like for the 
-main file manager UI)
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
  or at least the N times (reliable way to resume whatever operation is going)
@@ -129,9 +118,6 @@ before pushing to the real one
 - [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what
-- [ ] Folder size for shared links with FluxDrop account access requirement
-fails to auth and didn't display the size of folder, can't navigate the 
-shared folder, nor download the folder as ZIP
 
 
 #### Low:
@@ -179,7 +165,20 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
-
+- [x] Fix "Allow only FluxDrop users to upload" doesn't work as intended ( - 
+expected to be so no one can upload to folder except the registered users on 
+FluxDrop)
+- [x] Make upload settings as drop-out menu for choosing who actually can 
+upload (anyone or only FluxDrop users)
+- [x] Add ability to disallow with the terms, following by the message about 
+need in the acceptance and logging out the user
+- [x] FluxDrop didn't stop the background download of files if " 🚫 
+shareables.zip 0 B / ? Browser dropped the download. Click Resume to start 
+over." -- still there at V0.17.2.3 -- seems like this is now not a problem 
+anymore -- it's not fixed
+- [x] Folder size for shared links with FluxDrop account access requirement
+fails to auth and didn't display the size of folder, can't navigate the 
+shared folder, nor download the folder as ZIP
 
 
 

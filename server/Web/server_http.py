@@ -505,7 +505,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 # --- Main Server Logic ---
 if __name__ == "__main__":
     sys.stdout = CustomLogger(LOG_FILE_HTTP)
-    sys.stderr = CustomLogger(LOG_FILE_HTTP)
+    sys.stderr = sys.stdout  # share the same instance — two separate instances = double writes
 
     print(f"Serving files from: {os.getcwd()}")
 

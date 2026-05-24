@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Stream</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0a0a0a;
+      --surface:   #111111;
+      --border:    #222222;
+      --accent:    #e8ff47;
+      --red:       #ff4747;
+      --muted:     #444444;
+      --text:      #e0e0e0;
+      --text-dim:  #666666;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 300;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 48px 48px;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .card {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      width: min(480px, calc(100vw - 32px));
+      padding: 40px 40px 36px;
+    }
+
+    .card::before, .card::after {
+      content: '';
+      position: absolute;
+      width: 12px; height: 12px;
+      border-color: var(--accent);
+      border-style: solid;
+    }
+    .card::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+    .card::after  { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+
+    .logo {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .status-pill {
+      display: flex; align-items: center; gap: 7px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; font-weight: 500;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--text-dim); transition: color 0.3s;
+    }
+    .status-pill.live  { color: var(--accent); }
+    .status-pill.error { color: var(--red); }
+
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted); transition: background 0.3s; flex-shrink: 0;
+    }
+    .status-pill.live  .dot { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+    .status-pill.error .dot { background: var(--red); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .title {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 26px; font-weight: 600;
+      color: #fff; line-height: 1.2;
+      margin-bottom: 6px; letter-spacing: -0.01em;
+    }
+
+    .subtitle {
+      font-size: 13px; color: var(--text-dim); margin-bottom: 32px;
+    }
+
+    /* Buffer bar */
+    .buf-wrap {
+      margin-bottom: 8px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .buf-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; letter-spacing: 0.1em;
+      color: var(--text-dim); text-transform: uppercase;
+      flex-shrink: 0; width: 52px;
+    }
+    .buf-track {
+      flex: 1; height: 3px;
+      background: var(--border); border-radius: 2px; overflow: hidden;
+    }
+    .buf-fill {
+      height: 100%; width: 0%;
+      background: var(--accent); border-radius: 2px;
+      transition: width 0.3s, background 0.3s;
+    }
+    .buf-fill.warn { background: var(--red); }
+    .buf-val {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; color: var(--text-dim);
+      width: 36px; text-align: right; flex-shrink: 0;
+    }
+
+    .viz {
+      width: 100%; height: 56px;
+      margin-top: 16px; margin-bottom: 28px;
+      display: flex; align-items: center; gap: 3px; overflow: hidden;
+    }
+    .bar {
+      flex: 1; background: var(--border);
+      border-radius: 2px; height: 6px; transition: background 0.3s;
+    }
+    .viz.active .bar {
+      background: var(--accent);
+      animation: wave var(--dur, 0.8s) ease-in-out infinite alternate;
+      animation-delay: var(--delay, 0s);
+    }
+    .viz.waiting .bar {
+      background: var(--muted);
+      animation: breathe 2.4s ease-in-out infinite alternate;
+      animation-delay: var(--delay, 0s);
+    }
+    @keyframes wave {
+      from { height: 4px; opacity: 0.5; }
+      to   { height: var(--h, 40px); opacity: 1; }
+    }
+    @keyframes breathe {
+      from { height: 4px; opacity: 0.2; }
+      to   { height: 14px; opacity: 0.5; }
+    }
+
+    .controls {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 28px;
+    }
+
+    .btn-play {
+      width: 48px; height: 48px; border-radius: 50%;
+      border: 1.5px solid var(--accent);
+      background: transparent; color: var(--accent);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, transform 0.1s;
+      outline: none;
+    }
+    .btn-play:hover  { background: var(--accent); color: var(--bg); }
+    .btn-play:active { transform: scale(0.92); }
+    .btn-play:disabled { border-color: var(--muted); color: var(--muted); cursor: not-allowed; }
+    .btn-play:disabled:hover { background: transparent; color: var(--muted); }
+    .btn-play svg { width: 18px; height: 18px; }
+
+    .volume-wrap {
+      flex: 1; display: flex; align-items: center; gap: 10px;
+    }
+    .vol-icon { color: var(--text-dim); flex-shrink: 0; }
+    .vol-icon svg { width: 16px; height: 16px; display: block; }
+
+    input[type=range] {
+      -webkit-appearance: none; flex: 1; height: 3px;
+      background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 13px; height: 13px;
+      border-radius: 50%; background: var(--accent); border: none;
+      transition: transform 0.1s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+    input[type=range]::-moz-range-thumb {
+      width: 13px; height: 13px;
+      border-radius: 50%; background: var(--accent); border: none;
+    }
+
+    .meta {
+      display: flex; justify-content: space-between; align-items: flex-end;
+      border-top: 1px solid var(--border); padding-top: 20px;
+    }
+
+    .listeners {
+      font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-dim);
+    }
+    .listeners span { color: var(--text); font-weight: 500; }
+
+    .msg {
+      font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+      color: var(--text-dim); text-align: right; max-width: 200px; line-height: 1.5;
+    }
+    .msg.live-msg  { color: var(--accent); }
+    .msg.error-msg { color: var(--red); }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="header">
+    <span class="logo">&#9632; broadcast</span>
+    <div class="status-pill" id="statusPill">
+      <div class="dot"></div>
+      <span id="statusText">checking</span>
+    </div>
+  </div>
+
+  <div class="title" id="streamTitle">Live Stream</div>
+  <div class="subtitle" id="streamDesc">Connecting to server&hellip;</div>
+
+  <!-- Buffer level indicator -->
+  <div class="buf-wrap">
+    <span class="buf-label">buffer</span>
+    <div class="buf-track"><div class="buf-fill" id="bufFill"></div></div>
+    <span class="buf-val" id="bufVal">—</span>
+  </div>
+
+  <div class="viz" id="viz"></div>
+
+  <div class="controls">
+    <button class="btn-play" id="playBtn" disabled title="Play / Pause">
+      <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+    </button>
+    <div class="volume-wrap">
+      <span class="vol-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+      </span>
+      <input type="range" id="volSlider" min="0" max="1" step="0.01" value="1">
+    </div>
+  </div>
+
+  <div class="meta">
+    <div class="listeners">listeners&nbsp;<span id="listenerCount">—</span></div>
+    <div class="msg" id="msgBox">Waiting for stream&hellip;</div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  CONFIGURATION
+// ═══════════════════════════════════════════════════
+const STREAM_URL    = 'http://arseniusgen.uk.to:8000/stream';
+const STATUS_URL    = 'http://arseniusgen.uk.to:8000/status-json.xsl';
+const MOUNTPOINT    = '/stream';
+const TITLE         = 'Live Stream';
+const POLL_MS       = 3000;
+
+// Low-latency tuning
+// How much audio (seconds) to pre-fill before starting playback.
+// Lower = less latency but more risk of glitches on slow connections.
+const TARGET_BUFFER = 0.6;   // seconds to buffer before first play
+const MAX_BUFFER    = 1.2;   // if ahead by this much, drop chunks to catch up
+// ═══════════════════════════════════════════════════
+
+const playBtn       = document.getElementById('playBtn');
+const volSlider     = document.getElementById('volSlider');
+const iconPlay      = document.getElementById('iconPlay');
+const iconPause     = document.getElementById('iconPause');
+const statusPill    = document.getElementById('statusPill');
+const statusText    = document.getElementById('statusText');
+const msgBox        = document.getElementById('msgBox');
+const viz           = document.getElementById('viz');
+const listenerCount = document.getElementById('listenerCount');
+const streamTitle   = document.getElementById('streamTitle');
+const streamDesc    = document.getElementById('streamDesc');
+const bufFill       = document.getElementById('bufFill');
+const bufVal        = document.getElementById('bufVal');
+
+streamTitle.textContent = TITLE;
+
+// Waveform bars
+const BAR_COUNT = 36;
+const heights   = Array.from({length: BAR_COUNT}, () => Math.random() * 36 + 8);
+for (let i = 0; i < BAR_COUNT; i++) {
+  const b = document.createElement('div');
+  b.className = 'bar';
+  b.style.setProperty('--delay', `${(i * 37) % 700}ms`);
+  b.style.setProperty('--dur',   `${0.5 + Math.random() * 0.7}s`);
+  b.style.setProperty('--h',     `${heights[i]}px`);
+  viz.appendChild(b);
+}
+
+// ── State ─────────────────────────────────────────
+let isLive      = false;
+let userPlaying = false;
+let autoStarted = false;
+let volume      = 1.0;
+
+// Web Audio state
+let audioCtx      = null;
+let gainNode      = null;
+let fetchCtrl     = null;   // AbortController for the fetch
+let nextStartTime = 0;      // when to schedule next chunk in AudioContext time
+let bufferAhead   = 0;      // seconds currently queued ahead of playhead
+let started       = false;  // whether we've begun scheduling audio
+
+// ── UI helpers ────────────────────────────────────
+function setVizState(s) {
+  viz.classList.remove('active', 'waiting');
+  if (s === 'active')  viz.classList.add('active');
+  if (s === 'waiting') viz.classList.add('waiting');
+}
+function setStatus(cls, text) {
+  statusPill.className = 'status-pill' + (cls ? ' ' + cls : '');
+  statusText.textContent = text;
+}
+function setMsg(text, cls) {
+  msgBox.className = 'msg' + (cls ? ' ' + cls : '');
+  msgBox.textContent = text;
+}
+function showPlay()  { iconPlay.style.display = ''; iconPause.style.display = 'none'; }
+function showPause() { iconPlay.style.display = 'none'; iconPause.style.display = ''; }
+
+function updateBufUI(seconds) {
+  const pct = Math.min(100, (seconds / MAX_BUFFER) * 100);
+  bufFill.style.width = pct + '%';
+  bufFill.classList.toggle('warn', seconds >= MAX_BUFFER * 0.9);
+  bufVal.textContent  = seconds > 0 ? seconds.toFixed(2) + 's' : '—';
+}
+
+// ── Web Audio low-latency engine ──────────────────
+
+function ensureContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = volume;
+    gainNode.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+// Feed a decoded AudioBuffer into the scheduler
+function scheduleBuffer(decoded) {
+  const now = audioCtx.currentTime;
+
+  // If we've fallen way behind (e.g. tab was hidden), reset clock
+  if (nextStartTime < now - 0.1) {
+    nextStartTime = now + TARGET_BUFFER;
+    bufferAhead   = TARGET_BUFFER;
+    started       = false;
+  }
+
+  // If the queue is too deep, drop this chunk to shed latency
+  const ahead = nextStartTime - now;
+  if (ahead > MAX_BUFFER) {
+    // Drop: don't schedule, just subtract from ahead tracking
+    bufferAhead = ahead - decoded.duration;
+    updateBufUI(Math.max(0, bufferAhead));
+    return;
+  }
+
+  const src = audioCtx.createBufferSource();
+  src.buffer  = decoded;
+  src.connect(gainNode);
+  src.start(nextStartTime);
+
+  nextStartTime += decoded.duration;
+  bufferAhead    = nextStartTime - now;
+  updateBufUI(bufferAhead);
+
+  // Once we've buffered enough, mark as playing
+  if (!started && bufferAhead >= TARGET_BUFFER) {
+    started = true;
+    showPause();
+    setVizState('active');
+    setMsg('on air', 'live-msg');
+    setStatus('live', 'live');
+    streamDesc.textContent = 'Streaming live';
+  }
+}
+
+// Decode an MP3 chunk — try as-is, then with a WAV header fallback
+async function decodeChunk(ctx, chunk) {
+  try {
+    return await ctx.decodeAudioData(chunk.slice(0));
+  } catch {
+    return null; // partial frame — discard
+  }
+}
+
+// ── Stream fetch loop ─────────────────────────────
+async function startStream() {
+  ensureContext();
+
+  fetchCtrl = new AbortController();
+  nextStartTime = audioCtx.currentTime + TARGET_BUFFER;
+  bufferAhead   = 0;
+  started       = false;
+
+  setMsg('connecting…');
+
+  let res;
+  try {
+    res = await fetch(STREAM_URL + '?_=' + Date.now(), {
+      signal: fetchCtrl.signal,
+      cache:   'no-store'
+    });
+  } catch (e) {
+    if (e.name !== 'AbortError') scheduleReconnect();
+    return;
+  }
+
+  if (!res.ok || !res.body) { scheduleReconnect(); return; }
+
+  const reader = res.body.getReader();
+
+  // We accumulate raw bytes and try to decode in ~8 KB chunks
+  // (roughly one Icecast burst / a few MP3 frames)
+  const CHUNK_SIZE = 8192;
+  let   accumulator = new Uint8Array(0);
+
+  function append(incoming) {
+    const merged = new Uint8Array(accumulator.length + incoming.length);
+    merged.set(accumulator);
+    merged.set(incoming, accumulator.length);
+    accumulator = merged;
+  }
+
+  while (userPlaying) {
+    let result;
+    try {
+      result = await reader.read();
+    } catch {
+      break;
+    }
+
+    if (result.done) break;
+    append(result.value);
+
+    // Process every CHUNK_SIZE bytes we've accumulated
+    while (accumulator.length >= CHUNK_SIZE) {
+      const slice  = accumulator.slice(0, CHUNK_SIZE).buffer;
+      accumulator  = accumulator.slice(CHUNK_SIZE);
+
+      const decoded = await decodeChunk(audioCtx, slice);
+      if (decoded) scheduleBuffer(decoded);
+    }
+  }
+
+  // Flush remaining bytes
+  if (accumulator.length > 0 && userPlaying) {
+    const decoded = await decodeChunk(audioCtx, accumulator.buffer);
+    if (decoded) scheduleBuffer(decoded);
+  }
+
+  if (userPlaying) scheduleReconnect();
+}
+
+let reconnectTimer = null;
+function scheduleReconnect() {
+  if (!userPlaying) return;
+  setMsg('reconnecting…');
+  updateBufUI(0);
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => {
+    if (userPlaying && isLive) startStream();
+  }, 2000);
+}
+
+// ── Start / stop ──────────────────────────────────
+function play() {
+  if (!isLive) return;
+  userPlaying = true;
+  autoStarted = true;
+  playBtn.disabled = false;
+  setVizState('waiting');
+  setMsg('buffering…');
+  startStream();
+}
+
+function stop() {
+  userPlaying = false;
+  clearTimeout(reconnectTimer);
+  if (fetchCtrl) { fetchCtrl.abort(); fetchCtrl = null; }
+  // Stop all scheduled audio immediately
+  if (audioCtx) {
+    gainNode.disconnect();
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = volume;
+    gainNode.connect(audioCtx.destination);
+  }
+  started       = false;
+  bufferAhead   = 0;
+  nextStartTime = 0;
+  updateBufUI(0);
+  showPlay();
+  setVizState('idle');
+  setMsg('paused');
+  setStatus('', 'paused');
+}
+
+// ── Controls ──────────────────────────────────────
+playBtn.addEventListener('click', () => {
+  if (userPlaying) {
+    stop();
+  } else {
+    play();
+  }
+});
+
+volSlider.addEventListener('input', () => {
+  volume = parseFloat(volSlider.value);
+  if (gainNode) gainNode.gain.value = volume;
+});
+
+// ── Icecast status polling ────────────────────────
+async function checkStatus() {
+  try {
+    const res  = await fetch(STATUS_URL + '?_=' + Date.now(), {cache: 'no-store'});
+    const text = await res.text();
+    const j0   = text.indexOf('{'), j1 = text.lastIndexOf('}');
+    if (j0 === -1) throw new Error();
+    const data     = JSON.parse(text.slice(j0, j1 + 1));
+    const stats    = data.icestats || {};
+    const sources  = stats.source
+      ? (Array.isArray(stats.source) ? stats.source : [stats.source])
+      : [];
+    const mount    = sources.find(s =>
+      (s.listenurl || '').includes(MOUNTPOINT) || s.mount === MOUNTPOINT
+    );
+    const nowLive  = !!mount;
+
+    listenerCount.textContent = mount ? (mount.listeners ?? '—') : '—';
+
+    if (nowLive && !isLive) {
+      isLive = true;
+      playBtn.disabled = false;
+      setStatus('live', 'live');
+      setVizState('waiting');
+      streamDesc.textContent = 'Stream is live';
+
+      if (!autoStarted) {
+        setMsg('stream started — press play', 'live-msg');
+        // Note: we don't auto-play here because autoplay without prior
+        // user gesture is blocked by browsers. User must click play once.
+      } else if (userPlaying) {
+        startStream();
+      } else {
+        setMsg('stream is live — press play', 'live-msg');
+      }
+
+    } else if (!nowLive && isLive) {
+      isLive = false;
+      autoStarted = false;
+      if (userPlaying) stop();
+      showPlay();
+      playBtn.disabled = true;
+      setStatus('', 'offline');
+      setVizState('idle');
+      setMsg('stream ended — waiting…');
+      streamDesc.textContent = 'Waiting for next broadcast…';
+      listenerCount.textContent = '—';
+      updateBufUI(0);
+
+    } else if (!nowLive) {
+      setStatus('', 'offline');
+      setMsg('no stream — waiting…');
+      streamDesc.textContent = 'Waiting for broadcast to start…';
+      playBtn.disabled = true;
+    }
+
+  } catch {
+    setStatus('error', 'error');
+    setMsg('cannot reach server', 'error-msg');
+    streamDesc.textContent = 'Server unreachable';
+  }
+}
+
+// ── Init ──────────────────────────────────────────
+setVizState('waiting');
+checkStatus();
+setInterval(checkStatus, POLL_MS);
+</script>
+</body>
+</html>

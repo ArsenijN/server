@@ -465,14 +465,16 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
         needs_hashing  = False
         for i, (abs_path, arcname, arcname_bytes, fsz, dos_t, dos_d) in enumerate(raw_files):
             crc    = None
-            stored = checksum_get(arcname, _cs_uid)
+            # Normalise key to match background scanner convention (leading '/')
+            cs_key = '/' + arcname if not arcname.startswith('/') else arcname
+            stored = checksum_get(cs_key, _cs_uid)
             if stored and checksum_is_fresh(stored, abs_path):
                 crc = stored['crc32']
                 fsz = stored['file_size']
             if crc is None:
                 needs_hashing = True
                 try:
-                    crc = compute_and_store_crc32(abs_path, arcname, _cs_uid, 'on_demand')
+                    crc = compute_and_store_crc32(abs_path, cs_key, _cs_uid, 'on_demand')
                     fsz = os.stat(abs_path).st_size
                 except OSError:
                     logging.warning('zip_build: CRC failed %r', abs_path)
@@ -578,12 +580,11 @@ def _get_policy_versions() -> dict:
 # Redirect print/stdout/stderr to our CustomLogger which writes to the log file
 sys.stdout = CustomLogger(LOG_FILE)
 sys.stderr = sys.stdout
-# Configure the logging module to write to stderr (which is now CustomLogger)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] (%(threadName)s) %(message)s',
-    handlers=[logging.StreamHandler(sys.stderr)]
-)
+# Do NOT use StreamHandler(sys.stderr) here — CustomLogger already writes to
+# the file internally. A StreamHandler pointing back at CustomLogger would
+# cause every logging.* call to hit the file twice.
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s [%(levelname)s] (%(threadName)s) %(message)s')
 
 # ==============================================================================
 # --- TRASH BIN HELPERS ---
@@ -4309,11 +4310,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(404, json.dumps({"error": "Share not found or not a folder."}))
 
         visitor_user_id = self._check_token_auth()
-        if share["allow_anon_upload"]:
-            pass
-        elif share["allow_auth_upload"] and visitor_user_id:
-            pass
-        else:
+        if not share["allow_anon_upload"] and share["allow_auth_upload"]:
+            if not visitor_user_id:
+                return self._send_response(403, json.dumps({"error": "A FluxDrop account is required to upload here."}))
+        elif not share["allow_anon_upload"] and not share["allow_auth_upload"]:
             return self._send_response(403, json.dumps({"error": "Uploads not permitted on this share."}))
 
         # Resolve base dir

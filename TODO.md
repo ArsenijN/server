@@ -62,7 +62,8 @@ where it's failed instead of pushing only the unloaded/wrong part of the file
 the page reload to bring that
 - [ ] FluxDrop didn't stop the background download of ZIP if " 🚫 
 shareables.zip 0 B / ? Browser dropped the download. Click Resume to start 
-over." -- still there at V0.17.2.3
+over." -- still there at V0.17.2.3 -- seems like this is now not a problem 
+anymore -- it's not fixed
 - [ ] Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
 main file manager UI)
@@ -122,8 +123,8 @@ manager)
 #### Critical:
 - [ ] ZIP download modal that shows the missing from archive files may not be 
 implemented due to code regression, checks are pending. -- by comments seems 
-like to be implemented
-- [ ] Check the CatBox API for file size limits
+like to be implemented -- needs testing, right now keep as-is
+- [x] Check the CatBox API for file size limits
 - [ ] Make separate "testing" server where I would be able to test everything 
 before pushing to the real one
 
@@ -178,11 +179,6 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
-- [x] Folder upload doesn't utilize the new file strategy, leading to the 
-`/tmp` dir exaustion on server. Needs immediate fixes before next release 
--- only the first file is affected
-- [x] Fix problems with the Quad9 pings "failing" and firing the external 
-outage -- critical issue before big release -- fixed?
 
 
 

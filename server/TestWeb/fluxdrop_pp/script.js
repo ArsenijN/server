@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-53134afc
+// Current version of script.js is: fluxdrop-v-d3deba00
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-53134afc'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-d3deba00'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -664,15 +664,18 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
                 <div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>
             </div>
             <div style="padding:1rem 1.5rem;border-top:1px solid #e2e8f0;
-                        display:flex;align-items:center;justify-content:space-between;gap:1rem;
-                        background:#f8fafc">
+                        display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#f8fafc">
                 <span id="pam-scroll-hint" style="font-size:.82rem;color:#94a3b8">
                     ↓ Scroll to the bottom to enable the agree button
                 </span>
-                <button id="pam-agree-btn" class="btn" disabled
-                    style="opacity:.45;cursor:not-allowed;white-space:nowrap">
-                    I agree to the ${label}
-                </button>
+                <div style="display:flex;gap:8px">
+                    <button id="pam-decline-btn" class="btn" style="background:#e2e8f0;color:#1e293b">
+                        Decline &amp; log out
+                    </button>
+                    <button id="pam-agree-btn" class="btn" disabled style="opacity:.45;cursor:not-allowed;white-space:nowrap">
+                        I agree to the ${label}
+                    </button>
+                </div>
             </div>
         </div>`;
 
@@ -710,6 +713,14 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             agreeBtn.textContent = `I agree to the ${label}`;
             showMessage('Error', `Could not save your agreement: ${err.message}`);
         }
+    });
+
+    const declineBtn = overlay.querySelector('#pam-decline-btn');
+    declineBtn.addEventListener('click', () => {
+        overlay.remove();
+        showMessage('Policy not accepted',
+            'You must accept the updated policies to use FluxDrop. You have been logged out.');
+        handleLogout();
     });
 
     // Language switch: reload document, reset scroll requirement
@@ -1745,6 +1756,26 @@ window.downloadFolderZip = async function(path) {
     a.download    = dl.filename;
     a.style.display = 'none';
     document.body.appendChild(a);
+    if (metaData.missing && metaData.missing.length > 0) {
+        const list = metaData.missing.map(f => `<li style="font-family:monospace;font-size:12px">${f}</li>`).join('');
+        const mo = document.createElement('div');
+        mo.className = 'modal-overlay';
+        mo.innerHTML = `<div class="modal-content" style="max-width:480px">
+            <h3 style="font-size:16px;font-weight:700;margin-bottom:8px">⚠ ${metaData.missing.length} file(s) will be skipped</h3>
+            <p style="font-size:13px;color:#64748b;margin-bottom:10px">These files could not be read and will be absent from the ZIP:</p>
+            <ul style="max-height:200px;overflow-y:auto;padding-left:18px;margin-bottom:16px">${list}</ul>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button id="zip-missing-cancel" class="btn" style="background:#e2e8f0;color:#1e293b">Cancel</button>
+                <button id="zip-missing-ok" class="btn">Download anyway</button>
+            </div>
+        </div>`;
+        document.body.appendChild(mo);
+        await new Promise(resolve => {
+            mo.querySelector('#zip-missing-ok').addEventListener('click', () => { mo.remove(); resolve(true); });
+            mo.querySelector('#zip-missing-cancel').addEventListener('click', () => { mo.remove(); resolve(false); dl.status = 'cancelled'; renderDownloadTray(); });
+        }).then(proceed => { if (!proceed) return; /* falls through to a.click() */ });
+        if (dl.status === 'cancelled') return;
+    }
     a.click();
     document.body.removeChild(a);
 
@@ -4806,13 +4837,13 @@ async function openShareDialog(path, isDir) {
 
                 ${isDir ? `
                 <hr style="border:none;border-top:1px solid #e2e8f0;margin:2px 0">
-                <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-                    <input type="checkbox" id="sh-anon-upload" style="width:16px;height:16px">
-                    <span style="font-size:14px"><strong>Allow anyone to upload</strong> into this folder</span>
-                </label>
-                <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-                    <input type="checkbox" id="sh-auth-upload" style="width:16px;height:16px">
-                    <span style="font-size:14px"><strong>Allow only FluxDrop users to upload</strong> into this folder</span>
+                <label style="display:flex;align-items:center;gap:10px">
+                    <span style="font-size:14px;font-weight:600;white-space:nowrap">📤 Who can upload:</span>
+                    <select id="sh-upload-policy" style="flex:1;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:white">
+                        <option value="none">Nobody (read-only)</option>
+                        <option value="anon">Anyone</option>
+                        <option value="auth">FluxDrop users only</option>
+                    </select>
                 </label>` : ''}
             </div>
 
@@ -4881,13 +4912,14 @@ async function openShareDialog(path, isDir) {
             document.head.appendChild(st);
         }
         // Snapshot all form values synchronously before the await
+        const uploadPolicy = overlay.querySelector('#sh-upload-policy')?.value ?? 'none';
         const reqBody = {
             path,
             is_dir: isDir,
             require_account: overlay.querySelector('#sh-require-account')?.checked ?? false,
             track_stats:     overlay.querySelector('#sh-stats')?.checked ?? false,
-            allow_anon_upload: isDir ? (overlay.querySelector('#sh-anon-upload')?.checked ?? false) : false,
-            allow_auth_upload: isDir ? (overlay.querySelector('#sh-auth-upload')?.checked ?? false) : false,
+            allow_anon_upload: isDir ? uploadPolicy === 'anon' : false,
+            allow_auth_upload: isDir ? uploadPolicy === 'auth' : false,
             allow_preview:   overlay.querySelector('#sh-allow-preview')?.checked ?? false,
             allow_cdn_embed: !isDir ? (overlay.querySelector('#sh-cdn-embed')?.checked ?? false) : false,
             expires_at: resolveExpiry(),
@@ -4934,15 +4966,18 @@ async function openShareManager() {
     overlay.className = 'modal-overlay';
     overlay.id = 'share-manager-overlay';
     overlay.innerHTML = `
-        <div class="modal-content" style="max-width:640px;width:95vw;max-height:80vh;overflow-y:auto">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="modal-content" style="max-width:640px;width:95vw;max-height:80vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e2e8f0;flex-shrink:0">
                 <h3 style="font-size:18px;font-weight:700">🔗 Shared Links</h3>
                 <button id="sm-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">✕</button>
             </div>
-            <div id="sm-body"><p style="color:#64748b;font-size:14px">Loading…</p></div>
+            <div id="sm-body" style="overflow-y:auto;padding:16px 20px;flex:1">
+                <p style="color:#64748b;font-size:14px">Loading…</p>
+            </div>
         </div>`;
     document.body.appendChild(overlay);
     document.getElementById('sm-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
     await loadShareManager();
 }
@@ -5634,7 +5669,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-53134afc'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-d3deba00'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

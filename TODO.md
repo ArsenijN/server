@@ -20,10 +20,10 @@ with files)
 - [ ] Add "view background connectivity debug console" in settings to see small 
 one-liner somewhere at the bottom of the UI that will say what site currently 
 try to fetch or do (at least via Internet)
-- [ ] Fix "Allow only FluxDrop users to upload" doesn't work as intended ( - 
+- [x] Fix "Allow only FluxDrop users to upload" doesn't work as intended ( - 
 expected to be so no one can upload to folder except the registered users on 
 FluxDrop)
-- [ ] Make upload settings as drop-out menu for choosing who actually can 
+- [x] Make upload settings as drop-out menu for choosing who actually can 
 upload (anyone or only FluxDrop users)
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Trash bin folder preview
@@ -50,7 +50,7 @@ ratios
       was unrecoverable 
 
 ### UX
-- [ ] Add ability to disallow with the terms, following by the message about 
+- [x] Add ability to disallow with the terms, following by the message about 
 need in the acceptance and logging out the user
 - [ ] Add Welcome screen for new users that will explain (almost) everything 
 about FluxDrop
@@ -60,7 +60,7 @@ to server
 where it's failed instead of pushing only the unloaded/wrong part of the file 
 (aka reduce very large internet overhead) -- immediatelly on error, not need in 
 the page reload to bring that
-- [ ] FluxDrop didn't stop the background download of ZIP if " 🚫 
+- [ ] FluxDrop didn't stop the background download of files if " 🚫 
 shareables.zip 0 B / ? Browser dropped the download. Click Resume to start 
 over." -- still there at V0.17.2.3 -- seems like this is now not a problem 
 anymore -- it's not fixed
@@ -121,10 +121,6 @@ manager)
 ### Server-side changes:
 
 #### Critical:
-- [x] ZIP download modal that shows the missing from archive files may not be 
-implemented due to code regression, checks are pending. -- by comments seems 
-like to be implemented -- needs testing, right now keep as-is
-- [x] Check the CatBox API for file size limits
 - [ ] Make separate "testing" server where I would be able to test everything 
 before pushing to the real one
 
@@ -139,6 +135,7 @@ shared folder, nor download the folder as ZIP
 
 
 #### Low:
+- [ ] Fully fix the logs duplication issue
 - [ ] Reduce amount of re-imports inside the code
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching; like folder structures, quota, file properties, download 

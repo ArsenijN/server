@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-d3deba00
+// Current version of script.js is: fluxdrop-v-2fb71561
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-d3deba00'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-2fb71561'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -1479,6 +1479,11 @@ async function _runDownload(path, dl) {
                 try { dl._writer.abort?.(); } catch (_) {}
                 dl._writer = null;
             }
+            // Stop the in-flight fetch — without this the browser keeps
+            // buffering bytes even though nothing is consuming them.
+            try { reader.cancel('channel closed'); } catch (_) {}
+            dl._abort.abort();
+            
             dl.status      = 'cancelled';
             dl._resumeFrom = 0;            // must restart — browser lost the download
             dl.bytesReceived = 0;
@@ -5669,7 +5674,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-d3deba00'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-2fb71561'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

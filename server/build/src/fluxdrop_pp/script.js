@@ -1479,6 +1479,11 @@ async function _runDownload(path, dl) {
                 try { dl._writer.abort?.(); } catch (_) {}
                 dl._writer = null;
             }
+            // Stop the in-flight fetch — without this the browser keeps
+            // buffering bytes even though nothing is consuming them.
+            try { reader.cancel('channel closed'); } catch (_) {}
+            dl._abort.abort();
+            
             dl.status      = 'cancelled';
             dl._resumeFrom = 0;            // must restart — browser lost the download
             dl.bytesReceived = 0;

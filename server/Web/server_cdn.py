@@ -3202,12 +3202,29 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         sub_path_clean = (sub_path or "").strip("/")
         visitor_user_id = self._check_token_auth()
+        # Extract the raw visitor token so we can append it to all generated
+        # links/URLs.  This propagates auth through plain <a href> navigation.
+        # We look in the same places _check_token_auth() does.
+        _raw_auth = self.headers.get('Authorization', '')
+        _visitor_token_raw = None
+        if _raw_auth.startswith('Bearer '):
+            _visitor_token_raw = _raw_auth.split(' ', 1)[1].strip()
+        else:
+            _visitor_token_raw = parse_qs(urlparse(self.path).query).get('token', [None])[0]
+        # Build the query-string suffix to append to every share URL
+        _tok_qs = ('?token=' + quote(_visitor_token_raw, safe='')) if _visitor_token_raw else ''
+        # Helper: append token to a URL that may already have a query string
+        def _turl(url):
+            if not _visitor_token_raw:
+                return url
+            sep = '&' if '?' in url else '?'
+            return url + sep + 'token=' + quote(_visitor_token_raw, safe='')
 
         # --- Breadcrumb ---
         crumb_parts = sub_path_clean.split("/") if sub_path_clean else []
-        crumbs_html = f'<a href="/share/{token}" style="color:#3b82f6;text-decoration:none">Home</a>'
+        crumbs_html = f'<a href="{_turl(f"/share/{token}")}" style="color:#3b82f6;text-decoration:none">Home</a>'
         for i, part in enumerate(crumb_parts):
-            crumb_url = "/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:i+1])
+            crumb_url = _turl("/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:i+1]))
             crumbs_html += f' <span style="color:#94a3b8">/</span> <a href="{crumb_url}" style="color:#3b82f6;text-decoration:none">{part}</a>'
 
         # --- Build entry rows (recursive helper) ---
@@ -3220,13 +3237,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
             for name in names:
                 entry_fs = os.path.join(directory, name)
                 rel_from_base = os.path.relpath(entry_fs, base_fs).replace(os.sep, "/")
-                entry_url = "/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in rel_from_base.split("/"))
+                entry_url_base = "/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in rel_from_base.split("/"))
+                entry_url  = _turl(entry_url_base)
                 st = os.stat(entry_fs)
                 mtime = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
                 pad = indent * 20
                 if os.path.isdir(entry_fs):
-                    zip_url  = entry_url + "?zip=1"
-                    size_url = entry_url + "?foldersize=1"
+                    zip_url  = _turl(entry_url_base + "?zip=1")
+                    size_url = _turl(entry_url_base + "?foldersize=1")
                     rows += f"""<tr class="entry-row">
                         <td style="padding:8px 12px 8px {12+pad}px">
                             <a href="{entry_url}" style="color:#3b82f6;text-decoration:none;font-weight:500">📁 {name}</a>
@@ -3275,7 +3293,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if sub_path_clean and os.path.isdir(target_fs):
             entries_html = build_rows(target_fs, indent=0)
             # Back link
-            parent_url = ("/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:-1])).rstrip("/") if crumb_parts else f"/share/{token}"
+            parent_url = _turl(("/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:-1])).rstrip("/") if crumb_parts else f"/share/{token}")
             back_row = f'<tr><td colspan="4" style="padding:6px 12px"><a href="{parent_url}" style="color:#64748b;text-decoration:none;font-size:13px">⬆ Parent folder</a></td></tr>'
             entries_html = back_row + entries_html
         else:
@@ -3288,6 +3306,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         upload_section = ""
         if share["allow_anon_upload"] or (share["allow_auth_upload"] and visitor_user_id):
             encoded_subpath = quote(sub_path_clean, safe='/')
+            tok_param = ('&token=' + quote(_visitor_token_raw, safe='')) if _visitor_token_raw else ''
             upload_section = f"""
             <div style="margin-top:24px;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px">
                 <h3 style="margin:0 0 10px;font-size:15px;color:#166534">Upload files to this folder</h3>
@@ -3305,7 +3324,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 </div>
                 <div id="upload-progress" style="margin-top:8px"></div>
                 <script>
-                const _UPLOAD_URL = '/share/{token}/upload?subpath={encoded_subpath}';
+                const _UPLOAD_URL = '/share/{token}/upload?subpath={encoded_subpath}{tok_param}';
                 const _MKDIR_URL  = '/share/{token}/mkdir';
                 const _CURRENT_SUBPATH = {json.dumps(sub_path_clean)};
 
@@ -3364,8 +3383,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         )
 
         # Current-folder ZIP and size URLs (for the page header download button)
-        current_zip_url  = f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?zip=1"
-        current_size_url = f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?foldersize=1"
+        current_zip_url  = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?zip=1")
+        current_size_url = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?foldersize=1")
 
         return _render_snippet('share_folder_page.html',
             PUBLIC_DOMAIN=PUBLIC_DOMAIN,

@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v-d3deba00';  // replaced by build.sh — do not edit manually
+const CACHE_NAME  = 'fluxdrop-v-2fb71561';  // replaced by build.sh — do not edit manually
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 
@@ -289,15 +289,45 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Everything else: network-first, fall back to cache, then offline page.
-    event.respondWith(
-        fetch(event.request).catch(async () => {
-            const cached = await caches.match(event.request);
-            if (cached) return cached;
-            if (event.request.mode === 'navigate') {
-                return caches.match(OFFLINE_URL);
-            }
-            return Response.error();
-        })
-    );
+    // ── Everything else ───────────────────────────────────────────────────────
+    //
+    // INTENTIONAL PASS-THROUGH — do NOT call event.respondWith() here.
+    //
+    // Calling event.respondWith(fetch(event.request)) causes the SW to issue its
+    // own parallel network request alongside the one the page already made.  For
+    // a file-storage app this doubles download traffic: script.js fetches the
+    // file, and the SW fetches it again.  Returning without respondWith() tells
+    // the browser "SW has nothing to say here — handle it yourself", which is
+    // exactly what we want for any dynamic request that doesn't match the rules
+    // above.
+    //
+    // ── "Future pre-caching" notes ────────────────────────────────────────────
+    // To re-enable selective caching of user files (e.g. recently-opened files,
+    // "starred" files, files the user explicitly pins for offline use), replace
+    // this bare `return` with something like:
+    //
+    //   const shouldCache = (
+    //       event.request.method === 'GET' &&
+    //       _isUserFilePath(url.pathname) &&       // e.g. path.startsWith('/api/v1/download/')
+    //       _isMarkedForOffline(url.pathname)      // check a Set<string> populated by the app
+    //   );
+    //   if (!shouldCache) return;  // pass through for uncached files
+    //
+    //   event.respondWith(
+    //       caches.open('fluxdrop-userfiles-v1').then(async cache => {
+    //           const hit = await cache.match(event.request);
+    //           if (hit) return hit;
+    //           const resp = await fetch(event.request);
+    //           if (resp.ok) cache.put(event.request, resp.clone());
+    //           return resp;
+    //       })
+    //   );
+    //
+    // The app side would call:
+    //   navigator.serviceWorker.controller.postMessage({ type: 'PIN_FILE', path: '/...' });
+    // and the SW message handler would add it to a known Set stored in IndexedDB.
+    // The "popular files" heuristic would track access counts (also in IndexedDB)
+    // and auto-pin files above a threshold.  This is intentionally NOT implemented
+    // yet — the pass-through below is the correct behavior until that system exists.
+    return;  // pass through — browser handles the request with no SW involvement
 });

@@ -1,4 +1,4 @@
-# server `v0.17.2.30`
+# server `v0.17.2.31`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -47,17 +47,15 @@ old and untracked files will be triggered automatically at time period of
 ***Regressions: none***
 
 *Patch notes: **Fixes:***
-- ***Upload policies are fixed: now anons can't upload if "Only FluxDrop users"
-are used; -- yes but it didn't pickup the token from local storage despite 
-that it is there***
-- ***Missing ZIP files are never displayed on client; -- didn't tested yet***
-- ***Fix for background random fetch of downloading file as cache -- not a bug, 
-it's expected behavior seems to be like***
-- ***Fix token isn't picked up for shared folder link page -- attempt to fix***
-- ***Other fixes may be applied***
+- ***Missing ZIP files are never displayed on client; -- didn't tested yet, 
+moved to TODO as an low priority check***
 - ***Attempt to make the downloading files resumable. The code is broken, code 
 created the problem that all files downloads into RAM seems like... because 
-it's Firefox? (Code regression)***
+it's Firefox? (Code regression; changes and fixes are pending)***
+
+(it will be a nightmare to make the README's ChnageLog for the 0.18.0...)
+
+(31 whole patches...)
 
 ---
 

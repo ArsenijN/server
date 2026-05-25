@@ -13,7 +13,7 @@ main file manager UI)
 ### Important without category (critical before release)
 
 ### UI
-- [ ] i18n support (language changes)
+- [ ] i18n support (languages for FluxDrop UI and other things)
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF or 
@@ -82,9 +82,6 @@ on i5 8350U)
 - [ ] Auto negotiation for upload type (folder or file)
 - [ ] Add dark theme switch, or at least make addons work properly and test 
 them
-- [ ] Add close by click on the dimmed space into the links manager
-- [ ] Make "X" non-scrollable in links manager (so can be closed without need 
-to scroll to the top) and other modals
 - [ ] Add loading wheel/bar into stats window since bad internet causes high 
 wait times without knowing what it is doing
 - [ ] Add progressbar for blob fetches
@@ -167,24 +164,14 @@ since I can just remember CSS and HTML, and do that by hands)
 - [ ] Fix HSTS redirects for FluxDrop file manager - HTTP to HTTPS redirects 
 that works with the FluxDrop, right now even login fails -- doesn't work, needs 
 changes (v0.17.2.11)
+- [ ] Missing ZIP's files may be never displayed on client
 
 ---
 
 ## Done items that are pending for removal:
-- [x] Fix "Allow only FluxDrop users to upload" doesn't work as intended ( - 
-expected to be so no one can upload to folder except the registered users on 
-FluxDrop)
-- [x] Make upload settings as drop-out menu for choosing who actually can 
-upload (anyone or only FluxDrop users)
-- [x] Add ability to disallow with the terms, following by the message about 
-need in the acceptance and logging out the user
-- [x] FluxDrop didn't stop the background download of files if " 🚫 
-shareables.zip 0 B / ? Browser dropped the download. Click Resume to start 
-over." -- still there at V0.17.2.3 -- seems like this is now not a problem 
-anymore -- it's not fixed
-- [x] Folder size for shared links with FluxDrop account access requirement
-fails to auth and didn't display the size of folder, can't navigate the 
-shared folder, nor download the folder as ZIP
+- [x] Add close by click on the dimmed space into the links manager
+- [x] Make "X" non-scrollable in links manager (so can be closed without need 
+to scroll to the top) and other modals
 
 
 

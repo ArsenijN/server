@@ -9,6 +9,8 @@ user feedback or ideas for future development.
 - [ ] Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
 main file manager UI)
+- [ ] Add Welcome screen for new users that will explain (almost) everything 
+about FluxDrop
 
 ### Important without category (critical before release)
 
@@ -48,8 +50,6 @@ ratios
       was unrecoverable 
 
 ### UX
-- [ ] Add Welcome screen for new users that will explain (almost) everything 
-about FluxDrop
 - [ ] Upload can fail on slow internet, causing unability to upload the files 
 to server
 - [ ] Add fix for the timed out chunks causing full file reupload from the part 
@@ -157,7 +157,6 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
-
 
 
 ## Additional notes

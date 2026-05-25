@@ -1,62 +1,17 @@
-# server `v0.18.0`
+# server `v0.18.0.1`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
 *Release notes:*
 
-***Mainstream: Now only the stable builds will be released to `main` branch.***
+***Mainstream: text***
 
-- ***`main` branch from now will contain only the stable and tested builds of 
-the code, meaning less need in the updates (if using some kind of auto-sync 
-with GitHub repo for updating). If you want the latest builds that are 
-available at the time, and you agree with the instability fact, consider to 
-switch to use the `dev` branch. Be cautious: author (me) will not provide any 
-responsibility or acts for `dev` branch since it's considered unstable, 
-unreliable and meant to be used for development and tests of new features only. 
-DO NOT USE IT AS A MAIN REPOSITORY FOR ANY REASON EXCEPT THE EXPLAINED 
-EARLIER.***
-- ***Now streamed ZIPs are resumable and blazingly fast to download due to 
-significant changes in the code for that, and with that new ability arrival - 
-now files on server are checksummed! This means that server would be able to 
-scan your files in the background to be sure that they're the same as before! 
-(Note: the checksum algorithm that is used is `CRC32` because it is natively 
-used in ZIPs and needs to be created anyway for ability of streaming the 
-archive, and instead of making them on-fly (resource-intense and will increase 
-the preparation times significantly), it is made in 2 ways: on file upload, or
-as background activity (for older files). See the note at the end of that 
-message)***
-- ***Shared folders now have the ability to be downloaded as ZIP the same as 
-the FluxDrop users can download folders in their file manager***
-- ***Now browser will kindly asks you if you really want to exit the tab when 
-you upload the files to FluxDrop! No more "Ahh, I accidentally closed the 
-tab((" because you are safe from that to happen!***
-- ***Status page: fixed an issue where Quad9 almost always triggered as a 
-problem in outage (false-positive)***
-- ***Backend: now upload from folder will no longer overflow the `/tmp` (or 
-custom path) directory because it used the predecessor implementation of the 
-file upload handler***
-- ***Backend: fixed an issue with proxy, causing any error-related page to load 
-as JSON file with/without gibberish as text***
-- ***Fixed the shared folders with specific settings happen to have bugs, 
-causing inabilit to use those features (settings)***
-- ***Frontend: now client's caches updates properly if new FluxDrop version is 
-deployed***
-- ***Now FluxDrop have the footer with essential infos (for debugging 
-purposes)***
-- ***Links manager now have the close button stick to the top, also, it can be 
-closed by clicking on dark background as for any other modal***
-- ***Now FluxDrop will not continue to download the file after canceling***
-
-And a lot of other small fixes changes!
-
-***Important note: the background media hashing activity for any remainings, 
-old and untracked files will be triggered automatically at time period of 
-23:00 to 4:00 EEST***
+- ***text***
 
 ***Regressions: none***
 
-*Patch notes: **Push as stable version to the main branch (0.18.0)***
+*Patch notes: **Test push***
 
 ---
 

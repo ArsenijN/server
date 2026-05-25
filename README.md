@@ -1,4 +1,4 @@
-# server `v0.17.2.29`
+# server `v0.17.2.30`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -55,9 +55,9 @@ that it is there***
 it's expected behavior seems to be like***
 - ***Fix token isn't picked up for shared folder link page -- attempt to fix***
 - ***Other fixes may be applied***
-- ***Attempt to make the downloading files resumable. The code may be broken, 
-if it is - some code will be reverted back so there's no issue with FluxDrop 
-users interaction***
+- ***Attempt to make the downloading files resumable. The code is broken, code 
+created the problem that all files downloads into RAM seems like... because 
+it's Firefox? (Code regression)***
 
 ---
 

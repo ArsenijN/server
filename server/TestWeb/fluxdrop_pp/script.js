@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-41b67f92
+// Current version of script.js is: fluxdrop-v-2fb71561
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-41b67f92'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-2fb71561'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -1307,11 +1307,15 @@ window.downloadFile = async function(path, opts = {}) {
     }
 
     // 2. Detect mode
-    const mode = (typeof window.showSaveFilePicker === 'function')
-        ? 'picker'
-        : (typeof streamSaver !== 'undefined' && streamSaver.createWriteStream)
-            ? 'streamsaver'
-            : 'blob';
+    let mode = 'blob';
+    if (_CAN_PICK) {
+        mode = 'picker';
+    } else {
+        try {
+            await _loadStreamSaver();
+            if (typeof streamSaver !== 'undefined') mode = 'streamsaver';
+        } catch (_) { /* stay blob */ }
+    }
 
     // Warn on large blob-mode downloads
     if (mode === 'blob' && totalSize && totalSize > 512 * 1024 * 1024) {
@@ -1345,36 +1349,11 @@ async function _runDownload(path, dl) {
             if (dl._mode === 'picker') {
                 const ext  = dl.filename.split('.').pop() || '';
                 const mime = _mimeForExt(ext);
-                // On first open: keepExistingData:false (fresh file).
-                // On resume:     keepExistingData:true + seek so we append at
-                //                the right offset rather than overwriting from 0.
-                const isResume = dl._resumeFrom > 0;
-                if (!isResume) {
-                    // First open — user picks where to save the file.
-                    const fh = await window.showSaveFilePicker({
-                        suggestedName: dl.filename,
-                        types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
-                    });
-                    dl._fileHandle = fh;   // keep the handle for resume
-                    dl._writer = await fh.createWritable({ keepExistingData: false });
-                } else {
-                    // Resume — re-open the same file handle we saved earlier.
-                    // If the handle was lost (e.g. page reload), fall back to
-                    // a full restart (StreamSaver can't resume so blob is next).
-                    if (!dl._fileHandle) {
-                        dl._resumeFrom   = 0;
-                        dl.bytesReceived = 0;
-                        const fh = await window.showSaveFilePicker({
-                            suggestedName: dl.filename,
-                            types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
-                        });
-                        dl._fileHandle = fh;
-                        dl._writer = await fh.createWritable({ keepExistingData: false });
-                    } else {
-                        dl._writer = await dl._fileHandle.createWritable({ keepExistingData: true });
-                        await dl._writer.seek(dl._resumeFrom);
-                    }
-                }
+                const fh   = await window.showSaveFilePicker({
+                    suggestedName: dl.filename,
+                    types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
+                });
+                dl._writer = await fh.createWritable({ keepExistingData: false });
             } else {
                 // StreamSaver
                 const ws   = streamSaver.createWriteStream(dl.filename, {
@@ -1589,10 +1568,7 @@ window.resumeDownload = async function(safePath) {
             window.downloadFolderZip(folderPath);
             return;
         }
-        // Non-ZIP: fall through — _runDownload will re-open the writer.
-        // For picker mode: keep dl._fileHandle so _runDownload can seek instead
-        // of asking the user to pick the file again. The writer itself is always
-        // null here (it was closed or aborted), so _runDownload will re-create it.
+        // Non-ZIP: fall through — _runDownload will re-open the writer
     }
 
     // Re-mint token so it's still valid after a long pause
@@ -1636,13 +1612,12 @@ window.cancelDownload = function(path) {
     try { path = decodeURIComponent(path); } catch (_) {}
     const dl = activeDownloads.get(path);
     if (dl) {
-        dl._userCancelled = true;
+        dl._userCancelled = true;   // distinguish from browser-initiated abort
         dl._abort?.abort();
         if (dl._writer) {
             dl._writer.abort?.().catch(() => {});
             dl._writer = null;
         }
-        dl._fileHandle = null;   // release FSAA handle on full cancel
     }
     activeDownloads.delete(path);
     renderDownloadTray();
@@ -5699,7 +5674,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-41b67f92'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-2fb71561'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

@@ -121,6 +121,12 @@ that happens and after what
 
 
 #### Low:
+- [ ] Fix visual bug with new login modal in shared folders: ` {"" if not 
+_upload_auth_required else f''' ''"} {Upload modal showing up there}` or `{"" 
+if not _upload_auth_required else f''' {there it shows the login modal} ''"}` 
+or `  {"" if not _upload_auth_required else f''' {Login modal showing up 
+there}  ''"} {Upload modal showing up there} ` (if it's locked link with 
+requirement for FluxDrop account)
 - [ ] Fully fix the logs duplication issue
 - [ ] Reduce amount of re-imports inside the code
 - [ ] Add server ability to push the additional data before client will request 

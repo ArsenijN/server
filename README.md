@@ -1,4 +1,4 @@
-# server `v0.17.2.34`
+# server `v0.17.2.34.1`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -46,13 +46,7 @@ old and untracked files will be triggered automatically at time period of
 
 ***Regressions: none***
 
-*Patch notes: **Fixes:***
-- ***Fix Firefox didn't used the reliable download way, the same is for any 
-other browser***
-
-(it will be a nightmare to make the README's ChnageLog for the 0.18.0...)
-
-(34 whole patches...)
+*Patch notes: **Oops, I skipped the 33th patch***
 
 ---
 

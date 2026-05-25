@@ -3304,63 +3304,170 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # --- Upload section ---
         upload_section = ""
-        if share["allow_anon_upload"] or (share["allow_auth_upload"] and visitor_user_id):
-            encoded_subpath = quote(sub_path_clean, safe='/')
-            tok_param = ('&token=' + quote(_visitor_token_raw, safe='')) if _visitor_token_raw else ''
-            upload_section = f"""
-            <div style="margin-top:24px;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px">
-                <h3 style="margin:0 0 10px;font-size:15px;color:#166534">Upload files to this folder</h3>
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                    <input type="file" id="upload-file" multiple style="font-size:14px">
-                    <button onclick="uploadFiles()"
-                        style="background:#16a34a;color:white;border:none;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;flex-shrink:0">
-                        Upload
-                    </button>
-                    <button onclick="promptMkdir()"
-                        style="background:#0ea5e9;color:white;border:none;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;flex-shrink:0">
-                        📁 New Folder
-                    </button>
-                    <span id="upload-status" style="font-size:13px;color:#166534"></span>
-                </div>
-                <div id="upload-progress" style="margin-top:8px"></div>
-                <script>
-                const _UPLOAD_URL = '/share/{token}/upload?subpath={encoded_subpath}{tok_param}';
-                const _MKDIR_URL  = '/share/{token}/mkdir';
-                const _CURRENT_SUBPATH = {json.dumps(sub_path_clean)};
+        encoded_subpath = quote(sub_path_clean, safe='/')
+        tok_param_upload = ('&token=' + quote(_visitor_token_raw, safe='')) if _visitor_token_raw else ''
 
-                async function uploadFiles(){{
+        if share["allow_anon_upload"]:
+            # Anyone can upload — show the upload UI directly
+            _upload_section_visible = True
+            _upload_auth_required   = False
+        elif share["allow_auth_upload"]:
+            # Always render the section — but wrap it in a JS auth gate that
+            # reads localStorage first, so visitors who are already logged in
+            # on this device see the upload UI without a round-trip to the server.
+            _upload_section_visible = True   # render always; JS gates it
+            _upload_auth_required   = not bool(visitor_user_id)
+        else:
+            _upload_section_visible = False
+            _upload_auth_required   = False
+
+        if _upload_section_visible:
+            upload_section = f"""
+            <div id="upload-section" style="margin-top:24px;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px">
+
+                {{"" if not _upload_auth_required else f'''
+                <!-- Auth gate: hidden once JS resolves a valid token -->
+                <div id="upload-auth-gate" style="text-align:center;padding:8px 0">
+                    <p style="font-size:13px;color:#64748b;margin:0 0 10px">
+                        A FluxDrop account is required to upload here.
+                    </p>
+                    <div id="upload-auth-form">
+                        <input type="text"     id="upload-usr" placeholder="Username"
+                               style="width:100%;max-width:280px;padding:8px 12px;border:1px solid #e2e8f0;
+                                      border-radius:8px;font-size:13px;margin-bottom:6px;display:block;margin:0 auto 6px">
+                        <input type="password" id="upload-pwd" placeholder="Password"
+                               style="width:100%;max-width:280px;padding:8px 12px;border:1px solid #e2e8f0;
+                                      border-radius:8px;font-size:13px;margin-bottom:6px;display:block;margin:0 auto 6px">
+                        <button onclick="doUploadLogin()"
+                                style="background:#3b82f6;color:white;border:none;border-radius:8px;
+                                       padding:8px 20px;font-size:13px;cursor:pointer">
+                            Login &amp; unlock upload
+                        </button>
+                        <div id="upload-auth-err" style="color:#ef4444;font-size:12px;margin-top:6px"></div>
+                    </div>
+                </div>
+                ''"}}
+
+                <div id="upload-ui" style="{"display:none" if _upload_auth_required else ""}">
+                    <h3 style="margin:0 0 10px;font-size:15px;color:#166534">Upload files to this folder</h3>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                        <input type="file" id="upload-file" multiple style="font-size:14px">
+                        <button onclick="uploadFiles()"
+                            style="background:#16a34a;color:white;border:none;border-radius:8px;
+                                   padding:8px 18px;cursor:pointer;font-size:14px;flex-shrink:0">
+                            Upload
+                        </button>
+                        <button onclick="promptMkdir()"
+                            style="background:#0ea5e9;color:white;border:none;border-radius:8px;
+                                   padding:8px 18px;cursor:pointer;font-size:14px;flex-shrink:0">
+                            📁 New Folder
+                        </button>
+                        <span id="upload-status" style="font-size:13px;color:#166534"></span>
+                    </div>
+                    <div id="upload-progress" style="margin-top:8px"></div>
+                </div>
+
+                <script>
+                // CDN origin needed for auth endpoint (same server, explicit origin)
+                const _CDN_ORIGIN    = 'https://{PUBLIC_DOMAIN}';
+                const _AUTH_REQUIRED = {'true' if _upload_auth_required else 'false'};
+                let   _uploadToken   = {json.dumps(_visitor_token_raw or '')};
+
+                // On page load: try localStorage first so already-logged-in users
+                // never see the auth gate.
+                (function tryLocalStorage() {{
+                    if (!_AUTH_REQUIRED) return;  // anon upload, gate irrelevant
+                    const stored = localStorage.getItem('fluxdrop_token');
+                    if (stored) _unlockUpload(stored);
+                }})();
+
+                function _unlockUpload(token) {{
+                    _uploadToken = token;
+                    const gate = document.getElementById('upload-auth-gate');
+                    const ui   = document.getElementById('upload-ui');
+                    if (gate) gate.style.display = 'none';
+                    if (ui)   ui.style.display   = '';
+                }}
+
+                async function doUploadLogin() {{
+                    const usr = document.getElementById('upload-usr').value.trim();
+                    const pwd = document.getElementById('upload-pwd').value;
+                    const err = document.getElementById('upload-auth-err');
+                    if (!usr || !pwd) {{ err.textContent = 'Please enter username and password.'; return; }}
+                    err.textContent = 'Logging in…';
+                    try {{
+                        const r = await fetch(_CDN_ORIGIN + '/auth/login', {{
+                            method: 'POST',
+                            headers: {{'Content-Type': 'application/json'}},
+                            body: JSON.stringify({{username: usr, password: pwd}})
+                        }});
+                        const d = await r.json();
+                        if (!r.ok) {{ err.textContent = d.error || 'Login failed.'; return; }}
+                        localStorage.setItem('fluxdrop_token', d.token);
+                        localStorage.setItem('fluxdrop_username', d.username);
+                        err.textContent = '';
+                        _unlockUpload(d.token);
+                    }} catch(e) {{ err.textContent = 'Network error: ' + e.message; }}
+                }}
+
+                // Build upload URL — appends the visitor's token so the server
+                // can verify they're a registered FluxDrop user.
+                function _uploadUrl() {{
+                    const base = '/share/{token}/upload?subpath={encoded_subpath}';
+                    return _uploadToken ? base + '&token=' + encodeURIComponent(_uploadToken) : base;
+                }}
+
+                async function uploadFiles() {{
                     const files = document.getElementById('upload-file').files;
-                    if(!files.length){{document.getElementById('upload-status').textContent='No files selected';return;}}
-                    const statusEl = document.getElementById('upload-status');
+                    if (!files.length) {{ document.getElementById('upload-status').textContent = 'No files selected'; return; }}
+                    const statusEl   = document.getElementById('upload-status');
                     const progressEl = document.getElementById('upload-progress');
                     statusEl.textContent = `Uploading ${{files.length}} file(s)…`;
                     let done = 0, failed = 0;
-                    for(const f of files){{
-                        const fd = new FormData(); fd.append('file', f, f.name);
-                        progressEl.textContent = `[${{done+failed+1}}/${{files.length}}] ${{f.name}}…`;
-                        try{{
-                            const r = await fetch(_UPLOAD_URL, {{method:'POST', body:fd}});
-                            if(r.ok) done++; else failed++;
-                        }}catch(e){{ failed++; }}
+                    for (const f of files) {{
+                        const fd = new FormData();
+                        fd.append('file', f, f.name);
+                        progressEl.textContent = `[${{done + failed + 1}}/${{files.length}}] ${{f.name}}…`;
+                        try {{
+                            const r = await fetch(_uploadUrl(), {{method: 'POST', body: fd}});
+                            if (r.ok) done++;
+                            else {{
+                                failed++;
+                                // 403 = token expired or invalid — clear it and show the gate again
+                                if (r.status === 403 && _AUTH_REQUIRED) {{
+                                    _uploadToken = '';
+                                    localStorage.removeItem('fluxdrop_token');
+                                    const gate = document.getElementById('upload-auth-gate');
+                                    const ui   = document.getElementById('upload-ui');
+                                    if (gate) gate.style.display = '';
+                                    if (ui)   ui.style.display   = 'none';
+                                    document.getElementById('upload-auth-err').textContent =
+                                        'Session expired — please log in again.';
+                                    break;
+                                }}
+                            }}
+                        }} catch(e) {{ failed++; }}
                     }}
-                    statusEl.textContent = `Done: ${{done}} uploaded${{failed ? ', '+failed+' failed' : ''}}`;
+                    statusEl.textContent = `Done: ${{done}} uploaded${{failed ? ', ' + failed + ' failed' : ''}}`;
                     progressEl.textContent = '';
-                    if(done > 0) setTimeout(()=>location.reload(), 1200);
+                    if (done > 0) setTimeout(() => location.reload(), 1200);
                 }}
 
-                async function promptMkdir(){{
+                async function promptMkdir() {{
                     const name = prompt('New folder name:');
-                    if(!name || !name.trim()) return;
-                    const subpath = _CURRENT_SUBPATH ? _CURRENT_SUBPATH + '/' + name.trim() : name.trim();
-                    try{{
-                        const r = await fetch(_MKDIR_URL, {{
-                            method:'POST',
-                            headers:{{'Content-Type':'application/json'}},
+                    if (!name || !name.trim()) return;
+                    const subpath = '{json.dumps(sub_path_clean)[1:-1]}' ?
+                        '{json.dumps(sub_path_clean)[1:-1]}/' + name.trim() : name.trim();
+                    try {{
+                        const r = await fetch('/share/{token}/mkdir?token=' +
+                            encodeURIComponent(_uploadToken || ''), {{
+                            method: 'POST',
+                            headers: {{'Content-Type': 'application/json'}},
                             body: JSON.stringify({{subpath}})
                         }});
-                        if(r.ok) location.reload();
-                        else {{ const t = await r.text(); alert('Failed: '+t); }}
-                    }}catch(e){{ alert('Error: '+e); }}
+                        if (r.ok) location.reload();
+                        else {{ const t = await r.text(); alert('Failed: ' + t); }}
+                    }} catch(e) {{ alert('Error: ' + e); }}
                 }}
                 </script>
             </div>"""

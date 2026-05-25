@@ -1,4 +1,4 @@
-# server `v0.17.2.28`
+# server `v0.17.2.29`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -51,9 +51,13 @@ old and untracked files will be triggered automatically at time period of
 are used; -- yes but it didn't pickup the token from local storage despite 
 that it is there***
 - ***Missing ZIP files are never displayed on client; -- didn't tested yet***
-- ***Fix for background random fetch of downloading file as cache***
-- ***Fix token isn't picked up for shared folder link page***
+- ***Fix for background random fetch of downloading file as cache -- not a bug, 
+it's expected behavior seems to be like***
+- ***Fix token isn't picked up for shared folder link page -- attempt to fix***
 - ***Other fixes may be applied***
+- ***Attempt to make the downloading files resumable. The code may be broken, 
+if it is - some code will be reverted back so there's no issue with FluxDrop 
+users interaction***
 
 ---
 

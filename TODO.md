@@ -157,12 +157,6 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
-- [x] Fix StreamSaver doesn't utilize full power of the download resuming 
-(browser keeps downloading again fully instead of attempt to resume) -- will be 
-kept as fallback if browser can't handle the file downloads, so browser will 
-handle the download of all files, but this will make some problems I think, 
-like... I think we will miss our download manager modal if we will change that 
-behavior :_(
 
 
 

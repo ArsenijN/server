@@ -1,4 +1,4 @@
-# server `v0.17.2.34.1`
+# server `v0.17.2.35`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -39,6 +39,17 @@ custom path) directory because it used the predecessor implementation of the
 file upload handler***
 - ***Backend: fixed an issue with proxy, causing any error-related page to load 
 as JSON file with/without gibberish as text***
+- ***Fixed the shared folders with specific settings happen to have bugs, 
+causing inabilit to use those features (settings)***
+- ***Frontend: now client's caches updates properly if new FluxDrop version is 
+deployed***
+- ***Now FluxDrop have the footer with essential infos (for debugging 
+purposes)***
+- ***Links manager now have the close button stick to the top, also, it can be 
+closed by clicking on dark background as for any other modal***
+- ***Now FluxDrop will not continue to download the file after canceling***
+
+And a lot of other small fixes changes!
 
 ***Important note: the background media hashing activity for any remainings, 
 old and untracked files will be triggered automatically at time period of 
@@ -46,7 +57,8 @@ old and untracked files will be triggered automatically at time period of
 
 ***Regressions: none***
 
-*Patch notes: **Oops, I skipped the 33th patch***
+*Patch notes: **Push as stable version to the main branch, but before, I'll 
+push it as the last 0.17.2 patch #35***
 
 ---
 

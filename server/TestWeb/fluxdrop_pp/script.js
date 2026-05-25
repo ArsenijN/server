@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-65677713
+// Current version of script.js is: fluxdrop-v-eefec7e0
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-65677713'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-eefec7e0'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -1289,20 +1289,25 @@ window.downloadFile = async function(path, opts = {}) {
 
     const filename = opts.filename || path.split('/').pop() || 'download';
 
-    // 1. Detect mode — must happen BEFORE any await so showSaveFilePicker() can be
-    //    called while the browser still considers us inside a user-gesture context.
-    //    Any await (including mintDownloadToken) invalidates the "user activation"
-    //    flag, causing showSaveFilePicker to throw SecurityError → silent blob fallback.
-    const mode = (typeof window.showSaveFilePicker === 'function')
-        ? 'picker'
-        : (typeof streamSaver !== 'undefined' && streamSaver.createWriteStream)
-            ? 'streamsaver'
-            : 'blob';
+    // ── Step 1: resolve write mode ────────────────────────────────────────────
+    // This must happen BEFORE any await so that showSaveFilePicker() can be
+    // called while the browser user-gesture is still active.  Any await
+    // (including mintDownloadToken) consumes the gesture flag, causing
+    // showSaveFilePicker to throw SecurityError which silently falls back to blob.
+    //
+    // StreamSaver is loaded lazily, so typeof streamSaver is *always* undefined
+    // here on first call — we can't use it in the sync mode check.  Instead we
+    // try picker first (Chrome/Edge), then load StreamSaver after the dialog
+    // (Firefox/Safari path), then fall back to blob.
 
-    // 2. For picker mode: open the Save dialog NOW while still in gesture context.
-    //    The user picks the destination file; meanwhile mintDownloadToken runs.
-    let _earlyFileHandle = null;
-    if (mode === 'picker') {
+    let _earlyFileHandle = null;  // pre-opened FSAA handle (picker path only)
+    let mode;
+
+    if (typeof window.showSaveFilePicker === 'function') {
+        // ── Picker path (Chrome 86+, Edge 86+) ───────────────────────────────
+        // Open Save dialog NOW while the gesture is still live.
+        // Any await before this call (including mintDownloadToken) would expire
+        // the browser user-activation flag, causing SecurityError → blob fallback.
         const ext  = filename.split('.').pop() || '';
         const mime = _mimeForExt(ext);
         try {
@@ -1310,15 +1315,34 @@ window.downloadFile = async function(path, opts = {}) {
                 suggestedName: filename,
                 types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
             });
+            mode = 'picker';
         } catch (err) {
-            if (err.name === 'AbortError') return;  // user dismissed dialog — cancel cleanly
-            // showSaveFilePicker failed for another reason (e.g. iframe restriction) —
-            // fall through to streamsaver/blob.  _earlyFileHandle stays null.
-            logging_warn('showSaveFilePicker failed early, will fall back:', err);
+            if (err.name === 'AbortError') return;  // user cancelled dialog
+            // FSAA blocked in this context (sandboxed iframe etc.) — fall through.
+            logging_warn('showSaveFilePicker failed, falling to native:', err);
         }
     }
 
-    // 3. Mint download token (skip for direct URLs like ZIP)
+    if (!mode) {
+        // ── Native browser download (Firefox, Safari, all other browsers) ────
+        // Trigger a plain <a href download> click after minting the token.
+        // The browser's own download manager receives the file with
+        // Accept-Ranges / Content-Disposition headers and handles pause/resume
+        // automatically — no JS involvement needed after the click.
+        //
+        // This is strictly better than StreamSaver for Firefox because:
+        //   • Resume works natively (browser sends Range: bytes=N- on resume)
+        //   • No 2 GB RAM limit
+        //   • No service worker pipe overhead
+        //   • Downloads survive tab closes / refreshes
+        //
+        // StreamSaver is NOT used as a fallback here.  It gives JS progress
+        // bars but silently breaks browser-native resume — a bad trade.
+        // It remains available for explicit opt-in (see _loadStreamSaver).
+        mode = 'native';
+    }
+
+    // ── Step 2: mint download token ───────────────────────────────────────────
     let dlUrl, totalSize;
     if (opts.directUrl) {
         dlUrl     = opts.directUrl;
@@ -1335,13 +1359,42 @@ window.downloadFile = async function(path, opts = {}) {
         }
     }
 
-    // Resolve effective mode: if picker was requested but dialog failed, fall back
-    const effectiveMode = (mode === 'picker' && !_earlyFileHandle)
-        ? ((typeof streamSaver !== 'undefined' && streamSaver.createWriteStream) ? 'streamsaver' : 'blob')
-        : mode;
+    // ── Native mode: trigger browser download and show tray entry ──────────────
+    // The browser download manager handles everything from here — Range-based
+    // resume, disk writes, progress.  We just show a tray entry so the user
+    // knows something happened, then auto-dismiss it after a short delay.
+    if (mode === 'native') {
+        const dl = {
+            filename, totalSize, bytesReceived: 0,
+            status: 'downloading', speed: null, eta: null, error: null,
+            _writer: null, _abort: new AbortController(),
+            _resumeFrom: 0, _chunks: [], _mode: 'native',
+            _dlUrl: dlUrl, _path: path, _fileHandle: null,
+        };
+        activeDownloads.set(path, dl);
+        renderDownloadTray();
 
-    // Warn on large blob-mode downloads
-    if (effectiveMode === 'blob' && totalSize && totalSize > 512 * 1024 * 1024) {
+        // Trigger the download via a temporary <a> element.
+        // The browser sees Content-Disposition: attachment and handles it.
+        const a = document.createElement('a');
+        a.href     = dlUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        // We have no visibility into browser-side progress, so just show
+        // "Downloading via browser" and auto-dismiss after a few seconds.
+        dl.status = 'done';
+        const delay = getTrayDismissDelay();
+        setTimeout(() => { activeDownloads.delete(path); renderDownloadTray(); },
+                   Math.max(delay, 4000));
+        renderDownloadTray();
+        return;
+    }
+
+    // ── Blob mode warning ─────────────────────────────────────────────────────
+    if (mode === 'blob' && totalSize && totalSize > 512 * 1024 * 1024) {
         const proceed = confirm(
             `⚠ Your browser doesn't support streaming downloads to disk.\n\n` +
             `Downloading ${formatBytes(totalSize)} will be buffered entirely in RAM ` +
@@ -1355,10 +1408,10 @@ window.downloadFile = async function(path, opts = {}) {
         filename, totalSize, bytesReceived: 0,
         status: 'downloading', speed: null, eta: null, error: null,
         _writer: null, _abort: new AbortController(),
-        _resumeFrom: 0, _chunks: [], _mode: effectiveMode,
+        _resumeFrom: 0, _chunks: [], _mode: mode,
         _dlUrl: dlUrl, _path: path,
-        // Store the pre-opened file handle so _runDownload can createWritable()
-        // without calling showSaveFilePicker() a second time.
+        // Pre-opened FSAA handle — _runDownload uses this directly so it never
+        // needs to call showSaveFilePicker() a second time (gesture already spent).
         _fileHandle: _earlyFileHandle,
     };
     activeDownloads.set(path, dl);
@@ -1378,10 +1431,9 @@ async function _runDownload(path, dl) {
                 const isResume = dl._resumeFrom > 0;
                 if (!isResume) {
                     // First open: dl._fileHandle was pre-opened in downloadFile()
-                    // while still in the user-gesture context.  We just open the
-                    // writable from it — no second showSaveFilePicker() call needed.
-                    // If _fileHandle is somehow absent (e.g. called from a non-gesture
-                    // path), open the dialog now as a fallback.
+                    // while the user gesture was still active — just open the
+                    // writable from it.  No second showSaveFilePicker() needed.
+                    // Fallback: if handle is absent for some reason, open now.
                     if (!dl._fileHandle) {
                         const fh = await window.showSaveFilePicker({
                             suggestedName: dl.filename,
@@ -1391,9 +1443,9 @@ async function _runDownload(path, dl) {
                     }
                     dl._writer = await dl._fileHandle.createWritable({ keepExistingData: false });
                 } else {
-                    // Resume: re-open the same file handle and seek to the resume
-                    // offset so bytes are written at the right position.
-                    // If the handle was lost (page reload), the user must re-pick.
+                    // Resume: re-open the same handle with keepExistingData:true
+                    // and seek to the byte offset so we append correctly.
+                    // If the handle was lost (page reload), re-prompt and restart.
                     if (!dl._fileHandle) {
                         dl._resumeFrom   = 0;
                         dl.bytesReceived = 0;
@@ -2005,7 +2057,8 @@ function renderDownloadTray() {
             if (dl.eta   != null) parts.push('ETA ' + formatEta(dl.eta));
             if (parts.length) {
                 statusText = parts.join(' \u00b7 ');
-            } else if (dl._isZip && dl._mode === 'native' && dl._dlUrl) {
+            } else if (dl._mode === 'native') {
+                // Both ZIP and regular files in native mode — browser owns the download
                 statusText = 'Downloading via browser\u2026';
             } else if (dl._isZip && !dl._dlUrl) {
                 // Polling: show scan progress if available
@@ -5732,7 +5785,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-65677713'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-eefec7e0'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

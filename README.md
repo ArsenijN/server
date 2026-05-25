@@ -1,4 +1,4 @@
-# server `v0.17.2.32`
+# server `v0.17.2.34`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -47,14 +47,12 @@ old and untracked files will be triggered automatically at time period of
 ***Regressions: none***
 
 *Patch notes: **Fixes:***
-- ***Attempt to make the downloading files resumable. The code is broken, code 
-created the problem that all files downloads into RAM seems like... because 
-it's Firefox? (Code regression; changes and fixes are pending)***
-- ***Fix the visual bug with new auth modal for shared folders***
+- ***Fix Firefox didn't used the reliable download way, the same is for any 
+other browser***
 
 (it will be a nightmare to make the README's ChnageLog for the 0.18.0...)
 
-(31 whole patches...)
+(34 whole patches...)
 
 ---
 

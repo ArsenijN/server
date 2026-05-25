@@ -59,12 +59,6 @@ the page reload to bring that
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
  or at least the N times (reliable way to resume whatever operation is going)
-- [ ] Fix StreamSaver doesn't utilize full power of the download resuming 
-(browser keeps downloading again fully instead of attempt to resume) -- will be 
-kept as fallback if browser can't handle the file downloads, so browser will 
-handle the download of all files, but this will make some problems I think, 
-like... I think we will miss our download manager modal if we will change that 
-behavior :_(
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items -- made for status page, later for 
 FluxDrop file manager
@@ -163,12 +157,12 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
-- [x] Fix visual bug with new login modal in shared folders: ` {"" if not 
-_upload_auth_required else f''' ''"} {Upload modal showing up there}` or `{"" 
-if not _upload_auth_required else f''' {there it shows the login modal} ''"}` 
-or `  {"" if not _upload_auth_required else f''' {Login modal showing up 
-there}  ''"} {Upload modal showing up there} ` (if it's locked link with 
-requirement for FluxDrop account)
+- [x] Fix StreamSaver doesn't utilize full power of the download resuming 
+(browser keeps downloading again fully instead of attempt to resume) -- will be 
+kept as fallback if browser can't handle the file downloads, so browser will 
+handle the download of all files, but this will make some problems I think, 
+like... I think we will miss our download manager modal if we will change that 
+behavior :_(
 
 
 

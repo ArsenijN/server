@@ -1289,7 +1289,36 @@ window.downloadFile = async function(path, opts = {}) {
 
     const filename = opts.filename || path.split('/').pop() || 'download';
 
-    // 1. Mint download token (skip for direct URLs like ZIP)
+    // 1. Detect mode — must happen BEFORE any await so showSaveFilePicker() can be
+    //    called while the browser still considers us inside a user-gesture context.
+    //    Any await (including mintDownloadToken) invalidates the "user activation"
+    //    flag, causing showSaveFilePicker to throw SecurityError → silent blob fallback.
+    const mode = (typeof window.showSaveFilePicker === 'function')
+        ? 'picker'
+        : (typeof streamSaver !== 'undefined' && streamSaver.createWriteStream)
+            ? 'streamsaver'
+            : 'blob';
+
+    // 2. For picker mode: open the Save dialog NOW while still in gesture context.
+    //    The user picks the destination file; meanwhile mintDownloadToken runs.
+    let _earlyFileHandle = null;
+    if (mode === 'picker') {
+        const ext  = filename.split('.').pop() || '';
+        const mime = _mimeForExt(ext);
+        try {
+            _earlyFileHandle = await window.showSaveFilePicker({
+                suggestedName: filename,
+                types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
+            });
+        } catch (err) {
+            if (err.name === 'AbortError') return;  // user dismissed dialog — cancel cleanly
+            // showSaveFilePicker failed for another reason (e.g. iframe restriction) —
+            // fall through to streamsaver/blob.  _earlyFileHandle stays null.
+            logging_warn('showSaveFilePicker failed early, will fall back:', err);
+        }
+    }
+
+    // 3. Mint download token (skip for direct URLs like ZIP)
     let dlUrl, totalSize;
     if (opts.directUrl) {
         dlUrl     = opts.directUrl;
@@ -1306,19 +1335,13 @@ window.downloadFile = async function(path, opts = {}) {
         }
     }
 
-    // 2. Detect mode
-    let mode = 'blob';
-    if (_CAN_PICK) {
-        mode = 'picker';
-    } else {
-        try {
-            await _loadStreamSaver();
-            if (typeof streamSaver !== 'undefined') mode = 'streamsaver';
-        } catch (_) { /* stay blob */ }
-    }
+    // Resolve effective mode: if picker was requested but dialog failed, fall back
+    const effectiveMode = (mode === 'picker' && !_earlyFileHandle)
+        ? ((typeof streamSaver !== 'undefined' && streamSaver.createWriteStream) ? 'streamsaver' : 'blob')
+        : mode;
 
     // Warn on large blob-mode downloads
-    if (mode === 'blob' && totalSize && totalSize > 512 * 1024 * 1024) {
+    if (effectiveMode === 'blob' && totalSize && totalSize > 512 * 1024 * 1024) {
         const proceed = confirm(
             `⚠ Your browser doesn't support streaming downloads to disk.\n\n` +
             `Downloading ${formatBytes(totalSize)} will be buffered entirely in RAM ` +
@@ -1332,8 +1355,11 @@ window.downloadFile = async function(path, opts = {}) {
         filename, totalSize, bytesReceived: 0,
         status: 'downloading', speed: null, eta: null, error: null,
         _writer: null, _abort: new AbortController(),
-        _resumeFrom: 0, _chunks: [], _mode: mode,
+        _resumeFrom: 0, _chunks: [], _mode: effectiveMode,
         _dlUrl: dlUrl, _path: path,
+        // Store the pre-opened file handle so _runDownload can createWritable()
+        // without calling showSaveFilePicker() a second time.
+        _fileHandle: _earlyFileHandle,
     };
     activeDownloads.set(path, dl);
     renderDownloadTray();
@@ -1349,11 +1375,39 @@ async function _runDownload(path, dl) {
             if (dl._mode === 'picker') {
                 const ext  = dl.filename.split('.').pop() || '';
                 const mime = _mimeForExt(ext);
-                const fh   = await window.showSaveFilePicker({
-                    suggestedName: dl.filename,
-                    types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
-                });
-                dl._writer = await fh.createWritable({ keepExistingData: false });
+                const isResume = dl._resumeFrom > 0;
+                if (!isResume) {
+                    // First open: dl._fileHandle was pre-opened in downloadFile()
+                    // while still in the user-gesture context.  We just open the
+                    // writable from it — no second showSaveFilePicker() call needed.
+                    // If _fileHandle is somehow absent (e.g. called from a non-gesture
+                    // path), open the dialog now as a fallback.
+                    if (!dl._fileHandle) {
+                        const fh = await window.showSaveFilePicker({
+                            suggestedName: dl.filename,
+                            types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
+                        });
+                        dl._fileHandle = fh;
+                    }
+                    dl._writer = await dl._fileHandle.createWritable({ keepExistingData: false });
+                } else {
+                    // Resume: re-open the same file handle and seek to the resume
+                    // offset so bytes are written at the right position.
+                    // If the handle was lost (page reload), the user must re-pick.
+                    if (!dl._fileHandle) {
+                        dl._resumeFrom   = 0;
+                        dl.bytesReceived = 0;
+                        const fh = await window.showSaveFilePicker({
+                            suggestedName: dl.filename,
+                            types: mime ? [{ description: 'File', accept: { [mime]: ['.' + ext] } }] : undefined,
+                        });
+                        dl._fileHandle = fh;
+                        dl._writer = await dl._fileHandle.createWritable({ keepExistingData: false });
+                    } else {
+                        dl._writer = await dl._fileHandle.createWritable({ keepExistingData: true });
+                        await dl._writer.seek(dl._resumeFrom);
+                    }
+                }
             } else {
                 // StreamSaver
                 const ws   = streamSaver.createWriteStream(dl.filename, {
@@ -1568,7 +1622,10 @@ window.resumeDownload = async function(safePath) {
             window.downloadFolderZip(folderPath);
             return;
         }
-        // Non-ZIP: fall through — _runDownload will re-open the writer
+        // Non-ZIP: fall through — _runDownload will re-open the writer.
+        // For picker mode: keep dl._fileHandle so _runDownload can seek instead
+        // of asking the user to pick the file again. The writer itself is always
+        // null here (it was closed or aborted), so _runDownload will re-create it.
     }
 
     // Re-mint token so it's still valid after a long pause
@@ -1612,12 +1669,13 @@ window.cancelDownload = function(path) {
     try { path = decodeURIComponent(path); } catch (_) {}
     const dl = activeDownloads.get(path);
     if (dl) {
-        dl._userCancelled = true;   // distinguish from browser-initiated abort
+        dl._userCancelled = true;
         dl._abort?.abort();
         if (dl._writer) {
             dl._writer.abort?.().catch(() => {});
             dl._writer = null;
         }
+        dl._fileHandle = null;   // release FSAA handle on full cancel
     }
     activeDownloads.delete(path);
     renderDownloadTray();

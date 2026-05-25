@@ -118,12 +118,6 @@ that happens and after what
 
 
 #### Low:
-- [ ] Fix visual bug with new login modal in shared folders: ` {"" if not 
-_upload_auth_required else f''' ''"} {Upload modal showing up there}` or `{"" 
-if not _upload_auth_required else f''' {there it shows the login modal} ''"}` 
-or `  {"" if not _upload_auth_required else f''' {Login modal showing up 
-there}  ''"} {Upload modal showing up there} ` (if it's locked link with 
-requirement for FluxDrop account)
 - [ ] Fully fix the logs duplication issue
 - [ ] Reduce amount of re-imports inside the code
 - [ ] Add server ability to push the additional data before client will request 
@@ -169,9 +163,12 @@ changes (v0.17.2.11)
 ---
 
 ## Done items that are pending for removal:
-- [x] Add close by click on the dimmed space into the links manager
-- [x] Make "X" non-scrollable in links manager (so can be closed without need 
-to scroll to the top) and other modals
+- [x] Fix visual bug with new login modal in shared folders: ` {"" if not 
+_upload_auth_required else f''' ''"} {Upload modal showing up there}` or `{"" 
+if not _upload_auth_required else f''' {there it shows the login modal} ''"}` 
+or `  {"" if not _upload_auth_required else f''' {Login modal showing up 
+there}  ''"} {Upload modal showing up there} ` (if it's locked link with 
+requirement for FluxDrop account)
 
 
 

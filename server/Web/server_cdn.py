@@ -3322,33 +3322,47 @@ class AuthHandler(SimpleHTTPRequestHandler):
             _upload_auth_required   = False
 
         if _upload_section_visible:
+            # Pre-compute all conditional HTML fragments as plain Python strings
+            # BEFORE the f-string.  Nesting f-strings with different quote delimiters
+            # (f'''...''' inside f"""...""") produces literal rendering artifacts:
+            # the closing '' marker and expression braces appear as visible text.
+            _ui_hidden    = ' style="display:none"' if _upload_auth_required else ''
+            _auth_js_bool = 'true' if _upload_auth_required else 'false'
+            _init_token   = json.dumps(_visitor_token_raw or '')
+            _subpath_js   = json.dumps(sub_path_clean)
+
+            if _upload_auth_required:
+                _auth_gate_html = (
+                    '\n                <!-- Auth gate: hidden once JS resolves a valid token -->'
+                    '\n                <div id="upload-auth-gate" style="text-align:center;padding:8px 0">'
+                    '\n                    <p style="font-size:13px;color:#64748b;margin:0 0 10px">'
+                    '\n                        A FluxDrop account is required to upload here.'
+                    '\n                    </p>'
+                    '\n                    <div id="upload-auth-form">'
+                    '\n                        <input type="text" id="upload-usr" placeholder="Username"'
+                    '\n                               style="width:100%;max-width:280px;padding:8px 12px;'
+                    'border:1px solid #e2e8f0;border-radius:8px;font-size:13px;'
+                    'margin-bottom:6px;display:block;margin:0 auto 6px">'
+                    '\n                        <input type="password" id="upload-pwd" placeholder="Password"'
+                    '\n                               style="width:100%;max-width:280px;padding:8px 12px;'
+                    'border:1px solid #e2e8f0;border-radius:8px;font-size:13px;'
+                    'margin-bottom:6px;display:block;margin:0 auto 6px">'
+                    '\n                        <button onclick="doUploadLogin()"'
+                    '\n                                style="background:#3b82f6;color:white;border:none;'
+                    'border-radius:8px;padding:8px 20px;font-size:13px;cursor:pointer">'
+                    '\n                            Login &amp; unlock upload'
+                    '\n                        </button>'
+                    '\n                        <div id="upload-auth-err" style="color:#ef4444;font-size:12px;margin-top:6px"></div>'
+                    '\n                    </div>'
+                    '\n                </div>'
+                )
+            else:
+                _auth_gate_html = ''
+
             upload_section = f"""
             <div id="upload-section" style="margin-top:24px;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px">
-
-                {{"" if not _upload_auth_required else f'''
-                <!-- Auth gate: hidden once JS resolves a valid token -->
-                <div id="upload-auth-gate" style="text-align:center;padding:8px 0">
-                    <p style="font-size:13px;color:#64748b;margin:0 0 10px">
-                        A FluxDrop account is required to upload here.
-                    </p>
-                    <div id="upload-auth-form">
-                        <input type="text"     id="upload-usr" placeholder="Username"
-                               style="width:100%;max-width:280px;padding:8px 12px;border:1px solid #e2e8f0;
-                                      border-radius:8px;font-size:13px;margin-bottom:6px;display:block;margin:0 auto 6px">
-                        <input type="password" id="upload-pwd" placeholder="Password"
-                               style="width:100%;max-width:280px;padding:8px 12px;border:1px solid #e2e8f0;
-                                      border-radius:8px;font-size:13px;margin-bottom:6px;display:block;margin:0 auto 6px">
-                        <button onclick="doUploadLogin()"
-                                style="background:#3b82f6;color:white;border:none;border-radius:8px;
-                                       padding:8px 20px;font-size:13px;cursor:pointer">
-                            Login &amp; unlock upload
-                        </button>
-                        <div id="upload-auth-err" style="color:#ef4444;font-size:12px;margin-top:6px"></div>
-                    </div>
-                </div>
-                ''"}}
-
-                <div id="upload-ui" style="{"display:none" if _upload_auth_required else ""}">
+                {_auth_gate_html}
+                <div id="upload-ui"{_ui_hidden}>
                     <h3 style="margin:0 0 10px;font-size:15px;color:#166534">Upload files to this folder</h3>
                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                         <input type="file" id="upload-file" multiple style="font-size:14px">
@@ -3368,15 +3382,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 </div>
 
                 <script>
-                // CDN origin needed for auth endpoint (same server, explicit origin)
                 const _CDN_ORIGIN    = 'https://{PUBLIC_DOMAIN}';
-                const _AUTH_REQUIRED = {'true' if _upload_auth_required else 'false'};
-                let   _uploadToken   = {json.dumps(_visitor_token_raw or '')};
+                const _AUTH_REQUIRED = {_auth_js_bool};
+                let   _uploadToken   = {_init_token};
 
-                // On page load: try localStorage first so already-logged-in users
-                // never see the auth gate.
                 (function tryLocalStorage() {{
-                    if (!_AUTH_REQUIRED) return;  // anon upload, gate irrelevant
+                    if (!_AUTH_REQUIRED) return;
                     const stored = localStorage.getItem('fluxdrop_token');
                     if (stored) _unlockUpload(stored);
                 }})();
@@ -3410,8 +3421,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     }} catch(e) {{ err.textContent = 'Network error: ' + e.message; }}
                 }}
 
-                // Build upload URL — appends the visitor's token so the server
-                // can verify they're a registered FluxDrop user.
                 function _uploadUrl() {{
                     const base = '/share/{token}/upload?subpath={encoded_subpath}';
                     return _uploadToken ? base + '&token=' + encodeURIComponent(_uploadToken) : base;
@@ -3433,7 +3442,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             if (r.ok) done++;
                             else {{
                                 failed++;
-                                // 403 = token expired or invalid — clear it and show the gate again
                                 if (r.status === 403 && _AUTH_REQUIRED) {{
                                     _uploadToken = '';
                                     localStorage.removeItem('fluxdrop_token');
@@ -3456,8 +3464,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 async function promptMkdir() {{
                     const name = prompt('New folder name:');
                     if (!name || !name.trim()) return;
-                    const subpath = '{json.dumps(sub_path_clean)[1:-1]}' ?
-                        '{json.dumps(sub_path_clean)[1:-1]}/' + name.trim() : name.trim();
+                    const curSubpath = {_subpath_js};
+                    const subpath = curSubpath ? curSubpath + '/' + name.trim() : name.trim();
                     try {{
                         const r = await fetch('/share/{token}/mkdir?token=' +
                             encodeURIComponent(_uploadToken || ''), {{
@@ -3471,7 +3479,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 }}
                 </script>
             </div>"""
-
         # --- Expiry badge ---
         expiry_badge = ""
         if share.get("expires_at"):

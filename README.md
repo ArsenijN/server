@@ -1,10 +1,9 @@
-# server `v0.17.2.35`
+# server `v0.18.0`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes:*                              -- this is will be for ver v0.18.0
-                                              since there's a lot of changes now
+*Release notes:*
 
 ***Mainstream: Now only the stable builds will be released to `main` branch.***
 
@@ -57,8 +56,7 @@ old and untracked files will be triggered automatically at time period of
 
 ***Regressions: none***
 
-*Patch notes: **Push as stable version to the main branch, but before, I'll 
-push it as the last 0.17.2 patch #35***
+*Patch notes: **Push as stable version to the main branch (0.18.0)***
 
 ---
 

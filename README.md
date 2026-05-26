@@ -1,4 +1,4 @@
-# server `v0.18.0.1`
+# server `v0.18.0.2`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -11,7 +11,8 @@ Just backend code of my server, nothing else, anyone can use it
 
 ***Regressions: none***
 
-*Patch notes: **Test push***
+*Patch notes: **changelog and tests is pending, see the `items that are pending 
+for implementations`***
 
 ---
 

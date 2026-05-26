@@ -11,6 +11,18 @@ times are long, with some placeholder (like the current gradient-like for the
 main file manager UI)
 - [ ] Add Welcome screen for new users that will explain (almost) everything 
 about FluxDrop
+- [ ] Add image placeholders between image fetch and display
+- [ ] Auto negotiation for upload type (folder or file)
+- [ ] Add progressbar for blob fetches
+- [ ] Add "proper" loading wheels (1 second as least amount of time for the 
+"apply" and other important features, more pleasant loadings for the file 
+manager). That means that for important things it will display at least 1 
+second and will look like it is indeed "loads"
+- [ ] Add fix for the timed out chunks causing full file reupload from the part 
+where it's failed instead of pushing only the unloaded/wrong part of the file 
+(aka reduce very large internet overhead) -- immediatelly on error, not need in 
+the page reload to bring that
+
 
 ### Important without category (critical before release)
 
@@ -18,10 +30,11 @@ about FluxDrop
 - [ ] i18n support (languages for FluxDrop UI and other things)
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
-- [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF or 
-JPG)
+- [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
+JPG as fallback)
 - [ ] Custom right-click menu for folders and files (reduce amount of options 
 with files)
+  - [ ] Add "..." (vertical) as "fallback"
 - [ ] Add "view background connectivity debug console" in settings to see small 
 one-liner somewhere at the bottom of the UI that will say what site currently 
 try to fetch or do (at least via Internet)
@@ -52,10 +65,6 @@ ratios
 ### UX
 - [ ] Upload can fail on slow internet, causing unability to upload the files 
 to server
-- [ ] Add fix for the timed out chunks causing full file reupload from the part 
-where it's failed instead of pushing only the unloaded/wrong part of the file 
-(aka reduce very large internet overhead) -- immediatelly on error, not need in 
-the page reload to bring that
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
  or at least the N times (reliable way to resume whatever operation is going)
@@ -68,22 +77,16 @@ via Chrome or as "native" Android Material Design one
 stream - a lot of files) feature to site UI from `batch_tar_upload.py`
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
 content)
-- [ ] Add image placeholders between image fetch and display
 - [ ] Add ability to preload the JPEG/any current format for previews like AVIF 
 and for other files (contribute to the background media scan via FFmpeg)
 - [ ] Check why HEIF files are slow to decode (on client, it takes ~5 seconds 
 on i5 8350U)
-- [ ] Auto negotiation for upload type (folder or file)
 - [ ] Add dark theme switch, or at least make addons work properly and test 
 them
 - [ ] Add loading wheel/bar into stats window since bad internet causes high 
 wait times without knowing what it is doing
-- [ ] Add progressbar for blob fetches
 - [ ] Add `.7z` and `.rar` for file table previews (and other ones)
 - [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
-- [ ] Add "proper" loading wheels (1 second as least amount of time for the 
-"apply" and other important features, more pleasant loadings for the file 
-manager)
 
 - [ ] **Family/Group accounts**
   - [ ] Let two or more usernames share a common root directory with mutual

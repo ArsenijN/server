@@ -139,7 +139,10 @@ bandwidth and resolution)
 of FluxDrop, but true usage is unknown since it's seems like undocumented and 
 was introduced in one of the edit sessions without need to be made -- in the 
 Terms and Policy, the same CDN may be mentioned with some explanatory of it's 
-existence there
+existence there -- aha! The CDN is made so user can separate it's drive and not 
+clog the own drive with hosting materials, and also, I think that it can be 
+easily managed via API (or will be). The next patch will change that "delete" 
+to "implement"
 - [ ] Migration to other host platform for HTTP and HTTPS efficiency and 
 optimizations (Python; go to gunicorn or something else) -- WIP, low priority
 - [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper 
@@ -190,3 +193,4 @@ Note to myself: this is weird
 [2026-05-22 01:17:15] 2026-05-22 01:17:15,791 [INFO] (Thread-658 (process_request_thread)) 31.43.251.43 - "POST /beacon/ping HTTP/1.1" 200 -
 ```
 Is that the "config" 404s caused on client that was mentioned in the TODO?
+Maybe it's when it drops the internet?

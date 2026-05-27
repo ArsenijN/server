@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-eefec7e0
+// Current version of script.js is: fluxdrop-v-eed0e7cb
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-eefec7e0'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-eed0e7cb'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -194,6 +194,57 @@ let sortFoldersMixed = (() => {
         // ======================================================================
         // --- UTILITY FUNCTIONS ---
         // ======================================================================
+// Enforce a minimum perceived duration for important async operations.
+function withMinDelay(promise, minMs = 1000) {
+    const t0 = Date.now();
+    return promise.then(
+        value => {
+            const elapsed = Date.now() - t0;
+            const wait    = Math.max(0, minMs - elapsed);
+            if (wait === 0) return value;
+            return new Promise(resolve => setTimeout(() => resolve(value), wait));
+        },
+        err => {
+            const elapsed = Date.now() - t0;
+            const wait    = Math.max(0, minMs - elapsed);
+            if (wait === 0) throw err;
+            return new Promise((_, reject) => setTimeout(() => reject(err), wait));
+        }
+    );
+}
+
+// Show a loading spinner overlay with a message. Returns a dismiss function.
+function showSpinnerOverlay(message = 'Loading…', opts = {}) {
+    const minMs = opts.minMs != null ? opts.minMs : 1000;
+    const id    = opts.id || ('fd-spinner-' + Date.now());
+    const overlay = document.createElement('div');
+    overlay.id = id;
+    overlay.style.cssText = [
+        'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10400',
+        'background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center',
+        'animation:fadeIn .15s ease',
+    ].join(';');
+    overlay.innerHTML = '<div style="background:#1e293b;border-radius:1rem;padding:2rem 2.5rem;display:flex;' +
+        'flex-direction:column;align-items:center;gap:1rem;' +
+        'box-shadow:0 16px 48px rgba(0,0,0,.5);min-width:180px;text-align:center">' +
+        '<div style="width:44px;height:44px;border-radius:50%;border:4px solid #334155;' +
+        'border-top-color:#3b82f6;animation:fd-spin .7s linear infinite"></div>' +
+        '<div style="color:#e2e8f0;font-size:.93rem;font-weight:500">' + escapeHtml(message) + '</div></div>';
+    if (!document.getElementById('fd-spin-style')) {
+        const st = document.createElement('style');
+        st.id = 'fd-spin-style';
+        st.textContent = '@keyframes fd-spin{to{transform:rotate(360deg)}}';
+        document.head.appendChild(st);
+    }
+    document.body.appendChild(overlay);
+    const shown = Date.now();
+    return function dismiss() {
+        const wait = Math.max(0, minMs - (Date.now() - shown));
+        const _rm = function() { const el = document.getElementById(id); if (el) el.remove(); };
+        if (wait <= 0) _rm(); else setTimeout(_rm, wait);
+    };
+}
+
 function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function hideModal(id) {
     document.getElementById(id).classList.add('hidden');
@@ -661,7 +712,12 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             </div>
             <div id="pam-body" style="padding:1.5rem;overflow-y:auto;flex:1;
                                       font-size:.92rem;line-height:1.7;color:#1e293b">
-                <div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>
+                <div id="pam-skeleton" style="padding:.5rem 0">
+                    ${Array.from({length: 18}, (_, i) => {
+                        const w = [92,78,85,65,88,70,95,60,82,74,90,55,87,72,80,68,93,63][i] + '%';
+                        return `<div style="height:13px;border-radius:4px;margin-bottom:10px;width:${w};background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></div>`;
+                    }).join('')}
+                </div>
             </div>
             <div style="padding:1rem 1.5rem;border-top:1px solid #e2e8f0;
                         display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#f8fafc">
@@ -697,21 +753,21 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
     agreeBtn.addEventListener('click', async () => {
         agreeBtn.disabled = true;
         agreeBtn.textContent = 'Saving…';
+        const _paDismiss = showSpinnerOverlay('Saving your agreement…', { minMs: 1000 });
         try {
-            await apiCall('/api/v1/policy/accept', 'POST', { [type]: version });
+            await withMinDelay(apiCall('/api/v1/policy/accept', 'POST', { [type]: version }), 1000);
+            _paDismiss();
             overlay.remove();
             onAccepted();
         } catch (err) {
-            // SESSION_EXPIRED: apiCall already navigated to login and called
-            // showMessage — but the overlay would bury the error modal.
-            // Remove the overlay first so the message is visible.
+            _paDismiss();
             if (err.message === 'SESSION_EXPIRED') {
                 overlay.remove();
                 return;
             }
             agreeBtn.disabled = false;
-            agreeBtn.textContent = `I agree to the ${label}`;
-            showMessage('Error', `Could not save your agreement: ${err.message}`);
+            agreeBtn.textContent = 'I agree to the ' + label;
+            showMessage('Error', 'Could not save your agreement: ' + err.message);
         }
     });
 
@@ -742,7 +798,12 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
     async function loadDoc(loadLang) {
         // Use the version for the selected language; fall back to the server-required version
         const loadVer = versionMap[loadLang] || version;
-        bodyEl.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>';
+        bodyEl.innerHTML = `<div id="pam-skeleton" style="padding:.5rem 0">
+            ${Array.from({length: 18}, (_, i) => {
+                const w = [92,78,85,65,88,70,95,60,82,74,90,55,87,72,80,68,93,63][i] + '%';
+                return `<div style="height:13px;border-radius:4px;margin-bottom:10px;width:${w};background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></div>`;
+            }).join('')}
+        </div>`;
         bodyEl.scrollTop = 0;
         try {
             const resp = await fetch(_policyUrl(type, loadLang, loadVer), { cache: 'no-cache' });
@@ -890,6 +951,26 @@ function renderFileBrowserView() {
             _folderBtn.title = 'Switch to folder upload mode';
         }
         _fileInput.value = '';
+    });
+
+    // Auto-negotiate: if the selection contains items with a path separator it
+    // was almost certainly a folder pick — auto-enable folder mode display so
+    // the button stays in sync.  If everything is flat, revert to file mode.
+    _fileInput.addEventListener('change', () => {
+        const files = Array.from(_fileInput.files || []);
+        if (!files.length) return;
+        const hasSubPaths = files.some(f => f.webkitRelativePath && f.webkitRelativePath.includes('/'));
+        if (hasSubPaths && !_folderMode) {
+            _folderMode = true;
+            _folderBtn.textContent = '📄 Files';
+            _folderBtn.style.background = '#6366f1';
+            _folderBtn.title = 'Switch back to file upload mode';
+        } else if (!hasSubPaths && _folderMode) {
+            _folderMode = false;
+            _folderBtn.textContent = '📁 Folder';
+            _folderBtn.style.background = '#0ea5e9';
+            _folderBtn.title = 'Switch to folder upload mode';
+        }
     });
 
     // ── Upload queue state ──────────────────────────────────────────
@@ -2317,6 +2398,49 @@ function _renderMarkdown(bodyEl, rawText) {
 // cancel it when the modal is closed before the response arrives.
 let _previewAbortCtrl = null;
 
+// Stream a Response into a Blob while showing a progress bar inside bodyEl.
+// Falls back to resp.blob() if Content-Length is absent.
+async function _fetchBlobWithProgress(resp, signal, bodyEl) {
+    const contentLength = resp.headers.get('Content-Length');
+    const total = contentLength ? parseInt(contentLength) : 0;
+
+    if (!total || !resp.body) return resp.blob();
+
+    const barId = 'fd-preview-progress-' + Date.now();
+    bodyEl.innerHTML = `
+        <div style="width:100%;max-width:700px;margin:0 auto">
+            <div style="width:100%;aspect-ratio:16/10;border-radius:8px;
+                background:linear-gradient(90deg,#1e293b 25%,#334155 50%,#1e293b 75%);
+                background-size:200% 100%;animation:fd-shimmer 1.4s infinite;margin-bottom:12px"></div>
+            <div style="background:#334155;border-radius:4px;height:5px;overflow:hidden">
+                <div id="${barId}" style="height:100%;border-radius:4px;background:#3b82f6;width:0%;transition:width .15s"></div>
+            </div>
+            <div id="${barId}-label" style="text-align:center;font-size:12px;color:#64748b;margin-top:6px">0%</div>
+        </div>`;
+
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let received = 0;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+        const pct = Math.min(100, Math.round(received / total * 100));
+        const bar = document.getElementById(barId);
+        const lbl = document.getElementById(barId + '-label');
+        if (bar) bar.style.width = pct + '%';
+        if (lbl) lbl.textContent = pct + '%  (' + formatBytes(received) + ' / ' + formatBytes(total) + ')';
+    }
+
+    const merged = new Uint8Array(received);
+    let offset = 0;
+    for (const c of chunks) { merged.set(c, offset); offset += c.byteLength; }
+    return new Blob([merged], { type: resp.headers.get('Content-Type') || 'application/octet-stream' });
+}
+
 // Preview a trashed file by streaming it directly from the trash endpoint.
 // This bypasses the normal download-token flow because trashed files live
 // outside the user's regular file tree.
@@ -2348,6 +2472,11 @@ async function _previewTrashFile(trashId, filename) {
                 headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            // Show shimmer while blob downloads
+            bodyEl.innerHTML = `<div style="width:100%;max-width:700px;margin:0 auto;
+                aspect-ratio:16/10;border-radius:8px;
+                background:linear-gradient(90deg,#1e293b 25%,#334155 50%,#1e293b 75%);
+                background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></div>`;
             const blob    = await resp.blob();
             if (_previewSignal.aborted) { URL.revokeObjectURL(URL.createObjectURL(blob)); return; }
             const blobUrl = URL.createObjectURL(blob);
@@ -2519,6 +2648,11 @@ window.previewFile = async function(path) {
         const dlUrl = `${API_BASE_URL}${urlPath}?dl_token=${encodeURIComponent(tokenData.download_token)}`;
 
         if (cat === 'image') {
+            // Show shimmer placeholder while fetching
+            bodyEl.innerHTML = `<div style="width:100%;max-width:700px;margin:0 auto;
+                aspect-ratio:16/10;border-radius:8px;
+                background:linear-gradient(90deg,#1e293b 25%,#334155 50%,#1e293b 75%);
+                background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></div>`;
             // Fetch as blob so the AbortController can cancel mid-download.
             bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Fetching an image…</p>';
             const imgResp = await fetchWithFallback(dlUrl, {
@@ -2526,7 +2660,7 @@ window.previewFile = async function(path) {
                 ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {})
             });
             if (!imgResp.ok) throw new Error(`HTTP ${imgResp.status}`);
-            const imgBlob = await imgResp.blob();
+            const imgBlob = await _fetchBlobWithProgress(imgResp, _previewSignal, bodyEl);
             const imgUrl  = URL.createObjectURL(imgBlob);
             // If modal was closed while we were fetching, discard the blob silently.
             if (_previewSignal.aborted) { URL.revokeObjectURL(imgUrl); return; }
@@ -3237,11 +3371,12 @@ async function openMoveDialog(srcPath) {
             }
             const newPath = srcDir === '/' ? '/' + newName : srcDir + '/' + newName;
             confirmBtn.disabled = true; confirmBtn.textContent = 'Renaming…';
+            const _rnDismiss = showSpinnerOverlay('Renaming…', { minMs: 1000 });
             try {
-                await apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath });
-                overlay.remove(); loadDirectory(currentPath);
+                await withMinDelay(apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath }), 1000);
+                _rnDismiss(); overlay.remove(); loadDirectory(currentPath);
             } catch (err) {
-                confirmBtn.disabled = false; confirmBtn.textContent = 'Rename';
+                _rnDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = 'Rename';
                 if (err.message !== 'SESSION_EXPIRED') showMessage('Rename failed', err.message);
             }
             return;
@@ -3253,22 +3388,24 @@ async function openMoveDialog(srcPath) {
         if (activeTab === 'move') {
             if (newPath === srcPath) { showMessage('Same location', 'The destination is the same as the source.'); return; }
             confirmBtn.disabled = true; confirmBtn.textContent = 'Moving…';
+            const _mvDismiss = showSpinnerOverlay('Moving…', { minMs: 1000 });
             try {
-                await apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath });
-                overlay.remove(); loadDirectory(currentPath);
+                await withMinDelay(apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath }), 1000);
+                _mvDismiss(); overlay.remove(); loadDirectory(currentPath);
             } catch (err) {
-                confirmBtn.disabled = false; confirmBtn.textContent = 'Move here';
+                _mvDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = 'Move here';
                 if (err.message !== 'SESSION_EXPIRED') showMessage('Move failed', err.message);
             }
         } else {
             // Copy — use copy endpoint if available, else show message
             if (newPath === srcPath) { showMessage('Same location', 'The destination is the same as the source.'); return; }
             confirmBtn.disabled = true; confirmBtn.textContent = 'Copying…';
+            const _cpDismiss = showSpinnerOverlay('Copying…', { minMs: 1000 });
             try {
-                await apiCall('/api/v1/copy', 'POST', { src: srcPath, dest: newPath });
-                overlay.remove(); loadDirectory(currentPath);
+                await withMinDelay(apiCall('/api/v1/copy', 'POST', { src: srcPath, dest: newPath }), 1000);
+                _cpDismiss(); overlay.remove(); loadDirectory(currentPath);
             } catch (err) {
-                confirmBtn.disabled = false; confirmBtn.textContent = 'Copy here';
+                _cpDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = 'Copy here';
                 if (err.message !== 'SESSION_EXPIRED') showMessage('Copy failed', err.message);
             }
         }
@@ -3320,21 +3457,20 @@ async function openMoveDialog(srcPath) {
 async function promptCreateFolder() {
     const name = prompt('Create a folder with a name:', 'NewFolder');
     if (!name) return;
+    const _cfDismiss = showSpinnerOverlay('Creating folder…', { minMs: 1000 });
     try {
-        // Use the new mkdir API to create the folder directly under the current path.
-        // Ensure we join paths correctly.
         let targetPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
-        await apiCall('/api/v1/mkdir', 'POST', { path: targetPath }, true);
+        await withMinDelay(apiCall('/api/v1/mkdir', 'POST', { path: targetPath }, true), 1000);
+        _cfDismiss();
         showMessage('Folder created', name);
         loadDirectory(currentPath);
     } catch (err) {
-        // Fallback to placeholder upload if mkdir fails for some reason
+        _cfDismiss();
         try {
             const fd = new FormData();
             fd.append('fileToUpload', new Blob(['']), '.placeholder');
-            // Upload placeholder into the target directory (fallback)
             let endpointPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
-            const endpoint = `/api/v1/upload/${encodePath(endpointPath)}`;
+            const endpoint = '/api/v1/upload/' + encodePath(endpointPath);
             await uploadFormData(endpoint, fd);
             showMessage('Folder created (via fallback)', name);
             loadDirectory(currentPath);
@@ -3727,18 +3863,40 @@ async function uploadChunked(file, destRel, opts = {}) {
                     return;
                 }
                 if (ul.cancelled) return;
-                // Retry once on transient errors before giving up
-                if (!err._retried) {
+                // ── Retry loop: up to 3 retries with back-off, resuming from the
+                // exact failed chunk index.  No page reload needed.
+                const MAX_CHUNK_RETRIES = 3;
+                let retryErr = err;
+                for (let attempt = 1; attempt <= MAX_CHUNK_RETRIES; attempt++) {
+                    if (ul.cancelled) return;
+                    const backoff = 1500 * attempt; // 1.5s, 3s, 4.5s
+                    ul.status = 'uploading';
+                    ul.error  = `Chunk ${idx} failed (${err.message}). Retry ${attempt}/${MAX_CHUNK_RETRIES} in ${(backoff/1000).toFixed(0)}s…`;
+                    renderUploadTray();
+                    await new Promise(r => setTimeout(r, backoff));
+                    if (ul.cancelled) return;
                     try {
-                        err._retried = true;
-                        await new Promise(r => setTimeout(r, 1500));  // brief back-off
                         await uploadChunk(idx);
-                    } catch (err2) {
-                        uploadError = err2;
-                        return;
+                        retryErr = null;
+                        ul.error = null;
+                        break;
+                    } catch (e2) {
+                        retryErr = e2;
+                        if (e2.name === 'AbortError') { ul.cancelled = true; return; }
                     }
-                } else {
-                    uploadError = err;
+                }
+                if (retryErr) {
+                    uploadError = retryErr;
+                    ul.error   = retryErr.message;
+                    // Persist the exact failed chunk so the interrupted-upload
+                    // manager can offer resuming from here — not from chunk 0.
+                    if (ownerType === 'user') {
+                        saveInterruptedUpload(uploadToken, {
+                            uploadToken, filename: file.name, destRel, totalChunks,
+                            chunkSize, nextChunkIdx: idx, ownerType, shareToken,
+                            anonDeviceToken: null, total: file.size,
+                        });
+                    }
                     return;
                 }
             }
@@ -4318,10 +4476,108 @@ async function handleLogin(e) {
         localStorage.setItem('fluxdrop_token', authToken);
         localStorage.setItem('fluxdrop_is_admin', data.is_admin ? '1' : '0');
         localStorage.setItem('fluxdrop_username', currentUsername);
-        renderApp(); // Re-render the app in its logged-in state
+        const _welcomeKey = `fluxdrop_welcomed_${currentUsername}`;
+        if (!localStorage.getItem(_welcomeKey)) {
+            localStorage.setItem(_welcomeKey, '1');
+            renderApp();          // renders file browser (policy check may show first)
+            _showWelcomeScreen(); // overlays welcome on top after a tick
+        } else {
+            renderApp();
+        }
     } catch (error) {
         showMessage('Login Failed', error.message);
     }
+}
+
+
+// ── Welcome screen shown once to new users after first login ─────────────
+function _showWelcomeScreen() {
+    // Defer until after policy modals (if any) are done
+    const _tryShow = () => {
+        if (document.querySelector('[id^="pam-"]')?.closest('[style*="z-index:10001"]')) {
+            setTimeout(_tryShow, 400); return;
+        }
+        _doShowWelcome();
+    };
+    setTimeout(_tryShow, 300);
+}
+
+function _doShowWelcome() {
+    const overlay = document.createElement('div');
+    overlay.id = 'fd-welcome-overlay';
+    overlay.style.cssText = [
+        'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10200',
+        'background:rgba(15,23,42,.72);display:flex;align-items:center;justify-content:center;padding:1rem',
+        'animation:fadeIn .25s ease',
+    ].join(';');
+
+    const features = [
+        ['📁', 'File browser', 'Browse, create folders, rename, move, and delete files. Sorting and breadcrumb navigation included.'],
+        ['⬆', 'Chunked uploads', 'Upload files up to 10 GB in resumable chunks. Pause, resume, or queue multiple uploads simultaneously.'],
+        ['📁➡📄', 'Folder upload', 'Click the <strong>📁 Folder</strong> toggle next to the upload input to switch between file and folder upload mode. FluxDrop preserves the full directory structure.'],
+        ['👁', 'Previews', 'Click any file name to preview it in-app — images, video, audio, text, Markdown, PDFs, and even ZIP contents.'],
+        ['🔗', 'Sharing', 'Right-click (or use the Share button) on any file or folder to generate a public link. Set expiry, restrict to logged-in users, or allow anonymous uploads.'],
+        ['🗑', 'Trash bin', 'Deleted files land in the Trash (🗑 button, top right). Items are kept for 30 days and can be restored at any time.'],
+        ['⬇', 'Downloads', 'All downloads run in a floating tray (bottom-right). Large downloads support pause/resume via HTTP Range.'],
+        ['🔒', 'Protected files', "Tick the <em>Protected</em> checkbox before uploading to mark a file as private — it won't appear in public share listings."],
+        ['👤', 'Profile & settings', 'Click the 👤 button (top-right) to manage your profile, view shared links, check server status, and adjust preferences.'],
+        ['📡', 'CDN browser', 'Click <strong>Browse CDN</strong> to browse the CDN storage area, separate from your personal file space.'],
+    ];
+
+    overlay.innerHTML = `
+        <div style="background:#fff;border-radius:1.25rem;width:100%;max-width:740px;
+                    max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
+                    box-shadow:0 32px 64px rgba(0,0,0,.45)">
+            <!-- Header -->
+            <div style="background:linear-gradient(135deg,#1e40af,#4f46e5);padding:1.75rem 2rem 1.5rem;flex-shrink:0">
+                <div style="display:flex;align-items:center;gap:.9rem;margin-bottom:.5rem">
+                    <img src="icon.svg" style="width:44px;height:44px" alt="">
+                    <h2 style="color:white;font-size:1.55rem;font-weight:800;margin:0">Welcome to FluxDrop!</h2>
+                </div>
+                <p style="color:rgba(255,255,255,.82);margin:0;font-size:.95rem;line-height:1.6">
+                    Here's a quick tour of everything available to you.
+                </p>
+            </div>
+            <!-- Feature grid -->
+            <div style="overflow-y:auto;flex:1;padding:1.5rem 2rem">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem">
+                    ${features.map(([icon, title, desc]) => `
+                        <div style="display:flex;gap:.75rem;padding:.9rem 1rem;background:#f8fafc;
+                                    border-radius:.75rem;border:1px solid #e2e8f0;align-items:flex-start">
+                            <div style="font-size:1.4rem;flex-shrink:0;line-height:1;margin-top:.1rem">${icon}</div>
+                            <div>
+                                <div style="font-weight:700;color:#1e293b;font-size:.95rem;margin-bottom:.25rem">${title}</div>
+                                <div style="color:#475569;font-size:.85rem;line-height:1.55">${desc}</div>
+                            </div>
+                        </div>`).join('')}
+                </div>
+                <div style="margin-top:1.25rem;padding:1rem 1.25rem;background:#eff6ff;border-radius:.75rem;
+                            border:1px solid #bfdbfe;font-size:.88rem;color:#1e40af;line-height:1.6">
+                    💡 <strong>Tip:</strong> This tour won't show again — you can always re-read the
+                    <a href="#" onclick="event.preventDefault();document.getElementById('fd-welcome-overlay').remove();showPolicyModal('tos')"
+                       style="color:#1d4ed8;text-decoration:underline">Terms of Service</a> and
+                    <a href="#" onclick="event.preventDefault();document.getElementById('fd-welcome-overlay').remove();showPolicyModal('pp')"
+                       style="color:#1d4ed8;text-decoration:underline">Privacy Policy</a> from the footer.
+                </div>
+            </div>
+            <!-- Footer -->
+            <div style="padding:1rem 2rem;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;flex-shrink:0">
+                <button id="fd-welcome-ok" class="btn" style="padding:.7rem 2rem;font-size:.95rem">
+                    Get started →
+                </button>
+            </div>
+        </div>`;
+
+    if (!document.getElementById('fd-fadein-style')) {
+        const st = document.createElement('style');
+        st.id = 'fd-fadein-style';
+        st.textContent = '@keyframes fadeIn{from{opacity:0}to{opacity:1}}';
+        document.head.appendChild(st);
+    }
+
+    document.body.appendChild(overlay);
+    overlay.querySelector('#fd-welcome-ok').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
 async function handleLogout() {
@@ -5785,7 +6041,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-eefec7e0'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-eed0e7cb'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

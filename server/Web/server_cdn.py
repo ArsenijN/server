@@ -459,14 +459,22 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
         _upd(total=len(raw_files))
 
         # CRC32 scan (checksum cache + on-demand)
-        _cs_uid        = None if user_id == 'share' else user_id
+        _is_share  = user_id == 'share' or user_id is None
+        _cs_uid    = None if _is_share else int(user_id)
+        _cs_root   = None if _is_share else os.path.normpath(
+            os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+        )
         scanned        = []
         actual_missing = []
         needs_hashing  = False
         for i, (abs_path, arcname, arcname_bytes, fsz, dos_t, dos_d) in enumerate(raw_files):
-            crc    = None
-            # Normalise key to match background scanner convention (leading '/')
-            cs_key = '/' + arcname if not arcname.startswith('/') else arcname
+            crc = None
+            # Key must match what the background scanner stored:
+            # relative to the user root, not to base_fs.
+            if _cs_root:
+                cs_key = '/' + os.path.relpath(abs_path, _cs_root).replace(os.sep, '/')
+            else:
+                cs_key = '/' + arcname if not arcname.startswith('/') else arcname
             stored = checksum_get(cs_key, _cs_uid)
             if stored and checksum_is_fresh(stored, abs_path):
                 crc = stored['crc32']

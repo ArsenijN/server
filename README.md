@@ -12,29 +12,13 @@ Just backend code of my server, nothing else, anyone can use it
 ***Regressions: Archive builder behaves wrong, it forgots the cached hashes and 
 says "Downloading via browser", maybe because I'm home and my ping is so low?***
 
-*Patch notes: **Changelog: what works***
+*Patch notes: **Changelog:***
 - ***Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
 main file manager UI)*** -- untested
-- ***Add Welcome screen for new users that will explain (almost) everything 
-about FluxDrop*** -- works
-- ***Add image placeholders between image fetch and display*** -- works for 
-PNGs, maybe later add for HEIC and other formats
 
 - ***Auto negotiation for upload type (folder or file)*** -- didn't catch the 
 folder auto-negotiation
-
-- ***Add progressbar for blob fetches*** -- works
-- ***Add "proper" loading wheels (1 second as least amount of time for the 
-"apply" and other important features, more pleasant loadings for the file 
-manager). That means that for important things it will display at least 1 
-second and will look like it is indeed "loads"*** -- works, but I think to add 
-it to deletion func also, and maybe then redesign the move to trash and other 
-modals/iterations
-- ***Add fix for the timed out chunks causing full file reupload from the part 
-where it's failed instead of pushing only the unloaded/wrong part of the file 
-(aka reduce very large internet overhead) -- immediatelly on error, not need in 
-the page reload to bring that*** -- works
 
 ---
 

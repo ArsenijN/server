@@ -497,19 +497,22 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
         ZIP64_EOCD_SIG     = b'PK\x06\x06'
         ZIP64_EOCD_LOCATOR = b'PK\x06\x07'
         FLAG_NONE = 0; METHOD_STORED = 0; UINT32_MAX = 0xFFFF_FFFF; UINT16_MAX = 0xFFFF
+        FLAG_UTF8 = 0x0800   # ← add this
         offset = 0; files_built = []
         for abs_path, arcname, arcname_bytes, fsz, crc, dos_t, dos_d in scanned:
             fn_len      = len(arcname_bytes)
             lf_offset   = offset
             z64_lfh     = _st.pack('<HH QQ', 0x0001, 16, fsz, fsz)
+            flag        = FLAG_UTF8 if any(b > 127 for b in arcname_bytes) else FLAG_NONE
+
             lfh         = _st.pack('<4sHHHHHIIIHH',
-                LFH_SIG, 45, FLAG_NONE, METHOD_STORED, dos_t, dos_d,
+                LFH_SIG, 45, flag, METHOD_STORED, dos_t, dos_d,   # FLAG_NONE → flag
                 crc, UINT32_MAX, UINT32_MAX, fn_len, len(z64_lfh),
             ) + arcname_bytes + z64_lfh
             offset     += len(lfh); data_offset = offset; offset += fsz
             z64_cdh     = _st.pack('<HH QQQ', 0x0001, 24, fsz, fsz, lf_offset)
             cdh         = _st.pack('<4sHHHHHHIIIHHHHHII',
-                CDH_SIG, 45, 45, FLAG_NONE, METHOD_STORED, dos_t, dos_d, crc,
+                CDH_SIG, 45, 45, flag, METHOD_STORED, dos_t, dos_d, crc,  # FLAG_NONE → flag
                 UINT32_MAX, UINT32_MAX, fn_len, len(z64_cdh), 0, 0, 0, 0, UINT32_MAX,
             ) + arcname_bytes + z64_cdh
             files_built.append({

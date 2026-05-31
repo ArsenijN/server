@@ -16,9 +16,11 @@ says "Downloading via browser", maybe because I'm home and my ping is so low?***
 - ***Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
 main file manager UI)*** -- untested
-
 - ***Auto negotiation for upload type (folder or file)*** -- didn't catch the 
 folder auto-negotiation
+- ***Finally fix the logs dup issue***
+- ***Fix the file hashes isn't used for ZIP streaming***
+- ***Fix the ZIP's filenames becomes gibberish if non-latin sometimes***
 
 ---
 

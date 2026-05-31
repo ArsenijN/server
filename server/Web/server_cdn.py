@@ -5475,13 +5475,27 @@ def run_server(port, use_ssl=False):
         server.server_close()
         logging.info(f"{proto} server on port {port} has shut down.")
 
+class _InternalAuthHandler(AuthHandler):
+    """AuthHandler variant used exclusively by the plain-HTTP loopback listener.
+
+    The only difference: _redirect_to_https_if_needed() is a no-op.
+    server_https already holds the TLS session with the real client; the
+    loopback leg is trusted internal traffic and must never redirect.
+    Redirecting here would hand server_https a 308 response, which it
+    forwards to the browser, breaking every API/auth call.
+    """
+
+    def _redirect_to_https_if_needed(self) -> bool:
+        return False   # loopback leg is always trusted plain HTTP
+
+
 def run_internal_server():
     """Plain HTTP listener on 127.0.0.1 only — no TLS.
     Used exclusively by server_https._proxy_to_cdn so that the loopback leg
     carries no encryption overhead (software AES on i3 370m bottlenecks at
     ~20 MB/s when both legs are TLS).  Never bind to 0.0.0.0.
     """
-    server = _FastThreadingHTTPServer(('127.0.0.1', CDN_INTERNAL_PORT), AuthHandler)
+    server = _FastThreadingHTTPServer(('127.0.0.1', CDN_INTERNAL_PORT), _InternalAuthHandler)
     logging.info(
         'CDN internal plain-HTTP listener on 127.0.0.1:%d (loopback only)',
         CDN_INTERNAL_PORT,

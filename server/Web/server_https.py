@@ -612,6 +612,21 @@ if __name__ == "__main__":
 
     # --- SSL Context Setup ---
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+
+    # Prefer ChaCha20-Poly1305 — 2-4x faster than AES in software on CPUs
+    # without AES-NI (i3 370m / Westmere). All modern browsers support it.
+    # set_ciphersuites() controls TLS 1.3; set_ciphers() controls TLS 1.2 fallback.
+    # context.set_ciphersuites(
+    #     'TLS_CHACHA20_POLY1305_SHA256:'
+    #     'TLS_AES_128_GCM_SHA256:'
+    #     'TLS_AES_256_GCM_SHA384'
+    # )
+    context.set_ciphers(
+        'ECDHE+CHACHA20:'
+        'ECDHE+AESGCM:'
+        '!aNULL:!eNULL:!RC4'
+    )
     try:
         context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
     except FileNotFoundError:

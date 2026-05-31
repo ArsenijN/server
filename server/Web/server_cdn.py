@@ -108,6 +108,10 @@ import urllib.parse as _up
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
+
+# Plain-HTTP loopback port used by server_https proxy to avoid double-TLS.
+# Bound to 127.0.0.1 only — never reachable from outside the machine.
+CDN_INTERNAL_PORT = int(os.getenv('CDN_INTERNAL_PORT', '64799'))
 import socket as _socket
 import mimetypes
 
@@ -5471,6 +5475,26 @@ def run_server(port, use_ssl=False):
         server.server_close()
         logging.info(f"{proto} server on port {port} has shut down.")
 
+def run_internal_server():
+    """Plain HTTP listener on 127.0.0.1 only — no TLS.
+    Used exclusively by server_https._proxy_to_cdn so that the loopback leg
+    carries no encryption overhead (software AES on i3 370m bottlenecks at
+    ~20 MB/s when both legs are TLS).  Never bind to 0.0.0.0.
+    """
+    server = _FastThreadingHTTPServer(('127.0.0.1', CDN_INTERNAL_PORT), AuthHandler)
+    logging.info(
+        'CDN internal plain-HTTP listener on 127.0.0.1:%d (loopback only)',
+        CDN_INTERNAL_PORT,
+    )
+    try:
+        server.serve_forever()
+    except Exception as e:
+        logging.critical('CDN internal HTTP listener on port %d failed: %s',
+                         CDN_INTERNAL_PORT, e)
+    finally:
+        server.server_close()
+
+
 def _token_purge_worker():
     """Background thread: purge expired/used download tokens every 5 minutes.
 
@@ -5681,15 +5705,18 @@ if __name__ == '__main__':
     # --- Start Server Threads ---
     http_thread = threading.Thread(target=run_server, args=(HTTP_PORT, False), name="HTTP-Thread", daemon=True)
     https_thread = threading.Thread(target=run_server, args=(HTTPS_PORT, True), name="HTTPS-Thread", daemon=True)
+    internal_thread = threading.Thread(target=run_internal_server, name="CDN-Internal-HTTP", daemon=True)
 
     http_thread.start()
     https_thread.start()
+    internal_thread.start()
 
     try:
         # Keep the main thread alive to handle shutdown
-        while http_thread.is_alive() and https_thread.is_alive():
+        while http_thread.is_alive() and https_thread.is_alive() and internal_thread.is_alive():
             http_thread.join(timeout=1)
             https_thread.join(timeout=1)
+            internal_thread.join(timeout=1)
     except KeyboardInterrupt:
         logging.info("Main thread received KeyboardInterrupt. Shutting down.")
     finally:

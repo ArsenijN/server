@@ -1,4 +1,4 @@
-# server `v0.18.0.3`
+# server `v0.18.0.6`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -9,8 +9,7 @@ Just backend code of my server, nothing else, anyone can use it
 
 - ***text***
 
-***Regressions: Archive builder behaves wrong, it forgots the cached hashes and 
-says "Downloading via browser", maybe because I'm home and my ping is so low?***
+***Regressions: none***
 
 *Patch notes: **Changelog:***
 - ***Show "Loading the acceptances..." for the acceptance modal if loading 
@@ -18,9 +17,14 @@ times are long, with some placeholder (like the current gradient-like for the
 main file manager UI)*** -- untested
 - ***Auto negotiation for upload type (folder or file)*** -- didn't catch the 
 folder auto-negotiation
+- ***Test Archive builder behaves wrong, it forgots the cached hashes and 
+says "Downloading via browser", maybe because I'm home and my ping is so low?***
+
 - ***Finally fix the logs dup issue***
 - ***Fix the file hashes isn't used for ZIP streaming***
 - ***Fix the ZIP's filenames becomes gibberish if non-latin sometimes***
+- ***Fix download speeds from server being low because of the double TLS and no 
+hardware AES-NI support on current server -- imp #1, pending***
 
 ---
 

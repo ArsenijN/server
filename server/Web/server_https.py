@@ -18,6 +18,7 @@ from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
     KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN
 import urllib.request as _urllib_req
 import urllib.error   as _urllib_err
+import http.client    as _http_client
 import posixpath as _psp
 import re
 
@@ -29,6 +30,11 @@ BLACKLIST_UPDATE_INTERVAL = 60 # seconds
 
 # Port of the CDN server (server_cdn.py) — share links redirect there.
 CDN_HTTPS_PORT = int(os.getenv('CDN_HTTPS_PORT', '64800'))
+
+# Plain-HTTP loopback port — must match CDN_INTERNAL_PORT in server_cdn.py.
+# Using plain HTTP on 127.0.0.1 eliminates the second TLS layer in the proxy
+# (client→proxy is still HTTPS; proxy→CDN is now plain HTTP).
+CDN_INTERNAL_PORT = int(os.getenv('CDN_INTERNAL_PORT', '64799'))
 
 # --- File Upload Security Settings ---
 MAX_FILE_SIZE = 5 * 1024 * 1024 # 5 MB in bytes
@@ -54,7 +60,12 @@ _CDN_PROXY_PREFIXES = (
 )
 
 def _proxy_to_cdn(handler, method: str = 'GET'):
-    """Forward the current request to the CDN server and stream the response back.
+    """Forward the current request to the CDN server over plain HTTP on loopback.
+
+    The client-facing connection is still HTTPS (TLS stays on the outer leg).
+    The CDN-facing connection uses plain HTTP on 127.0.0.1:CDN_INTERNAL_PORT,
+    eliminating the second TLS layer that previously bottlenecked downloads at
+    ~20 MB/s on hardware without AES-NI (i3 370m).
 
     Works for GET, POST, DELETE, OPTIONS, PUT, PATCH.
     Strips hop-by-hop headers before forwarding and before sending back.
@@ -62,77 +73,48 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
     _HOP_BY_HOP = frozenset({
         'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
         'te', 'trailers', 'transfer-encoding', 'upgrade',
-        'host',  # we set Host ourselves
+        'host',
     })
 
-    target = f"https://127.0.0.1:{CDN_HTTPS_PORT}{handler.path}"
+    _PROXY_BUF = 1 * 1024 * 1024   # 1 MiB — was 256 KiB; fewer write() syscalls
 
     body = None
     cl = handler.headers.get('Content-Length')
     if cl and int(cl) > 0:
         body = handler.rfile.read(int(cl))
 
-    req = _urllib_req.Request(target, data=body, method=method)
-    for k, v in handler.headers.items():
-        if k.lower() not in _HOP_BY_HOP:
-            try:
-                req.add_header(k, v)
-            except Exception:
-                pass
-    # Forward the real client IP so CDN logs/blacklist work correctly
-    req.add_header('X-Forwarded-For', handler.client_address[0])
-
-    # Use an SSL context that trusts the self-signed cert on the CDN
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-
-    # Stream the response in chunks — never buffer the entire body.
-    # This is critical for large file downloads (10-30 GB) where .read()
-    # would try to hold the whole file in the server's RAM.
-    _PROXY_BUF = 256 * 1024   # 256 KiB read buffer — small enough for low-RAM i3
     try:
-        with _urllib_req.urlopen(req, context=ctx, timeout=60) as resp:
-            handler.send_response(resp.status)
-            _cl = resp.headers.get('Content-Length')
-            for k, v in resp.headers.items():
-                if k.lower() not in _HOP_BY_HOP:
-                    try:
-                        handler.send_header(k, v)
-                    except Exception:
-                        pass
-            handler.end_headers()
-            # Stream body chunk by chunk directly to the client socket
-            while True:
-                chunk = resp.read(_PROXY_BUF)
-                if not chunk:
-                    break
+        conn = _http_client.HTTPConnection('127.0.0.1', CDN_INTERNAL_PORT, timeout=60)
+        fwd_headers = {
+            k: v for k, v in handler.headers.items()
+            if k.lower() not in _HOP_BY_HOP
+        }
+        # Forward the real client IP so CDN logs/blacklist work correctly
+        fwd_headers['X-Forwarded-For'] = handler.client_address[0]
+        fwd_headers['Host'] = f'127.0.0.1:{CDN_INTERNAL_PORT}'
+
+        conn.request(method, handler.path, body=body, headers=fwd_headers)
+        resp = conn.getresponse()
+
+        handler.send_response(resp.status)
+        for k, v in resp.getheaders():
+            if k.lower() not in _HOP_BY_HOP:
                 try:
-                    handler.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    break   # client disconnected mid-download — normal for seeks/cancels
-    except _urllib_err.HTTPError as e:
-        # Forward the CDN's error response with its original headers intact.
-        # Do NOT hardcode Content-Type or Content-Encoding — the CDN may have
-        # sent gzip-compressed HTML/JSON, and overriding the headers causes the
-        # browser to render garbled output.
-        try:
-            raw = e.read() or b''
-        except Exception:
-            raw = b''
-        try:
-            handler.send_response(e.code)
-            for k, v in e.headers.items():
-                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
-                    try:
-                        handler.send_header(k, v)
-                    except Exception:
-                        pass
-            handler.send_header('Content-Length', str(len(raw)))
-            handler.end_headers()
-            handler.wfile.write(raw)
-        except Exception:
-            pass
+                    handler.send_header(k, v)
+                except Exception:
+                    pass
+        handler.end_headers()
+
+        # Stream body chunk by chunk directly to the client socket
+        while True:
+            chunk = resp.read(_PROXY_BUF)
+            if not chunk:
+                break
+            try:
+                handler.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                break   # client disconnected mid-download — normal for seeks/cancels
+
     except (BrokenPipeError, ConnectionResetError):
         pass   # client disconnected before or during headers
     except Exception as exc:

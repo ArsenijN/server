@@ -4,10 +4,7 @@ import os
 import threading
 import time
 import logging
-import urllib.request
-import traceback
 import socket
-import ssl
 
 # Shared event used by the HTTP server health-check to wait until server is ready
 server_ready = threading.Event()
@@ -87,51 +84,50 @@ def restart_server():
     os.execv(python, [python] + sys.argv)
 
 
-def health_check_self_ping_http(server_ip, http_port):
-    url = f"http://{server_ip}:{http_port}/"
-    print("Health check waiting for server to be ready...")
+def _health_check_socket(host, port, label, initial_delay=10, interval=30, max_failures=3):
+    """
+    Core health check — probes the TCP port directly instead of making a full
+    HTTP/HTTPS request.
+
+    Why a socket probe instead of urllib.request:
+      • A real HTTP request occupies a worker-pool slot.  Under high load all
+        100 slots can be busy, the health-check request queues behind them,
+        the 5 s timeout fires, and the server restarts itself — even though it
+        is serving requests perfectly.  A raw socket connect never touches the
+        pool and cannot be starved.
+      • For HTTPS, the previous implementation also did a full TLS handshake
+        and started the check immediately (no server_ready gate, no initial
+        delay), which risked false restarts at startup.
+
+    Both HTTP and HTTPS health checks call this helper.
+    """
+    # If the server binds on 0.0.0.0, probe the loopback address instead.
+    host = '127.0.0.1' if host in ('0.0.0.0', '', '::') else host
+
+    print(f"Health check ({label}) waiting for server to be ready...")
     server_ready.wait()
-    time.sleep(10)
+    time.sleep(initial_delay)
+
     consecutive_failures = 0
-    max_failures = 3
     while True:
+        time.sleep(interval)
         try:
-            with urllib.request.urlopen(url, timeout=5) as response:
-                if response.status == 200:
-                    consecutive_failures = 0
-                    print(f"Health check OK (status: {response.status})")
-                else:
-                    consecutive_failures += 1
-                    print(f"Health check failed: status {response.status} (failure {consecutive_failures}/{max_failures})")
-                    if consecutive_failures >= max_failures:
-                        restart_server()
-                        return
+            with socket.create_connection((host, port), timeout=5):
+                pass  # connection established → port is alive
+            consecutive_failures = 0
+            print(f"Health check OK ({label})")
         except Exception as e:
             consecutive_failures += 1
-            print(f"Health check failed: {e} (failure {consecutive_failures}/{max_failures})")
+            print(f"Health check failed ({label}): {e} "
+                  f"(failure {consecutive_failures}/{max_failures})")
             if consecutive_failures >= max_failures:
                 restart_server()
                 return
-        time.sleep(30)
+
+
+def health_check_self_ping_http(server_ip, http_port):
+    _health_check_socket(server_ip, http_port, label="HTTP")
 
 
 def health_check_self_ping_https(server_ip, https_port):
-    url = f"https://{server_ip}:{https_port}/"
-    while True:
-        try:
-            # N10: Use the public ssl API instead of the private _create_unverified_context().
-            # Self-signed cert on a self-ping — hostname check and cert verification are
-            # intentionally disabled, but we use the supported public interface to do it.
-            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            with urllib.request.urlopen(url, timeout=5, context=ctx) as response:
-                if response.status != 200:
-                    print(f"Health check failed: status {response.status}")
-                    restart_server()
-                    return
-        except Exception as e:
-            print(f"Health check failed: {e}\n{traceback.format_exc()}")
-            restart_server()
-            return
-        time.sleep(30)
+    _health_check_socket(server_ip, https_port, label="HTTPS")

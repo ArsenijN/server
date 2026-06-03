@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import http.server
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 import os
 import sys
@@ -254,18 +255,26 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                             data = f.read(to_read)
                             if not data:
                                 break
-                            self.wfile.write(data)
+                            try:
+                                self.wfile.write(data)
+                            except (BrokenPipeError, ConnectionResetError):
+                                return  # client disconnected mid-range — normal
                             bytes_left -= len(data)
                     return
+                except (BrokenPipeError, ConnectionResetError):
+                    return  # headers already sent, client disconnected
                 except Exception as e:
                     print(f"Error serving range: {e}")
-                    # Always send a valid HTTP error response
-                    self.send_response(404)
-                    self.send_header("Content-type", "text/html")
-                    self.send_header("Accept-Ranges", "bytes")
-                    self.add_cors_headers()
-                    self.end_headers()
-                    self.wfile.write(b"<h1>404 File not found</h1>")
+                    # Only valid if headers were not yet sent (e.g. file missing)
+                    try:
+                        self.send_response(404)
+                        self.send_header("Content-type", "text/html")
+                        self.send_header("Accept-Ranges", "bytes")
+                        self.add_cors_headers()
+                        self.end_headers()
+                        self.wfile.write(b"<h1>404 File not found</h1>")
+                    except Exception:
+                        pass
                     return
         
         # Fallback to default behavior, but advertise Accept-Ranges and add CORS headers
@@ -283,15 +292,20 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers = patched_end_headers
         try:
             super().do_GET()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client disconnected mid-transfer — normal under load, headers already sent
         except Exception as e:
             print(f"Error in default GET handler: {e}")
-            # Always send a valid HTTP error response
-            self.send_response(500)
-            self.send_header("Content-type", "text/html")
-            self.send_header("Accept-Ranges", "bytes")
-            self.add_cors_headers()
-            self.end_headers()
-            self.wfile.write(b"<h1>500 Internal Server Error</h1>")
+            try:
+                self.send_response(500)
+                self.send_header("Content-type", "text/html")
+                self.send_header("Content-Length", str(len(b"<h1>500 Internal Server Error</h1>")))
+                self.send_header("Accept-Ranges", "bytes")
+                self.add_cors_headers()
+                self.end_headers()
+                self.wfile.write(b"<h1>500 Internal Server Error</h1>")
+            except Exception:
+                pass
         finally:
             self.end_headers = old_end_headers
 
@@ -369,13 +383,18 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers = patched_end_headers
         try:
             super().do_HEAD()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client disconnected
         except Exception as e:
-            self.send_response(500)
-            self.send_header("Content-type", "text/html")
-            self.send_header("Content-Length", str(len(b"<h1>500 Internal Server Error</h1>")))
-            self.send_header("Accept-Ranges", "bytes")
-            self.add_cors_headers()
-            self.end_headers()
+            try:
+                self.send_response(500)
+                self.send_header("Content-type", "text/html")
+                self.send_header("Content-Length", str(len(b"<h1>500 Internal Server Error</h1>")))
+                self.send_header("Accept-Ranges", "bytes")
+                self.add_cors_headers()
+                self.end_headers()
+            except Exception:
+                pass
         finally:
             self.end_headers = old_end_headers
 
@@ -505,27 +524,42 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
 # ---------------------------------------------------------------------------
 # High-performance server subclass
-# Fixes two issues that degrade performance under concurrent load:
 #
-#   1. BrokenPipe / ConnectionReset stack traces flood the log file via
-#      sys.stderr, causing heavy I/O lock contention across all handler
-#      threads. The traceback comes from BaseServer.handle_error(), not
-#      from the handler's log_error() — so overriding log_error() alone
-#      does NOT fix this. We must override handle_error() on the server.
-#      → Silences these harmless client-disconnect events.
+#   Problem 1 — BrokenPipe / ConnectionReset stack traces
+#     These flood the log file via sys.stderr, causing I/O lock contention
+#     across all handler threads. They come from BaseServer.handle_error(),
+#     not from the handler's log_error(), so overriding log_error() alone
+#     does not suppress them. handle_error() on the server is overridden.
 #
-#   2. ThreadingHTTPServer spawns an unbounded OS thread per connection.
-#      Under 200 concurrent VUs this creates 200 threads on a 2-core CPU,
-#      causing GIL + scheduler thrashing that starves real request work.
-#      → Gates new threads behind a BoundedSemaphore. At capacity the
-#        connection is cleanly dropped so the client retries immediately
-#        rather than hanging until a 60 s timeout fires.
+#   Problem 2 — Thread management strategy
+#     ThreadingHTTPServer spawns one OS thread per connection with no limit.
+#     A BoundedSemaphore that drops connections at capacity was tried first,
+#     but this causes EOF / TCP RST errors on the client: the server closes
+#     the socket before responding, which k6 (and real browsers) see as a
+#     failure rather than a "server busy, please retry" signal.
+#
+#     The correct approach for an I/O-bound file server is a thread POOL
+#     with a work QUEUE. Workers (threads) are bounded to keep CPU and memory
+#     sane. When all workers are busy, new connections wait in the queue
+#     instead of being rejected. Latency rises under heavy load, but the
+#     client never sees an error — which matches the original behaviour.
+#
+#     This server is I/O-bound (file reads + socket writes release the GIL),
+#     so threads can far outnumber CPU cores without GIL thrashing. 100
+#     workers is a safe ceiling for the i5-6006U (2C/4T) while still serving
+#     many more than 100 simultaneous connections (extras just queue briefly).
 # ---------------------------------------------------------------------------
-_MAX_CONCURRENT = 64  # ~2× CPU threads; safe ceiling for a 4-thread i5-6006U
+_MAX_WORKERS = 100  # active worker threads; tune up if you see high queue latency
 
-class _QuietBoundedHTTPServer(http.server.ThreadingHTTPServer):
-    _sem = threading.BoundedSemaphore(_MAX_CONCURRENT)
+class _QuietPooledHTTPServer(http.server.HTTPServer):
+    """HTTPServer backed by a fixed-size thread pool.
+    Connections are never dropped — they queue until a worker is free.
+    """
     _SILENT_ERRORS = (BrokenPipeError, ConnectionResetError)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pool = ThreadPoolExecutor(max_workers=_MAX_WORKERS)
 
     def handle_error(self, request, client_address):
         """Silence harmless disconnect errors; log everything else normally."""
@@ -534,30 +568,20 @@ class _QuietBoundedHTTPServer(http.server.ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
     def process_request(self, request, client_address):
-        """Spawn a handler thread only when a semaphore slot is free."""
-        if not self._sem.acquire(blocking=False):
-            # Server at capacity — close immediately so the client gets a
-            # fast TCP RST/FIN and can retry, rather than a silent 60 s hang.
-            try:
-                request.close()
-            except Exception:
-                pass
-            return
-        t = threading.Thread(
-            target=self._bounded_process,
-            args=(request, client_address),
-            daemon=True,
-        )
-        t.start()
+        """Hand the accepted socket to the thread pool (never drops it)."""
+        self._pool.submit(self._handle_in_pool, request, client_address)
 
-    def _bounded_process(self, request, client_address):
+    def _handle_in_pool(self, request, client_address):
         try:
             self.finish_request(request, client_address)
         except Exception:
             self.handle_error(request, client_address)
         finally:
             self.shutdown_request(request)
-            self._sem.release()
+
+    def server_close(self):
+        self._pool.shutdown(wait=False)
+        super().server_close()
 
 
 # --- Main Server Logic ---
@@ -578,7 +602,7 @@ if __name__ == "__main__":
     health_thread.daemon = True
     health_thread.start()
 
-    httpd = _QuietBoundedHTTPServer((SERVER_IP, HTTP_PORT), RequestHandler)
+    httpd = _QuietPooledHTTPServer((SERVER_IP, HTTP_PORT), RequestHandler)
 
     print(f"HTTP Server starting on http://{SERVER_IP}:{HTTP_PORT}/")
     print("CORS enabled for all origins")

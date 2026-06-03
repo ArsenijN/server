@@ -1,4 +1,4 @@
-# server `v0.18.0.9`
+# server `v0.18.0.10`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -23,7 +23,7 @@ release will be v0.19.0 since it's a big update with new localizations,
 features like dark theme, trash bin improvements, quota analysis and other 
 things being implemented***
 - ***Test with new static hosters and their optimization - should work but it 
-isn't***
+isn't -- another fix***
 
 ---
 

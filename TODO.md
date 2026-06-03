@@ -9,13 +9,32 @@ user feedback or ideas for future development.
 - [ ] Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
 main file manager UI)
-- [ ] Auto negotiation for upload type (folder or file)
+- [ ] Auto negotiation for upload type (folder or file) -- doesn't work properly
+- [ ] **Legacy usage without JS** — at minimum, users should be able to
+  download shared files without JavaScript enabled. -- works for files but not 
+  "Download folder as ZIP"
+
+- [ ] i18n support (languages for FluxDrop UI and other things)
+
+  - [ ] Add "view background connectivity debug console" in settings to see small 
+one-liner somewhere at the bottom of the UI that will say what site currently 
+try to fetch or do (at least via Internet)
+  - [ ] Add trash bin folder preview
+  - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
+will display what files takes the most, where and what)
+
+- [ ] Add dark theme switch, or at least make addons work properly and test 
+them
+- [ ] Add loading wheel/bar into stats window since bad internet causes high 
+wait times without knowing what it is doing
+- [ ] Fix 206 (Partial content) not working in trash bin preview
+
+
 
 
 ### Important without category (critical before release)
 
 ### UI
-- [ ] i18n support (languages for FluxDrop UI and other things)
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
@@ -23,16 +42,10 @@ JPG as fallback)
 - [ ] Custom right-click menu for folders and files (reduce amount of options 
 with files)
   - [ ] Add "..." (vertical) as "fallback"
-- [ ] Add "view background connectivity debug console" in settings to see small 
-one-liner somewhere at the bottom of the UI that will say what site currently 
-try to fetch or do (at least via Internet)
 - [ ] Make proper header and footer for the main FluxDrop UI
-- [ ] Trash bin folder preview
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
 - [ ] Footer versioning: make versioning system the same as the current with 
 server (like v0.17.2.4)
-- [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
-will display what files takes the most, where and what)
 - [ ] Add file picker to file browser (checkbox-styled or as "click on the 
 `border-t` to select one)
   - [ ] Add ability to use regular keyboard shortcuts (shift for multiple file 
@@ -49,12 +62,14 @@ ratios
       - [ ] Add parchives to avoid file damages
       - [ ] Add some kind of messages if files got corrupted on server side and 
       was unrecoverable 
-- [ ] Redesign the move/rename/copy modals; delete modal
+- [ ] Redesign the move/rename/copy/delete modals
 
 ### UX
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
- or at least the N times (reliable way to resume whatever operation is going)
+ or at least the N times (reliable way to resume whatever operation is going) 
+ -- should be already fixed by resumable file downloads, but not after when 
+ internet is resolved
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items -- made for status page, later for 
 FluxDrop file manager
@@ -62,27 +77,23 @@ FluxDrop file manager
 via Chrome or as "native" Android Material Design one
 - [ ] Add multiple files streaming (archive and stream to the server; one 
 stream - a lot of files) feature to site UI from `batch_tar_upload.py`
+- [ ] Make file upload multithreaded (2+ files processing simultaneously on 
+upload)
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
 content)
 - [ ] Add ability to preload the JPEG/any current format for previews like AVIF 
 and for other files (contribute to the background media scan via FFmpeg)
 - [ ] Check why HEIF files are slow to decode (on client, it takes ~5 seconds 
 on i5 8350U)
-- [ ] Add dark theme switch, or at least make addons work properly and test 
-them
-- [ ] Add loading wheel/bar into stats window since bad internet causes high 
-wait times without knowing what it is doing
-- [ ] Add `.7z` and `.rar` for file table previews (and other ones)
-- [ ] Add .docx, .pptx, .odt, .odf, .ods, and so on documents
+- [ ] Add `.7z`, `.rar` and other archive types for file table previews
+- [ ] Add `.docx`, `.pptx`, `.odt`, `.odf`, `.ods`, and other for previews
+- [ ] Add `.dng` and other raw image formats support for previews
 
 - [ ] **Family/Group accounts**
   - [ ] Let two or more usernames share a common root directory with mutual
     read/write privileges.
   - [ ] Add settings to control whether group members may add/remove other
     users, set quotas, etc.
-
-- [ ] **Legacy usage without JS** — at minimum, users should be able to
-  download shared files without JavaScript enabled.
 
 - [ ] **Misc future ideas**
   - [ ] Server-side filename sanitisation for illegal characters.
@@ -102,7 +113,6 @@ that happens and after what
 
 
 #### Low:
-- [ ] Fully fix the logs duplication issue
 - [ ] Reduce amount of re-imports inside the code
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching; like folder structures, quota, file properties, download 
@@ -111,7 +121,6 @@ issues (aka preview tokens), or resolve the issues that FluxDrop is very
 unstable in bad internet areas) or something else) -- merged into the rela... 
 No it's not since that entry issues the JSON multi-answer instead on only 
 related to fetch/question
-- [ ] Fix 206 not working in trash bin preview
 - [ ] Add checkers for external HTTP and HTTPS hosters
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
 any type of file that's supported, thumbs can be included into the quota, or 
@@ -149,7 +158,7 @@ changes (v0.17.2.11)
 
 ---
 
-## Done items that are pending for removal:
+## Done items that are pending for removal as finished:
 - [x] Add Welcome screen for new users that will explain (almost) everything 
 about FluxDrop
 - [x] Add image placeholders between image fetch and display
@@ -164,6 +173,7 @@ where it's failed instead of pushing only the unloaded/wrong part of the file
 the page reload to bring that
 - [x] Upload can fail on slow internet, causing unability to upload the files 
 to server
+- [x] Fully fix the logs duplication issue
 
 
 ## Additional notes
@@ -197,7 +207,7 @@ Is that the "config" 404s caused on client that was mentioned in the TODO?
 Maybe it's when it drops the internet?
 
 
-At some point CDN starts to dup the output:
+At some point CDN starts to dup the output: -- fixed
 ```
 [2026-05-27 19:33:56] 2026-05-27 19:33:56,889 [INFO] (Thread-205 (process_request_thread)) 127.0.0.1 - "POST /api/v1/upload_session/LOxWqcPBBEDfPEfEYxf
 [REDACTED]/chunk/0 HTTP/1.1" 200 -
@@ -242,4 +252,4 @@ e='Hacksaw Ridge (2016) BDRip 1080p H.265 [2xUKR_ENG] [Hurtom]_1.mkv' size=68345
 ```
 Also CDN should lock the files so it will never re-read the same folder if worker (for ZIP creation/generation) is started, and the main thing - do not spawn new worker on the same job
 Also, need to implement so if ping isn't coming for more than 3 seconds, or otherwise - client cancels the download of ZIP - stop the worker or do something so it will add the files to pending list, and the computed hashes will be saved anyway
-Also I think the server just can't get the hashes from the DB at some point and just do that fail silently
+Also I think the server just can't get the hashes from the DB at some point and just do that fail silently -- fixed

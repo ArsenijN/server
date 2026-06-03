@@ -1,4 +1,4 @@
-# server `v0.18.0.8`
+# server `v0.18.0.9`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -9,20 +9,21 @@ Just backend code of my server, nothing else, anyone can use it
 
 - ***text***
 
-***Regressions: pause button may not work rn***
-
-*Patch notes: **Changelog:***
+***Regressions: pause button may not work rn -- it's not but UI may bug so it 
+can display "Missing chunks" but actually it then ends successfully***
 - ***Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
 main file manager UI)*** -- untested
 - ***Auto negotiation for upload type (folder or file)*** -- didn't catch the 
 folder auto-negotiation
-- ***Test Archive builder behaves wrong, it forgots the cached hashes and 
-says "Downloading via browser", maybe because I'm home and my ping is so low?
--- fixed?***
 
-- ***Fix download speeds from server being low because of the double TLS and no 
-hardware AES-NI support on current server -- imp #2, works***
+*Patch notes: **Changelog:***
+- ***A lot of new features from TODO are pending, the push version to the 
+release will be v0.19.0 since it's a big update with new localizations, 
+features like dark theme, trash bin improvements, quota analysis and other 
+things being implemented***
+- ***Test with new static hosters and their optimization - should work but it 
+isn't***
 
 ---
 

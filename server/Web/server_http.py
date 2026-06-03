@@ -502,6 +502,64 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def log_error(self, format, *args):
         logging.warning('HTTP %s - %s', self.address_string(), format % args)
 
+
+# ---------------------------------------------------------------------------
+# High-performance server subclass
+# Fixes two issues that degrade performance under concurrent load:
+#
+#   1. BrokenPipe / ConnectionReset stack traces flood the log file via
+#      sys.stderr, causing heavy I/O lock contention across all handler
+#      threads. The traceback comes from BaseServer.handle_error(), not
+#      from the handler's log_error() — so overriding log_error() alone
+#      does NOT fix this. We must override handle_error() on the server.
+#      → Silences these harmless client-disconnect events.
+#
+#   2. ThreadingHTTPServer spawns an unbounded OS thread per connection.
+#      Under 200 concurrent VUs this creates 200 threads on a 2-core CPU,
+#      causing GIL + scheduler thrashing that starves real request work.
+#      → Gates new threads behind a BoundedSemaphore. At capacity the
+#        connection is cleanly dropped so the client retries immediately
+#        rather than hanging until a 60 s timeout fires.
+# ---------------------------------------------------------------------------
+_MAX_CONCURRENT = 64  # ~2× CPU threads; safe ceiling for a 4-thread i5-6006U
+
+class _QuietBoundedHTTPServer(http.server.ThreadingHTTPServer):
+    _sem = threading.BoundedSemaphore(_MAX_CONCURRENT)
+    _SILENT_ERRORS = (BrokenPipeError, ConnectionResetError)
+
+    def handle_error(self, request, client_address):
+        """Silence harmless disconnect errors; log everything else normally."""
+        if sys.exc_info()[0] in self._SILENT_ERRORS:
+            return
+        super().handle_error(request, client_address)
+
+    def process_request(self, request, client_address):
+        """Spawn a handler thread only when a semaphore slot is free."""
+        if not self._sem.acquire(blocking=False):
+            # Server at capacity — close immediately so the client gets a
+            # fast TCP RST/FIN and can retry, rather than a silent 60 s hang.
+            try:
+                request.close()
+            except Exception:
+                pass
+            return
+        t = threading.Thread(
+            target=self._bounded_process,
+            args=(request, client_address),
+            daemon=True,
+        )
+        t.start()
+
+    def _bounded_process(self, request, client_address):
+        try:
+            self.finish_request(request, client_address)
+        except Exception:
+            self.handle_error(request, client_address)
+        finally:
+            self.shutdown_request(request)
+            self._sem.release()
+
+
 # --- Main Server Logic ---
 if __name__ == "__main__":
     sys.stdout = CustomLogger(LOG_FILE_HTTP)
@@ -520,7 +578,7 @@ if __name__ == "__main__":
     health_thread.daemon = True
     health_thread.start()
 
-    httpd = http.server.ThreadingHTTPServer((SERVER_IP, HTTP_PORT), RequestHandler)
+    httpd = _QuietBoundedHTTPServer((SERVER_IP, HTTP_PORT), RequestHandler)
 
     print(f"HTTP Server starting on http://{SERVER_IP}:{HTTP_PORT}/")
     print("CORS enabled for all origins")

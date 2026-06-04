@@ -35,3 +35,7 @@ deploy.env
 # both of the files is used for applying patches and can be safely ignored
 temp.py
 temp.md
+
+# Blacklist may be also disclosed and become public
+# !server/Web/secrets/blklst.txt
+# No, that's a bad idea

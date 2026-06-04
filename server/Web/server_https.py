@@ -653,7 +653,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 #     workers is a safe ceiling for the i5-6006U (2C/4T) while still serving
 #     many more than 100 simultaneous connections (extras just queue briefly).
 # ---------------------------------------------------------------------------
-_MAX_WORKERS = 100  # active worker threads; tune up if you see high queue latency
+_MAX_WORKERS = 1000  # active worker threads; tune up if you see high queue latency
 
 class _QuietPooledHTTPServer(http.server.HTTPServer):
     """HTTPServer backed by a fixed-size thread pool.

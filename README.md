@@ -23,7 +23,9 @@ release will be v0.19.0 since it's a big update with new localizations,
 features like dark theme, trash bin improvements, quota analysis and other 
 things being implemented***
 - ***Test with new static hosters and their optimization - should work but it 
-isn't -- another fix***
+isn't -- another fix -- seems to be working? I increased the limit for HTTPS 
+and HTTP by no reason and maybe will change back if I will get the answer of 
+neccessity on that movement)) -- found another bug, fixing...***
 
 ---
 

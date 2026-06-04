@@ -1,4 +1,4 @@
-# server `v0.18.0.10`
+# server `v0.18.0.12`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -25,7 +25,7 @@ things being implemented***
 - ***Test with new static hosters and their optimization - should work but it 
 isn't -- another fix -- seems to be working? I increased the limit for HTTPS 
 and HTTP by no reason and maybe will change back if I will get the answer of 
-neccessity on that movement)) -- found another bug, fixing...***
+neccessity on that movement)) -- found another bug, fixing... -- fix applied***
 
 ---
 

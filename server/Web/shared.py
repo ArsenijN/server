@@ -5,6 +5,7 @@ import threading
 import time
 import logging
 import socket
+import resource
 
 # Shared event used by the HTTP server health-check to wait until server is ready
 server_ready = threading.Event()
@@ -13,6 +14,37 @@ server_ready = threading.Event()
 current_blacklist = set()
 blacklist_lock = threading.Lock()
 stop_update_event = threading.Event()
+
+# --- File descriptor limit ---
+
+def raise_fd_limit(target: int = 65536) -> None:
+    """Raise the process open-file-descriptor limit as high as the OS allows.
+
+    Why this matters:
+      Each concurrent connection consumes one socket FD.  With 2000 VUs all
+      queued in the ThreadPoolExecutor work queue, the OS has already accepted
+      2000 sockets — all 2000 FDs are open even if only 100 workers are
+      actively serving them.  Add file FDs for active transfers, log handles,
+      SSL state, and Python internals and you easily exceed the default 1024
+      soft limit, causing [Errno 24] Too many open files.
+
+    This call is a safety-net inside the process.  You should also set the
+    system limit permanently:
+      • /etc/security/limits.conf:  add  "* soft nofile 65536"
+                                         "* hard nofile 65536"
+      • systemd service unit:       add  "LimitNOFILE=65536"  under [Service]
+    """
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        new_soft = min(target, hard)
+        if new_soft > soft:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+            print(f"File descriptor limit raised: {soft} → {new_soft} "
+                  f"(hard cap: {hard})")
+        else:
+            print(f"File descriptor limit already at {soft} (hard cap: {hard})")
+    except Exception as e:
+        print(f"Warning: could not raise file descriptor limit: {e}")
 
 # --- Custom Logger ---
 class CustomLogger:
@@ -95,13 +127,10 @@ def _health_check_socket(host, port, label, initial_delay=10, interval=30, max_f
         the 5 s timeout fires, and the server restarts itself — even though it
         is serving requests perfectly.  A raw socket connect never touches the
         pool and cannot be starved.
-      • For HTTPS, the previous implementation also did a full TLS handshake
-        and started the check immediately (no server_ready gate, no initial
-        delay), which risked false restarts at startup.
-
-    Both HTTP and HTTPS health checks call this helper.
+      • The previous HTTPS implementation started immediately with no
+        server_ready gate and restarted on the very first timeout, which
+        caused false restarts at startup and under any burst of load.
     """
-    # If the server binds on 0.0.0.0, probe the loopback address instead.
     host = '127.0.0.1' if host in ('0.0.0.0', '', '::') else host
 
     print(f"Health check ({label}) waiting for server to be ready...")

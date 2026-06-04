@@ -7,7 +7,7 @@ import os
 import sys
 from config import SERVE_DIRECTORY, LOG_FILE_HTTP, BLACKLIST_FILE
 from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
-from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, \
+from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 import datetime
 import logging # Using standard logging module for better control
@@ -549,7 +549,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 #     workers is a safe ceiling for the i5-6006U (2C/4T) while still serving
 #     many more than 100 simultaneous connections (extras just queue briefly).
 # ---------------------------------------------------------------------------
-_MAX_WORKERS = 1000  # active worker threads; tune up if you see high queue latency
+_MAX_WORKERS = 100  # active worker threads; tune up if you see high queue latency
 
 class _QuietPooledHTTPServer(http.server.HTTPServer):
     """HTTPServer backed by a fixed-size thread pool.
@@ -588,6 +588,8 @@ class _QuietPooledHTTPServer(http.server.HTTPServer):
 if __name__ == "__main__":
     sys.stdout = CustomLogger(LOG_FILE_HTTP)
     sys.stderr = sys.stdout  # share the same instance — two separate instances = double writes
+
+    raise_fd_limit()  # must be called before accepting connections
 
     print(f"Serving files from: {os.getcwd()}")
 

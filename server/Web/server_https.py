@@ -13,7 +13,7 @@ from werkzeug.formparser import parse_form_data # For parsing multipart/form-dat
 from urllib.parse import quote_plus
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
-from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, \
+from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event
 from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
     KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN
@@ -653,7 +653,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 #     workers is a safe ceiling for the i5-6006U (2C/4T) while still serving
 #     many more than 100 simultaneous connections (extras just queue briefly).
 # ---------------------------------------------------------------------------
-_MAX_WORKERS = 1000  # active worker threads; tune up if you see high queue latency
+_MAX_WORKERS = 100  # active worker threads; tune up if you see high queue latency
 
 class _QuietPooledHTTPServer(http.server.HTTPServer):
     """HTTPServer backed by a fixed-size thread pool.
@@ -694,6 +694,8 @@ if __name__ == "__main__":
     sys.stderr = sys.stdout
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s [%(levelname)s] (%(threadName)s) %(message)s')
+
+    raise_fd_limit()  # must be called before accepting connections
 
     print(f"Serving files from: {os.getcwd()}")
     print(f"Files can be uploaded to: {UPLOAD_DIRECTORY}")

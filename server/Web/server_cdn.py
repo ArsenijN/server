@@ -2282,6 +2282,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if trash_item_pattern_preview:
             return self._handle_trash_file_stream(int(trash_item_pattern_preview.group(1)))
 
+        # GET /api/v1/trash/<id>/list  — list contents of a trashed folder
+        trash_folder_list_m = re.match(r'^/api/v\d/trash/(\d+)/list$', parsed_url.path)
+        if trash_folder_list_m:
+            return self._handle_trash_folder_list(int(trash_folder_list_m.group(1)))
+
+        # GET /api/v1/space_analyze  — top files/folders by size for the space analyzer UI
+        if parsed_url.path in ('/api/v1/space_analyze', '/api/v2/space_analyze'):
+            return self._handle_space_analyze(parsed_url)
+
         # FluxDrop API calls
         flux_match = self.fluxdrop_api_pattern.match(parsed_url.path)
         if flux_match:
@@ -3662,6 +3671,237 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         self.wfile.write(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+
+    def _handle_trash_folder_list(self, item_id: int):
+        """GET /api/v1/trash/<id>/list — return the file tree of a trashed folder.
+
+        Response JSON:
+          {
+            "items": [
+              {"name": "file.txt", "path": "sub/file.txt",
+               "is_dir": false, "size_bytes": 1234, "depth": 1},
+              ...
+            ],
+            "total_bytes": 56789,
+            "count": 12
+          }
+
+        Only the owning user can list their own trash items.
+        MAX_WALK_ITEMS cap prevents runaway scans on huge directories.
+        """
+        MAX_WALK_ITEMS = 2000
+
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+
+        try:
+            with _db_connect() as conn:
+                row = conn.execute(
+                    'SELECT trash_path, is_dir FROM trash_items WHERE id = ? AND user_id = ?',
+                    (item_id, user_id)
+                ).fetchone()
+        except Exception as exc:
+            return self._send_response(500, json.dumps({'error': str(exc)}))
+
+        if not row:
+            return self._send_response(404, json.dumps({'error': 'Trash item not found'}))
+        trash_path, is_dir = row
+        if not is_dir:
+            return self._send_response(400, json.dumps({'error': 'Item is a file, not a folder'}))
+        if not os.path.isdir(trash_path):
+            return self._send_response(404, json.dumps({'error': 'Trashed folder missing from disk'}))
+
+        items       = []
+        total_bytes = 0
+        root        = trash_path
+
+        try:
+            for dirpath, dirnames, filenames in os.walk(root):
+                # Compute depth relative to root
+                rel_dir = os.path.relpath(dirpath, root)
+                depth   = 0 if rel_dir == '.' else rel_dir.count(os.sep) + 1
+
+                # Yield sub-directories first (they sit above their children)
+                for dname in sorted(dirnames):
+                    sub_rel = os.path.join(rel_dir, dname).replace(os.sep, '/') \
+                              if rel_dir != '.' else dname
+                    items.append({
+                        'name':       dname,
+                        'path':       sub_rel,
+                        'is_dir':     True,
+                        'size_bytes': 0,
+                        'depth':      depth + 1,
+                    })
+                    if len(items) >= MAX_WALK_ITEMS:
+                        break
+
+                for fname in sorted(filenames):
+                    fpath = os.path.join(dirpath, fname)
+                    try:
+                        sz = os.path.getsize(fpath)
+                    except OSError:
+                        sz = 0
+                    total_bytes += sz
+                    rel_file = os.path.join(rel_dir, fname).replace(os.sep, '/') \
+                               if rel_dir != '.' else fname
+                    items.append({
+                        'name':       fname,
+                        'path':       rel_file,
+                        'is_dir':     False,
+                        'size_bytes': sz,
+                        'depth':      depth + 1,
+                    })
+                    if len(items) >= MAX_WALK_ITEMS:
+                        break
+
+                if len(items) >= MAX_WALK_ITEMS:
+                    break
+        except Exception as exc:
+            logging.exception('_handle_trash_folder_list walk failed')
+            return self._send_response(500, json.dumps({'error': str(exc)}))
+
+        payload = json.dumps({
+            'items':       items,
+            'total_bytes': total_bytes,
+            'count':       len(items),
+            'truncated':   len(items) >= MAX_WALK_ITEMS,
+        })
+        self._send_response(200, payload, 'application/json')
+
+    def _handle_space_analyze(self, parsed_url):
+        """GET /api/v1/space_analyze[?limit=N&min_bytes=B]
+
+        Walk the authenticated user's storage and return the top files and
+        folders sorted by size, for the Space Analyzer UI.
+
+        Query parameters:
+          limit      — max items to return (default 200, hard-cap 500)
+          min_bytes  — omit items smaller than this (default 0)
+
+        Response JSON:
+          {
+            "items": [
+              {"name": "...", "path": "...", "is_dir": false, "size_bytes": N},
+              ...
+            ],
+            "total_bytes": N,
+            "scanned": N,
+            "truncated": false
+          }
+        """
+        MAX_HARD = 500
+
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+
+        qs = parse_qs(parsed_url.query)
+        try:
+            limit     = min(int(qs.get('limit',     ['200'])[0]), MAX_HARD)
+            min_bytes = int(qs.get('min_bytes', ['0'])[0])
+        except (ValueError, TypeError):
+            limit, min_bytes = 200, 0
+
+        user_root = os.path.normpath(
+            os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+        )
+        if not os.path.isdir(user_root):
+            return self._send_response(200, json.dumps({
+                'items': [], 'total_bytes': 0, 'scanned': 0, 'truncated': False
+            }))
+
+        # Collect (size, path, is_dir) tuples.
+        # For directories we store their total sub-tree size but DO NOT
+        # descend into .trash to keep the view clean.
+        all_items   = []
+        total_bytes = 0
+        scanned     = 0
+        TRASH_SUBDIR = os.path.join(user_root, '.trash')
+
+        def _dir_size(dpath):
+            s = 0
+            try:
+                for dp, _, fns in os.walk(dpath):
+                    for fn in fns:
+                        try:
+                            s += os.path.getsize(os.path.join(dp, fn))
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+            return s
+
+        try:
+            # Top-level entries: include both files and dirs at depth-1
+            for entry_name in os.listdir(user_root):
+                if entry_name == '.trash':
+                    continue          # exclude trash from analysis
+                entry_path = os.path.join(user_root, entry_name)
+                if os.path.isdir(entry_path):
+                    sz = _dir_size(entry_path)
+                    scanned += 1
+                else:
+                    try:
+                        sz = os.path.getsize(entry_path)
+                    except OSError:
+                        sz = 0
+                    scanned += 1
+                total_bytes += sz
+                if sz >= min_bytes:
+                    rel = '/' + entry_name
+                    all_items.append({
+                        'name':       entry_name,
+                        'path':       rel,
+                        'is_dir':     os.path.isdir(entry_path),
+                        'size_bytes': sz,
+                    })
+
+            # Also walk one more level into subdirectories
+            for entry_name in os.listdir(user_root):
+                if entry_name == '.trash':
+                    continue
+                entry_path = os.path.join(user_root, entry_name)
+                if not os.path.isdir(entry_path):
+                    continue
+                try:
+                    for sub_name in os.listdir(entry_path):
+                        sub_path = os.path.join(entry_path, sub_name)
+                        if os.path.isdir(sub_path):
+                            sz = _dir_size(sub_path)
+                        else:
+                            try:
+                                sz = os.path.getsize(sub_path)
+                            except OSError:
+                                sz = 0
+                        scanned += 1
+                        if sz >= min_bytes:
+                            rel = '/' + entry_name + '/' + sub_name
+                            all_items.append({
+                                'name':       sub_name,
+                                'path':       rel,
+                                'is_dir':     os.path.isdir(sub_path),
+                                'size_bytes': sz,
+                            })
+                except OSError:
+                    pass
+
+        except Exception as exc:
+            logging.exception('_handle_space_analyze walk failed')
+            return self._send_response(500, json.dumps({'error': str(exc)}))
+
+        # Sort largest-first, then slice to limit
+        all_items.sort(key=lambda x: x['size_bytes'], reverse=True)
+        truncated  = len(all_items) > limit
+        top_items  = all_items[:limit]
+
+        payload = json.dumps({
+            'items':       top_items,
+            'total_bytes': total_bytes,
+            'scanned':     scanned,
+            'truncated':   truncated,
+        })
+        self._send_response(200, payload, 'application/json')
 
     def _handle_trash_move(self):
         """POST /api/v1/trash  {path}  — soft-delete a file/folder into the trash."""

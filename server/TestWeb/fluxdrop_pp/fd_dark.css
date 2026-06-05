@@ -1,0 +1,271 @@
+/*
+ * fd_dark.css — Dark theme overrides for FluxDrop
+ * Include in index.html AFTER tailwindcss.css
+ * Applied via [data-theme="dark"] on <html> element.
+ *
+ * Strategy:
+ *   1. CSS variable definitions at :root / [data-theme="dark"]
+ *   2. Class-level overrides (.card, .btn, inputs, etc.)
+ *   3. fd_addons.js MutationObserver patches the remaining
+ *      inline-style elements at runtime.
+ */
+
+/* ── CSS variables ─────────────────────────────────────────────────────────── */
+:root {
+  --fd-bg:          #f0f9ff;
+  --fd-surface:     #ffffff;
+  --fd-surface2:    #f8fafc;
+  --fd-surface3:    #f1f5f9;
+  --fd-border:      #e2e8f0;
+  --fd-text:        #1e293b;
+  --fd-text2:       #374151;
+  --fd-muted:       #64748b;
+  --fd-muted2:      #94a3b8;
+  --fd-accent:      #3b82f6;
+  --fd-accent-dark: #2563eb;
+  --fd-accent-bg:   #eff6ff;
+  --fd-accent-border:#bfdbfe;
+  --fd-danger:      #dc2626;
+  --fd-input-bg:    #ffffff;
+}
+
+[data-theme="dark"] {
+  --fd-bg:          #0d1520;
+  --fd-surface:     #1a2535;
+  --fd-surface2:    #131f2e;
+  --fd-surface3:    #1e2d3d;
+  --fd-border:      #2d3f52;
+  --fd-text:        #e2e8f0;
+  --fd-text2:       #cbd5e1;
+  --fd-muted:       #94a3b8;
+  --fd-muted2:      #64748b;
+  --fd-accent:      #60a5fa;
+  --fd-accent-dark: #3b82f6;
+  --fd-accent-bg:   #1e3a5f;
+  --fd-accent-border:#2563eb;
+  --fd-danger:      #ef4444;
+  --fd-input-bg:    #0d1520;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] body {
+  background-color: var(--fd-bg) !important;
+  color: var(--fd-text);
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] .card {
+  background-color: var(--fd-surface) !important;
+  color: var(--fd-text) !important;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.4) !important;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+[data-theme="dark"] .btn {
+  background-color: var(--fd-accent) !important;
+}
+[data-theme="dark"] .btn:hover {
+  background-color: var(--fd-accent-dark) !important;
+}
+
+/* ── Modals ─────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] .modal-content {
+  background-color: var(--fd-surface) !important;
+  color: var(--fd-text) !important;
+}
+[data-theme="dark"] .modal-overlay {
+  background-color: rgba(0,0,0,0.7) !important;
+}
+
+/* ── Inputs & Selects ───────────────────────────────────────────────────────── */
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background-color: var(--fd-input-bg) !important;
+  color: var(--fd-text) !important;
+  border-color: var(--fd-border) !important;
+}
+[data-theme="dark"] input::placeholder {
+  color: var(--fd-muted) !important;
+}
+
+/* ── Tailwind utility overrides for dark mode ──────────────────────────────── */
+[data-theme="dark"] .text-blue-800  { color: #93c5fd !important; }
+[data-theme="dark"] .text-gray-600  { color: var(--fd-muted) !important; }
+[data-theme="dark"] .text-black     { color: var(--fd-text) !important; }
+[data-theme="dark"] .bg-gray-200,
+[data-theme="dark"] .bg-gray-300    { background-color: var(--fd-surface3) !important; color: var(--fd-text) !important; }
+[data-theme="dark"] .bg-yellow-300  { background-color: #713f12 !important; color: #fef08a !important; }
+[data-theme="dark"] .border         { border-color: var(--fd-border) !important; }
+[data-theme="dark"] .border-rounded { border-color: var(--fd-border) !important; }
+
+/* ── File browser breadcrumb / path bar ────────────────────────────────────── */
+[data-theme="dark"] #path-breadcrumb {
+  color: var(--fd-muted) !important;
+}
+
+/* ── Preview modal (already dark-ish but needs fixes) ──────────────────────── */
+[data-theme="dark"] #preview-modal .preview-modal-content {
+  background: #0a1628 !important;
+}
+
+/* ── Profile menu item ──────────────────────────────────────────────────────── */
+[data-theme="dark"] .profile-menu-item {
+  color: var(--fd-text) !important;
+}
+[data-theme="dark"] .profile-menu-item:hover {
+  background-color: var(--fd-surface3) !important;
+}
+
+/* ── Tooltip ─────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] .fd-tooltip-icon {
+  background-color: var(--fd-surface3) !important;
+  color: var(--fd-accent) !important;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] #fluxdrop-footer {
+  color: var(--fd-muted2) !important;
+}
+[data-theme="dark"] #fluxdrop-footer a {
+  color: var(--fd-muted2) !important;
+}
+
+/* ── Style-fallback banner ──────────────────────────────────────────────────── */
+[data-theme="dark"] #fd-style-fallback {
+  display: none !important;
+}
+
+/* ── Noscript banner: no change needed (always shown) ──────────────────────── */
+
+/* ── Scrollbar (Webkit/Blink) ────────────────────────────────────────────────── */
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--fd-surface2);
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--fd-border);
+  border-radius: 4px;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--fd-muted2);
+}
+
+/* ── fd_addons.js dark overlay helper class ─────────────────────────────────── */
+/* Applied by MutationObserver to inline-styled elements */
+[data-theme="dark"] [data-fd-dark="surface"]  { background: var(--fd-surface)  !important; color: var(--fd-text) !important; }
+[data-theme="dark"] [data-fd-dark="surface2"] { background: var(--fd-surface2) !important; color: var(--fd-text) !important; }
+[data-theme="dark"] [data-fd-dark="surface3"] { background: var(--fd-surface3) !important; }
+[data-theme="dark"] [data-fd-dark="accent"]   { background: var(--fd-accent-bg) !important; color: var(--fd-text) !important; border-color: var(--fd-accent-border) !important; }
+[data-theme="dark"] [data-fd-dark="input"]    { background: var(--fd-input-bg) !important; color: var(--fd-text) !important; border-color: var(--fd-border) !important; }
+[data-theme="dark"] [data-fd-dark="hr"]       { border-color: var(--fd-border) !important; }
+[data-theme="dark"] [data-fd-dark="text"]     { color: var(--fd-text) !important; }
+[data-theme="dark"] [data-fd-dark="muted"]    { color: var(--fd-muted) !important; }
+[data-theme="dark"] [data-fd-dark="header"]   { background: linear-gradient(135deg,#1e3a5f,#2d4a7a) !important; }
+
+/* ── Dark mode theme toggle button (added by fd_addons.js) ─────────────────── */
+#fd-theme-toggle {
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  border: 1px solid var(--fd-border);
+  background: var(--fd-surface2);
+  color: var(--fd-text);
+  transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+#fd-theme-toggle:hover { background: var(--fd-surface3); }
+
+/* ── Debug bar ──────────────────────────────────────────────────────────────── */
+#fd-debug-bar {
+  position: fixed;
+  bottom: 30px;
+  left: 0;
+  right: 0;
+  height: 22px;
+  line-height: 22px;
+  background: rgba(15,23,42,0.92);
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  padding: 0 10px;
+  z-index: 8999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-top: 1px solid #1e293b;
+  pointer-events: none;
+}
+#fd-debug-bar .fd-db-label { color: #475569; flex-shrink: 0; pointer-events: none; }
+#fd-debug-bar .fd-db-text  { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+#fd-debug-bar .fd-db-clear {
+  pointer-events: auto;
+  cursor: pointer;
+  color: #475569;
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+#fd-debug-bar .fd-db-clear:hover { color: #94a3b8; }
+#fd-debug-bar .fd-db-ok    { color: #22c55e; }
+#fd-debug-bar .fd-db-err   { color: #ef4444; }
+#fd-debug-bar .fd-db-warn  { color: #f59e0b; }
+#fd-debug-bar .fd-db-in    { color: #60a5fa; }
+
+/* ── Space analyzer modal ────────────────────────────────────────────────────── */
+.fd-sa-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--fd-border);
+  font-size: 12px;
+}
+.fd-sa-bar-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--fd-surface3);
+  overflow: hidden;
+  min-width: 60px;
+}
+.fd-sa-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--fd-accent);
+  transition: width 0.35s ease;
+}
+.fd-sa-name {
+  flex: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fd-text);
+  font-size: 12px;
+  cursor: default;
+}
+.fd-sa-size {
+  width: 68px;
+  text-align: right;
+  color: var(--fd-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.fd-sa-type {
+  width: 42px;
+  font-size: 10px;
+  color: var(--fd-muted2);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ── Spinner keyframe (used by fd_addons.js loading spinner injection) ──────── */
+@keyframes fd-spin {
+  to { transform: rotate(360deg); }
+}

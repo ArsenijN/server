@@ -14,27 +14,14 @@ main file manager UI)
   download shared files without JavaScript enabled. -- works for files but not 
   "Download folder as ZIP"
 
-- [ ] i18n support (languages for FluxDrop UI and other things)
-
-  - [ ] Add "view background connectivity debug console" in settings to see small 
-one-liner somewhere at the bottom of the UI that will say what site currently 
-try to fetch or do (at least via Internet)
-  - [ ] Add trash bin folder preview
-  - [ ] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
-will display what files takes the most, where and what)
-
-- [ ] Add dark theme switch, or at least make addons work properly and test 
-them
-- [ ] Add loading wheel/bar into stats window since bad internet causes high 
-wait times without knowing what it is doing
-- [ ] Fix 206 (Partial content) not working in trash bin preview
-
-
 
 
 ### Important without category (critical before release)
 
 ### UI
+- [ ] Trash bin file preview inside folders
+- [ ] Fix text not being reverted back to the dark when changed from light to 
+dark to light mode
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
@@ -174,6 +161,21 @@ the page reload to bring that
 - [x] Upload can fail on slow internet, causing unability to upload the files 
 to server
 - [x] Fully fix the logs duplication issue
+
+- [x] i18n support (languages for FluxDrop UI and other things)
+
+- [x] Add "view background connectivity debug console" in settings to see small 
+one-liner somewhere at the bottom of the UI that will say what site currently 
+try to fetch or do (at least via Internet)
+- [x] Add trash bin folder preview
+- [x] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
+will display what files takes the most, where and what)
+
+- [x] Add dark theme switch, or at least make addons work properly and test 
+them
+- [x] Add loading wheel/bar into stats window since bad internet causes high 
+wait times without knowing what it is doing
+- [x] Fix 206 (Partial content) not working in trash bin preview
 
 
 ## Additional notes

@@ -1,4 +1,4 @@
-# server `v0.18.0.15`
+# server `v0.18.0.16`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -48,12 +48,8 @@ DevTools be available***
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
-- ***I18N not working perfectly everywhere***
-- ***...***
-- ***Test to fix the `Location` header problem, the next patches will 
-temporarely remove that fix, but it will re re-added with better 
-implementation -- it works but Firefox then complains about the missing CORS***
 - ***A lot of things are pending***
+- ***Locales update***
 
 ---
 

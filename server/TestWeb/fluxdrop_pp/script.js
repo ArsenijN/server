@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-c05df472
+// Current version of script.js is: fluxdrop-v-1102fa7d
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-c05df472'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-1102fa7d'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -6041,7 +6041,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-c05df472'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-1102fa7d'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

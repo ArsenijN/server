@@ -725,24 +725,24 @@ class AuthHandler(SimpleHTTPRequestHandler):
     trash_restore_pattern= re.compile(r'^/api/(v[1-3])/trash/(\d+)/restore$')
     batch_tar_pattern = re.compile(r'^/api/(v[1-3])/upload_session/batch_tar$')
     
-    # ── P2: Force HTTPS for sensitive paths ──────────────────────────────────
-    _HTTPS_ONLY_PREFIXES = ('/auth/', '/api/')
+    # # ── P2: Force HTTPS for sensitive paths ──────────────────────────────────
+    # _HTTPS_ONLY_PREFIXES = ('/auth/', '/api/')
 
-    def _redirect_to_https_if_needed(self) -> bool:
-        """If this socket is plain HTTP and the path is auth/API, 308-redirect to HTTPS.
-        Returns True when a redirect was sent — caller must return immediately."""
-        if isinstance(self.server.socket, ssl.SSLSocket):
-            return False  # already HTTPS
-        parsed = urlparse(self.path)
-        if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
-            host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
-            location = f"https://{host}:{HTTPS_PORT}{self.path}"
-            self.send_response(308)          # 308 preserves POST/PATCH/DELETE method
-            self.send_header('Location', location)
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            return True
-        return False
+    # def _redirect_to_https_if_needed(self) -> bool:
+    #     """If this socket is plain HTTP and the path is auth/API, 308-redirect to HTTPS.
+    #     Returns True when a redirect was sent — caller must return immediately."""
+    #     if isinstance(self.server.socket, ssl.SSLSocket):
+    #         return False  # already HTTPS
+    #     parsed = urlparse(self.path)
+    #     if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
+    #         host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
+    #         location = f"https://{host}:{HTTPS_PORT}{self.path}"
+    #         self.send_response(308)          # 308 preserves POST/PATCH/DELETE method
+    #         self.send_header('Location', location)
+    #         self.send_header('Content-Length', '0')
+    #         self.end_headers()
+    #         return True
+    #     return False
 
     def handle_batch_tar_upload(self):
         """POST /api/v1/upload_session/batch_tar
@@ -1108,7 +1108,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
             host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
-            location = f'https://{host}:{HTTPS_PORT}{self.path}'
+            # location = f'https://{host}:{HTTPS_PORT}{self.path}'
+            location = f'https://{PUBLIC_DOMAIN}{self.path}'
             self.send_response(308)
             self._send_cors_headers()
             self.send_header('Location', location)

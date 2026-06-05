@@ -1,4 +1,4 @@
-# server `v0.18.0.13`
+# server `v0.18.0.14`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -13,15 +13,21 @@ Just backend code of my server, nothing else, anyone can use it
 can display "Missing chunks" but actually it then ends successfully***
 - ***Show "Loading the acceptances..." for the acceptance modal if loading 
 times are long, with some placeholder (like the current gradient-like for the 
-main file manager UI)*** -- untested
-- ***Auto negotiation for upload type (folder or file)*** -- didn't catch the 
-folder auto-negotiation
+main file manager UI)*** -- untested -- should work, will be moved as pending 
+to test on terms changes
 
 *Patch notes: **Changelog:***
 - ***A lot of new features from TODO, the push version to the release will be 
 v0.19.0 since it's a big update with new localizations, features like dark 
 theme, trash bin improvements, quota analysis and other things being 
 implemented***
+
+***Fixes:***
+- ***I18N not working perfectly everywhere***
+- ***...***
+
+Test to fix the `Location` header problem, the next patches will temporarely 
+remove that fix, but it will re re-added with better implementation
 
 ---
 

@@ -1,4 +1,4 @@
-# server `v0.18.0.16`
+# server `v0.18.0.18`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -49,7 +49,8 @@ DevTools be available***
 
 *Patch notes: **Changelog: fixes:***
 - ***A lot of things are pending***
-- ***Locales update #2***
+- ***Locales update #3***
+- ***Version sync... oops***
 
 ---
 

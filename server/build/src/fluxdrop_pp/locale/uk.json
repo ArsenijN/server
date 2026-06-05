@@ -1,5 +1,5 @@
 {
-  "_meta": { "lang": "uk", "label": "Українська", "version": "1.1.0" },
+  "_meta": { "lang": "uk", "label": "Українська", "version": "1.2.0" },
 
   "login":           "Увійти",
   "register":        "Реєстрація",
@@ -148,7 +148,7 @@
   "share_allow_preview_desc": "— відвідувачі зможуть переглядати файли без необхідності завантаження",
   "share_upload_label": "📤 Хто може завантажувати:",
   "share_label": "🔗 Поділитися \"{name}\"",
-  "share_track_stats_label": "Зберігати інформацію про доступ",
+  "share_track_stats_label": "Зберігати статистику",
   "share_track_stats_desc": "(хто/коли отримував доступ)",
   "share_fluxrop_account_requirement_label": "Вимагати наявність акаунту FluxDrop",
   "share_fluxrop_account_requirement_desc": "для доступу",
@@ -195,8 +195,11 @@
   "shares_info_uploads_auth_only": "Тільки авторизовані можуть вивантажувати",
   "shares_info_expiry": "⏰ Завершується:",
   
+  "footer_fluxdrop_pp": "Програма Передогляду FluxDrop",
   "footer_github_repo": "GitHub репозиторій",
   "footer_creator_note": "© 2025-2026 зроблено Arsenii Nochevnyi.",
+  "footer_pp": "Політика конфіденційності",
+  "footer_tos": "УП",
 
   "fluxdrop_file_manager_sort_name": "Ім'я",
   "fluxdrop_file_manager_sort_mod": "Модифіковано",
@@ -211,6 +214,20 @@
   "admin_panel_used": "Загально використано:",
   "admin_panel_dynamic_quota": "динамічно",
   "admin_panel_edit_button": "Редагувати",
-  "admin_panel_delete_button": "Видалити"  
+  "admin_panel_delete_button": "Видалити",
+
+  "trash_info": "Файли автоматично видаляються по завершенню їхнього періоду зберігання. Розмір кошика не враховується у Вашій квоті.",
+
+  "file_modal_info_no_preview_general1": "Передогляд недоступний. Відновіть файл аби завантажити його.",
+  "file_modal_info_no_preview_download1": "Браузерний передперегляд недоступний для цього формату.",
+  "file_modal_info_no_preview_download2": "Завантажте файл та розпакуйте його локально.",
+  "file_modal_info_no_preview_7zip": "7-Zip архів",
+  "file_modal_info_no_preview_general2": "Передогляд ще не доступний для цього формату файлів.",
+  "file_modal_info_picture_fetching": "Отримання зображення…",
+  "file_modal_info_rendering": "Рендеринг…",
+  "file_modal_info_reading_archive": "Читання архіву…",
+  "file_modal_info_heic_decode": "Декодування HEIC…",
+  "file_modal_info_archive_file_table": "перегляд у режимі лише для читання",
+  "file_modal_info_fetch_pdf": "Отримання PDF…"
   
 }

@@ -6125,7 +6125,8 @@ function initFooter() {
     // Helper to generate the HTML
     const renderContent = (swVer) => `
         <div>FluxDrop Preview Program | <a href="https://github.com/ArsenijN/server/" style="color: #a0a0a0; text-decoration: underline;">GitHub repo</a></div>
-        <div>&copy; 2025-2026 by Arsenii Nochevnyi. <button onclick="showPolicyModal('tos')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
+        <div>&copy; 2025-2026 by Arsenii Nochevnyi.</div>
+        <div><button onclick="showPolicyModal('tos')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
         <div>Script v.${SCRIPT_VERSION}, Service Worker v.${swVer}</div>
     `;
 

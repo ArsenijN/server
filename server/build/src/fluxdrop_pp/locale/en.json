@@ -1,5 +1,5 @@
 {
-  "_meta": { "lang": "en", "label": "English", "version": "1.0.1" },
+  "_meta": { "lang": "en", "label": "English", "version": "1.1.0" },
 
   "login":           "Login",
   "register":        "Register",
@@ -130,7 +130,7 @@
   "auto_mode_folder": "Auto-detected folder upload",
   "auto_mode_files":  "Auto-detected file upload",
 
-  "welcome_text":     "Welcome, {currentUsername}!",
+  "welcome_text":     "Welcome,",
   "move_and_rename_button": "Move/Rename",
   "move_rename_copy_text": "📁 Move / Rename / Copy",
   "create_a_folder": "+ Folder",
@@ -141,14 +141,18 @@
   "folder_button": "📁 Folder",
   "file_button": "📄 Files",
   "logout_button": "Logout",
+  "folder_sort_first": "📁 Folders first",
+  "folder_sort_mix": "🔀 Mixed",
+  "move_file_explanatory": "The file stays in its current folder. To also move it, use the Move tab.",
+  
 
-  "share_allow_preview_desc": " — visitors can preview files without downloading",
+  "share_allow_preview_desc": "— visitors can preview files without downloading",
   "share_upload_label": "📤 Who can upload:",
   "share_label": "🔗 Share \"{name}\"",
   "share_track_stats_label": "Track access stats",
-  "share_track_stats_desc": " (who/when accessed)",
+  "share_track_stats_desc": "(who/when accessed)",
   "share_fluxrop_account_requirement_label": "Require FluxDrop account",
-  "share_fluxrop_account_requirement_desc": " to access",
+  "share_fluxrop_account_requirement_desc": "to access",
   "share_expiry_label": "⏰ Expires:",
   "share_expiry_selector_values_1d": "1 day",
   "share_expiry_selector_values_7d": "7 days",
@@ -158,7 +162,7 @@
 
   "menu_account_info_fluxdrop": "FluxDrop account",
   "menu_account_info_storage_loading": "Storage — loading…",
-  "menu_account_info_storage": "Storage — ",
+  "menu_account_info_storage": "Storage —",
   "menu_account_info_profile": "👤 My Profile",
   "menu_account_info_links": "🔗 Shared Links",
   "menu_account_info_ip_beacon": "📡 IP Beacon",
@@ -166,7 +170,7 @@
   "menu_account_info_admin_panel": "⚙️ Admin Panel",
   "menu_account_info_logout": "🚪 Logout",
   
-  "profile_info_quota_space": "{pct.toFixed(1)}% used — {fmt(quota - used)} free{pinNote}",
+  "profile_info_quota_space": "${pct.toFixed(1)}% used — ${fmt(quota - used)} free${pinNote}",
   "profile_info_quota_space_warning": "⚠ Quota nearly full",
   "profile_info_profile_info": "Profile info",
   "profile_info_nickname": "Nickname (display name)",
@@ -175,27 +179,39 @@
   "profile_info_info_modal_message_autoclose_selector_5s": "5 seconds",
   "profile_info_info_modal_message_autoclose_selector_10s": "10 seconds",
   "profile_info_info_modal_message_autoclose_selector_30s": "30 seconds",
-  "profile_info_username": " · username: ",
-  "profile_info_join_time": " · joined ",
+  "profile_info_username": "· username:",
+  "profile_info_join_time": "· joined",
+  "profile_info_appearance": "Appearance & Extras",
+  "profile_info_admin_badge": "admin",
 
   "shares_stats_button": "Stats",
   "shares_copy_link_button": "Copy Link",
   "shares_revoke_button": "Revoke",
-  "shares_info_created": "                    Created ",
-  "shares_info_access_and_expiry": " access(es) · Expires: ",
-  "shares_info_account_requirement": "                Require account",
-  "shares_info_stats_tracking": "                Track stats",
-  "shares_info_preview": "                Allow preview",
-  "shares_info_uploads_anyone": "                Anyone can upload",
-  "shares_info_uploads_auth_only": "                Auth users can upload",
+  "shares_info_created": "Created",
+  "shares_info_access_and_expiry": "access(es) · Expires:",
+  "shares_info_account_requirement": "Require account",
+  "shares_info_stats_tracking": "Track stats",
+  "shares_info_preview": "Allow preview",
+  "shares_info_uploads_anyone": "Anyone can upload",
+  "shares_info_uploads_auth_only": "Auth users can upload",
   "shares_info_expiry": "⏰ Expiry:",
   
   "footer_github_repo": "GitHub repo",
-  "footer_creator_note": "© 2025-2026 by Arsenii Nochevnyi. ",
+  "footer_creator_note": "© 2025-2026 by Arsenii Nochevnyi.",
 
   "fluxdrop_file_manager_sort_name": "Name",
   "fluxdrop_file_manager_sort_mod": "Modified",
   "fluxdrop_file_manager_actions": "Actions",
-  "fluxdrop_file_manager_path_root": "🏠 root"
+  "fluxdrop_file_manager_path_root": "🏠 root",
+
+  "admin_panel_loading": "Loading users… (this may take a few minutes if server have a lot of files)",
+  "admin_panel_info": "FluxDrop user management",
+  "admin_panel_pinned_badge": "📌 pinned",
+  "admin_panel_admin_count": "admin(s)",
+  "admin_panel_user_count": "users",
+  "admin_panel_used": "Total used:",
+  "admin_panel_dynamic_quota": "dynamic",
+  "admin_panel_edit_button": "Edit",
+  "admin_panel_delete_button": "Del"
   
 }

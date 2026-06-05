@@ -49,7 +49,7 @@ DevTools be available***
 
 *Patch notes: **Changelog: fixes:***
 - ***A lot of things are pending***
-- ***Locales update***
+- ***Locales update #2***
 
 ---
 

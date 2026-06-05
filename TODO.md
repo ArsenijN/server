@@ -16,6 +16,12 @@ changes (v0.17.2.11) -- `Location` header have
 HSTS redirect, maybe caused because of the multiple 
 `_redirect_to_https_if_needed` definitions inside `server_cdn.py` or something 
 else
+- [ ] Pause button may not work rn -- it's not but UI may bug so it can display 
+"Missing chunks" but actually it then ends successfully
+- [ ] Encryption algorithm fallbacks (for faster downloads, use the 
+`TLS_CHACHA20_POLY1305_SHA256`, for regular or high important secure things use 
+the default options)
+- [ ] Check the captcha implementation
 
 ### UI
 - [ ] Markdown parser does not understand:
@@ -52,6 +58,7 @@ ratios
 - [ ] Redesign the move/rename/copy/delete modals
 
 ### UX
+- [ ] Click on the "quota usage" should open the quota space analyzer
 - [ ] Ability to download the shared folders without JS (fallback option)
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
@@ -146,6 +153,7 @@ made/applied
 - [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what
+- [ ] Dark mode auto switch
 
 ---
 
@@ -198,6 +206,8 @@ just do that fail silently -- fixed
   folder download ability without the JS being enabled or accessible (e.g. 2010 
   Samsung S5250 Wave 525 on bada OS inside the built-in browser (because it may 
   not support some JS) or K-Meleon with JS disabled?)
+
+(end of release note there)
 
 ---
 

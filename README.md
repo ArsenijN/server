@@ -1,33 +1,59 @@
-# server `v0.18.0.14`
+# server `v0.18.0.15`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
 *Release notes:*
 
-***Mainstream: text***
+***Mainstream: More user comfort with FluxDrop v.19!***
 
-- ***text***
+***We glad to release this update to the FluxDrop that fundamentally changes 
+the user expirience with FluxDrop! We worked for the past few weeks, and we 
+added a lot of features, such as:***
+- ***Welcome screen for newbies***
+- ***New loading bars and screens, skeleton pages and modals***
+- ***Uploads are no longer fails if any chunk is missing***
+- ***Slow internet is now not a problem for your file uploads!***
+- ***Now the FluxDrop support internationalization (i18n) and will be 
+translated to more languages, including yours!***
+- ***Trash bin contents are now possible to preview***
+- ***Manage your quota usage with the new visual space analyzer util! Access it 
+via clicking the quota usage or in the profile settings***
+- ***Automatic dark mode is new mainstream for those who uses FluxDrop at 
+night!***
+- ***You can upload the folder or file without need to specify the upload 
+entity type!***
+- ***Fixes also was made to the "ZIP Download" for folders to patch the 
+problems with speeds of the ZIP streaming downloads***
+- ***You can download shared files without JS required! Access the FluxDrop 
+from 2001 PC and download your work files anywhere, at any time, for 
+anything!***
 
-***Regressions: pause button may not work rn -- it's not but UI may bug so it 
-can display "Missing chunks" but actually it then ends successfully***
-- ***Show "Loading the acceptances..." for the acceptance modal if loading 
-times are long, with some placeholder (like the current gradient-like for the 
-main file manager UI)*** -- untested -- should work, will be moved as pending 
-to test on terms changes
+***Also, in the time of the server optimizations, we bumped the download speeds 
+to mindblowing 2x times! Right now, our hardware can handle up to 40 MB/s 
+download speeds, that's 2x times faster than older code!***
 
-*Patch notes: **Changelog:***
-- ***A lot of new features from TODO, the push version to the release will be 
-v0.19.0 since it's a big update with new localizations, features like dark 
-theme, trash bin improvements, quota analysis and other things being 
-implemented***
+***Important note: if you want, you can try to use HTTP endpoints of our 
+services to reach the theoretical 100 MB/s speeds. The problem is that our 
+hardware is old enough to struggle at encryptions, e.g. `AES` for HTTPS. For 
+even faster speeds, we have made attempts to add the 
+`TLS_CHACHA20_POLY1305_SHA256` as secondary main hashing algorithm for HTTPS, 
+but it may fallback to `AES` and cause slower speeds
 
-***Fixes:***
+***For developers and testers:***
+- ***Fixed the logs duplication***
+- ***Network activity bar that shows what FluxDrop does, without need in 
+DevTools be available***
+
+***Regressions: none?***
+
+*Patch notes: **Changelog: fixes:***
 - ***I18N not working perfectly everywhere***
 - ***...***
-
-Test to fix the `Location` header problem, the next patches will temporarely 
-remove that fix, but it will re re-added with better implementation
+- ***Test to fix the `Location` header problem, the next patches will 
+temporarely remove that fix, but it will re re-added with better 
+implementation -- it works but Firefox then complains about the missing CORS***
+- ***A lot of things are pending***
 
 ---
 

@@ -725,24 +725,24 @@ class AuthHandler(SimpleHTTPRequestHandler):
     trash_restore_pattern= re.compile(r'^/api/(v[1-3])/trash/(\d+)/restore$')
     batch_tar_pattern = re.compile(r'^/api/(v[1-3])/upload_session/batch_tar$')
     
-    # # ── P2: Force HTTPS for sensitive paths ──────────────────────────────────
-    # _HTTPS_ONLY_PREFIXES = ('/auth/', '/api/')
+    # ── P2: Force HTTPS for sensitive paths ──────────────────────────────────
+    _HTTPS_ONLY_PREFIXES = ('/auth/', '/api/')
 
-    # def _redirect_to_https_if_needed(self) -> bool:
-    #     """If this socket is plain HTTP and the path is auth/API, 308-redirect to HTTPS.
-    #     Returns True when a redirect was sent — caller must return immediately."""
-    #     if isinstance(self.server.socket, ssl.SSLSocket):
-    #         return False  # already HTTPS
-    #     parsed = urlparse(self.path)
-    #     if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
-    #         host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
-    #         location = f"https://{host}:{HTTPS_PORT}{self.path}"
-    #         self.send_response(308)          # 308 preserves POST/PATCH/DELETE method
-    #         self.send_header('Location', location)
-    #         self.send_header('Content-Length', '0')
-    #         self.end_headers()
-    #         return True
-    #     return False
+    def _redirect_to_https_if_needed(self) -> bool:
+        """If this socket is plain HTTP and the path is auth/API, 308-redirect to HTTPS.
+        Returns True when a redirect was sent — caller must return immediately."""
+        if isinstance(self.server.socket, ssl.SSLSocket):
+            return False  # already HTTPS
+        parsed = urlparse(self.path)
+        if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
+            host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
+            location = f"https://{host}:{HTTPS_PORT}{self.path}"
+            self.send_response(308)          # 308 preserves POST/PATCH/DELETE method
+            self.send_header('Location', location)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return True
+        return False
 
     def handle_batch_tar_upload(self):
         """POST /api/v1/upload_session/batch_tar
@@ -1108,8 +1108,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
             host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
-            # location = f'https://{host}:{HTTPS_PORT}{self.path}'
-            location = f'https://{PUBLIC_DOMAIN}{self.path}'
+            location = f'https://{host}:{HTTPS_PORT}{self.path}'
             self.send_response(308)
             self._send_cors_headers()
             self.send_header('Location', location)
@@ -1732,6 +1731,45 @@ class AuthHandler(SimpleHTTPRequestHandler):
         else:
             return self._send_response(400, json.dumps({'error': f'Unknown owner_type: {owner_type}'}))
 
+        # ── Filesystem conflict guard ─────────────────────────────────────────
+        # Catch the two common name-collision errors before any disk allocation:
+        #
+        #   [Errno 21] Is a directory  — dest_path already exists as a dir.
+        #     A file cannot be written where a directory lives.
+        #
+        #   [Errno 20] Not a directory — a parent path component is a plain
+        #     file, so os.makedirs() cannot create the subtree beneath it.
+        #
+        # Both conditions are user-facing errors (409 Conflict), not server faults.
+        if os.path.isdir(dest_path):
+            return self._send_response(409, json.dumps({
+                'error': (
+                    f'"{os.path.basename(dest_path)}" is a folder — '
+                    f'cannot upload a file with the same name. '
+                    f'Rename or delete the existing folder first.'
+                )
+            }))
+
+        # Walk parent directories up to (but not including) the user root
+        # to detect any ancestor that is a regular file.
+        try:
+            _parent = os.path.dirname(dest_path)
+            # base_fs is only defined for owner_type 'user'/'share' branches above;
+            # fall back gracefully for other types.
+            _stop = locals().get('base_fs', SERVE_ROOT)
+            while _parent and os.path.normpath(_parent) != os.path.normpath(_stop):
+                if os.path.isfile(_parent):
+                    return self._send_response(409, json.dumps({
+                        'error': (
+                            f'"{os.path.basename(_parent)}" is a file — '
+                            f'cannot create a folder with the same name. '
+                            f'Rename or delete the existing file first.'
+                        )
+                    }))
+                _parent = os.path.dirname(_parent)
+        except Exception:
+            pass   # non-fatal: let _upload_init surface the OS error below
+
         try:
             session = _upload_init(
                 filename=os.path.basename(filename),
@@ -1752,11 +1790,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if anon_device_token:
                 resp['anon_device_token'] = anon_device_token
             return self._send_response(200, json.dumps(resp))
+        except ValueError as e:
+            # ValueError is raised by _upload_init for quota overrun and by
+            # the NotADirectoryError handler in _upload_init for path conflicts.
+            # Both are client-side problems → 409 Conflict (not 500).
+            logging.warning(f'Upload session init rejected: {e}')
+            return self._send_response(409, json.dumps({'error': str(e)}))
         except Exception as e:
             logging.exception('Failed to init upload session')
             return self._send_response(500, json.dumps({'error': str(e)}))
-
-    def handle_upload_session_chunk(self, upload_token: str, chunk_index: int):
         """POST /api/v1/upload_session/<token>/chunk/<index>
         Body: raw binary chunk data.
         Headers: Content-Length (required), X-Chunk-SHA256 (optional per-chunk hash).
@@ -3677,25 +3719,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
         """GET /api/v1/trash/<id>/list — return the file tree of a trashed folder.
 
         Response JSON:
-          {
-            "items": [
-              {"name": "file.txt", "path": "sub/file.txt",
-               "is_dir": false, "size_bytes": 1234, "depth": 1},
-              ...
-            ],
-            "total_bytes": 56789,
-            "count": 12
-          }
-
-        Only the owning user can list their own trash items.
-        MAX_WALK_ITEMS cap prevents runaway scans on huge directories.
+          { "items": [{"name","path","is_dir","size_bytes","depth"}, …],
+            "total_bytes": N, "count": N, "truncated": false }
         """
         MAX_WALK_ITEMS = 2000
-
         user_id = self._check_token_auth()
         if not user_id:
             return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
-
         try:
             with _db_connect() as conn:
                 row = conn.execute(
@@ -3704,7 +3734,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 ).fetchone()
         except Exception as exc:
             return self._send_response(500, json.dumps({'error': str(exc)}))
-
         if not row:
             return self._send_response(404, json.dumps({'error': 'Trash item not found'}))
         trash_path, is_dir = row
@@ -3713,83 +3742,50 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not os.path.isdir(trash_path):
             return self._send_response(404, json.dumps({'error': 'Trashed folder missing from disk'}))
 
-        items       = []
+        items = []
         total_bytes = 0
-        root        = trash_path
-
+        root = trash_path
         try:
             for dirpath, dirnames, filenames in os.walk(root):
-                # Compute depth relative to root
                 rel_dir = os.path.relpath(dirpath, root)
                 depth   = 0 if rel_dir == '.' else rel_dir.count(os.sep) + 1
-
-                # Yield sub-directories first (they sit above their children)
                 for dname in sorted(dirnames):
-                    sub_rel = os.path.join(rel_dir, dname).replace(os.sep, '/') \
-                              if rel_dir != '.' else dname
-                    items.append({
-                        'name':       dname,
-                        'path':       sub_rel,
-                        'is_dir':     True,
-                        'size_bytes': 0,
-                        'depth':      depth + 1,
-                    })
-                    if len(items) >= MAX_WALK_ITEMS:
-                        break
-
+                    sub_rel = (os.path.join(rel_dir, dname).replace(os.sep, '/')
+                               if rel_dir != '.' else dname)
+                    items.append({'name': dname, 'path': sub_rel,
+                                  'is_dir': True, 'size_bytes': 0, 'depth': depth + 1})
+                    if len(items) >= MAX_WALK_ITEMS: break
                 for fname in sorted(filenames):
                     fpath = os.path.join(dirpath, fname)
-                    try:
-                        sz = os.path.getsize(fpath)
-                    except OSError:
-                        sz = 0
+                    try:   sz = os.path.getsize(fpath)
+                    except OSError: sz = 0
                     total_bytes += sz
-                    rel_file = os.path.join(rel_dir, fname).replace(os.sep, '/') \
-                               if rel_dir != '.' else fname
-                    items.append({
-                        'name':       fname,
-                        'path':       rel_file,
-                        'is_dir':     False,
-                        'size_bytes': sz,
-                        'depth':      depth + 1,
-                    })
-                    if len(items) >= MAX_WALK_ITEMS:
-                        break
-
-                if len(items) >= MAX_WALK_ITEMS:
-                    break
+                    rel_file = (os.path.join(rel_dir, fname).replace(os.sep, '/')
+                                if rel_dir != '.' else fname)
+                    items.append({'name': fname, 'path': rel_file,
+                                  'is_dir': False, 'size_bytes': sz, 'depth': depth + 1})
+                    if len(items) >= MAX_WALK_ITEMS: break
+                if len(items) >= MAX_WALK_ITEMS: break
         except Exception as exc:
             logging.exception('_handle_trash_folder_list walk failed')
             return self._send_response(500, json.dumps({'error': str(exc)}))
 
-        payload = json.dumps({
-            'items':       items,
-            'total_bytes': total_bytes,
-            'count':       len(items),
-            'truncated':   len(items) >= MAX_WALK_ITEMS,
-        })
-        self._send_response(200, payload, 'application/json')
+        self._send_response(200, json.dumps({
+            'items': items, 'total_bytes': total_bytes,
+            'count': len(items), 'truncated': len(items) >= MAX_WALK_ITEMS,
+        }))
 
     def _handle_space_analyze(self, parsed_url):
-        """GET /api/v1/space_analyze[?limit=N&min_bytes=B]
+        """GET /api/v1/space_analyze[?path=/sub&limit=N&min_bytes=B]
 
-        Walk the authenticated user's storage and return the top files and
-        folders sorted by size, for the Space Analyzer UI.
-
-        Query parameters:
-          limit      — max items to return (default 200, hard-cap 500)
-          min_bytes  — omit items smaller than this (default 0)
+        Walk the authenticated user's FluxDrop directory.
+        If `path` is given (e.g. path=/Documents), list direct children of that
+        sub-directory (one level deep) so the UI can navigate folder-by-folder.
+        Omits the .trash sub-directory from results.
 
         Response JSON:
-          {
-            "items": [
-              {"name": "...", "path": "...", "is_dir": false, "size_bytes": N},
-              ...
-            ],
-            "total_bytes": N,
-            "scanned": N,
-            "truncated": false
-          }
+          { "items": [{name, path, is_dir, size_bytes}, …],
+            "total_bytes": N, "scanned": N, "truncated": false }
         """
         MAX_HARD = 500
 
@@ -3804,105 +3800,66 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except (ValueError, TypeError):
             limit, min_bytes = 200, 0
 
+        # Requested sub-path (relative to user root, default = root)
+        req_sub = qs.get('path', ['/'])[0].strip('/')
+
         user_root = os.path.normpath(
             os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
         )
-        if not os.path.isdir(user_root):
-            return self._send_response(200, json.dumps({
-                'items': [], 'total_bytes': 0, 'scanned': 0, 'truncated': False
-            }))
+        scan_root = os.path.normpath(
+            os.path.join(user_root, req_sub) if req_sub else user_root
+        )
 
-        # Collect (size, path, is_dir) tuples.
-        # For directories we store their total sub-tree size but DO NOT
-        # descend into .trash to keep the view clean.
-        all_items   = []
-        total_bytes = 0
-        scanned     = 0
-        TRASH_SUBDIR = os.path.join(user_root, '.trash')
+        # Security: scan_root must be inside user_root
+        if not os.path.realpath(scan_root).startswith(os.path.realpath(user_root)):
+            return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+        if not os.path.isdir(scan_root):
+            return self._send_response(404, json.dumps({'error': 'Path not found'}))
 
         def _dir_size(dpath):
             s = 0
             try:
                 for dp, _, fns in os.walk(dpath):
                     for fn in fns:
-                        try:
-                            s += os.path.getsize(os.path.join(dp, fn))
-                        except OSError:
-                            pass
-            except OSError:
-                pass
+                        try: s += os.path.getsize(os.path.join(dp, fn))
+                        except OSError: pass
+            except OSError: pass
             return s
 
+        all_items   = []
+        total_bytes = 0
+        scanned     = 0
+
         try:
-            # Top-level entries: include both files and dirs at depth-1
-            for entry_name in os.listdir(user_root):
+            for entry_name in sorted(os.listdir(scan_root)):
                 if entry_name == '.trash':
-                    continue          # exclude trash from analysis
-                entry_path = os.path.join(user_root, entry_name)
-                if os.path.isdir(entry_path):
-                    sz = _dir_size(entry_path)
-                    scanned += 1
-                else:
-                    try:
-                        sz = os.path.getsize(entry_path)
-                    except OSError:
-                        sz = 0
-                    scanned += 1
+                    continue
+                entry_path = os.path.join(scan_root, entry_name)
+                is_dir     = os.path.isdir(entry_path)
+                sz         = _dir_size(entry_path) if is_dir else (
+                    os.path.getsize(entry_path) if os.path.isfile(entry_path) else 0
+                )
                 total_bytes += sz
+                scanned     += 1
+                # Path relative to user root (leading slash)
+                rel = '/' + os.path.relpath(entry_path, user_root).replace(os.sep, '/')
                 if sz >= min_bytes:
-                    rel = '/' + entry_name
                     all_items.append({
-                        'name':       entry_name,
-                        'path':       rel,
-                        'is_dir':     os.path.isdir(entry_path),
-                        'size_bytes': sz,
+                        'name': entry_name, 'path': rel,
+                        'is_dir': is_dir,   'size_bytes': sz,
                     })
-
-            # Also walk one more level into subdirectories
-            for entry_name in os.listdir(user_root):
-                if entry_name == '.trash':
-                    continue
-                entry_path = os.path.join(user_root, entry_name)
-                if not os.path.isdir(entry_path):
-                    continue
-                try:
-                    for sub_name in os.listdir(entry_path):
-                        sub_path = os.path.join(entry_path, sub_name)
-                        if os.path.isdir(sub_path):
-                            sz = _dir_size(sub_path)
-                        else:
-                            try:
-                                sz = os.path.getsize(sub_path)
-                            except OSError:
-                                sz = 0
-                        scanned += 1
-                        if sz >= min_bytes:
-                            rel = '/' + entry_name + '/' + sub_name
-                            all_items.append({
-                                'name':       sub_name,
-                                'path':       rel,
-                                'is_dir':     os.path.isdir(sub_path),
-                                'size_bytes': sz,
-                            })
-                except OSError:
-                    pass
-
         except Exception as exc:
-            logging.exception('_handle_space_analyze walk failed')
+            logging.exception('_handle_space_analyze failed')
             return self._send_response(500, json.dumps({'error': str(exc)}))
 
-        # Sort largest-first, then slice to limit
         all_items.sort(key=lambda x: x['size_bytes'], reverse=True)
-        truncated  = len(all_items) > limit
-        top_items  = all_items[:limit]
-
-        payload = json.dumps({
-            'items':       top_items,
+        truncated = len(all_items) > limit
+        self._send_response(200, json.dumps({
+            'items':       all_items[:limit],
             'total_bytes': total_bytes,
             'scanned':     scanned,
             'truncated':   truncated,
-        })
-        self._send_response(200, payload, 'application/json')
+        }))
 
     def _handle_trash_move(self):
         """POST /api/v1/trash  {path}  — soft-delete a file/folder into the trash."""

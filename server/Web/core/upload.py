@@ -234,7 +234,17 @@ def _upload_init(filename: str, dest_path: str, total_size: int,
 
     # ── Strategy + pre-allocation (unchanged from original) ──────────────────
     if strategy == 'direct':
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        try:
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        except NotADirectoryError as _nde:
+            # A path component exists as a plain file — e.g. uploading
+            # "res/icons/arrow.svg" when "res" is already a file.
+            # Raise ValueError so handle_upload_session_init returns 409.
+            raise ValueError(
+                f'Cannot create directory "{os.path.basename(os.path.dirname(dest_path))}" — '
+                f'a file with that name already exists at the same location. '
+                f'Rename or delete the existing file first. (detail: {_nde})'
+            )
         if not _preallocate(dest_path, total_size):
             logging.warning(
                 f'_upload_init: fallocate/ftruncate failed for {dest_path!r}; '

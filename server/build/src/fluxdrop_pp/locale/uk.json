@@ -228,6 +228,15 @@
   "file_modal_info_reading_archive": "Читання архіву…",
   "file_modal_info_heic_decode": "Декодування HEIC…",
   "file_modal_info_archive_file_table": "перегляд у режимі лише для читання",
-  "file_modal_info_fetch_pdf": "Отримання PDF…"
+  "file_modal_info_fetch_pdf": "Отримання PDF…",
+
+  "quota_of_word":         "з",
+  "file_browser_title":    "Файловий менеджер",
+  "admin_col_user":        "Користувач",
+  "admin_col_usage":       "Використання",
+  "admin_col_quota":       "Квота",
+  "username_login":        "Ім'я користувача (логін)",
+  "shares_access_count":   "{n} доступ(ів)",
+  "shares_expires_label":  "Завершується:"
   
 }

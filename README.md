@@ -1,4 +1,4 @@
-# server `v0.18.0.19`
+# server `v0.18.0.20`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -48,7 +48,7 @@ DevTools be available***
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
-- ***Checkpoint commit***
+- ***Checkpoint commit #2***
 
 ---
 

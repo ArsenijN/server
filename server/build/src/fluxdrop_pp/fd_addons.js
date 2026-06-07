@@ -19,14 +19,21 @@
  * ═══════════════════════════════════════════════════════════════════════════
  * t('key') / t('key', {n:5})  — translate a key.
  *
- * DOM-level translation:
- *   translateDOM(el)  walks el's text nodes and replaces any node whose
- *   trimmed text exactly matches an English string in the catalog with its
- *   translated equivalent.  Also translates title= and placeholder= attrs.
- *   A MutationObserver calls this on every new subtree added to <body>.
+ * Initialisation order:
+ *   1. fd_locale_bundle.js (loaded BEFORE this file via <script> in HTML)
+ *      defines window._FD_LOCALES synchronously.
+ *   2. fd_addons.js runs — _initSync() reads _FD_LOCALES immediately.
+ *      t() is ready BEFORE any render function in script.js fires.
+ *   3. Fallback: if the bundle is missing, _initAsync() fetches locale JSON
+ *      over the network — this risks t() returning bare keys on first paint,
+ *      but works as graceful degradation.
  *
- * Adding a new language: drop locale/<code>.json following the en.json schema,
- * then add the code to SUPPORTED_LANGS.  No other changes needed.
+ * DOM translation:
+ *   _translateSubtree(el) walks text nodes and replaces any whose trimmed
+ *   text exactly matches an English catalog string.
+ *   MutationObserver calls this on every new subtree — because _ready=true
+ *   synchronously, ALL dynamic nodes rendered by script.js are translated
+ *   the moment they enter the DOM.
  */
 (function () {
   'use strict';
@@ -37,7 +44,7 @@
 
   let _catalog  = {};
   let _fallback = {};
-  let _revMap   = {};   // English value → locale key (for DOM translation)
+  let _revMap   = {};
   let _lang     = 'en';
   let _ready    = false;
 
@@ -48,6 +55,30 @@
     return SUPPORTED_LANGS.includes(nav) ? nav : 'en';
   }
 
+  function _buildRevMap(catalog) {
+    const map = {};
+    Object.entries(catalog).forEach(([k, v]) => {
+      if (typeof v === 'string' && v.length > 1 && !v.includes('{'))
+        map[v] = k;
+    });
+    return map;
+  }
+
+  /** Synchronous init from fd_locale_bundle.js. Returns true on success. */
+  function _initSync() {
+    const bundle = window._FD_LOCALES;
+    if (!bundle || typeof bundle !== 'object') return false;
+    const lang   = _detectLang();
+    _lang        = lang;
+    localStorage.setItem(LS_KEY, lang);
+    _fallback    = bundle['en']  || {};
+    _catalog     = bundle[lang]  || _fallback;
+    _revMap      = _buildRevMap(_fallback);
+    _ready       = true;
+    return true;
+  }
+
+  /** Async fallback when bundle is unavailable. */
   async function _loadLocale(lang) {
     try {
       const r = await fetch(LOCALE_BASE + lang + '.json', { cache: 'no-cache' });
@@ -56,37 +87,42 @@
     } catch (_) { return {}; }
   }
 
-  async function _init(lang) {
+  async function _initAsync(lang) {
     _lang = lang;
     localStorage.setItem(LS_KEY, lang);
     if (!Object.keys(_fallback).length) _fallback = await _loadLocale('en');
     _catalog = (lang === 'en') ? _fallback : await _loadLocale(lang);
+    _revMap  = _buildRevMap(_fallback);
     _ready   = true;
-    // Build reverse map (English string → key) for DOM translation
-    _revMap  = {};
-    Object.entries(_fallback).forEach(([k, v]) => {
-      if (typeof v === 'string' && v.length > 1 && !v.includes('{'))
-        _revMap[v] = k;
-    });
     document.dispatchEvent(new CustomEvent('fd-locale-change', { detail: { lang } }));
-    // Re-translate the whole DOM whenever language changes
     if (document.body) _translateSubtree(document.body);
   }
 
   window.t = function (key, vars) {
     let str = (_catalog[key]) || (_fallback[key]) || key;
-    if (vars) Object.entries(vars).forEach(([k,v]) => {
-      str = str.replace(new RegExp('\\{'+k+'\\}','g'), v);
+    if (vars) Object.entries(vars).forEach(([k, v]) => {
+      str = str.replace(new RegExp('\\{' + k + '\\}', 'g'), v);
     });
     return str;
   };
 
+  /** Re-initialise with a new language (called from Settings panel). */
+  async function _setLang(lang) {
+    if (window._FD_LOCALES) {
+      _lang    = lang;
+      localStorage.setItem(LS_KEY, lang);
+      _catalog = window._FD_LOCALES[lang] || _fallback;
+    } else {
+      await _initAsync(lang);
+    }
+    document.dispatchEvent(new CustomEvent('fd-locale-change', { detail: { lang } }));
+    if (document.body) _translateSubtree(document.body);
+  }
+
   /** Translate text nodes and key attributes inside `root`. */
   function _translateSubtree(root) {
     if (!_ready || _lang === 'en') return;
-    const walker = document.createTreeWalker(
-      root, NodeFilter.SHOW_TEXT, null
-    );
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let node;
     while ((node = walker.nextNode())) {
       const txt = node.textContent.trim();
@@ -96,7 +132,6 @@
           node.textContent = node.textContent.replace(txt, translated);
       }
     }
-    // Attributes: title, placeholder, aria-label
     root.querySelectorAll && root.querySelectorAll('[title],[placeholder],[aria-label]').forEach(el => {
       ['title', 'placeholder', 'aria-label'].forEach(attr => {
         const v = el.getAttribute(attr);
@@ -117,17 +152,23 @@
   });
   document.addEventListener('DOMContentLoaded', () => {
     _i18nObs.observe(document.body, { childList: true, subtree: true });
+    if (_ready && _lang !== 'en') _translateSubtree(document.body);
   });
 
   window.FDi18n = {
     get lang()  { return _lang; },
     get ready() { return _ready; },
     get langs() { return SUPPORTED_LANGS.slice(); },
-    setLang: async function (l) { await _init(l); },
-    label:   function (c) { return {'en':'English','uk':'Українська'}[c] || c.toUpperCase(); },
+    setLang: _setLang,
+    label:   function (c) { return { en: 'English', uk: 'Українська' }[c] || c.toUpperCase(); },
   };
 
-  _init(_detectLang());
+  // ── Boot ─────────────────────────────────────────────────────────────────
+  if (!_initSync()) {
+    console.warn('[FDi18n] fd_locale_bundle.js not loaded — falling back to async fetch. '
+               + 'First-paint t() calls may return bare keys.');
+    _initAsync(_detectLang());
+  }
 })();
 
 /* ═══════════════════════════════════════════════════════════════════════════

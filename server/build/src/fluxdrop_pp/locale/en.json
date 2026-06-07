@@ -169,7 +169,7 @@
   "menu_account_info_admin_panel": "⚙️ Admin Panel",
   "menu_account_info_logout": "🚪 Logout",
   
-  "profile_info_quota_space": "${pct.toFixed(1)}% used — ${fmt(quota - used)} free${pinNote}",
+  "profile_info_quota_space": "{pct}% used — {free} free{pin}",
   "profile_info_quota_space_warning": "⚠ Quota nearly full",
   "profile_info_profile_info": "Profile info",
   "profile_info_nickname": "Nickname (display name)",

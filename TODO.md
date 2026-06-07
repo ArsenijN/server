@@ -9,13 +9,6 @@ user feedback or ideas for future development.
 
 
 ### Important without category (critical before release)
-- [ ] Fix HSTS redirects for FluxDrop file manager - HTTP to HTTPS redirects 
-that works with the FluxDrop, right now even login fails -- doesn't work, needs 
-changes (v0.17.2.11) -- `Location` header have 
-`https://127.0.0.1:64800/auth/login` inside it, this cause the problem with the 
-HSTS redirect, maybe caused because of the multiple 
-`_redirect_to_https_if_needed` definitions inside `server_cdn.py` or something 
-else
 - [ ] Pause button may not work rn -- it's not but UI may bug so it can display 
 "Missing chunks" but actually it then ends successfully
 - [ ] Encryption algorithm fallbacks (for faster downloads, use the 
@@ -154,6 +147,7 @@ made/applied
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what
 - [ ] Dark mode auto switch
+- [ ] HSTS redirect should work correctly
 
 ---
 
@@ -208,6 +202,14 @@ just do that fail silently -- fixed
   not support some JS) or K-Meleon with JS disabled?)
 
 (end of release note there)
+
+- [x] Fix HSTS redirects for FluxDrop file manager - HTTP to HTTPS redirects 
+that works with the FluxDrop, right now even login fails -- doesn't work, needs 
+changes (v0.17.2.11) -- `Location` header have 
+`https://127.0.0.1:64800/auth/login` inside it, this cause the problem with the 
+HSTS redirect, maybe caused because of the multiple 
+`_redirect_to_https_if_needed` definitions inside `server_cdn.py` or something 
+else
 
 ---
 

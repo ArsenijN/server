@@ -137,6 +137,25 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # os.chdir() changes the *process-wide* cwd and races under ThreadingHTTPServer.
         super().__init__(*args, directory=SERVE_DIRECTORY, **kwargs)
 
+    def end_headers(self):
+        """Inject CORS headers on every response so font files and API assets
+        are accessible cross-origin (e.g. HTTP page loading subresources).
+        Mirrors the override in server_https.py.
+        """
+        try:
+            _ext = _psp.splitext(self.path.split('?')[0])[1].lower()
+        except Exception:
+            _ext = ''
+        _FONT_EXTS = {'.woff', '.woff2', '.ttf', '.eot', '.otf'}
+        self.send_header('Access-Control-Allow-Origin', '*')
+        if _ext in _FONT_EXTS:
+            self.send_header('Cross-Origin-Resource-Policy', 'cross-origin')
+        self.send_header('Access-Control-Allow-Methods',
+                         'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers',
+                         'Content-Type, Authorization, Range, X-Requested-With')
+        super().end_headers()
+
     def add_cors_headers(self):
         """
         Adds CORS headers to allow cross-origin requests from any domain.

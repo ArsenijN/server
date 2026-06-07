@@ -726,23 +726,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
     batch_tar_pattern = re.compile(r'^/api/(v[1-3])/upload_session/batch_tar$')
     
     # ── P2: Force HTTPS for sensitive paths ──────────────────────────────────
+    # NOTE: _redirect_to_https_if_needed is defined ONCE below (~line 1099).
+    # A second definition here was previously silently overwriting the lower one
+    # (Python uses the last binding in a class body) and both had the Host-header
+    # bug that produced Location: https://127.0.0.1:<port>/...
+    # The canonical definition below always uses PUBLIC_DOMAIN.
     _HTTPS_ONLY_PREFIXES = ('/auth/', '/api/')
-
-    def _redirect_to_https_if_needed(self) -> bool:
-        """If this socket is plain HTTP and the path is auth/API, 308-redirect to HTTPS.
-        Returns True when a redirect was sent — caller must return immediately."""
-        if isinstance(self.server.socket, ssl.SSLSocket):
-            return False  # already HTTPS
-        parsed = urlparse(self.path)
-        if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
-            host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
-            location = f"https://{host}:{HTTPS_PORT}{self.path}"
-            self.send_response(308)          # 308 preserves POST/PATCH/DELETE method
-            self.send_header('Location', location)
-            self.send_header('Content-Length', '0')
-            self.end_headers()
-            return True
-        return False
 
     def handle_batch_tar_upload(self):
         """POST /api/v1/upload_session/batch_tar
@@ -1099,6 +1088,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
     def _redirect_to_https_if_needed(self) -> bool:
         """308-redirect auth/API paths from HTTP to HTTPS.
 
+        ALWAYS uses PUBLIC_DOMAIN for the Location header.
+        Never uses the Host request header — when requests arrive through the
+        loopback proxy (server_http.py → CDN port), the Host header contains
+        127.0.0.1 which would produce Location: https://127.0.0.1:<port>/...
+        and break every login/API call.
+
         308 preserves the original HTTP method (POST stays POST, unlike 301).
         Returns True when a redirect was sent — caller must return immediately.
         No-ops when the socket is already TLS.
@@ -1107,8 +1102,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return False  # already on HTTPS, nothing to do
         parsed = urlparse(self.path)
         if any(parsed.path.startswith(p) for p in self._HTTPS_ONLY_PREFIXES):
-            host = self.headers.get('Host', PUBLIC_DOMAIN).split(':')[0]
-            location = f'https://{host}:{HTTPS_PORT}{self.path}'
+            # Build the redirect URL from PUBLIC_DOMAIN, never from the Host header.
+            # Omit the port when it's the standard HTTPS port (443) so the URL
+            # stays clean; include it otherwise (e.g. 64800 for direct-CDN access).
+            port_suffix = f':{HTTPS_PORT}' if HTTPS_PORT != 443 else ''
+            location = f'https://{PUBLIC_DOMAIN}{port_suffix}{self.path}'
             self.send_response(308)
             self._send_cors_headers()
             self.send_header('Location', location)
@@ -1799,6 +1797,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             logging.exception('Failed to init upload session')
             return self._send_response(500, json.dumps({'error': str(e)}))
+
+    def handle_upload_session_chunk(self, upload_token: str, chunk_index: int):
         """POST /api/v1/upload_session/<token>/chunk/<index>
         Body: raw binary chunk data.
         Headers: Content-Length (required), X-Chunk-SHA256 (optional per-chunk hash).
@@ -5659,6 +5659,25 @@ def run_server(port, use_ssl=False):
             return
         try:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE
+            # Prefer ChaCha20 for software-only CPU (no AES-NI).
+            # See server_https.py for the full rationale.
+            try:
+                context.set_ciphersuites(
+                    'TLS_CHACHA20_POLY1305_SHA256:'
+                    'TLS_AES_256_GCM_SHA384:'
+                    'TLS_AES_128_GCM_SHA256'
+                )
+            except AttributeError:
+                pass
+            try:
+                context.set_ciphers(
+                    'ECDHE+CHACHA20:ECDHE+AESGCM:DHE+CHACHA20:DHE+AESGCM:'
+                    '!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK'
+                )
+            except ssl.SSLError as _ce:
+                logging.warning('Could not set custom TLS 1.2 cipher list: %s', _ce)
             context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
             server.socket = context.wrap_socket(server.socket, server_side=True)
         except Exception as e:

@@ -229,6 +229,41 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # os.chdir() changes the *process-wide* cwd and races under ThreadingHTTPServer.
         super().__init__(*args, directory=SERVE_DIRECTORY, **kwargs)
 
+    def end_headers(self):
+        """Override end_headers to inject CORS and font-specific headers on every
+        response this handler sends.
+
+        Why needed: SimpleHTTPRequestHandler.do_GET() calls end_headers internally,
+        bypassing any per-request patching. Without this override, font files (.woff2
+        etc.) served from this static server carry no Access-Control-Allow-Origin
+        header, which makes browsers reject them with "CORS Missing Allow Origin"
+        when the font is fetched cross-origin (e.g. HTTP page loading an HTTPS asset,
+        or any sub-resource loaded from a different port).
+
+        Cross-Origin-Resource-Policy: cross-origin is also required for fonts and
+        media loaded by pages on a different origin/scheme.
+        """
+        # Determine the file extension from the requested path so we can add
+        # the extra font/media CORS hint only where needed.
+        try:
+            _ext = _psp.splitext(self.path.split('?')[0])[1].lower()
+        except Exception:
+            _ext = ''
+
+        _FONT_EXTS = {'.woff', '.woff2', '.ttf', '.eot', '.otf'}
+        if _ext in _FONT_EXTS:
+            # Fonts always need explicit cross-origin permission
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cross-Origin-Resource-Policy', 'cross-origin')
+        else:
+            self.send_header('Access-Control-Allow-Origin', '*')
+
+        self.send_header('Access-Control-Allow-Methods',
+                         'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers',
+                         'Content-Type, Authorization, Range, X-Requested-With')
+        super().end_headers()
+
     def _set_headers(self, status_code=200, content_type='text/html'):
         """Helper to set common headers including CORS."""
         self.send_response(status_code)
@@ -715,6 +750,48 @@ if __name__ == "__main__":
 
     # --- SSL Context Setup ---
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+
+    # ── TLS version floor ────────────────────────────────────────────────────
+    # Drop SSLv3/TLS 1.0/1.1 — all deprecated and insecure.
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+
+    # ── Cipher suite preferences ─────────────────────────────────────────────
+    # Server preference order is enforced (OP_CIPHER_SERVER_PREFERENCE), so
+    # the cipher listed first wins regardless of what the client advertises.
+    #
+    # Why ChaCha20 first:
+    #   Old Intel CPUs (pre-Westmere, e.g. Core i3 370M) lack AES-NI hardware
+    #   acceleration. On those, AES-GCM is ~3-5× slower in software than
+    #   ChaCha20-Poly1305 which is designed for pure software speed.
+    #   Modern CPUs with AES-NI negotiate at equal or better speed and are not
+    #   disadvantaged — both sides accept either cipher.
+    #
+    # TLS 1.3 ciphers (set_ciphersuites):
+    #   Order: ChaCha20 → AES-256-GCM → AES-128-GCM
+    # TLS 1.2 ciphers (set_ciphers):
+    #   ECDHE+ChaCha20 → ECDHE+AES-GCM → DHE fallbacks; no aNULL/eNULL/EXPORT.
+    context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE   # server's order wins
+
+    try:
+        context.set_ciphersuites(                        # TLS 1.3
+            'TLS_CHACHA20_POLY1305_SHA256:'
+            'TLS_AES_256_GCM_SHA384:'
+            'TLS_AES_128_GCM_SHA256'
+        )
+    except AttributeError:
+        pass  # Python < 3.7 — no set_ciphersuites; TLS 1.3 suite order is OS default
+
+    try:
+        context.set_ciphers(                             # TLS 1.2
+            'ECDHE+CHACHA20:'
+            'ECDHE+AESGCM:'
+            'DHE+CHACHA20:'
+            'DHE+AESGCM:'
+            '!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK'
+        )
+    except ssl.SSLError as _ce:
+        print(f'WARNING: Could not set custom TLS 1.2 cipher list: {_ce}')
+
     try:
         context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
     except FileNotFoundError:

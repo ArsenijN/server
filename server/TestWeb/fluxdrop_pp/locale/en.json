@@ -1,5 +1,5 @@
 {
-  "_meta": { "lang": "en", "label": "English", "version": "1.1.0" },
+  "_meta": { "lang": "en", "label": "English", "version": "1.2.0" },
 
   "login":           "Login",
   "register":        "Register",
@@ -145,7 +145,6 @@
   "folder_sort_mix": "🔀 Mixed",
   "move_file_explanatory": "The file stays in its current folder. To also move it, use the Move tab.",
   
-
   "share_allow_preview_desc": "— visitors can preview files without downloading",
   "share_upload_label": "📤 Who can upload:",
   "share_label": "🔗 Share \"{name}\"",
@@ -156,8 +155,8 @@
   "share_expiry_label": "⏰ Expires:",
   "share_expiry_selector_values_1d": "1 day",
   "share_expiry_selector_values_7d": "7 days",
-  "share_expiry_selector_values_30d": "30 day",
-  "share_expiry_selector_values_90d": "90 day",
+  "share_expiry_selector_values_30d": "30 days",
+  "share_expiry_selector_values_90d": "90 days",
   "share_expiry_selector_values_custom": "Custom date…",
 
   "menu_account_info_fluxdrop": "FluxDrop account",
@@ -170,7 +169,7 @@
   "menu_account_info_admin_panel": "⚙️ Admin Panel",
   "menu_account_info_logout": "🚪 Logout",
   
-  "profile_info_quota_space": "${pct.toFixed(1)}% used — ${fmt(quota - used)} free${pinNote}",
+  "profile_info_quota_space": "{pct}% used — {free} free{pin}",
   "profile_info_quota_space_warning": "⚠ Quota nearly full",
   "profile_info_profile_info": "Profile info",
   "profile_info_nickname": "Nickname (display name)",
@@ -196,8 +195,11 @@
   "shares_info_uploads_auth_only": "Auth users can upload",
   "shares_info_expiry": "⏰ Expiry:",
   
+  "footer_fluxdrop_pp": "FluxDrop Preview Program",
   "footer_github_repo": "GitHub repo",
   "footer_creator_note": "© 2025-2026 by Arsenii Nochevnyi.",
+  "footer_pp": "Privacy Policy",
+  "footer_tos": "TOS",  
 
   "fluxdrop_file_manager_sort_name": "Name",
   "fluxdrop_file_manager_sort_mod": "Modified",
@@ -212,6 +214,20 @@
   "admin_panel_used": "Total used:",
   "admin_panel_dynamic_quota": "dynamic",
   "admin_panel_edit_button": "Edit",
-  "admin_panel_delete_button": "Del"
+  "admin_panel_delete_button": "Del",
+
+  "trash_info": "Files are automatically deleted after their retention period. Trash does not count toward your storage quota.",
+
+  "file_modal_info_no_preview_general1": "No preview available. Restore the file to download it.",
+  "file_modal_info_no_preview_download1": "In-browser preview is not available for this format.",
+  "file_modal_info_no_preview_download2": "Download the file and extract it locally. ",
+  "file_modal_info_no_preview_7zip": "7-Zip archive",
+  "file_modal_info_no_preview_general2": "No preview available for this file type yet.",
+  "file_modal_info_picture_fetching": "Fetching an image…",
+  "file_modal_info_rendering": "Rendering…",
+  "file_modal_info_reading_archive": "Reading archive…",
+  "file_modal_info_heic_decode": "Decoding HEIC…",
+  "file_modal_info_archive_file_table": "read-only preview",
+  "file_modal_info_fetch_pdf": "Fetching a PDF…"
   
 }

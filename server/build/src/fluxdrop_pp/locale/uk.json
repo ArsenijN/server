@@ -169,7 +169,7 @@
   "menu_account_info_admin_panel": "⚙️ Адмін Панель",
   "menu_account_info_logout": "🚪 Вихід",
   
-  "profile_info_quota_space": "${pct.toFixed(1)}% використано — ${fmt(quota - used)} вільно${pinNote}",
+  "profile_info_quota_space": "{pct}% використано — {free} вільно{pin}",
   "profile_info_quota_space_warning": "⚠ Сховище майже повне",
   "profile_info_profile_info": "Інформація профілю",
   "profile_info_nickname": "Нікнейм (видиме ім'я)",

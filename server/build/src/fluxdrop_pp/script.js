@@ -361,7 +361,7 @@ function renderAuthControls() {
     if (authToken) {
         authControls.innerHTML = `
             <div class="flex items-center gap-3">
-                <span class="font-medium text-blue-900">Welcome, ${currentUsername}!</span>
+                <span class="font-medium text-blue-900">${t('welcome_text')} ${currentUsername}!</span>
                 <button id="profile-btn" title="Profile & Settings"
                     style="width:36px;height:36px;border-radius:50%;background:#3b82f6;border:2px solid #93c5fd;
                             color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
@@ -2870,12 +2870,12 @@ async function loadFolderSize(cell) {
 
 window.deleteItem = async function(path) {
     const disp = stripInternalPrefix(path);
-    if (!confirm('Move to Trash: ' + disp + '?')) return;
+    if (!confirm(t('move_to_trash', {path: disp}))) return;
     try {
         const res = await apiCall('/api/v1/trash', 'POST', { path });
         const days = res.retention_days || 30;
         showMessage('Moved to Trash',
-            disp + ' was moved to Trash and will be kept for ' + days + ' days.\n'
+            t('moved_to_trash', {name: disp, days: days}) + '\n'
             + 'Open Trash (🗑) to restore or permanently delete it.');
         loadDirectory(currentPath);
     } catch (err) {
@@ -3064,7 +3064,7 @@ async function _refreshTrashView() {
             const id = +btn.dataset.id;
             const row = body.querySelector(`.trash-row[data-id="${id}"]`);
             const name = row?.querySelector('div > div')?.textContent?.trim() || 'this item';
-            if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
+            if (!confirm(t('perm_delete_confirm', {name: name}))) return;
             try {
                 await apiCall(`/api/v1/trash/${id}`, 'DELETE');
                 await _refreshTrashView();
@@ -4138,7 +4138,7 @@ async function handleUploadForm(e) {
             }
         }
         drainQueue(first);
-        showMessage('Queued', `${files.length} files queued. Uploading now…`);
+        showMessage('Queued', t('files_queued', {n: files.length}));
     }
 
     // Reset the file input
@@ -4820,7 +4820,7 @@ async function openProfilePanel() {
                 <div style="height:100%;border-radius:6px;background:${barColor};width:${pct.toFixed(1)}%;transition:width .4s"></div>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center">
-                <span style="font-size:12px;color:#64748b">${pct.toFixed(1)}% used — ${fmt(quota - used)} free${pinNote}</span>
+                <span style="font-size:12px;color:#64748b">${t('profile_info_quota_space', {pct: pct.toFixed(1), free: fmt(quota - used), pin: pinNote})}</span>
                 ${pct >= 95 ? '<span style="font-size:12px;color:#ef4444;font-weight:600">⚠ Quota nearly full</span>' : ''}
             </div>`;
 

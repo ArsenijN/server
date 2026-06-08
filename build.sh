@@ -1,6 +1,13 @@
 #!/bin/bash
-# build.sh — build Tailwind CSS and sync files for FluxDrop
+# build.sh — build Tailwind CSS, locale bundle, and sync files for FluxDrop
 # Run from the repo root (same directory as sync_to_server.sh)
+#
+# Steps (in order):
+#   1. Check locale files for consistency (fails hard on key mismatches / bad syntax)
+#   2. Regenerate fd_locale_bundle.js from locale/*.json
+#   3. Sync all source files from server/build/src → server/TestWeb (rsync)
+#   4. Build / watch Tailwind CSS
+#   5. Stamp @@CACHE_VER@@ in sw.js and script.js
 
 set -e
 
@@ -12,26 +19,62 @@ OUT="./server/TestWeb/fluxdrop_pp"
 CSS_INPUT="$SRC/input.css"
 CSS_OUTPUT="$OUT/tailwindcss.css"
 
+# Build tools — kept in server/build/ next to the source they operate on
+BUILD_DIR="$SCRIPT_DIR/server/build"
+LOCALE_DIR="$SRC/locale"
+LOCALE_BUNDLE_OUT="$SRC/fd_locale_bundle.js"
+CHECK_LOCALES="$BUILD_DIR/check_locales.py"
+BUILD_BUNDLE="$BUILD_DIR/build_locale_bundle.py"
+
 # Parse flags
 WATCH=false
+SKIP_LOCALE=false
 for arg in "$@"; do
     case $arg in
-        --watch|-w) WATCH=true ;;
+        --watch|-w)        WATCH=true ;;
+        --skip-locale)     SKIP_LOCALE=true ;;  # escape hatch for CI that manages locales separately
         --help|-h)
-            echo "Usage: ./build.sh [--watch]"
-            echo "  (no flags)  Build CSS, sync all files from src to output once"
-            echo "  --watch,-w  Sync files once, then watch CSS for changes"
+            echo "Usage: ./build.sh [options]"
+            echo "  (no flags)       Check locales, build bundle + CSS, sync src→TestWeb"
+            echo "  --watch,-w       Sync once, then watch CSS for changes"
+            echo "  --skip-locale    Skip locale check/rebuild (useful if already up to date)"
             exit 0
             ;;
     esac
 done
 
+# ── Locale check ──────────────────────────────────────────────────────────────
+# Validates that en.json and uk.json have identical key sets and no broken
+# ${...} placeholder syntax.  Exits non-zero (and aborts the build) on hard errors.
+check_locales() {
+    if ! command -v python3 &>/dev/null; then
+        echo "⚠  python3 not found — skipping locale check"
+        return 0
+    fi
+    echo "🌍 Checking locale files..."
+    if python3 "$CHECK_LOCALES" "$LOCALE_DIR"; then
+        echo "✅ Locale check passed"
+    else
+        echo "❌ Locale check failed — fix errors in locale/*.json before building."
+        exit 1
+    fi
+}
+
+# ── Locale bundle generation ──────────────────────────────────────────────────
+# Reads locale/*.json and writes fd_locale_bundle.js so that t() initialises
+# synchronously (no async fetch race condition on first paint).
+# Must run BEFORE sync_files so the generated bundle is rsync'd to TestWeb.
+build_locale_bundle() {
+    if ! command -v python3 &>/dev/null; then
+        echo "⚠  python3 not found — skipping locale bundle generation"
+        return 0
+    fi
+    echo "📦 Building locale bundle..."
+    python3 "$BUILD_BUNDLE" "$LOCALE_DIR" "$LOCALE_BUNDLE_OUT"
+}
+
 # ── Cache version stamping ────────────────────────────────────────────────────
-# Generates a short hash from the content of all JS/CSS/HTML source files so
-# that the SW cache name changes automatically whenever anything is rebuilt.
-# Both sw.js and script.js use the token @@CACHE_VER@@ which is replaced here.
 stamp_cache_version() {
-    # Hash the source tree (JS, CSS, HTML) — exclude input.css (Tailwind source)
     local HASH
     HASH=$(find "$SRC" -type f \( -name "*.js" -o -name "*.css" -o -name "*.html" \) \
            ! -name "input.css" \
@@ -40,7 +83,6 @@ stamp_cache_version() {
 
     echo "🔖 Cache version: fluxdrop-${VER}"
 
-    # Stamp the token in the OUTPUT copies (after rsync has placed them)
     local SW="$OUT/sw.js"
     local JS="$OUT/script.js"
 
@@ -61,7 +103,6 @@ stamp_cache_version() {
 
 sync_files() {
     echo "📁 Syncing files $SRC → $OUT ..."
-    # Copy everything except input.css (Tailwind source, not needed on server)
     rsync -av \
         --exclude="input.css" \
         "$SRC/" "$OUT/"
@@ -74,18 +115,19 @@ build_css() {
     echo "✅ Tailwind CSS → $CSS_OUTPUT"
 }
 
-sync_files
+# ── Main build sequence ───────────────────────────────────────────────────────
+if ! $SKIP_LOCALE; then
+    check_locales      # abort if locale files are broken
+    build_locale_bundle  # regenerate fd_locale_bundle.js before rsync
+fi
+
+sync_files           # rsync src → TestWeb (includes the freshly generated bundle)
 
 if $WATCH; then
-    # In watch mode: stamp once after the initial sync, then let Tailwind watch.
-    # CSS changes don't need a cache bump (CSS is in PRECACHE_URLS and gets
-    # revalidated in the background anyway).
     stamp_cache_version
-    echo "👁  Watching for CSS changes..."
+    echo "👁  Watching for CSS changes (locale changes require a full rebuild)..."
     npx @tailwindcss/cli -i "$CSS_INPUT" -o "$CSS_OUTPUT" --watch
 else
     build_css
-    # Stamp after CSS is built so the hash covers the final output CSS too.
-    # Re-hash SRC (the source of truth); CSS output is in OUT and already written.
     stamp_cache_version
 fi

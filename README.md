@@ -1,4 +1,4 @@
-# server `v0.18.0.21`
+# server `v0.18.0.22`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -48,7 +48,9 @@ DevTools be available***
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
-- ***Checkpoint commit #3***
+- ***I need to later comprehend the changes, like the fixes for the Windows's 
+build script and the thing that now the locales should be fixed + the locales 
+are now auto-builded***
 
 ---
 

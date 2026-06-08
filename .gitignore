@@ -13,14 +13,11 @@ __pycache__/
 
 # To avoid possible data leakage for now:
 scripts/
-# Scripts are currently isn't updated to the latest code, so they doesn't work. WIP.
+# Scripts are currently isn't updated to the latest code, so they may not work. 
+# WIP.
+
 .cache/
 .backup/
-
-.vscode/
-
-# not sure
-.venv/
 
 # Node / Tailwind build tooling
 node_modules/
@@ -33,9 +30,14 @@ package-lock.json
 deploy.env
 
 # both of the files is used for applying patches and can be safely ignored
-temp.py
-temp.md
+# temp.py
+# temp.md
 
 # Blacklist may be also disclosed and become public
 # !server/Web/secrets/blklst.txt
 # No, that's a bad idea
+
+# There I unsure what I should keep and what not - for now everything is ignored
+.github/
+.vscode/
+.venv/

@@ -7,7 +7,6 @@ user feedback or ideas for future development.
 
 ## Items that are pending for implementations:
 
-
 ### Important without category (critical before release)
 - [ ] Pause button may not work rn -- it's not but UI may bug so it can display 
 "Missing chunks" but actually it then ends successfully
@@ -15,6 +14,10 @@ user feedback or ideas for future development.
 `TLS_CHACHA20_POLY1305_SHA256`, for regular or high important secure things use 
 the default options)
 - [ ] Check the captcha implementation
+- [ ] Check HTTP->HTTPS forwarding for CDN downloads/usage
+- [ ] `http://arseniusgen.uk.to/api/v1/policy/status` fails with 
+`NS_ERROR_NET_TIMEOUT` even if client gets it (fully)
+- [ ] Client still can fail with Chunk timeout even with new retry attempts
 
 ### UI
 - [ ] Markdown parser does not understand:
@@ -98,9 +101,7 @@ on i5 8350U)
 - [ ] Make separate "testing" server where I would be able to test everything 
 before pushing to the real one
 
-
 #### Medium:
-
 
 #### Low:
 - [ ] Reduce amount of re-imports inside the code

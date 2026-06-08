@@ -1,4 +1,4 @@
-# server `v0.18.0.20`
+# server `v0.18.0.21`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -38,7 +38,7 @@ services to reach the theoretical 100 MB/s speeds. The problem is that our
 hardware is old enough to struggle at encryptions, e.g. `AES` for HTTPS. For 
 even faster speeds, we have made attempts to add the 
 `TLS_CHACHA20_POLY1305_SHA256` as secondary main hashing algorithm for HTTPS, 
-but it may fallback to `AES` and cause slower speeds
+but it may fallback to `AES` and cause slower speeds***
 
 ***For developers and testers:***
 - ***Fixed the logs duplication***
@@ -48,7 +48,7 @@ DevTools be available***
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
-- ***Checkpoint commit #2***
+- ***Checkpoint commit #3***
 
 ---
 

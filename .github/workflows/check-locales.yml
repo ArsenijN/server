@@ -1,0 +1,71 @@
+# .github/workflows/check-locales.yml
+#
+# Runs check_locales.py whenever locale JSON files or the checker script itself
+# change.  Blocks merging a PR if keys are missing, extra, or use broken ${}
+# placeholder syntax.
+#
+# The "possibly untranslated" soft warnings (identical values in both locales)
+# are printed but do NOT fail the workflow — they are informational only.
+
+name: Locale Consistency Check
+
+on:
+  push:
+    paths:
+      - "server/build/src/fluxdrop_pp/locale/**"
+      - "server/build/check_locales.py"
+      - "server/build/build_locale_bundle.py"
+  pull_request:
+    paths:
+      - "server/build/src/fluxdrop_pp/locale/**"
+      - "server/build/check_locales.py"
+      - "server/build/build_locale_bundle.py"
+
+jobs:
+  check-locales:
+    name: Validate locale files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Run locale check
+        # Exit code 1 = hard errors (missing/extra keys, broken ${} syntax)
+        # Exit code 0 = clean or soft warnings only (printed but not fatal)
+        run: |
+          python3 server/build/check_locales.py \
+            server/build/src/fluxdrop_pp/locale/
+
+      - name: Verify bundle can be regenerated
+        # Ensures build_locale_bundle.py produces valid output from the current JSONs.
+        # If this step fails, the bundle in the repo is stale or the script is broken.
+        run: |
+          python3 server/build/build_locale_bundle.py \
+            server/build/src/fluxdrop_pp/locale/ \
+            /tmp/fd_locale_bundle_ci.js
+          echo "Bundle size: $(wc -c < /tmp/fd_locale_bundle_ci.js) bytes"
+          # Verify it's valid JS (node --check does a syntax-only parse)
+          node --check /tmp/fd_locale_bundle_ci.js
+          echo "Bundle syntax OK"
+
+      - name: Check bundle is up-to-date in repo
+        # Warns if the committed fd_locale_bundle.js is out of sync with locale files.
+        # This does NOT fail the build — just informs the developer to run build.sh.
+        run: |
+          python3 server/build/build_locale_bundle.py \
+            server/build/src/fluxdrop_pp/locale/ \
+            /tmp/fd_locale_bundle_fresh.js
+          if diff -q \
+              /tmp/fd_locale_bundle_fresh.js \
+              server/build/src/fluxdrop_pp/fd_locale_bundle.js > /dev/null 2>&1; then
+            echo "✅ fd_locale_bundle.js is up-to-date."
+          else
+            echo "⚠  fd_locale_bundle.js is STALE — run build.sh to regenerate it."
+            echo "   (This is a warning, not a failure. The bundle will be rebuilt on next deploy.)"
+          fi

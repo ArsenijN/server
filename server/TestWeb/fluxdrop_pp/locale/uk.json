@@ -141,8 +141,8 @@
   "folder_button": "📁 Тека",
   "file_button": "📄 Файли",
   "logout_button": "Вихід",
-  "folder_sort_first": "📁 Folders first",
-  "folder_sort_mix": "🔀 Mixed",
+  "folder_sort_first": "📁 Теки першими",
+  "folder_sort_mix": "🔀 Впереміш",
   "move_file_explanatory": "Файл залишиться в поточній теці. Щоб також перемістити його, використайте вкладку Перемістити.",
 
   "share_allow_preview_desc": "— відвідувачі зможуть переглядати файли без необхідності завантаження",
@@ -228,6 +228,15 @@
   "file_modal_info_reading_archive": "Читання архіву…",
   "file_modal_info_heic_decode": "Декодування HEIC…",
   "file_modal_info_archive_file_table": "перегляд у режимі лише для читання",
-  "file_modal_info_fetch_pdf": "Отримання PDF…"
+  "file_modal_info_fetch_pdf": "Отримання PDF…",
+
+  "quota_of_word":         "з",
+  "file_browser_title":    "Файловий менеджер",
+  "admin_col_user":        "Користувач",
+  "admin_col_usage":       "Використання",
+  "admin_col_quota":       "Квота",
+  "username_login":        "Ім'я користувача (логін)",
+  "shares_access_count":   "{n} доступ(ів)",
+  "shares_expires_label":  "Завершується:"
   
 }

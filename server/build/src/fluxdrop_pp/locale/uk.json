@@ -141,8 +141,8 @@
   "folder_button": "📁 Тека",
   "file_button": "📄 Файли",
   "logout_button": "Вихід",
-  "folder_sort_first": "📁 Folders first",
-  "folder_sort_mix": "🔀 Mixed",
+  "folder_sort_first": "📁 Теки першими",
+  "folder_sort_mix": "🔀 Впереміш",
   "move_file_explanatory": "Файл залишиться в поточній теці. Щоб також перемістити його, використайте вкладку Перемістити.",
 
   "share_allow_preview_desc": "— відвідувачі зможуть переглядати файли без необхідності завантаження",

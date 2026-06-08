@@ -228,6 +228,15 @@
   "file_modal_info_reading_archive": "Reading archive…",
   "file_modal_info_heic_decode": "Decoding HEIC…",
   "file_modal_info_archive_file_table": "read-only preview",
-  "file_modal_info_fetch_pdf": "Fetching a PDF…"
+  "file_modal_info_fetch_pdf": "Fetching a PDF…",
+
+  "quota_of_word":         "of",
+  "file_browser_title":    "File Browser",
+  "admin_col_user":        "User",
+  "admin_col_usage":       "Usage",
+  "admin_col_quota":       "Quota",
+  "username_login":        "Username (login)",
+  "shares_access_count":   "{n} access(es)",
+  "shares_expires_label":  "Expires:"
   
 }

@@ -20,7 +20,6 @@
     <link href="/fluxdrop_pp/assets/Inter.css" rel="stylesheet">
     <link rel="stylesheet" href="/fluxdrop_pp/assets/all.min.css">
     <link rel="stylesheet" href="tailwindcss.css">
-    <link rel="stylesheet" href="/fluxdrop_pp/fd_dark.css">
 </head>
 <body class="min-h-screen flex flex-col items-center justify-start pt-8 px-4 pb-4">
     <!-- Header -->
@@ -59,6 +58,10 @@
         </div>
     </div>
     <script src="/fluxdrop_pp/script.js"></script>
+    <!-- fd_locale_bundle.js MUST be before fd_addons.js so t() is synchronous.
+         Regenerate after editing locale files:
+           python3 build_locale_bundle.py locale/ fd_locale_bundle.js -->
+    <script src="/fluxdrop_pp/fd_locale_bundle.js"></script>
     <script src="/fluxdrop_pp/fd_addons.js"></script>
 
     <!--

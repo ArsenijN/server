@@ -13,7 +13,6 @@ user feedback or ideas for future development.
 - [ ] Encryption algorithm fallbacks (for faster downloads, use the 
 `TLS_CHACHA20_POLY1305_SHA256`, for regular or high important secure things use 
 the default options)
-- [ ] Check the captcha implementation
 - [ ] Check HTTP->HTTPS forwarding for CDN downloads/usage
 - [ ] `http://arseniusgen.uk.to/api/v1/policy/status` fails with 
 `NS_ERROR_NET_TIMEOUT` even if client gets it (fully)
@@ -211,6 +210,8 @@ changes (v0.17.2.11) -- `Location` header have
 HSTS redirect, maybe caused because of the multiple 
 `_redirect_to_https_if_needed` definitions inside `server_cdn.py` or something 
 else
+
+- [x] Check the captcha implementation
 
 ---
 

@@ -38,6 +38,6 @@ deploy.env
 # No, that's a bad idea
 
 # There I unsure what I should keep and what not - for now everything is ignored
-.github/
+# .github/
 .vscode/
 .venv/

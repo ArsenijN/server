@@ -1,4 +1,4 @@
-# server `v0.18.0.22`
+# server `v0.18.0.23`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -7,31 +7,32 @@ Just backend code of my server, nothing else, anyone can use it
 
 ***Mainstream: More user comfort with FluxDrop v.19!***
 
-***We glad to release this update to the FluxDrop that fundamentally changes 
-the user expirience with FluxDrop! We worked for the past few weeks, and we 
-added a lot of features, such as:***
+***We are glad to release this new and huge update to the FluxDrop that 
+fundamentally changes the user expirience with the service! We worked on it for 
+the past few weeks, and we are added a lot of features, such as:***
 - ***Welcome screen for newbies***
 - ***New loading bars and screens, skeleton pages and modals***
-- ***Uploads are no longer fails if any chunk is missing***
+- ***Uploads that no longer fails if any chunk is missing***
 - ***Slow internet is now not a problem for your file uploads!***
 - ***Now the FluxDrop support internationalization (i18n) and will be 
 translated to more languages, including yours!***
-- ***Trash bin contents are now possible to preview***
-- ***Manage your quota usage with the new visual space analyzer util! Access it 
-via clicking the quota usage or in the profile settings***
+- ***Trash bin's folder contents are now possible to preview***
+- ***Ability to manage your quota usage with the new visual space analyzer 
+util! You can access it via clicking on the quota usage info panel or in the 
+profile settings***
 - ***Automatic dark mode is new mainstream for those who uses FluxDrop at 
 night!***
-- ***You can upload the folder or file without need to specify the upload 
+- ***You can upload the folder or file, without need to specify the upload 
 entity type!***
-- ***Fixes also was made to the "ZIP Download" for folders to patch the 
+- ***Fixes are also made to the "ZIP Download" for folders to patch the 
 problems with speeds of the ZIP streaming downloads***
 - ***You can download shared files without JS required! Access the FluxDrop 
 from 2001 PC and download your work files anywhere, at any time, for 
 anything!***
 
-***Also, in the time of the server optimizations, we bumped the download speeds 
-to mindblowing 2x times! Right now, our hardware can handle up to 40 MB/s 
-download speeds, that's 2x times faster than older code!***
+***Also, in the time of the server optimizations, we are managed to bump the 
+download speeds to the mindblowing 2x times! Right now, our hardware can handle 
+up to 40 MB/s download speeds, that's 2x times faster than the older code!***
 
 ***Important note: if you want, you can try to use HTTP endpoints of our 
 services to reach the theoretical 100 MB/s speeds. The problem is that our 
@@ -42,15 +43,19 @@ but it may fallback to `AES` and cause slower speeds***
 
 ***For developers and testers:***
 - ***Fixed the logs duplication***
-- ***Network activity bar that shows what FluxDrop does, without need in 
-DevTools be available***
+- ***Network activity bar that shows what FluxDrop does, without need in the
+DevTools to be available***
+- ***Locales are now easier to maintain with the helper script, VSCode's 
+workflow and GitHub's autocheck script***
+- ***Windows's sync script should be fixed for now, without the actual usage I 
+can't be sure***
 
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
 - ***I need to later comprehend the changes, like the fixes for the Windows's 
 build script and the thing that now the locales should be fixed + the locales 
-are now auto-builded***
+are now auto-builded with the build script***
 
 ---
 

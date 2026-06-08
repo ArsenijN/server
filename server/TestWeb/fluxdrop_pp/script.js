@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-309a285c
+// Current version of script.js is: fluxdrop-v-073e42f7
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-309a285c'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-073e42f7'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -361,7 +361,7 @@ function renderAuthControls() {
     if (authToken) {
         authControls.innerHTML = `
             <div class="flex items-center gap-3">
-                <span class="font-medium text-blue-900">${t('welcome_text')} ${currentUsername}!</span>
+                <span class="font-medium text-blue-900">Welcome, ${currentUsername}!</span>
                 <button id="profile-btn" title="Profile & Settings"
                     style="width:36px;height:36px;border-radius:50%;background:#3b82f6;border:2px solid #93c5fd;
                             color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
@@ -2870,12 +2870,12 @@ async function loadFolderSize(cell) {
 
 window.deleteItem = async function(path) {
     const disp = stripInternalPrefix(path);
-    if (!confirm(t('move_to_trash', {path: disp}))) return;
+    if (!confirm('Move to Trash: ' + disp + '?')) return;
     try {
         const res = await apiCall('/api/v1/trash', 'POST', { path });
         const days = res.retention_days || 30;
         showMessage('Moved to Trash',
-            t('moved_to_trash', {name: disp, days: days}) + '\n'
+            disp + ' was moved to Trash and will be kept for ' + days + ' days.\n'
             + 'Open Trash (🗑) to restore or permanently delete it.');
         loadDirectory(currentPath);
     } catch (err) {
@@ -3064,7 +3064,7 @@ async function _refreshTrashView() {
             const id = +btn.dataset.id;
             const row = body.querySelector(`.trash-row[data-id="${id}"]`);
             const name = row?.querySelector('div > div')?.textContent?.trim() || 'this item';
-            if (!confirm(t('perm_delete_confirm', {name: name}))) return;
+            if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
             try {
                 await apiCall(`/api/v1/trash/${id}`, 'DELETE');
                 await _refreshTrashView();
@@ -4138,7 +4138,7 @@ async function handleUploadForm(e) {
             }
         }
         drainQueue(first);
-        showMessage('Queued', t('files_queued', {n: files.length}));
+        showMessage('Queued', `${files.length} files queued. Uploading now…`);
     }
 
     // Reset the file input
@@ -4814,13 +4814,13 @@ async function openProfilePanel() {
         overlay.querySelector('#pp-quota-card').innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
                 <span style="font-size:13px;font-weight:600;color:#374151">Storage quota</span>
-                <span style="font-size:13px;color:#475569">${fmt(used)} <span style="color:#94a3b8">of</span> ${fmt(quota)}</span>
+                <span style="font-size:13px;color:#475569">${fmt(used)} <span style="color:#94a3b8">${t('quota_of_word')}</span> ${fmt(quota)}</span>
             </div>
             <div style="background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden;margin-bottom:6px">
                 <div style="height:100%;border-radius:6px;background:${barColor};width:${pct.toFixed(1)}%;transition:width .4s"></div>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center">
-                <span style="font-size:12px;color:#64748b">${t('profile_info_quota_space', {pct: pct.toFixed(1), free: fmt(quota - used), pin: pinNote})}</span>
+                <span style="font-size:12px;color:#64748b">${pct.toFixed(1)}% used — ${fmt(quota - used)} free${pinNote}</span>
                 ${pct >= 95 ? '<span style="font-size:12px;color:#ef4444;font-weight:600">⚠ Quota nearly full</span>' : ''}
             </div>`;
 
@@ -5062,7 +5062,7 @@ function _apOpenEditModal(userId, users) {
                     display:flex;align-items:center;justify-content:center">✕</button>
             </div>
             <div style="padding:20px;display:grid;gap:12px">
-                <label style="font-size:13px;font-weight:600;color:#374151">Username (login)
+                <label style="font-size:13px;font-weight:600;color:#374151">${t('username_login')}
                     <input id="ape-username" type="text" value="${escapeHtmlAttr(u.username)}"
                         style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                                border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
@@ -5484,7 +5484,7 @@ function renderShareRow(s) {
                 <span style="font-weight:600;font-size:14px">${s.is_dir ? '📁' : '📄'} ${nameEsc}</span>
                 <span style="font-size:11px;color:#94a3b8;margin-left:8px">${pathEsc}</span>
                 <div style="font-size:11px;color:#64748b;margin-top:3px">
-                    Created ${created} · ${s.access_count || 0} access(es) · Expires: ${expiryDisplay}
+                    ${t('shares_info_created')} ${created} · ${t('shares_access_count', {n: s.access_count || 0})} · ${t('shares_expires_label')} ${expiryDisplay}
                 </div>
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0;margin-left:8px">
@@ -6041,7 +6041,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-309a285c'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-073e42f7'); // replaced by build.sh — do not edit manually
 
             const stale = await Promise.any(
                 TRACKED.map(async (url) => {

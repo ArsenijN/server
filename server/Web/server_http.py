@@ -21,9 +21,10 @@ HTTP_PORT = int(os.getenv('HTTP_PORT', os.getenv('SERVER_PORT', '8080')))
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
 BLACKLIST_UPDATE_INTERVAL = 60 # seconds
 
-# Port of the CDN server HTTP listener — share links redirect there when
-# the user visits over plain HTTP (rare, but handled gracefully).
-CDN_HTTP_PORT = int(os.getenv('CDN_HTTP_PORT', '63512'))
+# Port of the CDN server HTTP listener (server_cdn.py loopback listener,
+# CDN_INTERNAL_PORT in config.py).  Must NOT default to the HTTP server's
+# own port — that would create an infinite proxy loop.
+CDN_HTTP_PORT = int(os.getenv('CDN_HTTP_PORT', '64799'))
 # PUBLIC_DOMAIN is used to build the redirect URL
 
  
@@ -63,8 +64,12 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
     try:
         with _urllib_req.urlopen(req, timeout=60) as resp:
             handler.send_response(resp.status)
+            # Forward Content-Length so the browser knows when the response
+            # ends.  Omitting it with HTTP/1.1 keep-alive causes the browser
+            # to wait for the connection to close, which manifests as
+            # NS_ERROR_NET_TIMEOUT even though data was fully delivered.
             for k, v in resp.headers.items():
-                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
+                if k.lower() not in _HOP_BY_HOP:
                     try:
                         handler.send_header(k, v)
                     except Exception:

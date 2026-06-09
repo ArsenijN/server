@@ -1,4 +1,4 @@
-# server `v0.18.0.24`
+# server `v0.18.0.25`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -10,13 +10,14 @@ Just backend code of my server, nothing else, anyone can use it
 ***We are glad to release this new and huge update to the FluxDrop that 
 fundamentally changes the user expirience with the service! We worked on it for 
 the past few weeks, and we are added a lot of features, such as:***
+- ***New domains for the users: `arseniusgen.dev` and `fluxdrop.me`***
 - ***Welcome screen for newbies***
 - ***New loading bars and screens, skeleton pages and modals***
-- ***Uploads that no longer fails if any chunk is missing***
+- ***Uploads that are no longer fails if any chunk is missing***
 - ***Slow internet is now not a problem for your file uploads!***
 - ***Now the FluxDrop support internationalization (i18n) and will be 
 translated to more languages, including yours!***
-- ***Trash bin's folder contents are now possible to preview***
+- ***Trash bin's folder contents are now possible to view and preview***
 - ***Ability to manage your quota usage with the new visual space analyzer 
 util! You can access it via clicking on the quota usage info panel or in the 
 profile settings***
@@ -53,7 +54,9 @@ can't be sure***
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
-- ***Refined the `.gitignore` and other small things***
+- ***Fixed the dark mode being broken***
+- ***small changes***
+- ***locales update***
 
 ---
 

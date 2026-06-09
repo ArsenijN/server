@@ -2270,19 +2270,31 @@ function _renderMarkdown(bodyEl, rawText) {
     // structural element: heading (#), fence (``` or ~~~), blockquote (>),
     // thematic break (--- / *** / ___), HTML tag, or a list item (-, *, +,
     // digit+dot).  Blank lines are preserved as paragraph separators.
-    const BLOCK_START = /^(\s{0,3})(#{1,6}\s|```|~~~|>|[-*_]{3,}|<\/?[a-zA-Z]|[-*+]\s|\d+[.)]\s)/;
+    // Lines that begin a Markdown block element — never soft-join with adjacent lines.
+    // '|' is included so GFM table rows are never merged, which would collapse
+    // the pipe-delimited columns and break table parsing entirely.
+    const BLOCK_START = /^(\s{0,3})(#{1,6}\s|```|~~~|>|[-*_]{3,}|<\/?[a-zA-Z]|[-*+]\s|\d+[.)]\s|\|)/;
 
     const lines  = rawText.split('\n');
     const joined = [];
+    let _inFence = false; // true while inside a fenced code block (``` or ~~~)
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const next = lines[i + 1];
+        // Toggle fence state on opening/closing ``` or ~~~ markers.
+        // Must be checked BEFORE deciding whether to join, because the
+        // fence line itself should still act as a block boundary.
+        if (/^\s{0,3}(`{3,}|~{3,})/.test(line)) _inFence = !_inFence;
         joined.push(line);
         // If this line and the next are both non-empty, non-block lines,
         // and they are separated by exactly one newline (soft wrap),
-        // replace the newline with a space by not emitting a \n between
-        // them.  We do this by marking the join point.
+        // replace the newline with a space so that editors that hard-wrap
+        // prose at column 80 don't produce staircase <br>s.
+        //
+        // NEVER join lines inside a fenced code block — line breaks are
+        // significant in source code and collapsing them corrupts the output.
         if (
+            !_inFence &&
             line.trim() !== '' &&
             next !== undefined && next.trim() !== '' &&
             !BLOCK_START.test(line) &&
@@ -2291,16 +2303,8 @@ function _renderMarkdown(bodyEl, rawText) {
             !line.endsWith('  ') &&
             !line.endsWith('\\')
         ) {
-            // Replace the upcoming \n with a space by appending directly.
-            // We do this by popping the line we just pushed, appending a
-            // space, and continuing — the next iteration will push `next`.
-            joined[joined.length - 1] = line + ' ';
-            // Skip emitting a newline: joined lines will be re-split by
-            // marked's lexer as one logical line.
-            // (We don't actually skip anything — the array join below uses
-            //  '\n', so we need a different approach: use a sentinel.)
-            // Simpler: just reassign lines[i+1] to be the merged result
-            // and leave this slot as empty so it contributes nothing.
+            // Merge: set the next slot to the joined string and blank this
+            // slot so the join('\n') produces no extra newline here.
             lines[i + 1] = line + ' ' + next;
             joined[joined.length - 1] = ''; // this slot becomes blank
         }
@@ -4643,6 +4647,10 @@ function openProfileMenu() {
 
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
     document.getElementById('pm-profile').addEventListener('click', () => { overlay.remove(); openProfilePanel(); });
+    // Quota bar → open space analyzer directly
+    document.getElementById('pm-quota-bar').style.cursor = 'pointer';
+    document.getElementById('pm-quota-bar').title = 'Click to open Space Analyzer';
+    document.getElementById('pm-quota-bar').addEventListener('click', () => { overlay.remove(); openSpaceAnalyzer(); });
     document.getElementById('pm-shares').addEventListener('click', () => { overlay.remove(); openShareManager(); });
     document.getElementById('pm-beacon').addEventListener('click', () => {
         overlay.remove();
@@ -4822,7 +4830,13 @@ async function openProfilePanel() {
             <div style="display:flex;justify-content:space-between;align-items:center">
                 <span style="font-size:12px;color:#64748b">${pct.toFixed(1)}% used — ${fmt(quota - used)} free${pinNote}</span>
                 ${pct >= 95 ? '<span style="font-size:12px;color:#ef4444;font-weight:600">⚠ Quota nearly full</span>' : ''}
-            </div>`;
+            </div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:6px;text-align:right">📊 Click to analyze space</div>`;
+        // Make quota card open space analyzer on click
+        const _qCard = overlay.querySelector('#pp-quota-card');
+        _qCard.style.cursor = 'pointer';
+        _qCard.title = 'Open Space Analyzer';
+        _qCard.addEventListener('click', () => { overlay.remove(); openSpaceAnalyzer(); });
 
         // Fill in editable fields
         overlay.querySelector('#pp-nickname').value = me.nickname || '';

@@ -8,25 +8,22 @@ user feedback or ideas for future development.
 ## Items that are pending for implementations:
 
 ### Important without category (critical before release)
-- [x] Pause button may not work rn -- it's not but UI may bug so it can display 
+- [ ] Pause button may not work rn -- it's not but UI may bug so it can display 
 "Missing chunks" but actually it then ends successfully
-- [ ] Encryption algorithm fallbacks (for faster downloads, use the 
-`TLS_CHACHA20_POLY1305_SHA256`, for regular or high important secure things use 
-the default options)
-- [ ] Check HTTP->HTTPS forwarding for CDN downloads/usage
-- [ ] `http://arseniusgen.uk.to/api/v1/policy/status` fails with 
-`NS_ERROR_NET_TIMEOUT` even if client gets it (fully)
 - [ ] Client still can fail with Chunk timeout even with new retry attempts 
 (uploads)
 - [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what -- they are caused on network switch
 
+- [ ] UI update cycle for entity causes the drop of the translation (like the 
+Folder First and Mixed button, quota pre-load modal, etc.)
+- [ ] Trash bin file preview inside folders
+
 ### UI
 - [ ] Markdown parser does not understand:
   - [ ] The tables
   - [ ] The new line inside code blocks
-- [ ] Trash bin file preview inside folders
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
@@ -214,6 +211,15 @@ HSTS redirect, maybe caused because of the multiple
 else
 
 - [x] Check the captcha implementation
+
+- [x] Encryption algorithm fallbacks (for faster downloads, use the 
+`TLS_CHACHA20_POLY1305_SHA256`, for regular or high important secure things use 
+the default options)
+- [x] Check HTTP->HTTPS forwarding for CDN downloads/usage
+- [x] `http://arseniusgen.uk.to/api/v1/policy/status` fails with 
+`NS_ERROR_NET_TIMEOUT` even if client gets it (fully)
+
+- [x] Dark theme is broken again
 
 ---
 

@@ -1,4 +1,4 @@
-# server `v0.18.0.23`
+# server `v0.18.0.24`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -53,9 +53,7 @@ can't be sure***
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
-- ***I need to later comprehend the changes, like the fixes for the Windows's 
-build script and the thing that now the locales should be fixed + the locales 
-are now auto-builded with the build script***
+- ***Refined the `.gitignore` and other small things***
 
 ---
 

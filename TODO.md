@@ -8,7 +8,7 @@ user feedback or ideas for future development.
 ## Items that are pending for implementations:
 
 ### Important without category (critical before release)
-- [ ] Pause button may not work rn -- it's not but UI may bug so it can display 
+- [x] Pause button may not work rn -- it's not but UI may bug so it can display 
 "Missing chunks" but actually it then ends successfully
 - [ ] Encryption algorithm fallbacks (for faster downloads, use the 
 `TLS_CHACHA20_POLY1305_SHA256`, for regular or high important secure things use 
@@ -16,7 +16,11 @@ the default options)
 - [ ] Check HTTP->HTTPS forwarding for CDN downloads/usage
 - [ ] `http://arseniusgen.uk.to/api/v1/policy/status` fails with 
 `NS_ERROR_NET_TIMEOUT` even if client gets it (fully)
-- [ ] Client still can fail with Chunk timeout even with new retry attempts
+- [ ] Client still can fail with Chunk timeout even with new retry attempts 
+(uploads)
+- [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
+now I can't replicate it so I don't know why and I can't give any clues when 
+that happens and after what -- they are caused on network switch
 
 ### UI
 - [ ] Markdown parser does not understand:
@@ -101,6 +105,7 @@ on i5 8350U)
 before pushing to the real one
 
 #### Medium:
+- [ ] Update the services (and exclude the entry in the `.gitignore`)
 
 #### Low:
 - [ ] Reduce amount of re-imports inside the code
@@ -143,9 +148,6 @@ since I can just remember CSS and HTML, and do that by hands)
 - [ ] Missing ZIP's files may be never displayed on client
 - [ ] Check the acceptance modal loader on slow internet when new terms will be 
 made/applied
-- [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
-now I can't replicate it so I don't know why and I can't give any clues when 
-that happens and after what
 - [ ] Dark mode auto switch
 - [ ] HSTS redirect should work correctly
 

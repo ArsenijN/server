@@ -1,0 +1,93 @@
+{
+  // .vscode/tasks.json — FluxDrop build tasks
+  //
+  // Run any task via  Ctrl+Shift+P → "Tasks: Run Task"
+  // or               Ctrl+Shift+B  (runs the default build task)
+  //
+  // The "Check Locales" task is also wired as a problem matcher so errors
+  // appear in the Problems panel (Ctrl+Shift+M) with key names underlined.
+  "version": "2.0.0",
+  "tasks": [
+
+    // ── Default build task (Ctrl+Shift+B) ────────────────────────────────────
+    {
+      "label": "Build (locales + Tailwind + sync)",
+      "type": "shell",
+      "command": "bash build.sh",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+
+    // ── Watch mode ────────────────────────────────────────────────────────────
+    {
+      "label": "Build —watch (CSS only after first sync)",
+      "type": "shell",
+      "command": "bash build.sh --watch",
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+
+    // ── Locale check only ─────────────────────────────────────────────────────
+    // Useful to run on save when editing locale JSON files.
+    // Errors show in the Problems panel via the custom problem matcher below.
+    {
+      "label": "Check Locales",
+      "type": "shell",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/server/build/check_locales.py",
+        "${workspaceFolder}/server/build/src/fluxdrop_pp/locale/"
+      ],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      // Highlight lines that start with a quoted key name, e.g.:
+      //   'missing_key'    →  'English value'
+      "problemMatcher": {
+        "owner": "check-locales",
+        "source": "locale",
+        "severity": "error",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^\\s+'([^']+)'\\s",
+          "message": 1
+        }
+      }
+    },
+
+    // ── Rebuild locale bundle only ────────────────────────────────────────────
+    {
+      "label": "Rebuild Locale Bundle",
+      "type": "shell",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/server/build/build_locale_bundle.py",
+        "${workspaceFolder}/server/build/src/fluxdrop_pp/locale/",
+        "${workspaceFolder}/server/build/src/fluxdrop_pp/fd_locale_bundle.js"
+      ],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

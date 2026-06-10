@@ -1,4 +1,4 @@
-# server `v0.18.0.25`
+# server `v0.18.0.26`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -54,9 +54,7 @@ can't be sure***
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
-- ***Fixed the dark mode being broken***
-- ***small changes***
-- ***locales update***
+- ***Backend fixes***
 
 ---
 

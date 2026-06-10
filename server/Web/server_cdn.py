@@ -165,6 +165,11 @@ ALLOWED_ORIGINS = {
     'www.arseniusgen.uk.to',
     'arsenius-gen.uk.to',
     'arsenius_gen.uk.to',
+    # New domains (2025-06)
+    'arseniusgen.dev',
+    'www.arseniusgen.dev',
+    'fluxdrop.me',
+    'www.fluxdrop.me',
     '134.249.151.95',
     # 'localhost' removed — allows any page on the visitor's machine to make
     # credentialed cross-origin requests to the server. Not needed in production.

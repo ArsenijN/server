@@ -28,8 +28,12 @@ HTTPS_PORT = int(os.getenv('HTTPS_PORT', os.getenv('SSL_PORT', os.getenv('SERVER
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
 BLACKLIST_UPDATE_INTERVAL = 60 # seconds
 
-# Port of the CDN server (server_cdn.py) — share links redirect there.
-CDN_HTTPS_PORT = int(os.getenv('CDN_HTTPS_PORT', '64800'))
+# Port of the CDN server's plain-HTTP loopback listener (server_cdn.py
+# run_internal_server).  Using the plain-HTTP port here avoids encrypting the
+# loopback leg twice: the client already has a TLS session to THIS server, and
+# a second TLS handshake to the CDN on the same machine wastes ~50% of the
+# available throughput on software AES (i3 370M has no AES-NI).
+CDN_INTERNAL_PORT = int(os.getenv('CDN_INTERNAL_PORT', '64799'))
 
 # --- File Upload Security Settings ---
 MAX_FILE_SIZE = 5 * 1024 * 1024 # 5 MB in bytes
@@ -54,19 +58,60 @@ _CDN_PROXY_PREFIXES = (
     '/CB_uploads/',
 )
 
+# ── Root-domain path rewriting ────────────────────────────────────────────
+# Maps a bare hostname to the URL subpath where the FluxDrop SPA is installed.
+# When a request arrives on one of these domains the path is rewritten
+# transparently so the app appears to live at /.  The SPA needs no JS changes:
+# _APP_BASE is derived from window.location.pathname, so it becomes '' when
+# the initial page load is at / — all navigateTo() calls then produce clean
+# /files/... URLs instead of /fluxdrop_pp/files/...
+_ROOT_DOMAIN_SUBPATH: dict[str, str] = {
+    'fluxdrop.me':         '/fluxdrop_pp',
+    'www.fluxdrop.me':     '/fluxdrop_pp',
+    'arseniusgen.dev':     '/fluxdrop_pp',
+    'www.arseniusgen.dev': '/fluxdrop_pp',
+}
+
+# Extensions that identify static assets.  Requests for these get the subpath
+# prepended and are served normally.  Everything else (/, /files/..., etc.)
+# is treated as a SPA navigation URL and receives a patched index.html.
+_STATIC_ASSET_EXTS = frozenset({
+    '.js', '.css', '.map', '.json',
+    '.svg', '.png', '.ico', '.jpg', '.jpeg', '.gif', '.webp', '.avif',
+    '.woff', '.woff2', '.ttf', '.eot', '.otf',
+    '.html', '.htm', '.txt', '.xml', '.webmanifest',
+})
+
 def _proxy_to_cdn(handler, method: str = 'GET'):
     """Forward the current request to the CDN server and stream the response back.
 
     Works for GET, POST, DELETE, OPTIONS, PUT, PATCH.
     Strips hop-by-hop headers before forwarding and before sending back.
+
+    Uses the CDN's plain-HTTP loopback port (CDN_INTERNAL_PORT) — NOT the HTTPS
+    port — so the loopback leg is unencrypted.  The TLS session already exists
+    between the real client and THIS server; adding a second TLS handshake to
+    the loopback was halving throughput on the AES-NI-less i3 370M.
     """
     _HOP_BY_HOP = frozenset({
         'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
         'te', 'trailers', 'transfer-encoding', 'upgrade',
         'host',  # we set Host ourselves
     })
+    # Strip these from the CDN's response so our end_headers() override is the
+    # single source of truth — prevents duplicate CORS/Date/Server headers.
+    _DEDUP_FROM_UPSTREAM = frozenset({
+        'access-control-allow-origin',
+        'access-control-allow-methods',
+        'access-control-allow-headers',
+        'access-control-allow-credentials',
+        'access-control-max-age',
+        'cross-origin-resource-policy',
+        'date',   # Python's BaseHTTPRequestHandler adds its own Date
+        'server', # we want only our Server header, not the CDN's
+    })
 
-    target = f"https://127.0.0.1:{CDN_HTTPS_PORT}{handler.path}"
+    target = f"http://127.0.0.1:{CDN_INTERNAL_PORT}{handler.path}"
 
     body = None
     cl = handler.headers.get('Content-Length')
@@ -83,26 +128,24 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
     # Forward the real client IP so CDN logs/blacklist work correctly
     req.add_header('X-Forwarded-For', handler.client_address[0])
 
-    # Use an SSL context that trusts the self-signed cert on the CDN
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-
     # Stream the response in chunks — never buffer the entire body.
     # This is critical for large file downloads (10-30 GB) where .read()
     # would try to hold the whole file in the server's RAM.
     _PROXY_BUF = 256 * 1024   # 256 KiB read buffer — small enough for low-RAM i3
     try:
-        with _urllib_req.urlopen(req, context=ctx, timeout=60) as resp:
+        with _urllib_req.urlopen(req, timeout=60) as resp:
             handler.send_response(resp.status)
-            _cl = resp.headers.get('Content-Length')
             for k, v in resp.headers.items():
-                if k.lower() not in _HOP_BY_HOP:
+                if k.lower() not in _HOP_BY_HOP | _DEDUP_FROM_UPSTREAM:
                     try:
                         handler.send_header(k, v)
                     except Exception:
                         pass
+            # Signal end_headers() override to skip its own CORS injection —
+            # the CDN's CORS headers are the authority for credentialed requests.
+            handler._proxying = True
             handler.end_headers()
+            handler._proxying = False
             # Stream body chunk by chunk directly to the client socket
             while True:
                 chunk = resp.read(_PROXY_BUF)
@@ -124,13 +167,15 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
         try:
             handler.send_response(e.code)
             for k, v in e.headers.items():
-                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
+                if k.lower() not in _HOP_BY_HOP | _DEDUP_FROM_UPSTREAM | {'content-length'}:
                     try:
                         handler.send_header(k, v)
                     except Exception:
                         pass
             handler.send_header('Content-Length', str(len(raw)))
+            handler._proxying = True
             handler.end_headers()
+            handler._proxying = False
             handler.wfile.write(raw)
         except Exception:
             pass
@@ -242,7 +287,15 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         Cross-Origin-Resource-Policy: cross-origin is also required for fonts and
         media loaded by pages on a different origin/scheme.
+
+        When _proxying is True (set by _proxy_to_cdn) we skip injection entirely —
+        the CDN already sent its own CORS headers and we must not duplicate them.
+        Duplicate CORS headers cause browsers to reject the response outright.
         """
+        if getattr(self, '_proxying', False):
+            super().end_headers()
+            return
+
         # Determine the file extension from the requested path so we can add
         # the extra font/media CORS hint only where needed.
         try:
@@ -289,6 +342,60 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _clean = requested_path.split('?')[0]
         if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'GET')
+
+        # ── Root-domain transparent path rewrite ──────────────────────────────
+        # fluxdrop.me/ and arseniusgen.dev/ are "root" domains that should show
+        # the app at / instead of /fluxdrop_pp/.
+        #
+        # Two cases:
+        #   Static asset (.js/.css/.svg/…) → prepend subpath and fall through to
+        #       SimpleHTTPRequestHandler so the file is found on disk.
+        #   Navigation   (/, /files/photos, any path without a known ext) →
+        #       serve index.html with <base href="{subpath}/"> patched to
+        #       <base href="/"> so relative assets resolve from root and
+        #       _APP_BASE in script.js becomes '' → clean pushState URLs.
+        #
+        # Paths already carrying the subpath (/fluxdrop_pp/script.js …) are
+        # skipped; those come from the SPA after the first load and are correct.
+        # CDN paths (/api/, /share/, …) were already handled above this block.
+        _host_bare = self.headers.get('Host', '').split(':')[0].lower()
+        _subpath   = _ROOT_DOMAIN_SUBPATH.get(_host_bare)
+        if _subpath:
+            _clean = requested_path.split('?')[0]
+            if not (_clean == _subpath or _clean.startswith(_subpath + '/')):
+                _ext = _psp.splitext(_clean)[1].lower()
+                if _ext in _STATIC_ASSET_EXTS:
+                    # Static asset: prepend subpath so SimpleHTTPRequestHandler
+                    # finds it under SERVE_DIRECTORY/fluxdrop_pp/…
+                    self.path = _subpath + requested_path
+                    # Fall through to the normal handler below.
+                else:
+                    # Navigation URL (/, /files/photos, /files …):
+                    # serve the app shell with a patched <base href="/">.
+                    _index_fs = self.translate_path(_subpath + '/index.html')
+                    try:
+                        with open(_index_fs, 'rb') as _fh:
+                            _html = _fh.read()
+                        # Single targeted replace — won't clobber any other
+                        # occurrence of the string inside the document body.
+                        _html = _html.replace(
+                            f'<base href="{_subpath}/">'.encode(),
+                            b'<base href="/">',
+                            1,
+                        )
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'text/html; charset=utf-8')
+                        self.send_header('Content-Length', str(len(_html)))
+                        # Never cache the shell — a stale version with the wrong
+                        # base href would silently break asset loading.
+                        self.send_header('Cache-Control', 'no-cache, no-store')
+                        self.end_headers()
+                        self.wfile.write(_html)
+                        return
+                    except Exception as _e:
+                        print(f'[root-domain rewrite] index.html read failed '
+                              f'({_host_bare}): {_e}')
+                        # Fall through → 404 from the normal static handler.
 
         # P11: SPA deep-link support — serve the app shell for any .../files[/...] path
         # so the browser history API can restore the correct folder on direct load or refresh.
@@ -771,6 +878,12 @@ if __name__ == "__main__":
     # TLS 1.2 ciphers (set_ciphers):
     #   ECDHE+ChaCha20 → ECDHE+AES-GCM → DHE fallbacks; no aNULL/eNULL/EXPORT.
     context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE   # server's order wins
+    # OP_PRIORITIZE_CHACHA: for TLS 1.3, OP_CIPHER_SERVER_PREFERENCE alone is
+    # not enough — OpenSSL still follows the client's preference.  This flag
+    # makes the server pick ChaCha20 whenever the client supports it,
+    # regardless of the client's advertised order.  Available Python ≥ 3.10.
+    if hasattr(ssl, 'OP_PRIORITIZE_CHACHA'):
+        context.options |= ssl.OP_PRIORITIZE_CHACHA
 
     try:
         context.set_ciphersuites(                        # TLS 1.3

@@ -7,6 +7,7 @@ import os
 import sys
 from config import SERVE_DIRECTORY, LOG_FILE_HTTP, BLACKLIST_FILE
 from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
+from config import HTTPS_PORT as _HTTPS_PORT
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 import datetime
@@ -21,13 +22,15 @@ HTTP_PORT = int(os.getenv('HTTP_PORT', os.getenv('SERVER_PORT', '8080')))
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
 BLACKLIST_UPDATE_INTERVAL = 60 # seconds
 
-# Port of the CDN server HTTP listener (server_cdn.py loopback listener,
-# CDN_INTERNAL_PORT in config.py).  Must NOT default to the HTTP server's
-# own port — that would create an infinite proxy loop.
+# Port of the CDN server's plain-HTTP loopback listener (CDN_INTERNAL_PORT).
+# Must NOT be the HTTP server's own port — that creates an infinite proxy loop.
 CDN_HTTP_PORT = int(os.getenv('CDN_HTTP_PORT', '64799'))
-# PUBLIC_DOMAIN is used to build the redirect URL
 
- 
+# Auth/API paths carry credentials — never proxy them over plaintext.
+# These are redirected 308 to HTTPS so the browser retries safely.
+# All other CDN paths (share links, status page, downloads) continue to proxy
+# so that old/embedded clients that lack TLS can still fetch public content.
+_HTTPS_REDIRECT_PREFIXES = ('/api/', '/auth/')
 
 # --- CDN reverse proxy (HTTP) ---
 _CDN_PROXY_PREFIXES = (
@@ -47,6 +50,18 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
         'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
         'te', 'trailers', 'transfer-encoding', 'upgrade', 'host',
     })
+    # Strip these from the CDN's response so our end_headers() override is the
+    # single source of truth — prevents duplicate CORS/Date/Server headers.
+    _DEDUP_FROM_UPSTREAM = frozenset({
+        'access-control-allow-origin',
+        'access-control-allow-methods',
+        'access-control-allow-headers',
+        'access-control-allow-credentials',
+        'access-control-max-age',
+        'cross-origin-resource-policy',
+        'date',
+        'server',
+    })
     _PROXY_BUF = 256 * 1024   # 256 KiB — matches the HTTPS proxy
     target = f"http://127.0.0.1:{CDN_HTTP_PORT}{handler.path}"
     body = None
@@ -64,17 +79,17 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
     try:
         with _urllib_req.urlopen(req, timeout=60) as resp:
             handler.send_response(resp.status)
-            # Forward Content-Length so the browser knows when the response
-            # ends.  Omitting it with HTTP/1.1 keep-alive causes the browser
-            # to wait for the connection to close, which manifests as
-            # NS_ERROR_NET_TIMEOUT even though data was fully delivered.
+            # Forward Content-Length so the browser knows when the response ends.
+            # Omitting it with HTTP/1.1 keep-alive causes NS_ERROR_NET_TIMEOUT.
             for k, v in resp.headers.items():
-                if k.lower() not in _HOP_BY_HOP:
+                if k.lower() not in _HOP_BY_HOP | _DEDUP_FROM_UPSTREAM:
                     try:
                         handler.send_header(k, v)
                     except Exception:
                         pass
+            handler._proxying = True
             handler.end_headers()
+            handler._proxying = False
             # Stream chunk by chunk — never buffer the full body in RAM.
             while True:
                 chunk = resp.read(_PROXY_BUF)
@@ -85,9 +100,6 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
                 except (BrokenPipeError, ConnectionResetError):
                     break
     except _urllib_err.HTTPError as e:
-        # Forward the CDN's error response with its original headers intact.
-        # Do NOT hardcode Content-Type — the CDN may have sent gzip-encoded
-        # content, and dropping Content-Encoding causes garbled browser output.
         try:
             raw = e.read() or b''
         except Exception:
@@ -95,13 +107,15 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
         try:
             handler.send_response(e.code)
             for k, v in e.headers.items():
-                if k.lower() not in _HOP_BY_HOP | {'content-length'}:
+                if k.lower() not in _HOP_BY_HOP | _DEDUP_FROM_UPSTREAM | {'content-length'}:
                     try:
                         handler.send_header(k, v)
                     except Exception:
                         pass
             handler.send_header('Content-Length', str(len(raw)))
+            handler._proxying = True
             handler.end_headers()
+            handler._proxying = False
             handler.wfile.write(raw)
         except Exception:
             pass
@@ -145,8 +159,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         """Inject CORS headers on every response so font files and API assets
         are accessible cross-origin (e.g. HTTP page loading subresources).
-        Mirrors the override in server_https.py.
+
+        When _proxying is True (set by _proxy_to_cdn_http) we skip injection —
+        the CDN already sent its own CORS headers; duplicates break browsers.
         """
+        if getattr(self, '_proxying', False):
+            super().end_headers()
+            return
         try:
             _ext = _psp.splitext(self.path.split('?')[0])[1].lower()
         except Exception:
@@ -198,6 +217,23 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         client_ip = self.client_address[0]
         requested_path = self.path
         print(f"Request from: {client_ip} -> {requested_path}")
+
+        # --- Redirect auth/API to HTTPS — never proxy credentials in plaintext ---
+        # /auth/ and /api/ carry session tokens and passwords; sending them over
+        # plain HTTP exposes them to anyone on the network path.  We 308-redirect
+        # instead of blocking so the browser retries the exact request over TLS.
+        # 308 preserves the HTTP method (POST stays POST, unlike 301/302).
+        _clean = requested_path.split('?')[0]
+        if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _HTTPS_REDIRECT_PREFIXES):
+            _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+            _location = f'https://{_PUBLIC_DOMAIN}{_port_suffix}{requested_path}'
+            self.send_response(308)
+            self.send_header('Location', _location)
+            self.send_header('Content-Length', '0')
+            # HSTS nudge so the browser remembers to use HTTPS next time
+            self.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+            self.end_headers()
+            return
 
         # --- Proxy CDN-owned paths to server_cdn.py internally ---
         _clean = requested_path.split('?')[0]
@@ -487,6 +523,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(403, "Access Denied")
                 return
         _p = self.path.split('?')[0]
+        if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
+            _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+            self.send_response(308)
+            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
+            self.send_header('Content-Length', '0')
+            self.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+            self.end_headers()
+            return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn_http(self, 'POST')
         # Speed-test upload endpoint
@@ -517,6 +561,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         _p = self.path.split('?')[0]
+        if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
+            _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+            self.send_response(308)
+            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn_http(self, 'DELETE')
         self.send_response(405)
@@ -525,6 +576,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_PUT(self):
         _p = self.path.split('?')[0]
+        if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
+            _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+            self.send_response(308)
+            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn_http(self, 'PUT')
         self.send_response(405)
@@ -533,6 +591,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_PATCH(self):
         _p = self.path.split('?')[0]
+        if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
+            _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+            self.send_response(308)
+            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn_http(self, 'PATCH')
         self.send_response(405)

@@ -297,6 +297,10 @@
   "welcomer_tip2": "This tour won't show again — you can always re-read the",
   "welcomer_tip3": "and",
   "welcomer_tip4": "from the footer.",
-  "welcomer_btn": "Get started →"
+  "welcomer_btn": "Get started →",
+
+  "placeholder_username": "Username (for login)",
+  "placeholder_nickname": "Nickname (publicly visible)",
+  "placeholder_email": "Email Address"
   
 }

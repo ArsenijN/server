@@ -66,10 +66,10 @@ _CDN_PROXY_PREFIXES = (
 # the initial page load is at / — all navigateTo() calls then produce clean
 # /files/... URLs instead of /fluxdrop_pp/files/...
 _ROOT_DOMAIN_SUBPATH: dict[str, str] = {
-    'fluxdrop.me':         '/fluxdrop_pp',
-    'www.fluxdrop.me':     '/fluxdrop_pp',
-    'arseniusgen.dev':     '/fluxdrop_pp',
-    'www.arseniusgen.dev': '/fluxdrop_pp',
+    'fluxdrop.me':     '/fluxdrop_pp',
+    'www.fluxdrop.me': '/fluxdrop_pp',
+    # arseniusgen.dev intentionally excluded — behaves like arseniusgen.uk.to
+    # (user navigates to /fluxdrop_pp/ explicitly on that domain).
 }
 
 # Extensions that identify static assets.  Requests for these get the subpath
@@ -344,8 +344,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return _proxy_to_cdn(self, 'GET')
 
         # ── Root-domain transparent path rewrite ──────────────────────────────
-        # fluxdrop.me/ and arseniusgen.dev/ are "root" domains that should show
-        # the app at / instead of /fluxdrop_pp/.
+        # fluxdrop.me is a "root" domain that should show the app at / instead
+        # of /fluxdrop_pp/.  arseniusgen.dev and arseniusgen.uk.to keep the
+        # normal /fluxdrop_pp/ subpath behaviour.
         #
         # Two cases:
         #   Static asset (.js/.css/.svg/…) → prepend subpath and fall through to
@@ -537,6 +538,22 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_HEAD(self):
         client_ip = self.client_address[0]
         requested_path = self.path
+
+        # ── Root-domain rewrite (mirrors do_GET) ──────────────────────────────
+        # The service worker issues HEAD requests to check cache freshness for
+        # URLs it cached under _APP_BASE = '' paths (e.g. HEAD /script.js).
+        # Without this rewrite those 404 because the file is at /fluxdrop_pp/.
+        # Only static assets are rewritten here; for navigation paths we just
+        # fall through — the SW never HEADs navigation URLs in practice.
+        _host_bare = self.headers.get('Host', '').split(':')[0].lower()
+        _subpath   = _ROOT_DOMAIN_SUBPATH.get(_host_bare)
+        if _subpath:
+            _clean = requested_path.split('?')[0]
+            if not (_clean == _subpath or _clean.startswith(_subpath + '/')):
+                _ext = _psp.splitext(_clean)[1].lower()
+                if _ext in _STATIC_ASSET_EXTS:
+                    self.path = _subpath + requested_path
+
         with blacklist_lock:
             if client_ip in current_blacklist:
                 self.send_response(403)

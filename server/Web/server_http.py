@@ -32,6 +32,12 @@ CDN_HTTP_PORT = int(os.getenv('CDN_HTTP_PORT', '64799'))
 # so that old/embedded clients that lack TLS can still fetch public content.
 _HTTPS_REDIRECT_PREFIXES = ('/api/', '/auth/')
 
+# Root domains whose non-CDN HTTP traffic should be silently upgraded to HTTPS.
+# fluxdrop.me/.me TLD supports HTTP so we need to handle it here.
+# arseniusgen.dev is intentionally omitted — .dev TLD enforces HTTPS at the
+# HSTS preload list level, so the browser never sends plain HTTP to that domain.
+_ROOT_HTTPS_DOMAINS = frozenset({'fluxdrop.me', 'www.fluxdrop.me'})
+
 # --- CDN reverse proxy (HTTP) ---
 _CDN_PROXY_PREFIXES = (
     '/api/',
@@ -217,6 +223,29 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         client_ip = self.client_address[0]
         requested_path = self.path
         print(f"Request from: {client_ip} -> {requested_path}")
+
+        # --- Root-domain: upgrade all non-CDN HTTP traffic to HTTPS ──────────
+        # fluxdrop.me has a root-domain SPA rewrite on the HTTPS side.  There is
+        # no value serving the app shell over plain HTTP; redirect everything that
+        # is not a CDN proxy path (share links, status, downloads — these are kept
+        # on HTTP so old/embedded clients without TLS can still reach them).
+        _host_bare = self.headers.get('Host', '').split(':')[0].lower()
+        if _host_bare in _ROOT_HTTPS_DOMAINS:
+            _clean_rd = requested_path.split('?')[0]
+            _is_cdn   = any(
+                _clean_rd == p.rstrip('/') or _clean_rd.startswith(p)
+                for p in _CDN_PROXY_PREFIXES
+            )
+            if not _is_cdn:
+                _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+                self.send_response(308)
+                self.send_header('Location',
+                                 f'https://{_host_bare}{_port_suffix}{requested_path}')
+                self.send_header('Content-Length', '0')
+                self.send_header('Strict-Transport-Security',
+                                 'max-age=300; includeSubDomains')
+                self.end_headers()
+                return
 
         # --- Redirect auth/API to HTTPS — never proxy credentials in plaintext ---
         # /auth/ and /api/ carry session tokens and passwords; sending them over
@@ -459,70 +488,22 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers = old_end_headers
 
     def do_POST(self):
-        """
-        Handles POST requests with CORS support.
-        Useful for upload functionality in the speed test.
-        """
-        client_ip = self.client_address[0]
-        requested_path = self.path
-        print(f"POST request from: {client_ip} -> {requested_path}")
-
-        with blacklist_lock:
-            if client_ip in current_blacklist:
-                print(f"BLOCKED: {client_ip} - Access Denied")
-                self.send_error(403, "Access Denied")
-                return
-
-        # Handle upload endpoint for speed test
-        if requested_path.startswith('/upload'):
-            try:
-                content_length = int(self.headers.get('Content-Length', 0))
-                if content_length > 0:
-                    # Read the uploaded data (but don't save it, just consume it)
-                    post_data = self.rfile.read(content_length)
-                    print(f"Received upload: {len(post_data)} bytes")
-                
-                # Send successful response
-                self.send_response(200)
-                self.send_header("Content-type", "application/json")
-                self.add_cors_headers()
-                self.end_headers()
-                response = '{"status": "success", "message": "Upload completed"}'
-                self.wfile.write(response.encode('utf-8'))
-                return
-            except Exception as e:
-                print(f"Error handling upload: {e}")
-                self.send_response(500)
-                self.send_header("Content-type", "application/json")
-                self.add_cors_headers()
-                self.end_headers()
-                response = '{"status": "error", "message": "Upload failed"}'
-                self.wfile.write(response.encode('utf-8'))
-                return
-
-        # Handle ping endpoint for latency test
-        if requested_path.startswith('/ping'):
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.add_cors_headers()
-            self.end_headers()
-            self.wfile.write(b"pong")
-            return
-
-        # Default POST handling
-        self.send_response(405)  # Method Not Allowed
-        self.send_header("Content-type", "text/html")
-        self.add_cors_headers()
-        self.end_headers()
-        self.wfile.write(b"<h1>405 Method Not Allowed</h1>")
-
-    def do_POST(self):
         client_ip = self.client_address[0]
         with blacklist_lock:
             if client_ip in current_blacklist:
                 self.send_error(403, "Access Denied")
                 return
         _p = self.path.split('?')[0]
+        # Root-domain upgrade: fluxdrop.me non-CDN POST → HTTPS
+        _host_bare = self.headers.get('Host', '').split(':')[0].lower()
+        if _host_bare in _ROOT_HTTPS_DOMAINS:
+            if not any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
+                _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+                self.send_response(308)
+                self.send_header('Location', f'https://{_host_bare}{_port_suffix}{self.path}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)
@@ -561,6 +542,15 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         _p = self.path.split('?')[0]
+        _host_bare = self.headers.get('Host', '').split(':')[0].lower()
+        if _host_bare in _ROOT_HTTPS_DOMAINS:
+            if not any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
+                _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+                self.send_response(308)
+                self.send_header('Location', f'https://{_host_bare}{_port_suffix}{self.path}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)
@@ -576,6 +566,15 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_PUT(self):
         _p = self.path.split('?')[0]
+        _host_bare = self.headers.get('Host', '').split(':')[0].lower()
+        if _host_bare in _ROOT_HTTPS_DOMAINS:
+            if not any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
+                _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+                self.send_response(308)
+                self.send_header('Location', f'https://{_host_bare}{_port_suffix}{self.path}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)
@@ -591,6 +590,15 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_PATCH(self):
         _p = self.path.split('?')[0]
+        _host_bare = self.headers.get('Host', '').split(':')[0].lower()
+        if _host_bare in _ROOT_HTTPS_DOMAINS:
+            if not any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
+                _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+                self.send_response(308)
+                self.send_header('Location', f'https://{_host_bare}{_port_suffix}{self.path}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)

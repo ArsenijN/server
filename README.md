@@ -1,4 +1,4 @@
-# server `v0.18.0.27`
+# server `v0.18.0.28`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -54,9 +54,7 @@ can't be sure***
 ***Regressions: none?***
 
 *Patch notes: **Changelog: fixes:***
-- ***fixed `fluxdrop.me` handler to resolve it's root as the base for FluxDrop 
-(same as the `arseniusgen.dev/fluxdrop_pp`)***
-- ***dedup the def in `http` hoster***
+- ***Attempts to improve the UI, commit as checkpoint #1***
 
 ---
 

@@ -271,3 +271,120 @@
 @keyframes fd-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── Mobile responsiveness ──────────────────────────────────────────────────── */
+
+/* Page-level padding reduction */
+@media (max-width: 600px) {
+  body {
+    padding-top: 0.75rem !important;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+
+  /* Header: stack vertically on very small screens */
+  body > header {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 0.75rem;
+  }
+
+  body > header h1 {
+    font-size: 1.5rem;
+  }
+
+  /* Card: less padding on mobile */
+  .card {
+    padding: 1rem !important;
+    border-radius: 1rem !important;
+  }
+
+  /* Modal content: full-width */
+  .modal-content {
+    width: 96% !important;
+    padding: 1.25rem !important;
+  }
+
+  /* Preview modal: full screen on mobile */
+  #preview-modal .preview-modal-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    border-radius: 0 !important;
+    max-height: 100dvh !important;
+  }
+
+  /* File list rows: stack name + actions */
+  .fd-file-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .fd-file-row .fd-file-actions {
+    flex-wrap: wrap;
+  }
+
+  /* Profile menu panel: near full width */
+  #profile-menu-panel {
+    min-width: unset !important;
+    width: calc(100vw - 1.5rem) !important;
+  }
+  #profile-menu-modal {
+    padding: 60px 0.75rem 0 0 !important;
+    justify-content: flex-end !important;
+  }
+
+  /* Auth controls: smaller buttons */
+  #auth-controls .btn {
+    padding: 0.5rem 0.85rem !important;
+    font-size: 13px !important;
+  }
+
+  /* Upload form: stack on mobile */
+  #upload-form {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  #upload-form input[type="file"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  #upload-form .btn {
+    width: 100% !important;
+  }
+  #upload-form label {
+    align-self: flex-start;
+  }
+
+  /* Space analyzer modal */
+  .fd-sa-name {
+    max-width: 130px;
+  }
+}
+
+/* Slightly more breathing room on medium screens (tablets) */
+@media (max-width: 768px) {
+  .card {
+    padding: 1.25rem !important;
+  }
+
+  /* File browser toolbar wraps neatly */
+  #app-root .card > div:first-child {
+    row-gap: 8px;
+  }
+}
+
+/* ── Markdown list markers ───────────────────────────────────────────────────── */
+/*
+ * Ensures <li> elements inside _mdToHtml output always show their bullet/number
+ * even when Tailwind's preflight resets list-style to none.
+ */
+.fd-md-body ul,
+.fd-md-body ol {
+  list-style: revert;
+  padding-left: 1.6em;
+  margin: 0.4em 0;
+}
+.fd-md-body li {
+  list-style: revert;
+  margin-bottom: 0.25em;
+}

@@ -19,6 +19,7 @@ that happens and after what -- they are caused on network switch
 - [ ] UI update cycle for entity causes the drop of the translation (like the 
 Folder First and Mixed button, quota pre-load modal, etc.)
 - [ ] Trash bin file preview inside folders
+- [ ] `https` static hoster stops working after some time (no )
 
 ### UI
 - [ ] Markdown parser does not understand:

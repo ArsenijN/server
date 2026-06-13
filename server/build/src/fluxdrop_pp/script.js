@@ -361,7 +361,7 @@ function renderAuthControls() {
     if (authToken) {
         authControls.innerHTML = `
             <div class="flex items-center gap-3">
-                <span class="font-medium text-blue-900">Welcome, ${currentUsername}!</span>
+                <span class="font-medium text-blue-900">${t('welcome_text')} ${currentUsername}!</span>
                 <button id="profile-btn" title="Profile & Settings"
                     style="width:36px;height:36px;border-radius:50%;background:#3b82f6;border:2px solid #93c5fd;
                             color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
@@ -376,8 +376,8 @@ function renderAuthControls() {
     } else {
         authControls.innerHTML = `
             <div class="flex items-center gap-4">
-                <button id="show-login-btn" class="btn text-sm">Login</button>
-                <button id="show-register-btn" class="btn bg-green-500 hover:bg-green-600 text-sm">Register</button>
+                <button id="show-login-btn" class="btn text-sm">${t('login')}</button>
+                <button id="show-register-btn" class="btn bg-green-500 hover:bg-green-600 text-sm">${t('register')}</button>
             </div>
         `;
         document.getElementById('show-login-btn').addEventListener('click', () => renderApp('login'));
@@ -416,30 +416,28 @@ function renderLandingView() {
             <div class="card" style="text-align:center;padding:3rem 2rem">
                 <img src="icon.svg" style="width:72px;height:72px;margin:0 auto 1rem" alt="FluxDrop">
                 <h2 style="font-size:2.2rem;font-weight:800;color:#1e40af;margin-bottom:.75rem">
-                    Your files. Your server. Your rules.
+                    ${t('home_slogan')}
                 </h2>
                 <p style="font-size:1.1rem;color:#475569;max-width:560px;margin:0 auto 2rem;line-height:1.7">
-                    FluxDrop is a self-hosted file storage and sharing platform.
-                    Upload, organise, preview, and share files — straight from your
-                    own infrastructure, with full privacy and no third-party cloud.
+                    ${t('home_slogan_desc1')}
+                    ${t('home_slogan_desc2')}
                 </p>
                 <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
                     <button class="btn" style="font-size:1rem;padding:0.85rem 2rem"
-                            onclick="renderApp('login')">Login</button>
+                            onclick="renderApp('login')">${t('login')}</button>
                     <button class="btn" style="font-size:1rem;padding:0.85rem 2rem;background:#16a34a"
-                            onclick="renderApp('register')">Create account</button>
+                            onclick="renderApp('register')">${t('home_create_account')}</button>
                 </div>
             </div>
 
-            <!-- Feature grid -->
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.25rem">
                 ${[
-                    ['📁', 'Organised storage', 'Nested folders, drag-and-drop uploads, and a full file browser keep your files exactly where you expect them.'],
-                    ['🔗', 'Instant sharing', 'Generate a public link for any file or folder in one click. Set expiry dates, restrict to accounts, or allow anonymous uploads.'],
-                    ['👁', 'Built-in previews', 'Images, video, audio, and text files open in a sleek in-app viewer — no extra app needed.'],
-                    ['⚡', 'Chunked uploads', 'Large files are uploaded in resumable chunks. Lose your connection? Pick up right where you left off.'],
-                    ['🗑', 'Trash bin', 'Deleted files land in a recoverable trash bin and are held for 30 days before permanent removal.'],
-                    ['🔒', 'Your data, your server', 'Nothing leaves your infrastructure. No analytics, no ads, no third-party data sharing.'],
+                    ['📁', t('home_card_lable1'), t('home_card_desc1')],
+                    ['🔗', t('home_card_lable2'), t('home_card_desc2')],
+                    ['👁', t('home_card_lable3'), t('home_card_desc3')],
+                    ['⚡', t('home_card_lable4'), t('home_card_desc4')],
+                    ['🗑', t('home_card_lable5'), t('home_card_desc5')],
+                    ['🔒', t('home_card_lable6'), t('home_card_desc6')],
                 ].map(([icon, title, desc]) => `
                     <div class="card" style="padding:1.5rem">
                         <div style="font-size:2rem;margin-bottom:.5rem">${icon}</div>
@@ -452,14 +450,14 @@ function renderLandingView() {
             <!-- How it works -->
             <div class="card" style="padding:2rem">
                 <h3 style="font-size:1.4rem;font-weight:700;color:#1e40af;margin-bottom:1.25rem;text-align:center">
-                    How it works
+                    ${t('home_card_lable_desc')}
                 </h3>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;text-align:center">
                     ${[
-                        ['1', 'Create an account', 'Register with a username and email.'],
-                        ['2', 'Upload your files', 'Drag files in, or use the upload button. Folders work too.'],
-                        ['3', 'Organise freely', 'Create folders, rename, and move things around.'],
-                        ['4', 'Share with anyone', 'Generate a link and send it. Set permissions as you like.'],
+                        ['1', t('home_card_lable7'), t('home_card_desc7')],
+                        ['2', t('home_card_lable8'), t('home_card_desc8')],
+                        ['3', t('home_card_lable9'), t('home_card_desc9')],
+                        ['4', t('home_card_lable10'), t('home_card_desc10')],
                     ].map(([n, title, desc]) => `
                         <div>
                             <div style="width:40px;height:40px;border-radius:50%;background:#dbeafe;color:#1d4ed8;
@@ -476,11 +474,11 @@ function renderLandingView() {
             <div style="text-align:center;padding-bottom:1rem;font-size:.85rem;color:#94a3b8">
                 <button onclick="showPolicyModal('tos')"
                     style="background:none;border:none;color:#94a3b8;cursor:pointer;text-decoration:underline;font-size:.85rem">
-                    Terms of Service</button>
+                    ${t('footer_tos')}</button>
                 &nbsp;·&nbsp;
                 <button onclick="showPolicyModal('pp')"
                     style="background:none;border:none;color:#94a3b8;cursor:pointer;text-decoration:underline;font-size:.85rem">
-                    Privacy Policy</button>
+                    ${t('footer_pp')}</button>
             </div>
         </div>
     `;
@@ -568,7 +566,7 @@ async function showPolicyModal(type) {
                 <button id="pm-close" style="background:none;border:none;font-size:1.4rem;
                         cursor:pointer;color:#64748b;line-height:1">✕</button>
             </div>
-            <div id="pm-body" style="padding:1.5rem;overflow-y:auto;flex:1;
+            <div id="pm-body" class="fd-md-body" style="padding:1.5rem;overflow-y:auto;flex:1;
                                      font-size:.93rem;line-height:1.7;color:#1e293b">
                 <div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>
             </div>
@@ -613,13 +611,21 @@ function _mdToHtml(md) {
         .replace(/^### (.+)$/gm, '<h3 style="font-size:1rem;font-weight:700;color:#1e40af;margin:1.2em 0 .3em">$1</h3>')
         .replace(/^## (.+)$/gm,  '<h2 style="font-size:1.15rem;font-weight:700;color:#1e40af;margin:1.4em 0 .4em">$1</h2>')
         .replace(/^# (.+)$/gm,   '<h1 style="font-size:1.35rem;font-weight:800;color:#1e40af;margin:1.5em 0 .5em">$1</h1>')
-        // bold / italic
+        // bold+italic (*** or ___) — must come BEFORE bold and italic
+        .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+        .replace(/___(.+?)___/g,        '<strong><em>$1</em></strong>')
+        // bold (** or __)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__(.+?)__/g,      '<strong>$1</strong>')
+        // italic (* or _)
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        // unordered list items
-        .replace(/^[-*] (.+)$/gm, '<li style="margin-left:1.25em;margin-bottom:.25em">$1</li>')
+        .replace(/_(.+?)_/g,    '<em>$1</em>')
+        // unordered list items (- or *)
+        .replace(/^[-*] (.+)$/gm, '<li style="margin-left:1.5em;margin-bottom:.3em;list-style-type:disc">$1</li>')
         // ordered list items
-        .replace(/^\d+\. (.+)$/gm, '<li style="margin-left:1.25em;margin-bottom:.25em">$1</li>')
+        .replace(/^\d+\. (.+)$/gm, '<li style="margin-left:1.5em;margin-bottom:.3em;list-style-type:decimal">$1</li>')
+        // wrap consecutive <li> runs in <ul>/<ol> so bullets actually render
+        .replace(/((?:<li[^>]*>.*?<\/li>\n?)+)/g, '<ul style="margin:.4em 0;padding-left:.5em">$1</ul>')
         // blank lines → paragraph breaks
         .replace(/\n{2,}/g, '</p><p style="margin:.6em 0">')
         .replace(/\n/g, '<br>');
@@ -710,7 +716,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
                     </p>
                 </div>
             </div>
-            <div id="pam-body" style="padding:1.5rem;overflow-y:auto;flex:1;
+            <div id="pam-body" class="fd-md-body" style="padding:1.5rem;overflow-y:auto;flex:1;
                                       font-size:.92rem;line-height:1.7;color:#1e293b">
                 <div id="pam-skeleton" style="padding:.5rem 0">
                     ${Array.from({length: 18}, (_, i) => {
@@ -860,39 +866,39 @@ function renderFileBrowserView() {
     // Simple file browser UI: listing, upload, create folder, rename, delete, preview
     appRoot.innerHTML = `
         <div class="card" style="min-height:520px">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-2xl font-semibold text-blue-800">File Browser</h2>
-                <div class="flex gap-2">
-                    <button id="btn-up" class="btn bg-gray-300 text-black text-sm">Up</button>
-                    <button id="btn-refresh" class="btn text-sm">Refresh</button>
-                    <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm">New Folder</button>
-                    <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm">Browse CDN</button>
-                    <button id="btn-trash" class="btn text-sm" style="background:#dc2626;color:#fff" title="Trash bin">🗑 Trash</button>
-                    <button id="btn-folders-mixed" class="btn text-sm" title="Toggle folders-first vs mixed sorting"></button>
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
+                <h2 class="text-2xl font-semibold text-blue-800" style="flex-shrink:0">${t('file_browser_title')}</h2>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+                    <button id="btn-up" class="btn bg-gray-300 text-black text-sm" style="padding:.45rem .9rem">${t('up')}</button>
+                    <button id="btn-refresh" class="btn text-sm" style="padding:.45rem .9rem">${t('refresh')}</button>
+                    <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm" style="padding:.45rem .9rem">${t('create_a_folder')}</button>
+                    <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm" style="padding:.45rem .9rem">${t('browse_cdn')}</button>
+                    <button id="btn-trash" class="btn text-sm" style="background:#dc2626;color:#fff;padding:.45rem .9rem" title="${t('trash_title')}">${t('trash_bin_button')}</button>
+                    <button id="btn-folders-mixed" class="btn text-sm" style="padding:.45rem .9rem" title="${t('folder_sort_first')}"></button>
                 </div>
             </div>
 
             <div id="path-breadcrumb" class="text-sm text-gray-600 mb-4"></div>
 
             <div class="mb-4">
-                <form id="upload-form" class="flex gap-2 items-center flex-wrap">
-                    <input type="file" id="upload-file" class="p-2 border rounded" multiple />
+                <form id="upload-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;row-gap:6px">
+                    <input type="file" id="upload-file" class="p-2 border rounded" multiple style="min-width:0;flex:1 1 160px;max-width:100%" />
                     <button type="button" id="btn-folder-toggle" class="btn text-sm"
-                        style="background:#0ea5e9" title="Switch to folder upload mode">📁 Folder</button>
-                    <label class="text-sm"><input type="checkbox" id="upload-protected" /> Protected</label>
-                    <button class="btn" id="btn-upload-submit" type="submit">Upload</button>
+                        style="background:#0ea5e9;flex-shrink:0" title="${t('folder_mode')}">${t('folder_button')}</button>
+                    <label class="text-sm" style="flex-shrink:0;white-space:nowrap"><input type="checkbox" id="upload-protected" /> ${t('protected')}</label>
+                    <button class="btn" id="btn-upload-submit" type="submit" style="flex-shrink:0">${t('upload')}</button>
                     <span id="upload-spinner" style="display:none;font-size:18px;animation:spin 0.8s linear infinite">⏳</span>
                     <button type="button" id="btn-show-queue"
                         class="btn text-sm hidden"
-                        style="background:#6366f1"
-                        title="View upload queue">
-                        📋 Queue (<span id="queue-count">0</span>)
+                        style="background:#6366f1;flex-shrink:0"
+                        title="${t('upload_queue')}">
+                        📋 ${t('upload_queue')} (<span id="queue-count">0</span>)
                     </button>
                     <button type="button" id="btn-resume-interrupted"
                         class="btn text-sm hidden"
-                        style="background:#f59e0b"
-                        title="Manage interrupted uploads">
-                        ⟳ Interrupted (<span id="interrupted-count">0</span>)
+                        style="background:#f59e0b;flex-shrink:0"
+                        title="${t('interrupted')}">
+                        ⟳ ${t('interrupted')} (<span id="interrupted-count">0</span>)
                     </button>
                 </form>
             </div>
@@ -917,7 +923,7 @@ function renderFileBrowserView() {
     function updateFoldersMixedBtn() {
         const btn = document.getElementById('btn-folders-mixed');
         if (!btn) return;
-        btn.textContent = sortFoldersMixed ? '🔀 Mixed' : '📁 Folders first';
+        btn.textContent = sortFoldersMixed ? t('folder_sort_mix') : t('folder_sort_first');
         btn.style.background = sortFoldersMixed ? '#6b7280' : '#0ea5e9';
     }
     updateFoldersMixedBtn();
@@ -939,16 +945,16 @@ function renderFileBrowserView() {
             _fileInput.setAttribute('webkitdirectory', '');
             _fileInput.setAttribute('mozdirectory', '');
             _fileInput.removeAttribute('multiple');
-            _folderBtn.textContent = '📄 Files';
+            _folderBtn.textContent = t('file_button');
             _folderBtn.style.background = '#6366f1';
-            _folderBtn.title = 'Switch back to file upload mode';
+            _folderBtn.title = t('files_mode');
         } else {
             _fileInput.removeAttribute('webkitdirectory');
             _fileInput.removeAttribute('mozdirectory');
             _fileInput.setAttribute('multiple', '');
-            _folderBtn.textContent = '📁 Folder';
+            _folderBtn.textContent = t('folder_button');
             _folderBtn.style.background = '#0ea5e9';
-            _folderBtn.title = 'Switch to folder upload mode';
+            _folderBtn.title = t('folder_mode');
         }
         _fileInput.value = '';
     });
@@ -2262,6 +2268,7 @@ function _loadMarked() {
 // - Sanitises every HTML tag that marked emits using a strict allowlist so
 //   user-uploaded .md files cannot inject scripts even without a CSP.
 function _renderMarkdown(bodyEl, rawText) {
+    bodyEl.classList.add('fd-md-body');
     // Pre-process: join soft-wrapped lines (single bare \n between two
     // non-empty, non-block lines) into a single space so that editors
     // that hard-wrap prose at column 80 don't produce staircase <br>s.
@@ -4612,28 +4619,28 @@ function openProfileMenu() {
     overlay.id = 'profile-menu-modal';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:8000;display:flex;align-items:flex-start;justify-content:flex-end;padding:70px 1rem 0 0';
     overlay.innerHTML = `
-        <div id="profile-menu-panel" style="background:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.18);min-width:260px;overflow:hidden;animation:fadeSlideDown .15s ease">
-            <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:18px 20px;display:flex;align-items:center;gap:12px">
+        <div id="profile-menu-panel" data-fd-dark="surface" style="background:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.18);min-width:260px;overflow:hidden;animation:fadeSlideDown .15s ease">
+            <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:18px 20px;display:flex;align-items:center;gap:12px" data-fd-dark="header">
                 <div style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:22px">👤</div>
                 <div>
                     <div style="color:white;font-weight:700;font-size:15px">${currentUsername}</div>
-                    <div style="color:rgba(255,255,255,0.75);font-size:12px">FluxDrop account</div>
+                    <div style="color:rgba(255,255,255,0.75);font-size:12px">${t('menu_account_info_fluxdrop')}</div>
                 </div>
             </div>
-            <div id="pm-quota-bar" style="padding:10px 16px 6px;border-bottom:1px solid #f1f5f9">
-                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Storage — loading…</div>
+            <div id="pm-quota-bar" style="padding:10px 16px 6px;border-bottom:1px solid var(--fd-border,#e2e8f0)">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">${t('menu_account_info_storage_loading')}</div>
                 <div style="background:#e2e8f0;border-radius:4px;height:5px;overflow:hidden">
                     <div id="pm-quota-fill" style="height:100%;border-radius:4px;background:#3b82f6;width:0%;transition:width .4s"></div>
                 </div>
             </div>
             <div style="padding:8px 0">
-                <button class="profile-menu-item" id="pm-profile">👤 My Profile</button>
-                <button class="profile-menu-item" id="pm-shares">🔗 Shared Links</button>
-                <button class="profile-menu-item" id="pm-beacon">📡 IP Beacon</button>
-                <button class="profile-menu-item" id="pm-status">⚡ Server Status</button>
-                <div style="height:1px;background:#f1f5f9;margin:4px 0"></div>
-                ${isAdmin ? '<button class="profile-menu-item" id="pm-admin">⚙️ Admin Panel</button>' : ''}
-                <button class="profile-menu-item" id="pm-logout" style="color:#ef4444">🚪 Logout</button>
+                <button class="profile-menu-item" id="pm-profile">${t('menu_account_info_profile')}</button>
+                <button class="profile-menu-item" id="pm-shares">${t('menu_account_info_links')}</button>
+                <button class="profile-menu-item" id="pm-beacon">${t('menu_account_info_ip_beacon')}</button>
+                <button class="profile-menu-item" id="pm-status">${t('menu_account_info_status')}</button>
+                <div style="height:1px;background:var(--fd-border,#f1f5f9);margin:4px 0"></div>
+                ${isAdmin ? `<button class="profile-menu-item" id="pm-admin">${t('menu_account_info_admin_panel')}</button>` : ''}
+                <button class="profile-menu-item" id="pm-logout" style="color:#ef4444">${t('menu_account_info_logout')}</button>
             </div>
         </div>`;
     // Inject menu-item style
@@ -4679,12 +4686,12 @@ function openProfileMenu() {
         const fmt   = b => b >= 1073741824 ? (b/1073741824).toFixed(1)+' GB'
                          : b >= 1048576    ? (b/1048576).toFixed(1)+' MB'
                          : (b/1024).toFixed(0)+' KB';
-        bar.querySelector('div').textContent = `Storage — ${fmt(used)} of ${fmt(quota)} used (${pct.toFixed(0)}%)`;
+        bar.querySelector('div').textContent = `${t('menu_account_info_storage')} ${fmt(used)} ${t('quota_of_word')} ${fmt(quota)} (${pct.toFixed(0)}%)`;
         fill.style.width   = pct.toFixed(1) + '%';
         fill.style.background = color;
     }).catch(() => {
         const bar = document.getElementById('pm-quota-bar');
-        if (bar) bar.querySelector('div').textContent = 'Storage — unavailable';
+        if (bar) bar.querySelector('div').textContent = t('menu_account_info_storage') + ' unavailable';
     });
 }
 
@@ -4700,7 +4707,7 @@ async function openProfilePanel() {
     overlay.id = 'profile-panel-overlay';
     overlay.style.zIndex = '9000';
     overlay.innerHTML = `
-        <div style="background:white;border-radius:16px;width:95vw;max-width:500px;
+        <div data-fd-dark="surface" style="background:white;border-radius:16px;width:95vw;max-width:500px;
                     overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;max-height:90vh">
             <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:18px 24px;
                         display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
@@ -4711,75 +4718,75 @@ async function openProfilePanel() {
             </div>
             <div style="overflow-y:auto;flex:1;padding:20px 24px;display:grid;gap:20px">
                 <!-- Quota card -->
-                <div id="pp-quota-card" style="background:#f8fafc;border-radius:10px;padding:14px 16px">
-                    <div style="font-size:13px;color:#64748b;margin-bottom:8px">Loading storage info…</div>
+                <div id="pp-quota-card" data-fd-dark="surface2" style="background:#f8fafc;border-radius:10px;padding:14px 16px">
+                    <div style="font-size:13px;color:#64748b;margin-bottom:8px">${t('loading')}</div>
                 </div>
 
                 <!-- Edit profile section -->
                 <div>
                     <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;
-                                text-transform:uppercase;letter-spacing:.05em">Profile info</div>
+                                text-transform:uppercase;letter-spacing:.05em">${t('profile_info_profile_info')}</div>
                     <div style="display:grid;gap:10px">
-                        <label style="font-size:13px;font-weight:600;color:#374151">Nickname (display name)
-                            <input id="pp-nickname" type="text" placeholder="Loading…"
+                        <label style="font-size:13px;font-weight:600;color:#374151">${t('profile_info_nickname')}
+                            <input id="pp-nickname" type="text" placeholder="${t('loading')}"
                                 style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                                        border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
                                        box-sizing:border-box;font-family:Inter,sans-serif">
                         </label>
-                        <label style="font-size:13px;font-weight:600;color:#374151">Email
-                            <input id="pp-email" type="email" placeholder="Loading…"
+                        <label style="font-size:13px;font-weight:600;color:#374151">${t('email')}
+                            <input id="pp-email" type="email" placeholder="${t('loading')}"
                                 style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                                        border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
                                        box-sizing:border-box;font-family:Inter,sans-serif">
                         </label>
                         <div id="pp-profile-msg" style="display:none;font-size:13px;border-radius:6px;padding:6px 10px"></div>
-                        <button id="pp-save-profile" class="btn" style="justify-self:end;padding:.5rem 1.25rem">Save changes</button>
+                        <button id="pp-save-profile" class="btn" style="justify-self:end;padding:.5rem 1.25rem">${t('save_changes')}</button>
                     </div>
                 </div>
 
-                <hr style="border:none;border-top:1px solid #e2e8f0;margin:0">
+                <hr style="border:none;border-top:1px solid var(--fd-border,#e2e8f0);margin:0">
 
                 <!-- Change password section -->
                 <div>
                     <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;
-                                text-transform:uppercase;letter-spacing:.05em">Change password</div>
+                                text-transform:uppercase;letter-spacing:.05em">${t('change_password')}</div>
                     <div style="display:grid;gap:10px">
-                        <label style="font-size:13px;font-weight:600;color:#374151">Current password
+                        <label style="font-size:13px;font-weight:600;color:#374151">${t('current_pw')}
                             <input id="pp-cur-pw" type="password" autocomplete="current-password"
                                 style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                                        border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
                                        box-sizing:border-box;font-family:Inter,sans-serif">
                         </label>
-                        <label style="font-size:13px;font-weight:600;color:#374151">New password
+                        <label style="font-size:13px;font-weight:600;color:#374151">${t('new_password')}
                             <input id="pp-new-pw" type="password" autocomplete="new-password"
                                 style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                                        border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
                                        box-sizing:border-box;font-family:Inter,sans-serif">
                         </label>
-                        <label style="font-size:13px;font-weight:600;color:#374151">Confirm new password
+                        <label style="font-size:13px;font-weight:600;color:#374151">${t('profile_info_password_confirm')}
                             <input id="pp-confirm-pw" type="password" autocomplete="new-password"
                                 style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                                        border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
                                        box-sizing:border-box;font-family:Inter,sans-serif">
                         </label>
                         <div id="pp-pw-msg" style="display:none;font-size:13px;border-radius:6px;padding:6px 10px"></div>
-                        <button id="pp-change-pw" class="btn" style="justify-self:end;padding:.5rem 1.25rem;background:#6366f1">Change password</button>
+                        <button id="pp-change-pw" class="btn" style="justify-self:end;padding:.5rem 1.25rem;background:#6366f1">${t('change_password')}</button>
                     </div>
                 </div>
 
                 <!-- Settings card -->
                 <div>
                     <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;
-                                text-transform:uppercase;letter-spacing:.05em">Transfer tray</div>
+                                text-transform:uppercase;letter-spacing:.05em">${t('transfer_tray')}</div>
                     <label style="font-size:13px;font-weight:600;color:#374151">
-                        Auto-dismiss completed entries after
+                        ${t('auto_dismiss')}
                         <select id="pp-dismiss-delay" style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                             border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:Inter,sans-serif">
-                            <option value="0">Never (dismiss manually)</option>
-                            <option value="3000">3 seconds</option>
-                            <option value="5000">5 seconds</option>
-                            <option value="10000">10 seconds</option>
-                            <option value="30000">30 seconds</option>
+                            <option value="0">${t('never_dismiss')}</option>
+                            <option value="3000">${t('profile_info_info_modal_message_autoclose_selector_3s')}</option>
+                            <option value="5000">${t('profile_info_info_modal_message_autoclose_selector_5s')}</option>
+                            <option value="10000">${t('profile_info_info_modal_message_autoclose_selector_10s')}</option>
+                            <option value="30000">${t('profile_info_info_modal_message_autoclose_selector_30s')}</option>
                         </select>
                     </label>
                 </div>
@@ -4817,21 +4824,21 @@ async function openProfilePanel() {
                        : b >= 1048576    ? (b/1048576).toFixed(1)+' MB'
                        : (b/1024).toFixed(0)+' KB';
         const pinNote = me.quota_override
-            ? '<span style="color:#6366f1;font-size:11px;margin-left:6px">📌 pinned by admin</span>'
-            : '<span style="color:#94a3b8;font-size:11px;margin-left:6px">adjusts with server load</span>';
+            ? ` · <span style="color:#6366f1;font-size:11px">${t('quota_pinned')}</span>`
+            : ` · <span style="color:#94a3b8;font-size:11px">${t('quota_dynamic')}</span>`;
         overlay.querySelector('#pp-quota-card').innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-                <span style="font-size:13px;font-weight:600;color:#374151">Storage quota</span>
+                <span style="font-size:13px;font-weight:600;color:#374151">${t('storage_quota')}</span>
                 <span style="font-size:13px;color:#475569">${fmt(used)} <span style="color:#94a3b8">${t('quota_of_word')}</span> ${fmt(quota)}</span>
             </div>
             <div style="background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden;margin-bottom:6px">
                 <div style="height:100%;border-radius:6px;background:${barColor};width:${pct.toFixed(1)}%;transition:width .4s"></div>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center">
-                <span style="font-size:12px;color:#64748b">${pct.toFixed(1)}% used — ${fmt(quota - used)} free${pinNote}</span>
-                ${pct >= 95 ? '<span style="font-size:12px;color:#ef4444;font-weight:600">⚠ Quota nearly full</span>' : ''}
+                <span style="font-size:12px;color:#64748b">${t('profile_info_quota_space', {pct: pct.toFixed(1), free: fmt(quota - used), pin: pinNote})}</span>
+                ${pct >= 95 ? `<span style="font-size:12px;color:#ef4444;font-weight:600">${t('profile_info_quota_space_warning')}</span>` : ''}
             </div>
-            <div style="font-size:11px;color:#94a3b8;margin-top:6px;text-align:right">📊 Click to analyze space</div>`;
+            <div style="font-size:11px;color:#94a3b8;margin-top:6px;text-align:right">${t('profile_info_quota_space_analyzer_hinter')}</div>`;
         // Make quota card open space analyzer on click
         const _qCard = overlay.querySelector('#pp-quota-card');
         _qCard.style.cursor = 'pointer';
@@ -4844,8 +4851,8 @@ async function openProfilePanel() {
 
         // Account info footer
         overlay.querySelector('#pp-account-info').innerHTML =
-            `ID ${me.id} · username: <strong>${escapeHtml(me.username)}</strong> · joined ${(me.created_at||'').slice(0,10)}` +
-            (me.is_admin ? ' · <span style="color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:999px;font-weight:600">admin</span>' : '');
+            `ID ${me.id} ${t('profile_info_username')} <strong>${escapeHtml(me.username)}</strong> ${t('profile_info_join_time')} ${(me.created_at||'').slice(0,10)}` +
+            (me.is_admin ? ` · <span style="color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:999px;font-weight:600">${t('profile_info_admin_badge')}</span>` : '');
 
     } catch (err) {
         if (!overlay.isConnected) return;

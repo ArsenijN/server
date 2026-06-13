@@ -186,16 +186,29 @@
 
   // Patterns applied to inline style strings in dark mode
   const DARK_MAPS = [
+    // backgrounds — surface variants
     { re: /(background(?:-color)?)\s*:\s*(#fff\b|#ffffff\b|white\b)/gi,  rep: '$1:#1a2535' },
     { re: /(background(?:-color)?)\s*:\s*(#f8fafc\b)/gi,                 rep: '$1:#131f2e' },
     { re: /(background(?:-color)?)\s*:\s*(#f1f5f9\b)/gi,                 rep: '$1:#1e2d3d' },
     { re: /(background(?:-color)?)\s*:\s*(#f0f9ff\b)/gi,                 rep: '$1:#0d1520' },
+    { re: /(background(?:-color)?)\s*:\s*(#f9fafb\b|#f4f4f5\b)/gi,       rep: '$1:#1e2d3d' },
     { re: /(background(?:-color)?)\s*:\s*(#eff6ff\b)/gi,                 rep: '$1:#1a3050' },
     { re: /(background(?:-color)?)\s*:\s*(#dbeafe\b)/gi,                 rep: '$1:#1e3a5f' },
+    { re: /(background(?:-color)?)\s*:\s*(#e2e8f0\b)/gi,                 rep: '$1:#2d3f52' },
+    // borders
     { re: /(border(?:-[a-z]+)?-color)\s*:\s*(#e2e8f0\b)/gi,              rep: '$1:#2d3f52' },
+    { re: /(border(?:-[a-z]+)?-color)\s*:\s*(#f1f5f9\b)/gi,              rep: '$1:#2d3f52' },
+    { re: /(border(?:-[a-z]+)?-color)\s*:\s*(#bfdbfe\b)/gi,              rep: '$1:#2563eb' },
+    // height:1px dividers rendered as background
+    { re: /(background)\s*:\s*(#f1f5f9\b)/gi,                            rep: '$1:#2d3f52' },
+    // text colors
     { re: /\bcolor\s*:\s*(#1e293b\b)/gi,                                  rep: 'color:#e2e8f0' },
     { re: /\bcolor\s*:\s*(#374151\b)/gi,                                  rep: 'color:#cbd5e1' },
     { re: /\bcolor\s*:\s*(#4b5563\b)/gi,                                  rep: 'color:#94a3b8' },
+    { re: /\bcolor\s*:\s*(#475569\b)/gi,                                  rep: 'color:#94a3b8' },
+    { re: /\bcolor\s*:\s*(#64748b\b)/gi,                                  rep: 'color:#94a3b8' },
+    { re: /\bcolor\s*:\s*(#1e40af\b)/gi,                                  rep: 'color:#60a5fa' },
+    { re: /\bcolor\s*:\s*(#1d4ed8\b)/gi,                                  rep: 'color:#60a5fa' },
   ];
 
   function _isDark(mode) {
@@ -682,7 +695,7 @@
     panel.style.cssText =
       'background:var(--fd-surface2,#f8fafc);' +
       'border-bottom:1px solid var(--fd-border,#e2e8f0);' +
-      'padding:10px 20px 10px 44px;font-size:12px;color:#475569;' +
+      'padding:10px 20px 10px 44px;font-size:12px;color:var(--fd-muted,#475569);' +
       'max-height:300px;overflow-y:auto';
 
     const token = localStorage.getItem('fluxdrop_token') || '';
@@ -839,7 +852,7 @@
       <hr style="border:none;border-top:1px solid var(--fd-border,#e2e8f0);margin:0">
       <div style="font-size:12px;font-weight:700;color:var(--fd-muted,#64748b);
            text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">
-        Appearance &amp; Extras
+        ${t('profile_info_appearance')}
       </div>
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">
         <input type="checkbox" id="fd-dark-chk" ${isDark?'checked':''} style="width:16px;height:16px">

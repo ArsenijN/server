@@ -14,6 +14,60 @@
  *   9. Settings panel extensions
  */
 
+// ── i18n key injection ────────────────────────────────────────────────────
+// Add any keys missing from fd_locale_bundle.js here so t() never returns
+// a bare key in supported languages.  Keys already present in the bundle
+// take precedence (the bundle is loaded before this file).
+;(function () {
+  const EXTRA_EN = {
+    // Trash bin
+    trash_retention_notice: 'Files are automatically deleted after their retention period. Trash does not count toward your storage quota.',
+    trash_empty_btn:        'Empty Trash',
+    trash_empty_confirm:    'Permanently delete everything in Trash? This cannot be undone.',
+    trash_1_item:           '1 item',
+    trash_n_items:          '{n} items',
+    trash_days_expiring:    'Expiring soon',
+    trash_days_1:           '1 day left',
+    trash_days_n:           '{n} days left',
+    trash_deleted_label:    'Deleted',
+    trash_is_empty:         '🗑 Trash is empty',
+    trash_restore:          'Restore',
+    trash_delete:           'Delete',
+    trash_preview:          'Preview',
+    trash_browse:           'Browse',
+    // Shared UI
+    close:                  '✕',
+    // File info panel
+    file_info_title:        'Info',
+  };
+  const EXTRA_UK = {
+    // Trash bin
+    trash_retention_notice: 'Файли автоматично видаляються після закінчення терміну зберігання. Кошик не зараховується в квоту.',
+    trash_empty_btn:        'Очистити кошик',
+    trash_empty_confirm:    'Остаточно видалити все у кошику? Це незворотно.',
+    trash_1_item:           '1 елемент',
+    trash_n_items:          '{n} елементи',
+    trash_days_expiring:    'Скоро видалиться',
+    trash_days_1:           'Залишився 1 день',
+    trash_days_n:           'Залишилось {n} днів',
+    trash_deleted_label:    'Видалено',
+    trash_is_empty:         '🗑 Кошик порожній',
+    trash_restore:          'Відновити',
+    trash_delete:           'Видалити',
+    trash_preview:          'Перегляд',
+    trash_browse:           'Переглянути',
+    close:                  '✕',
+    file_info_title:        'Інфо',
+  };
+
+  const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };
+  // Ensure the bundle object exists (graceful when fd_locale_bundle.js is absent)
+  window._FD_LOCALES = window._FD_LOCALES || {};
+  Object.entries(EXTRAS).forEach(([lang, keys]) => {
+    window._FD_LOCALES[lang] = Object.assign({}, keys, window._FD_LOCALES[lang] || {});
+  });
+})();
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * 1. i18n SYSTEM
  * ═══════════════════════════════════════════════════════════════════════════
@@ -716,7 +770,7 @@
     }
 
     row.insertAdjacentElement('afterend', panel);
-    btn.textContent = 'Close';
+    btn.textContent = (typeof t === 'function' && t('close') !== 'close') ? t('close') : '✕ Close';
     btn.disabled    = false;
   }, true);
 

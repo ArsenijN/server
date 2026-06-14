@@ -16,15 +16,16 @@ user feedback or ideas for future development.
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what -- they are caused on network switch
 
-- [ ] UI update cycle for entity causes the drop of the translation (like the 
+- [x] UI update cycle for entity causes the drop of the translation (like the 
 Folder First and Mixed button, quota pre-load modal, etc.)
 - [ ] Trash bin file preview inside folders
 - [ ] `https` static hoster stops working after some time (no )
 
 ### UI
 - [ ] Markdown parser does not understand:
-  - [ ] The tables
-  - [ ] The new line inside code blocks
+  - [x] The tables
+  - [x] The new line inside code blocks
+  - [ ] `***` following with the new line inside the text and then `***` again
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
@@ -55,7 +56,7 @@ ratios
 - [ ] Redesign the move/rename/copy/delete modals
 
 ### UX
-- [ ] Click on the "quota usage" should open the quota space analyzer
+- [x] Click on the "quota usage" should open the quota space analyzer
 - [ ] Ability to download the shared folders without JS (fallback option)
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,

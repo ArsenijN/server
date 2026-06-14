@@ -388,3 +388,38 @@
   list-style: revert;
   margin-bottom: 0.25em;
 }
+
+/* ── File row hover — properly themed for both modes ────────────────────────── */
+/* Light mode: subtle blue-grey hover (replaces old hardcoded #f8fafc inline style) */
+.fd-file-row { cursor: default; }
+.fd-file-row:hover { background: #e8f0fe !important; }
+/* Dark mode: clearly visible surface3 hover */
+[data-theme="dark"] .fd-file-row:hover { background: var(--fd-surface3) !important; }
+
+/* ── Table dividers darker in dark mode ──────────────────────────────────────── */
+[data-theme="dark"] tr.border-t { border-top-color: var(--fd-border) !important; }
+[data-theme="dark"] thead tr    { border-bottom-color: var(--fd-border) !important; }
+
+/* ── File-name text colours use CSS vars — dark mode inherits automatically ─── */
+/* File names: var(--fd-text) is set on the button inline, but override here too */
+[data-theme="dark"] .fd-entry-name      { color: var(--fd-text)   !important; }
+/* Folder names keep the accent colour in dark mode */
+[data-theme="dark"] .open-btn.fd-entry-name { color: var(--fd-accent) !important; }
+
+/* ── Trash row hover ─────────────────────────────────────────────────────────── */
+.trash-row:hover                        { background: #e8f0fe         !important; }
+[data-theme="dark"] .trash-row:hover   { background: var(--fd-surface3) !important; }
+
+/* ── Mobile: hide mtime column and desktop action buttons ────────────────────── */
+@media (max-width: 600px) {
+  .fd-col-mtime         { display: none !important; }
+  .fd-actions-desktop   { display: none !important; }
+  .fd-more-btn          { display: inline-block !important; }
+}
+
+/* Desktop: keep action buttons, also show "⋮" as a compact context-menu shortcut */
+@media (min-width: 601px) {
+  .fd-actions-desktop   { display: inline-flex !important; gap: 3px; align-items: center; }
+  .fd-more-btn          { display: inline-block; margin-left: 4px; }
+}
+

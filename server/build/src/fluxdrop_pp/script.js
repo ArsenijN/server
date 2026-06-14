@@ -612,8 +612,9 @@ function _mdToHtml(md) {
         .replace(/^## (.+)$/gm,  '<h2 style="font-size:1.15rem;font-weight:700;color:#1e40af;margin:1.4em 0 .4em">$1</h2>')
         .replace(/^# (.+)$/gm,   '<h1 style="font-size:1.35rem;font-weight:800;color:#1e40af;margin:1.5em 0 .5em">$1</h1>')
         // bold+italic (*** or ___) — must come BEFORE bold and italic
-        .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-        .replace(/___(.+?)___/g,        '<strong><em>$1</em></strong>')
+        // [\s\S]+? allows the span to cross line breaks (e.g. ***First\nSecond***)
+        .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+        .replace(/___([\s\S]+?)___/g,        '<strong><em>$1</em></strong>')
         // bold (** or __)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/__(.+?)__/g,      '<strong>$1</strong>')
@@ -1087,7 +1088,7 @@ function skeletonRows(n = 6) {
             <td style="padding:9px 8px;vertical-align:middle">
                 <span style="${shimmer};width:70%;height:13px"></span>
             </td>
-            <td style="padding:9px 8px;vertical-align:middle">
+            <td style="padding:9px 8px;vertical-align:middle" class="fd-col-mtime">
                 <span style="${shimmer};width:80%;height:13px"></span>
             </td>
             <td style="padding:9px 8px;vertical-align:middle;text-align:right">
@@ -1135,11 +1136,11 @@ async function loadDirectory(path) {
         const cols = [
             { key: 'name',  label: 'Name',     align: 'left'  },
             { key: 'size',  label: 'Size',      align: 'left'  },
-            { key: 'mtime', label: 'Modified',  align: 'left'  },
+            { key: 'mtime', label: 'Modified',  align: 'left', cls: 'fd-col-mtime'  },
         ];
-        const thStyle = (align) =>
+        const thStyle = (align, cls) =>
             `padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:${align};` +
-            `user-select:none;white-space:nowrap;`;
+            `user-select:none;white-space:nowrap;` + (cls ? '' : '');
         const btnStyle =
             `background:none;border:none;cursor:pointer;font-size:12px;font-weight:700;` +
             `color:#64748b;padding:0;display:inline-flex;align-items:center;gap:3px;`;
@@ -1149,7 +1150,8 @@ async function loadDirectory(path) {
                 : ' ⇅';
             const activeStyle = currentSort.key === c.key
                 ? 'color:#2563eb;' : '';
-            return `<th style="${thStyle(c.align)}">
+            const clsAttr = c.cls ? ` class="${c.cls}"` : '';
+            return `<th style="${thStyle(c.align)}"${clsAttr}>
                 <button onclick="window._sortBy('${c.key}')"
                     style="${btnStyle}${activeStyle}">${c.label}<span style="font-size:10px;opacity:.7">${arrow}</span></button>
             </th>`;
@@ -1244,54 +1246,81 @@ function _ab(label, cls, color, dataAttrs) {
 }
 
 function renderEntryRow(e) {
-    const nameEsc    = escapeHtml(e.name);
-    const path       = e.path;
-    const safePA     = escapeHtmlAttr(path);
-    // Folders show '—' initially; size is loaded lazily via loadFolderSize()
-    const sizeStr    = e.is_dir
+    const nameEsc = escapeHtml(e.name);
+    const path    = e.path;
+    const safePA  = escapeHtmlAttr(path);
+
+    // Folders show '…' initially; size loaded lazily via loadFolderSize()
+    const sizeStr = e.is_dir
         ? `<span class="folder-size-cell" data-path="${safePA}" style="color:#94a3b8">…</span>`
         : formatBytes(e.size);
 
-    // Name cell: plain <button> instead of <a> — no href, no status-bar tooltip in any browser
-    const TD_NAME = 'style="padding:9px 8px;vertical-align:middle;overflow:hidden"';
+    const TD_NAME = 'style="padding:9px 8px;vertical-align:middle;overflow:hidden;max-width:0"';
+
+    // Folder name: blue (accent). File name: uses CSS variable so dark mode works.
     const nameBtn = e.is_dir
-        ? `<button class="open-btn" data-path="${safePA}"
+        ? `<button class="open-btn fd-entry-name" data-path="${safePA}"
                style="background:none;border:none;cursor:pointer;font-weight:600;
-                      color:#2563eb;font-size:14px;text-align:left;padding:0;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%"
+                      color:var(--fd-accent,#2563eb);font-size:14px;text-align:left;padding:0;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%"
                title="${safePA}">📁 ${nameEsc}</button>`
-        : `<button class="preview-btn" data-path="${safePA}"
+        : `<button class="preview-btn fd-entry-name" data-path="${safePA}"
                style="background:none;border:none;cursor:pointer;font-weight:500;
-                      color:#1e293b;font-size:14px;text-align:left;padding:0;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%"
+                      color:var(--fd-text,#1e293b);font-size:14px;text-align:left;padding:0;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%"
                title="${safePA}">📄 ${nameEsc}</button>`;
 
     const uploaderLine = e.uploader
         ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">by ${escapeHtml(e.uploader)}</div>`
         : '';
 
-    // Action buttons — compact, always single row
-    const p = { path: safePA };
+    // Desktop action buttons (hidden on mobile via CSS)
+    const p  = { path: safePA };
     const pd = { path: safePA, isdir: e.is_dir ? '1' : '0' };
-    const btnOpen     = _ab('Open',     'open-btn',     '#3b82f6', p);
-    const btnDl       = _ab('Download', 'download-btn', '#3b82f6', p);
-    const btnZip      = _ab('⬇ ZIP',   'zip-btn',      '#0891b2', p);
-    const btnPreview  = _ab('Preview',  'preview-btn',  '#f59e0b', p);
-    const btnShare    = _ab('Share',    'share-btn',    '#8b5cf6', pd);
-    const btnTrash    = _ab('🗑',        'delete-btn',   '#dc2626', p);
-    const btnMove     = _ab('Move/Rename', 'move-btn',  '#64748b', p);
+    const btnOpen    = _ab('Open',        'open-btn',     '#3b82f6', p);
+    const btnDl      = _ab('Download',    'download-btn', '#3b82f6', p);
+    const btnZip     = _ab('⬇ ZIP',      'zip-btn',      '#0891b2', p);
+    const btnPreview = _ab('Preview',     'preview-btn',  '#f59e0b', p);
+    const btnShare   = _ab('Share',       'share-btn',    '#8b5cf6', pd);
+    const btnTrash   = _ab('🗑',           'delete-btn',   '#dc2626', p);
+    const btnMove    = _ab('Move/Rename', 'move-btn',     '#64748b', p);
 
-    const actionBtns = e.is_dir
+    const desktopBtns = e.is_dir
         ? [btnOpen, btnZip, btnShare, btnTrash, btnMove].join(' ')
         : [btnDl, btnPreview, btnShare, btnTrash, btnMove].join(' ');
-    const TD_COMMON  = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
-    const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;text-align:right;min-width:220px"';
 
-    return `<tr class="border-t" style="transition:background 0.12s" onmouseenter="this.style.background='#f8fafc'" onmouseleave="this.style.background=''">
-        <td ${TD_NAME}>${nameBtn}${uploaderLine}</td>
+    // "⋮" button — context menu trigger (always visible on mobile, also on desktop)
+    const moreBtn = `<button class="fd-more-btn" data-path="${safePA}" data-is-dir="${e.is_dir ? '1' : '0'}"
+        style="background:none;border:1px solid var(--fd-border,#e2e8f0);border-radius:6px;
+               padding:3px 9px;cursor:pointer;font-size:17px;line-height:1;
+               color:var(--fd-muted,#64748b);vertical-align:middle;flex-shrink:0"
+        title="More actions">⋮</button>`;
+
+    const TD_COMMON  = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
+    const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;text-align:right"';
+
+    return `<tr class="border-t fd-file-row"
+                data-path="${safePA}"
+                data-is-dir="${e.is_dir ? '1' : '0'}"
+                data-name="${escapeHtmlAttr(e.name)}"
+                data-size="${e.size || 0}"
+                data-mtime="${escapeHtmlAttr(e.mtime || '')}"
+                data-uploader="${escapeHtmlAttr(e.uploader || '')}"
+                style="transition:background 0.12s;user-select:none">
+        <td ${TD_NAME}>
+            <div style="display:flex;align-items:center;gap:5px;overflow:hidden">
+                <span class="fd-sel-dot" style="display:none;width:14px;height:14px;flex-shrink:0;
+                    border:2px solid var(--fd-accent,#3b82f6);border-radius:3px;align-items:center;
+                    justify-content:center;font-size:9px;background:transparent"></span>
+                <div style="min-width:0;flex:1;overflow:hidden">${nameBtn}${uploaderLine}</div>
+            </div>
+        </td>
         <td ${TD_COMMON} class="text-sm text-gray-500">${sizeStr}</td>
-        <td ${TD_COMMON} class="text-sm text-gray-500">${e.mtime}</td>
-        <td ${TD_ACTIONS}>${actionBtns}</td>
+        <td ${TD_COMMON} class="text-sm text-gray-500 fd-col-mtime">${e.mtime}</td>
+        <td ${TD_ACTIONS}>
+            <span class="fd-actions-desktop" style="display:inline-flex;gap:3px;align-items:center">${desktopBtns}</span>
+            ${moreBtn}
+        </td>
     </tr>`;
 }
 
@@ -1310,10 +1339,17 @@ window.enterDir = function(path) {
         // ======================================================================
 
 function formatBytes(b) {
-    if (b < 1024) return b + ' B';
-    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
-    if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
-    return (b/1073741824).toFixed(2) + ' GB';
+    // 3 significant digits without scientific notation.
+    // e.g. 1.04 GB, 23.5 MB, 135 kB, 1004 MB (stays MB until exactly 1 GiB).
+    function fmt3(v) {
+        if (v >= 100) return Math.round(v).toString();
+        if (v >= 10)  return v.toFixed(1);
+        return v.toFixed(2);
+    }
+    if (b < 1024)        return b + ' B';
+    if (b < 1048576)     return fmt3(b / 1024)      + ' kB';
+    if (b < 1073741824)  return fmt3(b / 1048576)   + ' MB';
+    return                      fmt3(b / 1073741824) + ' GB';
 }
 
 
@@ -2833,32 +2869,275 @@ window.previewText = window.previewFile;
 // After the table is inserted we need to hook up click handlers for the
 // various buttons.  We read the path from the `data-path` attribute, so
 // we no longer need to worry about quoting/escaping in the HTML.
-function attachRowListeners() {
-    document.querySelectorAll('#file-list .open-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => { e.preventDefault(); enterDir(btn.dataset.path); });
-    });
-    document.querySelectorAll('#file-list .download-btn').forEach(btn => {
-        btn.addEventListener('click', () => downloadFile(btn.dataset.path));
-    });
-    document.querySelectorAll('#file-list .zip-btn').forEach(btn => {
-        btn.addEventListener('click', () => downloadFolderZip(btn.dataset.path));
-    });
-    document.querySelectorAll('#file-list .preview-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => { e.preventDefault(); previewFile(btn.dataset.path); });
-    });
-    document.querySelectorAll('#file-list .delete-btn').forEach(btn => {
-        btn.addEventListener('click', () => deleteItem(btn.dataset.path));
-    });
-    document.querySelectorAll('#file-list .move-btn').forEach(btn => {
-        btn.addEventListener('click', () => openMoveDialog(btn.dataset.path));
-    });
-    document.querySelectorAll('#file-list .share-btn').forEach(btn => {
-        btn.addEventListener('click', () => openShareDialog(btn.dataset.path, btn.dataset.isdir === '1'));
+// ── Selection state ──────────────────────────────────────────────────────
+let _selectedPaths  = new Set();
+let _lastClickedIdx = -1; // for Shift+click range selection
+
+function _getFileRows() {
+    return Array.from(document.querySelectorAll('#file-list .fd-file-row'));
+}
+
+function _updateRowSelVisual(row, selected) {
+    const dot = row.querySelector('.fd-sel-dot');
+    if (!dot) return;
+    if (selected) {
+        dot.style.display = 'inline-flex';
+        dot.style.background = 'var(--fd-accent,#3b82f6)';
+        dot.textContent = '✓';
+        dot.style.color = '#fff';
+        row.style.background = 'var(--fd-accent-bg,#eff6ff)';
+    } else {
+        dot.style.display = 'none';
+        dot.style.background = 'transparent';
+        dot.textContent = '';
+        row.style.background = '';
+    }
+}
+
+function _toggleSelect(row, force) {
+    const path = row.dataset.path;
+    const nowSelected = (force !== undefined) ? force : !_selectedPaths.has(path);
+    if (nowSelected) _selectedPaths.add(path); else _selectedPaths.delete(path);
+    _updateRowSelVisual(row, nowSelected);
+}
+
+function _clearSelection() {
+    _getFileRows().forEach(r => _updateRowSelVisual(r, false));
+    _selectedPaths.clear();
+    _lastClickedIdx = -1;
+}
+
+// ── Context menu ─────────────────────────────────────────────────────────
+function _removeContextMenu() {
+    document.getElementById('fd-ctx-menu')?.remove();
+}
+
+function _showContextMenu(x, y, row) {
+    _removeContextMenu();
+    const path  = row.dataset.path;
+    const isDir = row.dataset.isDir === '1';
+
+    const menu = document.createElement('div');
+    menu.id = 'fd-ctx-menu';
+    menu.style.cssText =
+        `position:fixed;left:${x}px;top:${y}px;` +
+        `background:var(--fd-surface,#fff);border:1px solid var(--fd-border,#e2e8f0);` +
+        `border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.15);` +
+        `z-index:50000;min-width:165px;padding:4px 0;font-size:13px;overflow:hidden`;
+
+    const ITEM = (icon, label, action, danger) =>
+        `<button class="fd-ctx-item" data-action="${action}"
+            style="display:block;width:100%;padding:7px 14px;text-align:left;
+                   background:none;border:none;cursor:pointer;
+                   color:${danger ? 'var(--fd-danger,#dc2626)' : 'var(--fd-text,#1e293b)'};
+                   white-space:nowrap;font-size:13px"
+        >${icon} ${label}</button>`;
+    const SEP = `<div style="border-top:1px solid var(--fd-border,#e2e8f0);margin:4px 0"></div>`;
+
+    menu.innerHTML = [
+        isDir ? ITEM('📂', 'Open',        'open')    : ITEM('👁', 'Preview',   'preview'),
+        isDir ? ITEM('⬇', 'Download ZIP', 'zip')    : ITEM('⬇', 'Download',  'download'),
+        ITEM('🔗', 'Share',                           'share'),
+        ITEM('✂',  'Move / Rename',                   'move'),
+        ITEM('ℹ',  'Info',                             'info'),
+        SEP,
+        ITEM('🗑',  'Move to Trash',                   'trash', true),
+    ].join('');
+
+    document.body.appendChild(menu);
+
+    // Hover highlight
+    menu.querySelectorAll('.fd-ctx-item').forEach(btn => {
+        btn.addEventListener('mouseenter', () => btn.style.background = 'var(--fd-surface3,#f1f5f9)');
+        btn.addEventListener('mouseleave', () => btn.style.background = 'none');
+        btn.addEventListener('click', () => {
+            _removeContextMenu();
+            const p  = row.dataset.path;
+            const id = row.dataset.isDir === '1';
+            switch (btn.dataset.action) {
+                case 'open':     enterDir(p); break;
+                case 'preview':  previewFile(p); break;
+                case 'download': downloadFile(p); break;
+                case 'zip':      downloadFolderZip(p); break;
+                case 'share':    openShareDialog(p, id); break;
+                case 'move':     openMoveDialog(p); break;
+                case 'trash':    deleteItem(p); break;
+                case 'info':     _showFileInfo(row); break;
+            }
+        });
     });
 
-    // Lazy folder sizes — fire requests after the table is visible
-    // Use staggered setTimeout to avoid hammering the server for large listings
-    document.querySelectorAll('#file-list .folder-size-cell').forEach((cell, idx) => {
+    // Keep within viewport
+    requestAnimationFrame(() => {
+        const r = menu.getBoundingClientRect();
+        if (r.right  > window.innerWidth)  menu.style.left = Math.max(4, window.innerWidth  - r.width  - 8) + 'px';
+        if (r.bottom > window.innerHeight) menu.style.top  = Math.max(4, y - r.height) + 'px';
+    });
+}
+
+// ── File info panel ──────────────────────────────────────────────────────
+function _showFileInfo(row) {
+    document.getElementById('fd-info-panel')?.remove();
+
+    const name    = row.dataset.name    || '—';
+    const path    = row.dataset.path    || '—';
+    const isDir   = row.dataset.isDir   === '1';
+    const mtime   = row.dataset.mtime   || '—';
+    const uploader= row.dataset.uploader|| '';
+    const rawSize = parseInt(row.dataset.size, 10);
+    const sizeStr = isDir
+        ? (row.querySelector('.folder-size-cell')?.textContent?.trim() || '…')
+        : (isNaN(rawSize) ? '—' : formatBytes(rawSize));
+
+    const panel = document.createElement('div');
+    panel.id = 'fd-info-panel';
+    panel.style.cssText =
+        'position:fixed;right:12px;top:70px;width:260px;z-index:20000;' +
+        'background:var(--fd-surface,#fff);border:1px solid var(--fd-border,#e2e8f0);' +
+        'border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.14);' +
+        'padding:0;overflow:hidden;font-size:13px;animation:fd-info-in .18s ease';
+
+    // Inject keyframe once
+    if (!document.getElementById('fd-info-kf')) {
+        const s = document.createElement('style'); s.id = 'fd-info-kf';
+        s.textContent = '@keyframes fd-info-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}';
+        document.head.appendChild(s);
+    }
+
+    const row2 = (label, value) =>
+        `<div style="display:flex;justify-content:space-between;padding:5px 14px;
+                     border-bottom:1px solid var(--fd-border,#e2e8f0)">
+            <span style="color:var(--fd-muted,#64748b);flex-shrink:0;margin-right:8px">${label}</span>
+            <span style="color:var(--fd-text,#1e293b);text-align:right;word-break:break-all">${escapeHtml(value)}</span>
+         </div>`;
+
+    panel.innerHTML =
+        `<div style="background:var(--fd-surface3,#f1f5f9);padding:10px 14px;
+                     display:flex;justify-content:space-between;align-items:center;
+                     border-bottom:1px solid var(--fd-border,#e2e8f0)">
+            <span style="font-weight:600;color:var(--fd-text,#1e293b);font-size:14px">
+                ${isDir ? '📁' : '📄'} ${t('file_info_title') === 'file_info_title' ? 'Info' : t('file_info_title')}
+            </span>
+            <button id="fd-info-close" style="background:none;border:none;cursor:pointer;
+                font-size:18px;color:var(--fd-muted,#64748b);padding:0 2px;line-height:1">✕</button>
+        </div>` +
+        row2('Name', name) +
+        row2('Path', path) +
+        row2('Type', isDir ? 'Folder' : (name.includes('.') ? name.split('.').pop().toUpperCase() + ' file' : 'File')) +
+        row2('Size', sizeStr) +
+        row2('Modified', mtime) +
+        (uploader ? row2('Uploaded by', uploader) : '');
+
+    document.body.appendChild(panel);
+    document.getElementById('fd-info-close').addEventListener('click', () => panel.remove());
+
+    // Close on outside click
+    const closer = e => { if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', closer, true); } };
+    setTimeout(() => document.addEventListener('click', closer, true), 10);
+}
+
+function attachRowListeners() {
+    const fileList = document.getElementById('file-list');
+    if (!fileList) return;
+
+    // Desktop action buttons (visible on wide screens)
+    fileList.querySelectorAll('.open-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); enterDir(btn.dataset.path); });
+    });
+    fileList.querySelectorAll('.download-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); downloadFile(btn.dataset.path); });
+    });
+    fileList.querySelectorAll('.zip-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); downloadFolderZip(btn.dataset.path); });
+    });
+    fileList.querySelectorAll('.preview-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); previewFile(btn.dataset.path); });
+    });
+    fileList.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); deleteItem(btn.dataset.path); });
+    });
+    fileList.querySelectorAll('.move-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); openMoveDialog(btn.dataset.path); });
+    });
+    fileList.querySelectorAll('.share-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); openShareDialog(btn.dataset.path, btn.dataset.isdir === '1'); });
+    });
+
+    // "⋮" context menu button
+    fileList.querySelectorAll('.fd-more-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const row = btn.closest('.fd-file-row');
+            const r = btn.getBoundingClientRect();
+            _showContextMenu(r.left, r.bottom + 4, row);
+        });
+    });
+
+    // Row-level interactions
+    fileList.querySelectorAll('.fd-file-row').forEach((row, idx) => {
+        // Hover via CSS (see fd_dark.css .fd-file-row:hover)
+
+        // Single click — select / deselect
+        row.addEventListener('click', e => {
+            // Ignore clicks on interactive children (buttons, inputs)
+            if (e.target.closest('button')) return;
+            _removeContextMenu();
+
+            if (e.ctrlKey || e.metaKey) {
+                // Ctrl+click: toggle this item
+                _toggleSelect(row);
+                _lastClickedIdx = idx;
+            } else if (e.shiftKey && _lastClickedIdx >= 0) {
+                // Shift+click: range from _lastClickedIdx to idx
+                const rows = _getFileRows();
+                const lo = Math.min(_lastClickedIdx, idx);
+                const hi = Math.max(_lastClickedIdx, idx);
+                // Clear all first, then select range
+                rows.forEach((r2, i) => _toggleSelect(r2, i >= lo && i <= hi));
+                // Rebuild set
+                _selectedPaths.clear();
+                rows.filter((_, i) => i >= lo && i <= hi).forEach(r2 => _selectedPaths.add(r2.dataset.path));
+            } else {
+                // Plain click: clear selection, select this row
+                _clearSelection();
+                _toggleSelect(row, true);
+                _lastClickedIdx = idx;
+            }
+        });
+
+        // Double-click — open / preview
+        row.addEventListener('dblclick', e => {
+            if (e.target.closest('button')) return;
+            _clearSelection();
+            if (row.dataset.isDir === '1') enterDir(row.dataset.path);
+            else previewFile(row.dataset.path);
+        });
+
+        // Right-click — context menu
+        row.addEventListener('contextmenu', e => {
+            e.preventDefault();
+            // If right-clicked row isn't selected, select it alone
+            if (!_selectedPaths.has(row.dataset.path)) {
+                _clearSelection();
+                _toggleSelect(row, true);
+                _lastClickedIdx = idx;
+            }
+            _showContextMenu(e.clientX, e.clientY, row);
+        });
+    });
+
+    // Close context menu on outside click / scroll
+    const _closeCM = () => _removeContextMenu();
+    document.addEventListener('click', _closeCM, { once: true, capture: true });
+    document.addEventListener('scroll', _closeCM, { once: true, passive: true });
+
+    // Clear selection when clicking empty table area
+    fileList.addEventListener('click', e => {
+        if (!e.target.closest('.fd-file-row')) _clearSelection();
+    });
+
+    // Lazy folder sizes
+    fileList.querySelectorAll('.folder-size-cell').forEach((cell, idx) => {
         setTimeout(() => loadFolderSize(cell), idx * 80);
     });
 }
@@ -2922,23 +3201,25 @@ async function openTrashView() {
                     <div style="color:white;font-weight:700;font-size:16px">🗑 Trash</div>
                     <div id="trash-subtitle" style="color:rgba(255,255,255,.75);font-size:12px;margin-top:2px"></div>
                 </div>
-                <button onclick="document.getElementById('trash-overlay').remove()"
+                <div onclick="document.getElementById('trash-overlay').remove()"
                     style="background:rgba(255,255,255,.15);border:none;color:white;
-                           border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px">✕</button>
+                           border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px
+                           ;display:inline-block">${t('close') || '✕'}</div>
             </div>
             <div id="trash-notice" style="display:none;padding:8px 20px;background:#fef3c7;
                 border-bottom:1px solid #fde68a;font-size:12px;color:#92400e"></div>
             <div style="padding:12px 20px;border-bottom:1px solid #e2e8f0;display:flex;
                         justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
                 <span style="font-size:12px;color:#64748b">
-                    Files are automatically deleted after their retention period.
-                    Trash does not count toward your storage quota.
+                    ${t('trash_retention_notice') !== 'trash_retention_notice'
+                        ? t('trash_retention_notice')
+                        : 'Files are automatically deleted after their retention period. Trash does not count toward your storage quota.'}
                 </span>
                 <button id="trash-empty-btn"
                     style="background:#ef4444;color:white;border:none;border-radius:7px;
                            padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;
                            white-space:nowrap">
-                    Empty Trash
+                    ${t('trash_empty_btn') !== 'trash_empty_btn' ? t('trash_empty_btn') : 'Empty Trash'}
                 </button>
             </div>
             <div id="trash-body" style="max-height:55vh;overflow-y:auto;padding:8px 0">
@@ -2978,7 +3259,11 @@ async function _refreshTrashView() {
     }
 
     const items = data.items || [];
-    subtitle.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+    subtitle.textContent = items.length === 1
+        ? (t('trash_1_item') !== 'trash_1_item' ? t('trash_1_item') : '1 item')
+        : (t('trash_n_items') !== 'trash_n_items'
+            ? t('trash_n_items', { n: items.length })
+            : `${items.length} items`);
 
     if (data.notice && notice) {
         notice.textContent = '⚠ ' + data.notice;
@@ -3004,10 +3289,20 @@ async function _refreshTrashView() {
     }
     function daysLeft(expiresAt) {
         const d = Math.ceil((expiresAt - Date.now()/1000) / 86400);
-        if (d <= 0) return '<span style="color:#ef4444">Expiring soon</span>';
-        if (d === 1) return '<span style="color:#f59e0b">1 day left</span>';
-        if (d <= 3) return `<span style="color:#f59e0b">${d} days left</span>`;
-        return `<span style="color:#64748b">${d} days left</span>`;
+        if (d <= 0) {
+            const lbl = t('trash_days_expiring') !== 'trash_days_expiring' ? t('trash_days_expiring') : 'Expiring soon';
+            return `<span style="color:#ef4444">${lbl}</span>`;
+        }
+        if (d === 1) {
+            const lbl = t('trash_days_1') !== 'trash_days_1' ? t('trash_days_1') : '1 day left';
+            return `<span style="color:#f59e0b">${lbl}</span>`;
+        }
+        if (d <= 3) {
+            const lbl = t('trash_days_n') !== 'trash_days_n' ? t('trash_days_n', { n: d }) : `${d} days left`;
+            return `<span style="color:#f59e0b">${lbl}</span>`;
+        }
+        const lbl = t('trash_days_n') !== 'trash_days_n' ? t('trash_days_n', { n: d }) : `${d} days left`;
+        return `<span style="color:#64748b">${lbl}</span>`;
     }
 
     body.innerHTML = items.map(item => `
@@ -3036,22 +3331,22 @@ async function _refreshTrashView() {
                     ? `<button class="trash-preview-btn" data-id="${item.id}" data-name="${escapeHtmlAttr(item.name)}"
                            style="background:#6366f1;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
-                           Preview
+                           ${t('trash_preview') !== 'trash_preview' ? t('trash_preview') : 'Preview'}
                        </button>`
                     : `<button class="trash-browse-btn" data-trash-path="${escapeHtmlAttr(item.trash_path)}" data-id="${item.id}"
                            style="background:#6366f1;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
-                           Browse
+                           ${t('trash_browse') !== 'trash_browse' ? t('trash_browse') : 'Browse'}
                        </button>`}
                 <button class="trash-restore-btn" data-id="${item.id}"
                     style="background:#22c55e;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600">
-                    Restore
+                    ${t('trash_restore') !== 'trash_restore' ? t('trash_restore') : 'Restore'}
                 </button>
                 <button class="trash-del-btn" data-id="${item.id}"
                     style="background:#ef4444;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px">
-                    Delete
+                    ${t('trash_delete') !== 'trash_delete' ? t('trash_delete') : 'Delete'}
                 </button>
             </div>
         </div>`).join('');
@@ -6052,67 +6347,68 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (_) {}
 
-        // Files whose staleness we track.  Both must match for the page to be
-        // considered fresh — a stale script.js with a fresh index.html is
-        // still stale because the user's browser is running old code.
+        // Step 0: Compare embedded SCRIPT_VERSION with the SW's cache name version.
+        // When they match the SW is already serving this exact build — no probe needed.
+        // (Skip this gate if the build script didn't substitute the version token.)
+        if (!SCRIPT_VERSION_RAW.includes('@@')) {
+            try {
+                const swVer = await new Promise((resolve, reject) => {
+                    const ch = new MessageChannel();
+                    ch.port1.onmessage = e => (e.data?.version ? resolve(e.data.version) : reject());
+                    navigator.serviceWorker.controller.postMessage({ type: 'GET_VERSION' }, [ch.port2]);
+                    setTimeout(() => reject(new Error('sw-timeout')), 3000);
+                });
+                if (swVer === SCRIPT_VERSION) return; // versions match — skip probe
+            } catch (_) { /* SW didn't respond or version mismatch — fall through */ }
+        }
+
+        // Step 1: File-level staleness probe.
+        // FIX: was Promise.any() which resolves with the FIRST settled value regardless
+        // of whether it is true or false — so if index.html resolved first with `false`,
+        // the whole check returned "not stale" even when script.js was stale.
+        // Correct approach: Promise.all + .some().
         const TRACKED = [
             _APP_BASE + '/index.html',
             _APP_BASE + '/script.js',
         ];
 
         try {
-            // Ask the cache what ETags/Last-Modified values it has stored
             const cache = await caches.open('fluxdrop-@@CACHE_VER@@'); // replaced by build.sh — do not edit manually
 
-            const stale = await Promise.any(
+            const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {
-                    // HEAD fetch with cache:no-store so the SW passes it through
-                    // to the network instead of serving from its own cache.
-                    // Without no-store the SW would return the cached copy and
-                    // the comparison would always show "up to date" even when a
-                    // new version has been deployed.
-                    const netResp = await fetch(url, {
-                        method: 'HEAD',
-                        cache:  'no-store',
-                        signal: AbortSignal.timeout(8000),
-                    });
-                    if (!netResp.ok) return false; // server error → don't nag
+                    try {
+                        const netResp = await fetch(url, {
+                            method: 'HEAD',
+                            cache:  'no-store',
+                            signal: AbortSignal.timeout(8000),
+                        });
+                        if (!netResp.ok) return false; // server error → don't nag
 
-                    // What does the cache have for this URL?
-                    // ignoreMethod:true ensures we read the cached GET entry
-                    // even though the probe was a HEAD request.
-                    const cached = await cache.match(url, { ignoreMethod: true });
-                    if (!cached) return true; // not cached at all → stale
+                        const cached = await cache.match(url, { ignoreMethod: true });
+                        if (!cached) return true; // not in cache → stale
 
-                    // Compare by ETag first, Last-Modified as fallback
-                    const netEtag  = netResp.headers.get('ETag');
-                    const cacheEtag = cached.headers.get('ETag');
-                    if (netEtag && cacheEtag) {
-                        if (netEtag !== cacheEtag) return true;  // content changed
-                        return false;
+                        // Compare by ETag first, Last-Modified as fallback, Content-Length last
+                        const netEtag   = netResp.headers.get('ETag');
+                        const cacheEtag = cached.headers.get('ETag');
+                        if (netEtag && cacheEtag) return netEtag !== cacheEtag;
+
+                        const netMod   = netResp.headers.get('Last-Modified');
+                        const cacheMod = cached.headers.get('Last-Modified');
+                        if (netMod && cacheMod) return netMod !== cacheMod;
+
+                        const netLen   = netResp.headers.get('Content-Length');
+                        const cacheLen = cached.headers.get('Content-Length');
+                        if (netLen && cacheLen && netLen !== cacheLen) return true;
+
+                        return false; // headers absent or identical — assume fresh
+                    } catch {
+                        return false; // network error for this file → don't nag
                     }
-
-                    const netMod   = netResp.headers.get('Last-Modified');
-                    const cacheMod = cached.headers.get('Last-Modified');
-                    if (netMod && cacheMod) {
-                        if (netMod !== cacheMod) return true;
-                        return false;
-                    }
-
-                    // No cache headers at all (SimpleHTTPRequestHandler sometimes
-                    // omits them) — compare Content-Length as a weak proxy.
-                    // Two files of the same byte length can still differ, but this
-                    // catches the common case of a rebuilt script.js being a different
-                    // size.  Users can always hard-reload manually.
-                    const netLen   = netResp.headers.get('Content-Length');
-                    const cacheLen = cached.headers.get('Content-Length');
-                    if (netLen && cacheLen && netLen !== cacheLen) return true;
-
-                    return false; // looks the same
                 })
-            ).catch(() => false); // Promise.any rejects only if ALL reject → not stale
+            );
 
-            if (stale) {
+            if (stalenessChecks.some(s => s)) {
                 _showUpdateBanner();
             }
         } catch {

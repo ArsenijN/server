@@ -872,7 +872,7 @@ function renderFileBrowserView() {
         <div class="card" style="min-height:520px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
                 <h2 class="text-2xl font-semibold text-blue-800" style="flex-shrink:0">${t('file_browser_title')}</h2>
-                <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+                <div style="display:flex;gap:6px;align-items:center;min-width:0;flex-wrap:wrap;justify-content:flex-end">
                     <!-- Mobile-only collapse toggle -->
                     <button id="btn-toolbar-toggle" class="fd-toolbar-toggle btn text-sm"
                         style="display:none;padding:.4rem .6rem;font-size:15px" title="Toolbar">⋯</button>
@@ -1191,7 +1191,7 @@ async function loadDirectory(path) {
         }).join('');
         return `<thead><tr style="border-bottom:2px solid #e2e8f0">
             ${ths}
-            <th style="padding:8px 4px;font-size:14px;font-weight:400;color:#94a3b8;text-align:right;width:36px">⋮</th>
+            <th style="padding:4px 2px;font-size:14px;font-weight:400;color:#94a3b8;text-align:right;width:1px;white-space:nowrap">⋮</th>
         </tr></thead>`;
     }
 
@@ -1309,13 +1309,13 @@ function renderEntryRow(e) {
 
     // "⋮" is the sole action trigger on both mobile and desktop
     const moreBtn = `<button class="fd-more-btn" data-path="${safePA}" data-is-dir="${e.is_dir ? '1' : '0'}"
-        style="background:none;border:1px solid var(--fd-border,#e2e8f0);border-radius:6px;
-               padding:3px 10px;cursor:pointer;font-size:18px;line-height:1;
+        style="background:none;border:1px solid var(--fd-border,#e2e8f0);border-radius:5px;
+               padding:2px 7px;cursor:pointer;font-size:16px;line-height:1.3;
                color:var(--fd-muted,#64748b);vertical-align:middle;flex-shrink:0"
         title="Actions">⋮</button>`;
 
     const TD_COMMON  = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
-    const TD_ACTIONS = 'style="padding:9px 4px;vertical-align:middle;text-align:right;width:36px"';
+    const TD_ACTIONS = 'style="padding:4px 2px;vertical-align:middle;text-align:right;width:1px;white-space:nowrap"';
 
     return `<tr class="border-t fd-file-row"
                 data-path="${safePA}"
@@ -2884,6 +2884,10 @@ window.previewText = window.previewFile;
 // After the table is inserted we need to hook up click handlers for the
 // various buttons.  We read the path from the `data-path` attribute, so
 // we no longer need to worry about quoting/escaping in the HTML.
+// ── Selection state ──────────────────────────────────────────────────────
+let _selectedPaths  = new Set();
+let _lastClickedIdx = -1; // used for Shift+click range selection
+
 // ── Selection bar ─────────────────────────────────────────────────────────
 function _updateSelBar() {
     const n = _selectedPaths.size;

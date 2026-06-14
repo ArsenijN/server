@@ -29,7 +29,12 @@
           var dark = m === 'dark' || (m === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
           if (dark) {
             document.documentElement.setAttribute('data-theme','dark');
-            document.documentElement.style.background = '#0d1520';
+            // Inject a <style> covering both html and body so even if the SW
+            // serves an older cached index.html the inline script still works.
+            var s = document.createElement('style');
+            s.id = 'fd-early-dark';
+            s.textContent = 'html,body{background:#0d1520!important}input::placeholder{color:#94a3b8!important}';
+            document.head.appendChild(s);
           }
         } catch(_){}
       })();

@@ -30,9 +30,9 @@ Folder First and Mixed button, quota pre-load modal, etc.)
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
 JPG as fallback)
-- [ ] Custom right-click menu for folders and files (reduce amount of options 
+- [x] Custom right-click menu for folders and files (reduce amount of options 
 with files)
-  - [ ] Add "..." (vertical) as "fallback"
+  - [x] Add "..." (vertical) as "fallback"
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
 - [ ] Footer versioning: make versioning system the same as the current with 
@@ -56,6 +56,9 @@ ratios
 - [ ] Redesign the move/rename/copy/delete modals
 
 ### UX
+- [ ] Make the file info also work as turn on-off: is present on screen - show 
+the infos for the selected (or last selected) file, on item change - change the 
+display of infos
 - [ ] Ability to download the shared folders without JS (fallback option)
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
@@ -101,6 +104,9 @@ on i5 8350U)
 #### Critical:
 - [ ] Make separate "testing" server where I would be able to test everything 
 before pushing to the real one
+- [ ] Add `debug` mode for the code like CDN and static hosters sp they will 
+not track some things to reduce the overhead time that is spent to write a log 
+to a file
 
 #### Medium:
 - [ ] Update the services (and exclude the entry in the `.gitignore`)

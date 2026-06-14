@@ -56,7 +56,6 @@ ratios
 - [ ] Redesign the move/rename/copy/delete modals
 
 ### UX
-- [x] Click on the "quota usage" should open the quota space analyzer
 - [ ] Ability to download the shared folders without JS (fallback option)
 - [ ] Instead of errors like "failed to fetch" after internet reconnect, 
 ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
@@ -222,6 +221,10 @@ the default options)
 `NS_ERROR_NET_TIMEOUT` even if client gets it (fully)
 
 - [x] Dark theme is broken again
+
+- [x] Click on the "quota usage" should open the quota space analyzer
+
+- [x] On load, page no loner flashes with white page
 
 ---
 

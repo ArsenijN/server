@@ -360,18 +360,21 @@ function _notifyUploadDone(fileCount) {
 function renderAuthControls() {
     if (authToken) {
         authControls.innerHTML = `
-            <div class="flex items-center gap-3">
-                <span class="font-medium text-blue-900">${t('welcome_text')} ${currentUsername}!</span>
+            <div class="flex items-center gap-2" style="min-width:0">
+                <span class="font-medium text-blue-900 fd-welcome-text"
+                      style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;font-size:14px"
+                      title="${escapeHtmlAttr(currentUsername)}">
+                    ${t('welcome_text')} ${escapeHtml(currentUsername)}!
+                </span>
                 <button id="profile-btn" title="Profile & Settings"
                     style="width:36px;height:36px;border-radius:50%;background:#3b82f6;border:2px solid #93c5fd;
                             color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
-                            transition:background .2s;" onmouseenter="this.style.background='#2563eb'" onmouseleave="this.style.background='#3b82f6'">
+                            flex-shrink:0;transition:background .2s"
+                    onmouseenter="this.style.background='#2563eb'" onmouseleave="this.style.background='#3b82f6'">
                     👤
                 </button>
-                <button id="logout-btn" class="btn bg-red-500 hover:bg-red-600 text-sm">Logout</button>
             </div>
         `;
-        document.getElementById('logout-btn').addEventListener('click', handleLogout);
         document.getElementById('profile-btn').addEventListener('click', openProfileMenu);
     } else {
         authControls.innerHTML = `
@@ -869,25 +872,36 @@ function renderFileBrowserView() {
         <div class="card" style="min-height:520px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
                 <h2 class="text-2xl font-semibold text-blue-800" style="flex-shrink:0">${t('file_browser_title')}</h2>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-                    <button id="btn-up" class="btn bg-gray-300 text-black text-sm" style="padding:.45rem .9rem">${t('up')}</button>
-                    <button id="btn-refresh" class="btn text-sm" style="padding:.45rem .9rem">${t('refresh')}</button>
-                    <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm" style="padding:.45rem .9rem">${t('create_a_folder')}</button>
-                    <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm" style="padding:.45rem .9rem">${t('browse_cdn')}</button>
-                    <button id="btn-trash" class="btn text-sm" style="background:#dc2626;color:#fff;padding:.45rem .9rem" title="${t('trash_title')}">${t('trash_bin_button')}</button>
-                    <button id="btn-folders-mixed" class="btn text-sm" style="padding:.45rem .9rem" title="${t('folder_sort_first')}"></button>
+                <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+                    <!-- Mobile-only collapse toggle -->
+                    <button id="btn-toolbar-toggle" class="fd-toolbar-toggle btn text-sm"
+                        style="display:none;padding:.4rem .6rem;font-size:15px" title="Toolbar">⋯</button>
+                    <!-- Toolbar buttons — collapsible on mobile -->
+                    <div id="fd-toolbar-btns" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+                        <button id="btn-up" class="btn bg-gray-300 text-black text-sm" style="padding:.45rem .9rem">${t('up')}</button>
+                        <button id="btn-refresh" class="btn text-sm" style="padding:.45rem .9rem">${t('refresh')}</button>
+                        <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm" style="padding:.45rem .9rem">${t('create_a_folder')}</button>
+                        <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm" style="padding:.45rem .9rem">${t('browse_cdn')}</button>
+                        <button id="btn-trash" class="btn text-sm" style="background:#dc2626;color:#fff;padding:.45rem .9rem" title="${t('trash_title')}">${t('trash_bin_button')}</button>
+                        <button id="btn-folders-mixed" class="btn text-sm" style="padding:.45rem .9rem" title="${t('folder_sort_first')}"></button>
+                    </div>
                 </div>
             </div>
 
             <div id="path-breadcrumb" class="text-sm text-gray-600 mb-4"></div>
 
             <div class="mb-4">
+                <!-- Hidden real file input — triggered programmatically -->
+                <input type="file" id="upload-file" multiple style="display:none" />
                 <form id="upload-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;row-gap:6px">
-                    <input type="file" id="upload-file" class="p-2 border rounded" multiple style="min-width:0;flex:1 1 160px;max-width:100%" />
+                    <button type="button" id="btn-file-choose" class="btn text-sm"
+                        style="background:#e2e8f0;color:#374151;font-weight:500;flex-shrink:0">
+                        📎 <span id="upload-file-label">${t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…'}</span>
+                    </button>
                     <button type="button" id="btn-folder-toggle" class="btn text-sm"
-                        style="background:#0ea5e9;flex-shrink:0" title="${t('folder_mode')}">${t('folder_button')}</button>
+                        style="background:#0ea5e9;flex-shrink:0;padding:.45rem .75rem" title="${t('folder_mode')}">${t('folder_button')}</button>
                     <label class="text-sm" style="flex-shrink:0;white-space:nowrap"><input type="checkbox" id="upload-protected" /> ${t('protected')}</label>
-                    <button class="btn" id="btn-upload-submit" type="submit" style="flex-shrink:0">${t('upload')}</button>
+                    <button class="btn" id="btn-upload-submit" type="submit" style="flex-shrink:0;padding:.45rem .9rem">${t('upload')}</button>
                     <span id="upload-spinner" style="display:none;font-size:18px;animation:spin 0.8s linear infinite">⏳</span>
                     <button type="button" id="btn-show-queue"
                         class="btn text-sm hidden"
@@ -920,6 +934,25 @@ function renderFileBrowserView() {
     document.getElementById('btn-create-folder').addEventListener('click', promptCreateFolder);
     document.getElementById('btn-browse-cdn').addEventListener('click', () => navigateTo('/cdn'));  // P11
     document.getElementById('btn-trash').addEventListener('click', openTrashView);
+
+    // Toolbar collapse toggle (mobile)
+    document.getElementById('btn-toolbar-toggle').addEventListener('click', () => {
+        const box = document.getElementById('fd-toolbar-btns');
+        box.classList.toggle('fd-toolbar-open');
+    });
+
+    // Hidden file input — "Choose files" button triggers it
+    document.getElementById('btn-file-choose').addEventListener('click', () => {
+        document.getElementById('upload-file').click();
+    });
+    document.getElementById('upload-file').addEventListener('change', function () {
+        const n   = this.files ? this.files.length : 0;
+        const lbl = document.getElementById('upload-file-label');
+        if (!lbl) return;
+        lbl.textContent = n === 0
+            ? (t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…')
+            : n === 1 ? this.files[0].name : `${n} files selected`;
+    });
     // Folders-first toggle
     function updateFoldersMixedBtn() {
         const btn = document.getElementById('btn-folders-mixed');
@@ -1158,7 +1191,7 @@ async function loadDirectory(path) {
         }).join('');
         return `<thead><tr style="border-bottom:2px solid #e2e8f0">
             ${ths}
-            <th style="${thStyle('right')}">Actions</th>
+            <th style="padding:8px 4px;font-size:14px;font-weight:400;color:#94a3b8;text-align:right;width:36px">⋮</th>
         </tr></thead>`;
     }
 
@@ -1257,47 +1290,32 @@ function renderEntryRow(e) {
 
     const TD_NAME = 'style="padding:9px 8px;vertical-align:middle;overflow:hidden;max-width:0"';
 
-    // Folder name: blue (accent). File name: uses CSS variable so dark mode works.
+    // File name: natural width (not stretched) so dead-click area is minimised.
     const nameBtn = e.is_dir
         ? `<button class="open-btn fd-entry-name" data-path="${safePA}"
                style="background:none;border:none;cursor:pointer;font-weight:600;
                       color:var(--fd-accent,#2563eb);font-size:14px;text-align:left;padding:0;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%"
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:block"
                title="${safePA}">📁 ${nameEsc}</button>`
         : `<button class="preview-btn fd-entry-name" data-path="${safePA}"
                style="background:none;border:none;cursor:pointer;font-weight:500;
                       color:var(--fd-text,#1e293b);font-size:14px;text-align:left;padding:0;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%"
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:block"
                title="${safePA}">📄 ${nameEsc}</button>`;
 
     const uploaderLine = e.uploader
         ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">by ${escapeHtml(e.uploader)}</div>`
         : '';
 
-    // Desktop action buttons (hidden on mobile via CSS)
-    const p  = { path: safePA };
-    const pd = { path: safePA, isdir: e.is_dir ? '1' : '0' };
-    const btnOpen    = _ab('Open',        'open-btn',     '#3b82f6', p);
-    const btnDl      = _ab('Download',    'download-btn', '#3b82f6', p);
-    const btnZip     = _ab('⬇ ZIP',      'zip-btn',      '#0891b2', p);
-    const btnPreview = _ab('Preview',     'preview-btn',  '#f59e0b', p);
-    const btnShare   = _ab('Share',       'share-btn',    '#8b5cf6', pd);
-    const btnTrash   = _ab('🗑',           'delete-btn',   '#dc2626', p);
-    const btnMove    = _ab('Move/Rename', 'move-btn',     '#64748b', p);
-
-    const desktopBtns = e.is_dir
-        ? [btnOpen, btnZip, btnShare, btnTrash, btnMove].join(' ')
-        : [btnDl, btnPreview, btnShare, btnTrash, btnMove].join(' ');
-
-    // "⋮" button — context menu trigger (always visible on mobile, also on desktop)
+    // "⋮" is the sole action trigger on both mobile and desktop
     const moreBtn = `<button class="fd-more-btn" data-path="${safePA}" data-is-dir="${e.is_dir ? '1' : '0'}"
         style="background:none;border:1px solid var(--fd-border,#e2e8f0);border-radius:6px;
-               padding:3px 9px;cursor:pointer;font-size:17px;line-height:1;
+               padding:3px 10px;cursor:pointer;font-size:18px;line-height:1;
                color:var(--fd-muted,#64748b);vertical-align:middle;flex-shrink:0"
-        title="More actions">⋮</button>`;
+        title="Actions">⋮</button>`;
 
     const TD_COMMON  = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
-    const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;text-align:right"';
+    const TD_ACTIONS = 'style="padding:9px 4px;vertical-align:middle;text-align:right;width:36px"';
 
     return `<tr class="border-t fd-file-row"
                 data-path="${safePA}"
@@ -1317,10 +1335,7 @@ function renderEntryRow(e) {
         </td>
         <td ${TD_COMMON} class="text-sm text-gray-500">${sizeStr}</td>
         <td ${TD_COMMON} class="text-sm text-gray-500 fd-col-mtime">${e.mtime}</td>
-        <td ${TD_ACTIONS}>
-            <span class="fd-actions-desktop" style="display:inline-flex;gap:3px;align-items:center">${desktopBtns}</span>
-            ${moreBtn}
-        </td>
+        <td ${TD_ACTIONS}>${moreBtn}</td>
     </tr>`;
 }
 
@@ -2869,9 +2884,155 @@ window.previewText = window.previewFile;
 // After the table is inserted we need to hook up click handlers for the
 // various buttons.  We read the path from the `data-path` attribute, so
 // we no longer need to worry about quoting/escaping in the HTML.
-// ── Selection state ──────────────────────────────────────────────────────
-let _selectedPaths  = new Set();
-let _lastClickedIdx = -1; // for Shift+click range selection
+// ── Selection bar ─────────────────────────────────────────────────────────
+function _updateSelBar() {
+    const n = _selectedPaths.size;
+    let bar = document.getElementById('fd-sel-bar');
+
+    if (n === 0) {
+        if (bar) bar.style.display = 'none';
+        return;
+    }
+
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'fd-sel-bar';
+        const fl = document.getElementById('file-list');
+        if (!fl) return;
+        fl.parentNode.insertBefore(bar, fl);
+        Object.assign(bar.style, {
+            borderRadius: '8px',
+            padding: '7px 12px',
+            marginBottom: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexWrap: 'wrap',
+            fontSize: '13px',
+            background: 'var(--fd-accent-bg,#eff6ff)',
+            border: '1px solid var(--fd-accent-border,#bfdbfe)',
+        });
+        bar.addEventListener('click', e => {
+            const btn = e.target.closest('[data-fdsel]');
+            if (!btn) return;
+            const action = btn.dataset.fdsel;
+            if (action === 'clear') { _clearSelection(); _updateSelBar(); return; }
+            if (action === 'trash') {
+                const paths = [..._selectedPaths];
+                if (!confirm(`Move ${paths.length} item(s) to Trash?`)) return;
+                _clearSelection(); _updateSelBar();
+                (async () => { for (const p of paths) await deleteItem(p, true); loadDirectory(currentPath); })();
+                return;
+            }
+            if (action === 'download') {
+                const rows = _getFileRows().filter(r => _selectedPaths.has(r.dataset.path));
+                rows.forEach(r => {
+                    if (r.dataset.isDir === '1') downloadFolderZip(r.dataset.path);
+                    else downloadFile(r.dataset.path);
+                });
+                return;
+            }
+        });
+    }
+
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${n} selected</span>
+        <button data-fdsel="download" class="btn" style="padding:3px 10px;font-size:12px">⬇ Download</button>
+        <button data-fdsel="trash"    class="btn" style="padding:3px 10px;font-size:12px;background:#ef4444">🗑 Trash</button>
+        <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto">✕ Clear</button>
+    `;
+}
+
+function attachRowListeners() {
+    const fileList = document.getElementById('file-list');
+    if (!fileList) return;
+
+    // "⋮" context menu button
+    fileList.querySelectorAll('.fd-more-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const row = btn.closest('.fd-file-row');
+            const r = btn.getBoundingClientRect();
+            _showContextMenu(r.left, r.bottom + 4, row);
+        });
+    });
+
+    // Row-level interactions
+    fileList.querySelectorAll('.fd-file-row').forEach((row, idx) => {
+        // Single / range / toggle click on row BODY (not buttons)
+        row.addEventListener('click', e => {
+            if (e.target.closest('button')) return;
+            _removeContextMenu();
+
+            // ── IMPORTANT: check Shift BEFORE Ctrl so Ctrl+Shift does range select ──
+            if (e.shiftKey && _lastClickedIdx >= 0) {
+                // Range select: from _lastClickedIdx to idx
+                const rows = _getFileRows();
+                const lo = Math.min(_lastClickedIdx, idx);
+                const hi = Math.max(_lastClickedIdx, idx);
+                _selectedPaths.clear();
+                rows.forEach((r2, i) => {
+                    const inRange = (i >= lo && i <= hi);
+                    _updateRowSelVisual(r2, inRange);
+                    if (inRange) _selectedPaths.add(r2.dataset.path);
+                });
+            } else if (e.ctrlKey || e.metaKey) {
+                // Ctrl+click: toggle individual item
+                _toggleSelect(row);
+                _lastClickedIdx = idx;
+            } else {
+                // Plain click: select only this row
+                _clearSelection();
+                _toggleSelect(row, true);
+                _lastClickedIdx = idx;
+            }
+            _updateSelBar();
+        });
+
+        // Double-click — open / preview
+        row.addEventListener('dblclick', e => {
+            if (e.target.closest('button')) return;
+            _clearSelection(); _updateSelBar();
+            if (row.dataset.isDir === '1') enterDir(row.dataset.path);
+            else previewFile(row.dataset.path);
+        });
+
+        // Right-click — context menu
+        row.addEventListener('contextmenu', e => {
+            e.preventDefault();
+            if (!_selectedPaths.has(row.dataset.path)) {
+                _clearSelection();
+                _toggleSelect(row, true);
+                _lastClickedIdx = idx;
+                _updateSelBar();
+            }
+            _showContextMenu(e.clientX, e.clientY, row);
+        });
+    });
+
+    // Preview btn inside name cell — open without altering selection
+    fileList.querySelectorAll('.preview-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); previewFile(btn.dataset.path); });
+    });
+    fileList.querySelectorAll('.open-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); enterDir(btn.dataset.path); });
+    });
+
+    // Close context menu on outside click / scroll
+    document.addEventListener('click', _removeContextMenu, { once: true, capture: true });
+    document.addEventListener('scroll', _removeContextMenu, { once: true, passive: true });
+
+    // Clear selection when clicking empty table area
+    fileList.addEventListener('click', e => {
+        if (!e.target.closest('.fd-file-row')) { _clearSelection(); _updateSelBar(); }
+    });
+
+    // Lazy folder sizes
+    fileList.querySelectorAll('.folder-size-cell').forEach((cell, idx) => {
+        setTimeout(() => loadFolderSize(cell), idx * 80);
+    });
+}
 
 function _getFileRows() {
     return Array.from(document.querySelectorAll('#file-list .fd-file-row'));
@@ -2989,6 +3150,13 @@ function _showFileInfo(row) {
         ? (row.querySelector('.folder-size-cell')?.textContent?.trim() || '…')
         : (isNaN(rawSize) ? '—' : formatBytes(rawSize));
 
+    const ext = !isDir && name.includes('.') ? name.split('.').pop().toUpperCase() : null;
+    const typeStr = isDir
+        ? (t('file_info_type_folder') !== 'file_info_type_folder' ? t('file_info_type_folder') : 'Folder')
+        : ext
+            ? `${ext} ${t('file_info_type_file') !== 'file_info_type_file' ? t('file_info_type_file') : 'file'}`
+            : (t('file_info_type_file') !== 'file_info_type_file' ? t('file_info_type_file') : 'File');
+
     const panel = document.createElement('div');
     panel.id = 'fd-info-panel';
     panel.style.cssText =
@@ -2997,13 +3165,13 @@ function _showFileInfo(row) {
         'border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.14);' +
         'padding:0;overflow:hidden;font-size:13px;animation:fd-info-in .18s ease';
 
-    // Inject keyframe once
     if (!document.getElementById('fd-info-kf')) {
         const s = document.createElement('style'); s.id = 'fd-info-kf';
         s.textContent = '@keyframes fd-info-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}';
         document.head.appendChild(s);
     }
 
+    const lbl = (key, fb) => (t(key) !== key ? t(key) : fb);
     const row2 = (label, value) =>
         `<div style="display:flex;justify-content:space-between;padding:5px 14px;
                      border-bottom:1px solid var(--fd-border,#e2e8f0)">
@@ -3016,131 +3184,26 @@ function _showFileInfo(row) {
                      display:flex;justify-content:space-between;align-items:center;
                      border-bottom:1px solid var(--fd-border,#e2e8f0)">
             <span style="font-weight:600;color:var(--fd-text,#1e293b);font-size:14px">
-                ${isDir ? '📁' : '📄'} ${t('file_info_title') === 'file_info_title' ? 'Info' : t('file_info_title')}
+                ${isDir ? '📁' : '📄'} ${lbl('file_info_title','Info')}
             </span>
             <button id="fd-info-close" style="background:none;border:none;cursor:pointer;
                 font-size:18px;color:var(--fd-muted,#64748b);padding:0 2px;line-height:1">✕</button>
         </div>` +
-        row2('Name', name) +
-        row2('Path', path) +
-        row2('Type', isDir ? 'Folder' : (name.includes('.') ? name.split('.').pop().toUpperCase() + ' file' : 'File')) +
-        row2('Size', sizeStr) +
-        row2('Modified', mtime) +
-        (uploader ? row2('Uploaded by', uploader) : '');
+        row2(lbl('file_info_name','Name'), name) +
+        row2(lbl('file_info_path','Path'), path) +
+        row2(lbl('file_info_type','Type'), typeStr) +
+        row2(lbl('file_info_size','Size'), sizeStr) +
+        row2(lbl('file_info_modified','Modified'), mtime) +
+        (uploader ? row2(lbl('file_info_uploaded_by','Uploaded by'), uploader) : '');
 
     document.body.appendChild(panel);
     document.getElementById('fd-info-close').addEventListener('click', () => panel.remove());
 
-    // Close on outside click
     const closer = e => { if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', closer, true); } };
     setTimeout(() => document.addEventListener('click', closer, true), 10);
 }
 
-function attachRowListeners() {
-    const fileList = document.getElementById('file-list');
-    if (!fileList) return;
-
-    // Desktop action buttons (visible on wide screens)
-    fileList.querySelectorAll('.open-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); enterDir(btn.dataset.path); });
-    });
-    fileList.querySelectorAll('.download-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); downloadFile(btn.dataset.path); });
-    });
-    fileList.querySelectorAll('.zip-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); downloadFolderZip(btn.dataset.path); });
-    });
-    fileList.querySelectorAll('.preview-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); previewFile(btn.dataset.path); });
-    });
-    fileList.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); deleteItem(btn.dataset.path); });
-    });
-    fileList.querySelectorAll('.move-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); openMoveDialog(btn.dataset.path); });
-    });
-    fileList.querySelectorAll('.share-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); openShareDialog(btn.dataset.path, btn.dataset.isdir === '1'); });
-    });
-
-    // "⋮" context menu button
-    fileList.querySelectorAll('.fd-more-btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            const row = btn.closest('.fd-file-row');
-            const r = btn.getBoundingClientRect();
-            _showContextMenu(r.left, r.bottom + 4, row);
-        });
-    });
-
-    // Row-level interactions
-    fileList.querySelectorAll('.fd-file-row').forEach((row, idx) => {
-        // Hover via CSS (see fd_dark.css .fd-file-row:hover)
-
-        // Single click — select / deselect
-        row.addEventListener('click', e => {
-            // Ignore clicks on interactive children (buttons, inputs)
-            if (e.target.closest('button')) return;
-            _removeContextMenu();
-
-            if (e.ctrlKey || e.metaKey) {
-                // Ctrl+click: toggle this item
-                _toggleSelect(row);
-                _lastClickedIdx = idx;
-            } else if (e.shiftKey && _lastClickedIdx >= 0) {
-                // Shift+click: range from _lastClickedIdx to idx
-                const rows = _getFileRows();
-                const lo = Math.min(_lastClickedIdx, idx);
-                const hi = Math.max(_lastClickedIdx, idx);
-                // Clear all first, then select range
-                rows.forEach((r2, i) => _toggleSelect(r2, i >= lo && i <= hi));
-                // Rebuild set
-                _selectedPaths.clear();
-                rows.filter((_, i) => i >= lo && i <= hi).forEach(r2 => _selectedPaths.add(r2.dataset.path));
-            } else {
-                // Plain click: clear selection, select this row
-                _clearSelection();
-                _toggleSelect(row, true);
-                _lastClickedIdx = idx;
-            }
-        });
-
-        // Double-click — open / preview
-        row.addEventListener('dblclick', e => {
-            if (e.target.closest('button')) return;
-            _clearSelection();
-            if (row.dataset.isDir === '1') enterDir(row.dataset.path);
-            else previewFile(row.dataset.path);
-        });
-
-        // Right-click — context menu
-        row.addEventListener('contextmenu', e => {
-            e.preventDefault();
-            // If right-clicked row isn't selected, select it alone
-            if (!_selectedPaths.has(row.dataset.path)) {
-                _clearSelection();
-                _toggleSelect(row, true);
-                _lastClickedIdx = idx;
-            }
-            _showContextMenu(e.clientX, e.clientY, row);
-        });
-    });
-
-    // Close context menu on outside click / scroll
-    const _closeCM = () => _removeContextMenu();
-    document.addEventListener('click', _closeCM, { once: true, capture: true });
-    document.addEventListener('scroll', _closeCM, { once: true, passive: true });
-
-    // Clear selection when clicking empty table area
-    fileList.addEventListener('click', e => {
-        if (!e.target.closest('.fd-file-row')) _clearSelection();
-    });
-
-    // Lazy folder sizes
-    fileList.querySelectorAll('.folder-size-cell').forEach((cell, idx) => {
-        setTimeout(() => loadFolderSize(cell), idx * 80);
-    });
-}
+// ── [attachRowListeners defined above in _updateSelBar block] ─────────────
 
 async function loadFolderSize(cell) {
     const path = cell.dataset.path;
@@ -4912,6 +4975,7 @@ function openProfileMenu() {
 
     const overlay = document.createElement('div');
     overlay.id = 'profile-menu-modal';
+    overlay.className = 'fd-profile-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:8000;display:flex;align-items:flex-start;justify-content:flex-end;padding:70px 1rem 0 0';
     overlay.innerHTML = `
         <div id="profile-menu-panel" data-fd-dark="surface" style="background:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.18);min-width:260px;overflow:hidden;animation:fadeSlideDown .15s ease">
@@ -5244,7 +5308,14 @@ async function openAdminPanel() {
                 padding:10px 24px;display:flex;gap:24px;flex-shrink:0;flex-wrap:wrap"></div>
             <div style="overflow-y:auto;flex:1;padding:16px 24px">
                 <div id="ap-body">
-                    <div style="color:#64748b;font-size:14px;padding:20px 0">Loading users… (this may take a few minutes if server have a lot of files)</div>
+                    <div style="display:flex;align-items:center;gap:12px;padding:24px 0;color:#64748b;font-size:14px">
+                        <span style="display:inline-block;width:22px;height:22px;border:3px solid #e2e8f0;
+                                     border-top-color:#3b82f6;border-radius:50%;
+                                     animation:fd-spin 0.8s linear infinite;flex-shrink:0"></span>
+                        ${t('admin_panel_loading') !== 'admin_panel_loading'
+                            ? t('admin_panel_loading')
+                            : 'Loading users… (this may take a few minutes if the server has a lot of files)'}
+                    </div>
                 </div>
             </div>
         </div>`;
@@ -6424,19 +6495,22 @@ function initFooter() {
     const footer = document.createElement('footer');
     footer.id = 'fluxdrop-footer';
 
-    // Unobtrusive styling
+    // Static flow — sits below #app-root.  The <body> is already a flex-col
+    // with min-h-screen, so on short pages this naturally reaches the bottom.
+    // On tall pages (long file listings) the footer is simply below the card,
+    // never overlapping content.
     Object.assign(footer.style, {
-        position: 'fixed',
-        bottom: '10px',
-        right: '15px',
-        color: '#a0a0a0', // Light gray
+        width: '100%',
+        maxWidth: '64rem',  // matches max-w-5xl
+        marginTop: 'auto',
+        paddingTop: '0.75rem',
+        paddingBottom: '0.5rem',
+        color: '#a0aec0',
         fontSize: '11px',
         fontFamily: 'sans-serif',
         fontWeight: '300',
         textAlign: 'right',
-        zIndex: '0',
-        pointerEvents: 'auto',
-        lineHeight: '1.4'
+        lineHeight: '1.5',
     });
 
     // Helper to generate the HTML

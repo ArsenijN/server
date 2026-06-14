@@ -581,7 +581,10 @@
       const header = `<div style="display:flex;justify-content:space-between;
           padding:4px 0 8px;border-bottom:2px solid var(--fd-border,#e2e8f0);
           margin-bottom:6px;font-size:11px;color:var(--fd-muted,#64748b)">
-        <span>${items.length} item${items.length!==1?'s':''}</span>
+        <span>${items.length === 1
+            ? (t('trash_1_item') !== 'trash_1_item' ? t('trash_1_item') : '1 item')
+            : (t('trash_n_items') !== 'trash_n_items' ? t('trash_n_items', { n: items.length }) : `${items.length} items`)
+        }</span>
         <span style="font-weight:600;color:var(--fd-text,#1e293b)">${_fmt(data.total_bytes)}</span>
       </div>`;
 

@@ -388,3 +388,106 @@
   list-style: revert;
   margin-bottom: 0.25em;
 }
+
+/* ── File row hover — properly themed for both modes ────────────────────────── */
+/* Light mode: subtle blue-grey hover (replaces old hardcoded #f8fafc inline style) */
+.fd-file-row { cursor: default; }
+.fd-file-row:hover { background: #e8f0fe !important; }
+/* Dark mode: clearly visible surface3 hover */
+[data-theme="dark"] .fd-file-row:hover { background: var(--fd-surface3) !important; }
+
+/* ── Table dividers darker in dark mode ──────────────────────────────────────── */
+[data-theme="dark"] tr.border-t { border-top-color: var(--fd-border) !important; }
+[data-theme="dark"] thead tr    { border-bottom-color: var(--fd-border) !important; }
+
+/* ── File-name text colours use CSS vars — dark mode inherits automatically ─── */
+/* File names: var(--fd-text) is set on the button inline, but override here too */
+[data-theme="dark"] .fd-entry-name      { color: var(--fd-text)   !important; }
+/* Folder names keep the accent colour in dark mode */
+[data-theme="dark"] .open-btn.fd-entry-name { color: var(--fd-accent) !important; }
+
+/* ── Trash row hover ─────────────────────────────────────────────────────────── */
+.trash-row:hover                        { background: #e8f0fe         !important; }
+[data-theme="dark"] .trash-row:hover   { background: var(--fd-surface3) !important; }
+
+/* ── Mobile: hide mtime column and desktop action buttons ────────────────────── */
+@media (max-width: 600px) {
+  .fd-col-mtime         { display: none !important; }
+  .fd-actions-desktop   { display: none !important; }
+  .fd-more-btn          { display: inline-block !important; }
+}
+
+/* Desktop: keep action buttons, also show "⋮" as a compact context-menu shortcut */
+@media (min-width: 601px) {
+  .fd-actions-desktop   { display: inline-flex !important; gap: 3px; align-items: center; }
+  .fd-more-btn          { display: inline-block; margin-left: 4px; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * Round 2 additions
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Dark-mode flash prevention: html background matches --fd-bg ─────────── */
+/* (Actual early-apply is done by inline <script> in <head>; this ensures any
+    CSS repaint also uses the correct colour.) */
+html[data-theme="dark"] { background: #0d1520 !important; }
+
+/* ── Input placeholder colour in dark mode ───────────────────────────────── */
+[data-theme="dark"] ::placeholder { color: var(--fd-muted) !important; opacity: 1 !important; }
+
+/* ── ap-stats panel dark mode (was stuck on light #f8fafc) ─────────────── */
+[data-theme="dark"] #ap-stats { background: var(--fd-surface2) !important; border-bottom-color: var(--fd-border) !important; }
+
+/* ── Welcome text: clip on very narrow screens ──────────────────────────── */
+.fd-welcome-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-theme="dark"] .fd-welcome-text { color: var(--fd-text) !important; }
+
+/* ── Toolbar collapse on mobile ─────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .fd-toolbar-toggle    { display: inline-block !important; }
+  #fd-toolbar-btns      { display: none !important; flex-wrap: wrap; gap: 6px; }
+  #fd-toolbar-btns.fd-toolbar-open { display: flex !important; width: 100%; margin-top: 6px; }
+}
+@media (min-width: 601px) {
+  .fd-toolbar-toggle    { display: none !important; }
+  #fd-toolbar-btns      { display: flex !important; }
+}
+
+/* ── Upload "Choose files" label button ─────────────────────────────────── */
+#btn-file-choose {
+  background: var(--fd-surface2, #f8fafc) !important;
+  color: var(--fd-text, #374151) !important;
+  border: 1px solid var(--fd-border, #e2e8f0) !important;
+}
+[data-theme="dark"] #btn-file-choose {
+  background: var(--fd-surface3) !important;
+  color: var(--fd-text) !important;
+  border-color: var(--fd-border) !important;
+}
+
+/* ── Profile menu: darken backdrop on mobile ────────────────────────────── */
+@media (max-width: 600px) {
+  .fd-profile-overlay { background: rgba(0, 0, 0, 0.55) !important; }
+  #profile-menu-panel { width: calc(100vw - 1.5rem) !important; min-width: unset !important; }
+}
+
+/* ── Selection bar ──────────────────────────────────────────────────────── */
+[data-theme="dark"] #fd-sel-bar {
+  background: var(--fd-accent-bg) !important;
+  border-color: var(--fd-accent-border) !important;
+}
+
+/* ── Footer: static-flow spacing ────────────────────────────────────────── */
+#fluxdrop-footer { padding-bottom: env(safe-area-inset-bottom, 0.5rem); }
+[data-theme="dark"] #fluxdrop-footer a { color: var(--fd-muted2) !important; }
+
+/* ── fd-col-mtime and ⋮ column sizing ───────────────────────────────────── */
+/* Remove old desktop-button min-width so the table is compact */
+.fd-col-actions { width: 36px !important; }
+
+/* ── Admin panel: dark surface fix for stats bar already above ──────────── */

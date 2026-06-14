@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-a5b8f3be
+// Current version of script.js is: fluxdrop-v-662f3bb9
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-a5b8f3be'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-662f3bb9'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -360,18 +360,21 @@ function _notifyUploadDone(fileCount) {
 function renderAuthControls() {
     if (authToken) {
         authControls.innerHTML = `
-            <div class="flex items-center gap-3">
-                <span class="font-medium text-blue-900">${t('welcome_text')} ${currentUsername}!</span>
+            <div class="flex items-center gap-2" style="min-width:0">
+                <span class="font-medium text-blue-900 fd-welcome-text"
+                      style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;font-size:14px"
+                      title="${escapeHtmlAttr(currentUsername)}">
+                    ${t('welcome_text')} ${escapeHtml(currentUsername)}!
+                </span>
                 <button id="profile-btn" title="Profile & Settings"
                     style="width:36px;height:36px;border-radius:50%;background:#3b82f6;border:2px solid #93c5fd;
                             color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
-                            transition:background .2s;" onmouseenter="this.style.background='#2563eb'" onmouseleave="this.style.background='#3b82f6'">
+                            flex-shrink:0;transition:background .2s"
+                    onmouseenter="this.style.background='#2563eb'" onmouseleave="this.style.background='#3b82f6'">
                     👤
                 </button>
-                <button id="logout-btn" class="btn bg-red-500 hover:bg-red-600 text-sm">Logout</button>
             </div>
         `;
-        document.getElementById('logout-btn').addEventListener('click', handleLogout);
         document.getElementById('profile-btn').addEventListener('click', openProfileMenu);
     } else {
         authControls.innerHTML = `
@@ -612,8 +615,9 @@ function _mdToHtml(md) {
         .replace(/^## (.+)$/gm,  '<h2 style="font-size:1.15rem;font-weight:700;color:#1e40af;margin:1.4em 0 .4em">$1</h2>')
         .replace(/^# (.+)$/gm,   '<h1 style="font-size:1.35rem;font-weight:800;color:#1e40af;margin:1.5em 0 .5em">$1</h1>')
         // bold+italic (*** or ___) — must come BEFORE bold and italic
-        .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-        .replace(/___(.+?)___/g,        '<strong><em>$1</em></strong>')
+        // [\s\S]+? allows the span to cross line breaks (e.g. ***First\nSecond***)
+        .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+        .replace(/___([\s\S]+?)___/g,        '<strong><em>$1</em></strong>')
         // bold (** or __)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/__(.+?)__/g,      '<strong>$1</strong>')
@@ -868,25 +872,36 @@ function renderFileBrowserView() {
         <div class="card" style="min-height:520px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
                 <h2 class="text-2xl font-semibold text-blue-800" style="flex-shrink:0">${t('file_browser_title')}</h2>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-                    <button id="btn-up" class="btn bg-gray-300 text-black text-sm" style="padding:.45rem .9rem">${t('up')}</button>
-                    <button id="btn-refresh" class="btn text-sm" style="padding:.45rem .9rem">${t('refresh')}</button>
-                    <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm" style="padding:.45rem .9rem">${t('create_a_folder')}</button>
-                    <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm" style="padding:.45rem .9rem">${t('browse_cdn')}</button>
-                    <button id="btn-trash" class="btn text-sm" style="background:#dc2626;color:#fff;padding:.45rem .9rem" title="${t('trash_title')}">${t('trash_bin_button')}</button>
-                    <button id="btn-folders-mixed" class="btn text-sm" style="padding:.45rem .9rem" title="${t('folder_sort_first')}"></button>
+                <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+                    <!-- Mobile-only collapse toggle -->
+                    <button id="btn-toolbar-toggle" class="fd-toolbar-toggle btn text-sm"
+                        style="display:none;padding:.4rem .6rem;font-size:15px" title="Toolbar">⋯</button>
+                    <!-- Toolbar buttons — collapsible on mobile -->
+                    <div id="fd-toolbar-btns" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+                        <button id="btn-up" class="btn bg-gray-300 text-black text-sm" style="padding:.45rem .9rem">${t('up')}</button>
+                        <button id="btn-refresh" class="btn text-sm" style="padding:.45rem .9rem">${t('refresh')}</button>
+                        <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm" style="padding:.45rem .9rem">${t('create_a_folder')}</button>
+                        <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm" style="padding:.45rem .9rem">${t('browse_cdn')}</button>
+                        <button id="btn-trash" class="btn text-sm" style="background:#dc2626;color:#fff;padding:.45rem .9rem" title="${t('trash_title')}">${t('trash_bin_button')}</button>
+                        <button id="btn-folders-mixed" class="btn text-sm" style="padding:.45rem .9rem" title="${t('folder_sort_first')}"></button>
+                    </div>
                 </div>
             </div>
 
             <div id="path-breadcrumb" class="text-sm text-gray-600 mb-4"></div>
 
             <div class="mb-4">
+                <!-- Hidden real file input — triggered programmatically -->
+                <input type="file" id="upload-file" multiple style="display:none" />
                 <form id="upload-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;row-gap:6px">
-                    <input type="file" id="upload-file" class="p-2 border rounded" multiple style="min-width:0;flex:1 1 160px;max-width:100%" />
+                    <button type="button" id="btn-file-choose" class="btn text-sm"
+                        style="background:#e2e8f0;color:#374151;font-weight:500;flex-shrink:0">
+                        📎 <span id="upload-file-label">${t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…'}</span>
+                    </button>
                     <button type="button" id="btn-folder-toggle" class="btn text-sm"
-                        style="background:#0ea5e9;flex-shrink:0" title="${t('folder_mode')}">${t('folder_button')}</button>
+                        style="background:#0ea5e9;flex-shrink:0;padding:.45rem .75rem" title="${t('folder_mode')}">${t('folder_button')}</button>
                     <label class="text-sm" style="flex-shrink:0;white-space:nowrap"><input type="checkbox" id="upload-protected" /> ${t('protected')}</label>
-                    <button class="btn" id="btn-upload-submit" type="submit" style="flex-shrink:0">${t('upload')}</button>
+                    <button class="btn" id="btn-upload-submit" type="submit" style="flex-shrink:0;padding:.45rem .9rem">${t('upload')}</button>
                     <span id="upload-spinner" style="display:none;font-size:18px;animation:spin 0.8s linear infinite">⏳</span>
                     <button type="button" id="btn-show-queue"
                         class="btn text-sm hidden"
@@ -919,6 +934,25 @@ function renderFileBrowserView() {
     document.getElementById('btn-create-folder').addEventListener('click', promptCreateFolder);
     document.getElementById('btn-browse-cdn').addEventListener('click', () => navigateTo('/cdn'));  // P11
     document.getElementById('btn-trash').addEventListener('click', openTrashView);
+
+    // Toolbar collapse toggle (mobile)
+    document.getElementById('btn-toolbar-toggle').addEventListener('click', () => {
+        const box = document.getElementById('fd-toolbar-btns');
+        box.classList.toggle('fd-toolbar-open');
+    });
+
+    // Hidden file input — "Choose files" button triggers it
+    document.getElementById('btn-file-choose').addEventListener('click', () => {
+        document.getElementById('upload-file').click();
+    });
+    document.getElementById('upload-file').addEventListener('change', function () {
+        const n   = this.files ? this.files.length : 0;
+        const lbl = document.getElementById('upload-file-label');
+        if (!lbl) return;
+        lbl.textContent = n === 0
+            ? (t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…')
+            : n === 1 ? this.files[0].name : `${n} files selected`;
+    });
     // Folders-first toggle
     function updateFoldersMixedBtn() {
         const btn = document.getElementById('btn-folders-mixed');
@@ -1087,7 +1121,7 @@ function skeletonRows(n = 6) {
             <td style="padding:9px 8px;vertical-align:middle">
                 <span style="${shimmer};width:70%;height:13px"></span>
             </td>
-            <td style="padding:9px 8px;vertical-align:middle">
+            <td style="padding:9px 8px;vertical-align:middle" class="fd-col-mtime">
                 <span style="${shimmer};width:80%;height:13px"></span>
             </td>
             <td style="padding:9px 8px;vertical-align:middle;text-align:right">
@@ -1135,11 +1169,11 @@ async function loadDirectory(path) {
         const cols = [
             { key: 'name',  label: 'Name',     align: 'left'  },
             { key: 'size',  label: 'Size',      align: 'left'  },
-            { key: 'mtime', label: 'Modified',  align: 'left'  },
+            { key: 'mtime', label: 'Modified',  align: 'left', cls: 'fd-col-mtime'  },
         ];
-        const thStyle = (align) =>
+        const thStyle = (align, cls) =>
             `padding:8px;font-size:12px;font-weight:600;color:#64748b;text-align:${align};` +
-            `user-select:none;white-space:nowrap;`;
+            `user-select:none;white-space:nowrap;` + (cls ? '' : '');
         const btnStyle =
             `background:none;border:none;cursor:pointer;font-size:12px;font-weight:700;` +
             `color:#64748b;padding:0;display:inline-flex;align-items:center;gap:3px;`;
@@ -1149,14 +1183,15 @@ async function loadDirectory(path) {
                 : ' ⇅';
             const activeStyle = currentSort.key === c.key
                 ? 'color:#2563eb;' : '';
-            return `<th style="${thStyle(c.align)}">
+            const clsAttr = c.cls ? ` class="${c.cls}"` : '';
+            return `<th style="${thStyle(c.align)}"${clsAttr}>
                 <button onclick="window._sortBy('${c.key}')"
                     style="${btnStyle}${activeStyle}">${c.label}<span style="font-size:10px;opacity:.7">${arrow}</span></button>
             </th>`;
         }).join('');
         return `<thead><tr style="border-bottom:2px solid #e2e8f0">
             ${ths}
-            <th style="${thStyle('right')}">Actions</th>
+            <th style="padding:8px 4px;font-size:14px;font-weight:400;color:#94a3b8;text-align:right;width:36px">⋮</th>
         </tr></thead>`;
     }
 
@@ -1244,54 +1279,63 @@ function _ab(label, cls, color, dataAttrs) {
 }
 
 function renderEntryRow(e) {
-    const nameEsc    = escapeHtml(e.name);
-    const path       = e.path;
-    const safePA     = escapeHtmlAttr(path);
-    // Folders show '—' initially; size is loaded lazily via loadFolderSize()
-    const sizeStr    = e.is_dir
+    const nameEsc = escapeHtml(e.name);
+    const path    = e.path;
+    const safePA  = escapeHtmlAttr(path);
+
+    // Folders show '…' initially; size loaded lazily via loadFolderSize()
+    const sizeStr = e.is_dir
         ? `<span class="folder-size-cell" data-path="${safePA}" style="color:#94a3b8">…</span>`
         : formatBytes(e.size);
 
-    // Name cell: plain <button> instead of <a> — no href, no status-bar tooltip in any browser
-    const TD_NAME = 'style="padding:9px 8px;vertical-align:middle;overflow:hidden"';
+    const TD_NAME = 'style="padding:9px 8px;vertical-align:middle;overflow:hidden;max-width:0"';
+
+    // File name: natural width (not stretched) so dead-click area is minimised.
     const nameBtn = e.is_dir
-        ? `<button class="open-btn" data-path="${safePA}"
+        ? `<button class="open-btn fd-entry-name" data-path="${safePA}"
                style="background:none;border:none;cursor:pointer;font-weight:600;
-                      color:#2563eb;font-size:14px;text-align:left;padding:0;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%"
+                      color:var(--fd-accent,#2563eb);font-size:14px;text-align:left;padding:0;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:block"
                title="${safePA}">📁 ${nameEsc}</button>`
-        : `<button class="preview-btn" data-path="${safePA}"
+        : `<button class="preview-btn fd-entry-name" data-path="${safePA}"
                style="background:none;border:none;cursor:pointer;font-weight:500;
-                      color:#1e293b;font-size:14px;text-align:left;padding:0;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%"
+                      color:var(--fd-text,#1e293b);font-size:14px;text-align:left;padding:0;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:block"
                title="${safePA}">📄 ${nameEsc}</button>`;
 
     const uploaderLine = e.uploader
         ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">by ${escapeHtml(e.uploader)}</div>`
         : '';
 
-    // Action buttons — compact, always single row
-    const p = { path: safePA };
-    const pd = { path: safePA, isdir: e.is_dir ? '1' : '0' };
-    const btnOpen     = _ab('Open',     'open-btn',     '#3b82f6', p);
-    const btnDl       = _ab('Download', 'download-btn', '#3b82f6', p);
-    const btnZip      = _ab('⬇ ZIP',   'zip-btn',      '#0891b2', p);
-    const btnPreview  = _ab('Preview',  'preview-btn',  '#f59e0b', p);
-    const btnShare    = _ab('Share',    'share-btn',    '#8b5cf6', pd);
-    const btnTrash    = _ab('🗑',        'delete-btn',   '#dc2626', p);
-    const btnMove     = _ab('Move/Rename', 'move-btn',  '#64748b', p);
+    // "⋮" is the sole action trigger on both mobile and desktop
+    const moreBtn = `<button class="fd-more-btn" data-path="${safePA}" data-is-dir="${e.is_dir ? '1' : '0'}"
+        style="background:none;border:1px solid var(--fd-border,#e2e8f0);border-radius:6px;
+               padding:3px 10px;cursor:pointer;font-size:18px;line-height:1;
+               color:var(--fd-muted,#64748b);vertical-align:middle;flex-shrink:0"
+        title="Actions">⋮</button>`;
 
-    const actionBtns = e.is_dir
-        ? [btnOpen, btnZip, btnShare, btnTrash, btnMove].join(' ')
-        : [btnDl, btnPreview, btnShare, btnTrash, btnMove].join(' ');
     const TD_COMMON  = 'style="padding:9px 8px;vertical-align:middle;white-space:nowrap"';
-    const TD_ACTIONS = 'style="padding:9px 8px;vertical-align:middle;text-align:right;min-width:220px"';
+    const TD_ACTIONS = 'style="padding:9px 4px;vertical-align:middle;text-align:right;width:36px"';
 
-    return `<tr class="border-t" style="transition:background 0.12s" onmouseenter="this.style.background='#f8fafc'" onmouseleave="this.style.background=''">
-        <td ${TD_NAME}>${nameBtn}${uploaderLine}</td>
+    return `<tr class="border-t fd-file-row"
+                data-path="${safePA}"
+                data-is-dir="${e.is_dir ? '1' : '0'}"
+                data-name="${escapeHtmlAttr(e.name)}"
+                data-size="${e.size || 0}"
+                data-mtime="${escapeHtmlAttr(e.mtime || '')}"
+                data-uploader="${escapeHtmlAttr(e.uploader || '')}"
+                style="transition:background 0.12s;user-select:none">
+        <td ${TD_NAME}>
+            <div style="display:flex;align-items:center;gap:5px;overflow:hidden">
+                <span class="fd-sel-dot" style="display:none;width:14px;height:14px;flex-shrink:0;
+                    border:2px solid var(--fd-accent,#3b82f6);border-radius:3px;align-items:center;
+                    justify-content:center;font-size:9px;background:transparent"></span>
+                <div style="min-width:0;flex:1;overflow:hidden">${nameBtn}${uploaderLine}</div>
+            </div>
+        </td>
         <td ${TD_COMMON} class="text-sm text-gray-500">${sizeStr}</td>
-        <td ${TD_COMMON} class="text-sm text-gray-500">${e.mtime}</td>
-        <td ${TD_ACTIONS}>${actionBtns}</td>
+        <td ${TD_COMMON} class="text-sm text-gray-500 fd-col-mtime">${e.mtime}</td>
+        <td ${TD_ACTIONS}>${moreBtn}</td>
     </tr>`;
 }
 
@@ -1310,10 +1354,17 @@ window.enterDir = function(path) {
         // ======================================================================
 
 function formatBytes(b) {
-    if (b < 1024) return b + ' B';
-    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
-    if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
-    return (b/1073741824).toFixed(2) + ' GB';
+    // 3 significant digits without scientific notation.
+    // e.g. 1.04 GB, 23.5 MB, 135 kB, 1004 MB (stays MB until exactly 1 GiB).
+    function fmt3(v) {
+        if (v >= 100) return Math.round(v).toString();
+        if (v >= 10)  return v.toFixed(1);
+        return v.toFixed(2);
+    }
+    if (b < 1024)        return b + ' B';
+    if (b < 1048576)     return fmt3(b / 1024)      + ' kB';
+    if (b < 1073741824)  return fmt3(b / 1048576)   + ' MB';
+    return                      fmt3(b / 1073741824) + ' GB';
 }
 
 
@@ -2833,35 +2884,326 @@ window.previewText = window.previewFile;
 // After the table is inserted we need to hook up click handlers for the
 // various buttons.  We read the path from the `data-path` attribute, so
 // we no longer need to worry about quoting/escaping in the HTML.
+// ── Selection bar ─────────────────────────────────────────────────────────
+function _updateSelBar() {
+    const n = _selectedPaths.size;
+    let bar = document.getElementById('fd-sel-bar');
+
+    if (n === 0) {
+        if (bar) bar.style.display = 'none';
+        return;
+    }
+
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'fd-sel-bar';
+        const fl = document.getElementById('file-list');
+        if (!fl) return;
+        fl.parentNode.insertBefore(bar, fl);
+        Object.assign(bar.style, {
+            borderRadius: '8px',
+            padding: '7px 12px',
+            marginBottom: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexWrap: 'wrap',
+            fontSize: '13px',
+            background: 'var(--fd-accent-bg,#eff6ff)',
+            border: '1px solid var(--fd-accent-border,#bfdbfe)',
+        });
+        bar.addEventListener('click', e => {
+            const btn = e.target.closest('[data-fdsel]');
+            if (!btn) return;
+            const action = btn.dataset.fdsel;
+            if (action === 'clear') { _clearSelection(); _updateSelBar(); return; }
+            if (action === 'trash') {
+                const paths = [..._selectedPaths];
+                if (!confirm(`Move ${paths.length} item(s) to Trash?`)) return;
+                _clearSelection(); _updateSelBar();
+                (async () => { for (const p of paths) await deleteItem(p, true); loadDirectory(currentPath); })();
+                return;
+            }
+            if (action === 'download') {
+                const rows = _getFileRows().filter(r => _selectedPaths.has(r.dataset.path));
+                rows.forEach(r => {
+                    if (r.dataset.isDir === '1') downloadFolderZip(r.dataset.path);
+                    else downloadFile(r.dataset.path);
+                });
+                return;
+            }
+        });
+    }
+
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${n} selected</span>
+        <button data-fdsel="download" class="btn" style="padding:3px 10px;font-size:12px">⬇ Download</button>
+        <button data-fdsel="trash"    class="btn" style="padding:3px 10px;font-size:12px;background:#ef4444">🗑 Trash</button>
+        <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto">✕ Clear</button>
+    `;
+}
+
 function attachRowListeners() {
-    document.querySelectorAll('#file-list .open-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => { e.preventDefault(); enterDir(btn.dataset.path); });
-    });
-    document.querySelectorAll('#file-list .download-btn').forEach(btn => {
-        btn.addEventListener('click', () => downloadFile(btn.dataset.path));
-    });
-    document.querySelectorAll('#file-list .zip-btn').forEach(btn => {
-        btn.addEventListener('click', () => downloadFolderZip(btn.dataset.path));
-    });
-    document.querySelectorAll('#file-list .preview-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => { e.preventDefault(); previewFile(btn.dataset.path); });
-    });
-    document.querySelectorAll('#file-list .delete-btn').forEach(btn => {
-        btn.addEventListener('click', () => deleteItem(btn.dataset.path));
-    });
-    document.querySelectorAll('#file-list .move-btn').forEach(btn => {
-        btn.addEventListener('click', () => openMoveDialog(btn.dataset.path));
-    });
-    document.querySelectorAll('#file-list .share-btn').forEach(btn => {
-        btn.addEventListener('click', () => openShareDialog(btn.dataset.path, btn.dataset.isdir === '1'));
+    const fileList = document.getElementById('file-list');
+    if (!fileList) return;
+
+    // "⋮" context menu button
+    fileList.querySelectorAll('.fd-more-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const row = btn.closest('.fd-file-row');
+            const r = btn.getBoundingClientRect();
+            _showContextMenu(r.left, r.bottom + 4, row);
+        });
     });
 
-    // Lazy folder sizes — fire requests after the table is visible
-    // Use staggered setTimeout to avoid hammering the server for large listings
-    document.querySelectorAll('#file-list .folder-size-cell').forEach((cell, idx) => {
+    // Row-level interactions
+    fileList.querySelectorAll('.fd-file-row').forEach((row, idx) => {
+        // Single / range / toggle click on row BODY (not buttons)
+        row.addEventListener('click', e => {
+            if (e.target.closest('button')) return;
+            _removeContextMenu();
+
+            // ── IMPORTANT: check Shift BEFORE Ctrl so Ctrl+Shift does range select ──
+            if (e.shiftKey && _lastClickedIdx >= 0) {
+                // Range select: from _lastClickedIdx to idx
+                const rows = _getFileRows();
+                const lo = Math.min(_lastClickedIdx, idx);
+                const hi = Math.max(_lastClickedIdx, idx);
+                _selectedPaths.clear();
+                rows.forEach((r2, i) => {
+                    const inRange = (i >= lo && i <= hi);
+                    _updateRowSelVisual(r2, inRange);
+                    if (inRange) _selectedPaths.add(r2.dataset.path);
+                });
+            } else if (e.ctrlKey || e.metaKey) {
+                // Ctrl+click: toggle individual item
+                _toggleSelect(row);
+                _lastClickedIdx = idx;
+            } else {
+                // Plain click: select only this row
+                _clearSelection();
+                _toggleSelect(row, true);
+                _lastClickedIdx = idx;
+            }
+            _updateSelBar();
+        });
+
+        // Double-click — open / preview
+        row.addEventListener('dblclick', e => {
+            if (e.target.closest('button')) return;
+            _clearSelection(); _updateSelBar();
+            if (row.dataset.isDir === '1') enterDir(row.dataset.path);
+            else previewFile(row.dataset.path);
+        });
+
+        // Right-click — context menu
+        row.addEventListener('contextmenu', e => {
+            e.preventDefault();
+            if (!_selectedPaths.has(row.dataset.path)) {
+                _clearSelection();
+                _toggleSelect(row, true);
+                _lastClickedIdx = idx;
+                _updateSelBar();
+            }
+            _showContextMenu(e.clientX, e.clientY, row);
+        });
+    });
+
+    // Preview btn inside name cell — open without altering selection
+    fileList.querySelectorAll('.preview-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); previewFile(btn.dataset.path); });
+    });
+    fileList.querySelectorAll('.open-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); enterDir(btn.dataset.path); });
+    });
+
+    // Close context menu on outside click / scroll
+    document.addEventListener('click', _removeContextMenu, { once: true, capture: true });
+    document.addEventListener('scroll', _removeContextMenu, { once: true, passive: true });
+
+    // Clear selection when clicking empty table area
+    fileList.addEventListener('click', e => {
+        if (!e.target.closest('.fd-file-row')) { _clearSelection(); _updateSelBar(); }
+    });
+
+    // Lazy folder sizes
+    fileList.querySelectorAll('.folder-size-cell').forEach((cell, idx) => {
         setTimeout(() => loadFolderSize(cell), idx * 80);
     });
 }
+
+function _getFileRows() {
+    return Array.from(document.querySelectorAll('#file-list .fd-file-row'));
+}
+
+function _updateRowSelVisual(row, selected) {
+    const dot = row.querySelector('.fd-sel-dot');
+    if (!dot) return;
+    if (selected) {
+        dot.style.display = 'inline-flex';
+        dot.style.background = 'var(--fd-accent,#3b82f6)';
+        dot.textContent = '✓';
+        dot.style.color = '#fff';
+        row.style.background = 'var(--fd-accent-bg,#eff6ff)';
+    } else {
+        dot.style.display = 'none';
+        dot.style.background = 'transparent';
+        dot.textContent = '';
+        row.style.background = '';
+    }
+}
+
+function _toggleSelect(row, force) {
+    const path = row.dataset.path;
+    const nowSelected = (force !== undefined) ? force : !_selectedPaths.has(path);
+    if (nowSelected) _selectedPaths.add(path); else _selectedPaths.delete(path);
+    _updateRowSelVisual(row, nowSelected);
+}
+
+function _clearSelection() {
+    _getFileRows().forEach(r => _updateRowSelVisual(r, false));
+    _selectedPaths.clear();
+    _lastClickedIdx = -1;
+}
+
+// ── Context menu ─────────────────────────────────────────────────────────
+function _removeContextMenu() {
+    document.getElementById('fd-ctx-menu')?.remove();
+}
+
+function _showContextMenu(x, y, row) {
+    _removeContextMenu();
+    const path  = row.dataset.path;
+    const isDir = row.dataset.isDir === '1';
+
+    const menu = document.createElement('div');
+    menu.id = 'fd-ctx-menu';
+    menu.style.cssText =
+        `position:fixed;left:${x}px;top:${y}px;` +
+        `background:var(--fd-surface,#fff);border:1px solid var(--fd-border,#e2e8f0);` +
+        `border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.15);` +
+        `z-index:50000;min-width:165px;padding:4px 0;font-size:13px;overflow:hidden`;
+
+    const ITEM = (icon, label, action, danger) =>
+        `<button class="fd-ctx-item" data-action="${action}"
+            style="display:block;width:100%;padding:7px 14px;text-align:left;
+                   background:none;border:none;cursor:pointer;
+                   color:${danger ? 'var(--fd-danger,#dc2626)' : 'var(--fd-text,#1e293b)'};
+                   white-space:nowrap;font-size:13px"
+        >${icon} ${label}</button>`;
+    const SEP = `<div style="border-top:1px solid var(--fd-border,#e2e8f0);margin:4px 0"></div>`;
+
+    menu.innerHTML = [
+        isDir ? ITEM('📂', 'Open',        'open')    : ITEM('👁', 'Preview',   'preview'),
+        isDir ? ITEM('⬇', 'Download ZIP', 'zip')    : ITEM('⬇', 'Download',  'download'),
+        ITEM('🔗', 'Share',                           'share'),
+        ITEM('✂',  'Move / Rename',                   'move'),
+        ITEM('ℹ',  'Info',                             'info'),
+        SEP,
+        ITEM('🗑',  'Move to Trash',                   'trash', true),
+    ].join('');
+
+    document.body.appendChild(menu);
+
+    // Hover highlight
+    menu.querySelectorAll('.fd-ctx-item').forEach(btn => {
+        btn.addEventListener('mouseenter', () => btn.style.background = 'var(--fd-surface3,#f1f5f9)');
+        btn.addEventListener('mouseleave', () => btn.style.background = 'none');
+        btn.addEventListener('click', () => {
+            _removeContextMenu();
+            const p  = row.dataset.path;
+            const id = row.dataset.isDir === '1';
+            switch (btn.dataset.action) {
+                case 'open':     enterDir(p); break;
+                case 'preview':  previewFile(p); break;
+                case 'download': downloadFile(p); break;
+                case 'zip':      downloadFolderZip(p); break;
+                case 'share':    openShareDialog(p, id); break;
+                case 'move':     openMoveDialog(p); break;
+                case 'trash':    deleteItem(p); break;
+                case 'info':     _showFileInfo(row); break;
+            }
+        });
+    });
+
+    // Keep within viewport
+    requestAnimationFrame(() => {
+        const r = menu.getBoundingClientRect();
+        if (r.right  > window.innerWidth)  menu.style.left = Math.max(4, window.innerWidth  - r.width  - 8) + 'px';
+        if (r.bottom > window.innerHeight) menu.style.top  = Math.max(4, y - r.height) + 'px';
+    });
+}
+
+// ── File info panel ──────────────────────────────────────────────────────
+function _showFileInfo(row) {
+    document.getElementById('fd-info-panel')?.remove();
+
+    const name    = row.dataset.name    || '—';
+    const path    = row.dataset.path    || '—';
+    const isDir   = row.dataset.isDir   === '1';
+    const mtime   = row.dataset.mtime   || '—';
+    const uploader= row.dataset.uploader|| '';
+    const rawSize = parseInt(row.dataset.size, 10);
+    const sizeStr = isDir
+        ? (row.querySelector('.folder-size-cell')?.textContent?.trim() || '…')
+        : (isNaN(rawSize) ? '—' : formatBytes(rawSize));
+
+    const ext = !isDir && name.includes('.') ? name.split('.').pop().toUpperCase() : null;
+    const typeStr = isDir
+        ? (t('file_info_type_folder') !== 'file_info_type_folder' ? t('file_info_type_folder') : 'Folder')
+        : ext
+            ? `${ext} ${t('file_info_type_file') !== 'file_info_type_file' ? t('file_info_type_file') : 'file'}`
+            : (t('file_info_type_file') !== 'file_info_type_file' ? t('file_info_type_file') : 'File');
+
+    const panel = document.createElement('div');
+    panel.id = 'fd-info-panel';
+    panel.style.cssText =
+        'position:fixed;right:12px;top:70px;width:260px;z-index:20000;' +
+        'background:var(--fd-surface,#fff);border:1px solid var(--fd-border,#e2e8f0);' +
+        'border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.14);' +
+        'padding:0;overflow:hidden;font-size:13px;animation:fd-info-in .18s ease';
+
+    if (!document.getElementById('fd-info-kf')) {
+        const s = document.createElement('style'); s.id = 'fd-info-kf';
+        s.textContent = '@keyframes fd-info-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}';
+        document.head.appendChild(s);
+    }
+
+    const lbl = (key, fb) => (t(key) !== key ? t(key) : fb);
+    const row2 = (label, value) =>
+        `<div style="display:flex;justify-content:space-between;padding:5px 14px;
+                     border-bottom:1px solid var(--fd-border,#e2e8f0)">
+            <span style="color:var(--fd-muted,#64748b);flex-shrink:0;margin-right:8px">${label}</span>
+            <span style="color:var(--fd-text,#1e293b);text-align:right;word-break:break-all">${escapeHtml(value)}</span>
+         </div>`;
+
+    panel.innerHTML =
+        `<div style="background:var(--fd-surface3,#f1f5f9);padding:10px 14px;
+                     display:flex;justify-content:space-between;align-items:center;
+                     border-bottom:1px solid var(--fd-border,#e2e8f0)">
+            <span style="font-weight:600;color:var(--fd-text,#1e293b);font-size:14px">
+                ${isDir ? '📁' : '📄'} ${lbl('file_info_title','Info')}
+            </span>
+            <button id="fd-info-close" style="background:none;border:none;cursor:pointer;
+                font-size:18px;color:var(--fd-muted,#64748b);padding:0 2px;line-height:1">✕</button>
+        </div>` +
+        row2(lbl('file_info_name','Name'), name) +
+        row2(lbl('file_info_path','Path'), path) +
+        row2(lbl('file_info_type','Type'), typeStr) +
+        row2(lbl('file_info_size','Size'), sizeStr) +
+        row2(lbl('file_info_modified','Modified'), mtime) +
+        (uploader ? row2(lbl('file_info_uploaded_by','Uploaded by'), uploader) : '');
+
+    document.body.appendChild(panel);
+    document.getElementById('fd-info-close').addEventListener('click', () => panel.remove());
+
+    const closer = e => { if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', closer, true); } };
+    setTimeout(() => document.addEventListener('click', closer, true), 10);
+}
+
+// ── [attachRowListeners defined above in _updateSelBar block] ─────────────
 
 async function loadFolderSize(cell) {
     const path = cell.dataset.path;
@@ -2922,23 +3264,25 @@ async function openTrashView() {
                     <div style="color:white;font-weight:700;font-size:16px">🗑 Trash</div>
                     <div id="trash-subtitle" style="color:rgba(255,255,255,.75);font-size:12px;margin-top:2px"></div>
                 </div>
-                <button onclick="document.getElementById('trash-overlay').remove()"
+                <div onclick="document.getElementById('trash-overlay').remove()"
                     style="background:rgba(255,255,255,.15);border:none;color:white;
-                           border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px">✕</button>
+                           border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px
+                           ;display:inline-block">${t('close') || '✕'}</div>
             </div>
             <div id="trash-notice" style="display:none;padding:8px 20px;background:#fef3c7;
                 border-bottom:1px solid #fde68a;font-size:12px;color:#92400e"></div>
             <div style="padding:12px 20px;border-bottom:1px solid #e2e8f0;display:flex;
                         justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
                 <span style="font-size:12px;color:#64748b">
-                    Files are automatically deleted after their retention period.
-                    Trash does not count toward your storage quota.
+                    ${t('trash_retention_notice') !== 'trash_retention_notice'
+                        ? t('trash_retention_notice')
+                        : 'Files are automatically deleted after their retention period. Trash does not count toward your storage quota.'}
                 </span>
                 <button id="trash-empty-btn"
                     style="background:#ef4444;color:white;border:none;border-radius:7px;
                            padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;
                            white-space:nowrap">
-                    Empty Trash
+                    ${t('trash_empty_btn') !== 'trash_empty_btn' ? t('trash_empty_btn') : 'Empty Trash'}
                 </button>
             </div>
             <div id="trash-body" style="max-height:55vh;overflow-y:auto;padding:8px 0">
@@ -2978,7 +3322,11 @@ async function _refreshTrashView() {
     }
 
     const items = data.items || [];
-    subtitle.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+    subtitle.textContent = items.length === 1
+        ? (t('trash_1_item') !== 'trash_1_item' ? t('trash_1_item') : '1 item')
+        : (t('trash_n_items') !== 'trash_n_items'
+            ? t('trash_n_items', { n: items.length })
+            : `${items.length} items`);
 
     if (data.notice && notice) {
         notice.textContent = '⚠ ' + data.notice;
@@ -3004,10 +3352,20 @@ async function _refreshTrashView() {
     }
     function daysLeft(expiresAt) {
         const d = Math.ceil((expiresAt - Date.now()/1000) / 86400);
-        if (d <= 0) return '<span style="color:#ef4444">Expiring soon</span>';
-        if (d === 1) return '<span style="color:#f59e0b">1 day left</span>';
-        if (d <= 3) return `<span style="color:#f59e0b">${d} days left</span>`;
-        return `<span style="color:#64748b">${d} days left</span>`;
+        if (d <= 0) {
+            const lbl = t('trash_days_expiring') !== 'trash_days_expiring' ? t('trash_days_expiring') : 'Expiring soon';
+            return `<span style="color:#ef4444">${lbl}</span>`;
+        }
+        if (d === 1) {
+            const lbl = t('trash_days_1') !== 'trash_days_1' ? t('trash_days_1') : '1 day left';
+            return `<span style="color:#f59e0b">${lbl}</span>`;
+        }
+        if (d <= 3) {
+            const lbl = t('trash_days_n') !== 'trash_days_n' ? t('trash_days_n', { n: d }) : `${d} days left`;
+            return `<span style="color:#f59e0b">${lbl}</span>`;
+        }
+        const lbl = t('trash_days_n') !== 'trash_days_n' ? t('trash_days_n', { n: d }) : `${d} days left`;
+        return `<span style="color:#64748b">${lbl}</span>`;
     }
 
     body.innerHTML = items.map(item => `
@@ -3036,22 +3394,22 @@ async function _refreshTrashView() {
                     ? `<button class="trash-preview-btn" data-id="${item.id}" data-name="${escapeHtmlAttr(item.name)}"
                            style="background:#6366f1;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
-                           Preview
+                           ${t('trash_preview') !== 'trash_preview' ? t('trash_preview') : 'Preview'}
                        </button>`
                     : `<button class="trash-browse-btn" data-trash-path="${escapeHtmlAttr(item.trash_path)}" data-id="${item.id}"
                            style="background:#6366f1;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
-                           Browse
+                           ${t('trash_browse') !== 'trash_browse' ? t('trash_browse') : 'Browse'}
                        </button>`}
                 <button class="trash-restore-btn" data-id="${item.id}"
                     style="background:#22c55e;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600">
-                    Restore
+                    ${t('trash_restore') !== 'trash_restore' ? t('trash_restore') : 'Restore'}
                 </button>
                 <button class="trash-del-btn" data-id="${item.id}"
                     style="background:#ef4444;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px">
-                    Delete
+                    ${t('trash_delete') !== 'trash_delete' ? t('trash_delete') : 'Delete'}
                 </button>
             </div>
         </div>`).join('');
@@ -4617,6 +4975,7 @@ function openProfileMenu() {
 
     const overlay = document.createElement('div');
     overlay.id = 'profile-menu-modal';
+    overlay.className = 'fd-profile-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:8000;display:flex;align-items:flex-start;justify-content:flex-end;padding:70px 1rem 0 0';
     overlay.innerHTML = `
         <div id="profile-menu-panel" data-fd-dark="surface" style="background:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.18);min-width:260px;overflow:hidden;animation:fadeSlideDown .15s ease">
@@ -4949,7 +5308,14 @@ async function openAdminPanel() {
                 padding:10px 24px;display:flex;gap:24px;flex-shrink:0;flex-wrap:wrap"></div>
             <div style="overflow-y:auto;flex:1;padding:16px 24px">
                 <div id="ap-body">
-                    <div style="color:#64748b;font-size:14px;padding:20px 0">Loading users… (this may take a few minutes if server have a lot of files)</div>
+                    <div style="display:flex;align-items:center;gap:12px;padding:24px 0;color:#64748b;font-size:14px">
+                        <span style="display:inline-block;width:22px;height:22px;border:3px solid #e2e8f0;
+                                     border-top-color:#3b82f6;border-radius:50%;
+                                     animation:fd-spin 0.8s linear infinite;flex-shrink:0"></span>
+                        ${t('admin_panel_loading') !== 'admin_panel_loading'
+                            ? t('admin_panel_loading')
+                            : 'Loading users… (this may take a few minutes if the server has a lot of files)'}
+                    </div>
                 </div>
             </div>
         </div>`;
@@ -6052,67 +6418,68 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (_) {}
 
-        // Files whose staleness we track.  Both must match for the page to be
-        // considered fresh — a stale script.js with a fresh index.html is
-        // still stale because the user's browser is running old code.
+        // Step 0: Compare embedded SCRIPT_VERSION with the SW's cache name version.
+        // When they match the SW is already serving this exact build — no probe needed.
+        // (Skip this gate if the build script didn't substitute the version token.)
+        if (!SCRIPT_VERSION_RAW.includes('@@')) {
+            try {
+                const swVer = await new Promise((resolve, reject) => {
+                    const ch = new MessageChannel();
+                    ch.port1.onmessage = e => (e.data?.version ? resolve(e.data.version) : reject());
+                    navigator.serviceWorker.controller.postMessage({ type: 'GET_VERSION' }, [ch.port2]);
+                    setTimeout(() => reject(new Error('sw-timeout')), 3000);
+                });
+                if (swVer === SCRIPT_VERSION) return; // versions match — skip probe
+            } catch (_) { /* SW didn't respond or version mismatch — fall through */ }
+        }
+
+        // Step 1: File-level staleness probe.
+        // FIX: was Promise.any() which resolves with the FIRST settled value regardless
+        // of whether it is true or false — so if index.html resolved first with `false`,
+        // the whole check returned "not stale" even when script.js was stale.
+        // Correct approach: Promise.all + .some().
         const TRACKED = [
             _APP_BASE + '/index.html',
             _APP_BASE + '/script.js',
         ];
 
         try {
-            // Ask the cache what ETags/Last-Modified values it has stored
-            const cache = await caches.open('fluxdrop-v-a5b8f3be'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-662f3bb9'); // replaced by build.sh — do not edit manually
 
-            const stale = await Promise.any(
+            const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {
-                    // HEAD fetch with cache:no-store so the SW passes it through
-                    // to the network instead of serving from its own cache.
-                    // Without no-store the SW would return the cached copy and
-                    // the comparison would always show "up to date" even when a
-                    // new version has been deployed.
-                    const netResp = await fetch(url, {
-                        method: 'HEAD',
-                        cache:  'no-store',
-                        signal: AbortSignal.timeout(8000),
-                    });
-                    if (!netResp.ok) return false; // server error → don't nag
+                    try {
+                        const netResp = await fetch(url, {
+                            method: 'HEAD',
+                            cache:  'no-store',
+                            signal: AbortSignal.timeout(8000),
+                        });
+                        if (!netResp.ok) return false; // server error → don't nag
 
-                    // What does the cache have for this URL?
-                    // ignoreMethod:true ensures we read the cached GET entry
-                    // even though the probe was a HEAD request.
-                    const cached = await cache.match(url, { ignoreMethod: true });
-                    if (!cached) return true; // not cached at all → stale
+                        const cached = await cache.match(url, { ignoreMethod: true });
+                        if (!cached) return true; // not in cache → stale
 
-                    // Compare by ETag first, Last-Modified as fallback
-                    const netEtag  = netResp.headers.get('ETag');
-                    const cacheEtag = cached.headers.get('ETag');
-                    if (netEtag && cacheEtag) {
-                        if (netEtag !== cacheEtag) return true;  // content changed
-                        return false;
+                        // Compare by ETag first, Last-Modified as fallback, Content-Length last
+                        const netEtag   = netResp.headers.get('ETag');
+                        const cacheEtag = cached.headers.get('ETag');
+                        if (netEtag && cacheEtag) return netEtag !== cacheEtag;
+
+                        const netMod   = netResp.headers.get('Last-Modified');
+                        const cacheMod = cached.headers.get('Last-Modified');
+                        if (netMod && cacheMod) return netMod !== cacheMod;
+
+                        const netLen   = netResp.headers.get('Content-Length');
+                        const cacheLen = cached.headers.get('Content-Length');
+                        if (netLen && cacheLen && netLen !== cacheLen) return true;
+
+                        return false; // headers absent or identical — assume fresh
+                    } catch {
+                        return false; // network error for this file → don't nag
                     }
-
-                    const netMod   = netResp.headers.get('Last-Modified');
-                    const cacheMod = cached.headers.get('Last-Modified');
-                    if (netMod && cacheMod) {
-                        if (netMod !== cacheMod) return true;
-                        return false;
-                    }
-
-                    // No cache headers at all (SimpleHTTPRequestHandler sometimes
-                    // omits them) — compare Content-Length as a weak proxy.
-                    // Two files of the same byte length can still differ, but this
-                    // catches the common case of a rebuilt script.js being a different
-                    // size.  Users can always hard-reload manually.
-                    const netLen   = netResp.headers.get('Content-Length');
-                    const cacheLen = cached.headers.get('Content-Length');
-                    if (netLen && cacheLen && netLen !== cacheLen) return true;
-
-                    return false; // looks the same
                 })
-            ).catch(() => false); // Promise.any rejects only if ALL reject → not stale
+            );
 
-            if (stale) {
+            if (stalenessChecks.some(s => s)) {
                 _showUpdateBanner();
             }
         } catch {
@@ -6128,19 +6495,22 @@ function initFooter() {
     const footer = document.createElement('footer');
     footer.id = 'fluxdrop-footer';
 
-    // Unobtrusive styling
+    // Static flow — sits below #app-root.  The <body> is already a flex-col
+    // with min-h-screen, so on short pages this naturally reaches the bottom.
+    // On tall pages (long file listings) the footer is simply below the card,
+    // never overlapping content.
     Object.assign(footer.style, {
-        position: 'fixed',
-        bottom: '10px',
-        right: '15px',
-        color: '#a0a0a0', // Light gray
+        width: '100%',
+        maxWidth: '64rem',  // matches max-w-5xl
+        marginTop: 'auto',
+        paddingTop: '0.75rem',
+        paddingBottom: '0.5rem',
+        color: '#a0aec0',
         fontSize: '11px',
         fontFamily: 'sans-serif',
         fontWeight: '300',
         textAlign: 'right',
-        zIndex: '0',
-        pointerEvents: 'auto',
-        lineHeight: '1.4'
+        lineHeight: '1.5',
     });
 
     // Helper to generate the HTML

@@ -17,6 +17,23 @@
     <meta property="og:url" content="https://arseniusgen.uk.to/fluxdrop_pp/">
 
     <link rel="icon" type="image/svg" sizes="32x32" href="icon.svg">
+
+    <!--
+      Apply dark theme BEFORE any CSS or JS loads so the background is never
+      white for dark-mode users.  Must be an inline <script> in <head>.
+    -->
+    <script>
+      (function(){
+        try {
+          var m = localStorage.getItem('fd-theme') || 'auto';
+          var dark = m === 'dark' || (m === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) {
+            document.documentElement.setAttribute('data-theme','dark');
+            document.documentElement.style.background = '#0d1520';
+          }
+        } catch(_){}
+      })();
+    </script>
     <link href="/fluxdrop_pp/assets/Inter.css" rel="stylesheet">
     <link rel="stylesheet" href="/fluxdrop_pp/assets/all.min.css">
     <link rel="stylesheet" href="tailwindcss.css">

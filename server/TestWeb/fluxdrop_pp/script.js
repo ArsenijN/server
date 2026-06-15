@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-cf81aaa9
+// Current version of script.js is: fluxdrop-v-9cd87b5c
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-cf81aaa9'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-9cd87b5c'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -362,16 +362,23 @@ function renderAuthControls() {
         authControls.innerHTML = `
             <div class="flex items-center gap-2" style="min-width:0">
                 <span class="font-medium text-blue-900 fd-welcome-text"
-                      style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;font-size:14px"
+                      style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+                             max-width:min(220px,40vw);font-size:14px"
                       title="${escapeHtmlAttr(currentUsername)}">
                     ${t('welcome_text')} ${escapeHtml(currentUsername)}!
                 </span>
                 <button id="profile-btn" title="Profile & Settings"
                     style="width:36px;height:36px;border-radius:50%;background:#3b82f6;border:2px solid #93c5fd;
                             color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
-                            flex-shrink:0;transition:background .2s"
+                            flex-shrink:0;transition:background .2s;overflow:hidden;padding:0"
                     onmouseenter="this.style.background='#2563eb'" onmouseleave="this.style.background='#3b82f6'">
-                    👤
+                    <img id="header-avatar"
+                         src="${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(localStorage.getItem('fluxdrop_user_id')||'0')}?t=${Date.now()}"
+                         style="width:36px;height:36px;border-radius:50%;object-fit:cover;display:block"
+                         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+                         alt="">
+                    <span id="header-avatar-fallback"
+                          style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:16px">👤</span>
                 </button>
             </div>
         `;
@@ -890,6 +897,15 @@ function renderFileBrowserView() {
 
             <div id="path-breadcrumb" class="text-sm text-gray-600 mb-4"></div>
 
+            <!-- Selection action bar — always in the DOM so activating it never
+                 shifts the file list.  Invisible when nothing is selected. -->
+            <div id="fd-sel-bar"
+                 style="visibility:hidden;border-radius:8px;padding:7px 12px;margin-bottom:8px;
+                        display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;
+                        background:var(--fd-accent-bg,#eff6ff);border:1px solid var(--fd-accent-border,#bfdbfe)">
+                &nbsp;
+            </div>
+
             <div class="mb-4">
                 <!-- Hidden real file input — triggered programmatically -->
                 <input type="file" id="upload-file" multiple style="display:none" />
@@ -1086,8 +1102,11 @@ function apiPathFor(path) {
 // Returns an HTML string of N animated skeleton table rows that mimic
 // the real file-list table layout, preventing UI flash on directory loads.
 function skeletonRows(n = 6) {
+    // Use CSS vars so the shimmer matches whatever theme is active.
+    // --fd-skel-base / --fd-skel-shine are defined in fd_dark.css.
+    // Fallback values cover the case where fd_dark.css hasn't loaded yet.
     const shimmer = [
-        'background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%)',
+        'background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%)',
         'background-size:200% 100%',
         'animation:fd-shimmer 1.4s infinite',
         'border-radius:4px',
@@ -1197,10 +1216,10 @@ async function loadDirectory(path) {
 
     const TABLE_WRAP = `<table style="width:100%;table-layout:fixed;border-collapse:collapse">
         <colgroup>
-            <col style="width:36%">
-            <col style="width:10%">
-            <col style="width:16%">
-            <col style="width:38%">
+            <col style="width:auto">
+            <col style="width:8%">
+            <col class="fd-col-mtime" style="width:14%">
+            <col style="width:44px">
         </colgroup>`;
 
     // Show skeleton rows immediately so the table shape appears while fetching
@@ -2891,61 +2910,46 @@ let _lastClickedIdx = -1; // used for Shift+click range selection
 // ── Selection bar ─────────────────────────────────────────────────────────
 function _updateSelBar() {
     const n = _selectedPaths.size;
-    let bar = document.getElementById('fd-sel-bar');
+    const bar = document.getElementById('fd-sel-bar');
+    if (!bar) return;
 
     if (n === 0) {
-        if (bar) bar.style.display = 'none';
+        bar.style.visibility = 'hidden';
+        bar.innerHTML = '&nbsp;';
         return;
     }
 
-    if (!bar) {
-        bar = document.createElement('div');
-        bar.id = 'fd-sel-bar';
-        const fl = document.getElementById('file-list');
-        if (!fl) return;
-        fl.parentNode.insertBefore(bar, fl);
-        Object.assign(bar.style, {
-            borderRadius: '8px',
-            padding: '7px 12px',
-            marginBottom: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            flexWrap: 'wrap',
-            fontSize: '13px',
-            background: 'var(--fd-accent-bg,#eff6ff)',
-            border: '1px solid var(--fd-accent-border,#bfdbfe)',
-        });
-        bar.addEventListener('click', e => {
-            const btn = e.target.closest('[data-fdsel]');
-            if (!btn) return;
-            const action = btn.dataset.fdsel;
-            if (action === 'clear') { _clearSelection(); _updateSelBar(); return; }
-            if (action === 'trash') {
-                const paths = [..._selectedPaths];
-                if (!confirm(`Move ${paths.length} item(s) to Trash?`)) return;
-                _clearSelection(); _updateSelBar();
-                (async () => { for (const p of paths) await deleteItem(p, true); loadDirectory(currentPath); })();
-                return;
-            }
-            if (action === 'download') {
-                const rows = _getFileRows().filter(r => _selectedPaths.has(r.dataset.path));
-                rows.forEach(r => {
-                    if (r.dataset.isDir === '1') downloadFolderZip(r.dataset.path);
-                    else downloadFile(r.dataset.path);
-                });
-                return;
-            }
-        });
-    }
-
-    bar.style.display = 'flex';
+    bar.style.visibility = 'visible';
     bar.innerHTML = `
         <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${n} selected</span>
         <button data-fdsel="download" class="btn" style="padding:3px 10px;font-size:12px">⬇ Download</button>
         <button data-fdsel="trash"    class="btn" style="padding:3px 10px;font-size:12px;background:#ef4444">🗑 Trash</button>
         <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto">✕ Clear</button>
     `;
+
+    // Re-attach click handler each time bar is populated
+    // (innerHTML replacement removes old handlers)
+    bar.onclick = e => {
+        const btn = e.target.closest('[data-fdsel]');
+        if (!btn) return;
+        const action = btn.dataset.fdsel;
+        if (action === 'clear') { _clearSelection(); _updateSelBar(); return; }
+        if (action === 'trash') {
+            const paths = [..._selectedPaths];
+            if (!confirm(`Move ${paths.length} item(s) to Trash?`)) return;
+            _clearSelection(); _updateSelBar();
+            (async () => { for (const p of paths) await deleteItem(p, true); loadDirectory(currentPath); })();
+            return;
+        }
+        if (action === 'download') {
+            const rows = _getFileRows().filter(r => _selectedPaths.has(r.dataset.path));
+            rows.forEach(r => {
+                if (r.dataset.isDir === '1') downloadFolderZip(r.dataset.path);
+                else downloadFile(r.dataset.path);
+            });
+            return;
+        }
+    };
 }
 
 function attachRowListeners() {
@@ -3022,10 +3026,6 @@ function attachRowListeners() {
     fileList.querySelectorAll('.open-btn').forEach(btn => {
         btn.addEventListener('click', e => { e.stopPropagation(); enterDir(btn.dataset.path); });
     });
-
-    // Close context menu on outside click / scroll
-    document.addEventListener('click', _removeContextMenu, { once: true, capture: true });
-    document.addEventListener('scroll', _removeContextMenu, { once: true, passive: true });
 
     // Clear selection when clicking empty table area
     fileList.addEventListener('click', e => {
@@ -3110,6 +3110,14 @@ function _showContextMenu(x, y, row) {
     ].join('');
 
     document.body.appendChild(menu);
+
+    // Close on click anywhere outside the menu, or on scroll.
+    // setTimeout 0 defers registration past the current click event that opened
+    // the menu, so the same click that shows it doesn't immediately close it.
+    setTimeout(() => {
+        document.addEventListener('click',  _removeContextMenu, { once: true, capture: true });
+        document.addEventListener('scroll', _removeContextMenu, { once: true, passive: true });
+    }, 0);
 
     // Hover highlight
     menu.querySelectorAll('.fd-ctx-item').forEach(btn => {
@@ -4849,6 +4857,7 @@ async function handleLogin(e) {
         localStorage.setItem('fluxdrop_token', authToken);
         localStorage.setItem('fluxdrop_is_admin', data.is_admin ? '1' : '0');
         localStorage.setItem('fluxdrop_username', currentUsername);
+        if (data.id) localStorage.setItem('fluxdrop_user_id', String(data.id));
         const _welcomeKey = `fluxdrop_welcomed_${currentUsername}`;
         if (!localStorage.getItem(_welcomeKey)) {
             localStorage.setItem(_welcomeKey, '1');
@@ -5089,6 +5098,39 @@ async function openProfilePanel() {
                 <div>
                     <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;
                                 text-transform:uppercase;letter-spacing:.05em">${t('profile_info_profile_info')}</div>
+
+                    <!-- Profile picture -->
+                    <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+                        <div id="pp-avatar-wrap" style="position:relative;flex-shrink:0">
+                            <img id="pp-avatar-img"
+                                 src="${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(localStorage.getItem('fluxdrop_user_id')||'0')}?t=${Date.now()}"
+                                 style="width:64px;height:64px;border-radius:50%;object-fit:cover;
+                                        border:2px solid #e2e8f0;background:#f1f5f9"
+                                 onerror="this.style.display='none';document.getElementById('pp-avatar-fallback').style.display='flex'"
+                                 alt="Avatar">
+                            <div id="pp-avatar-fallback"
+                                 style="display:none;width:64px;height:64px;border-radius:50%;
+                                        background:#dbeafe;border:2px solid #e2e8f0;
+                                        align-items:center;justify-content:center;font-size:28px">👤</div>
+                        </div>
+                        <div style="display:grid;gap:6px">
+                            <label id="pp-avatar-btn" class="btn"
+                                   style="padding:5px 12px;font-size:12px;cursor:pointer;display:inline-block">
+                                📷 Change photo
+                                <input type="file" id="pp-avatar-file" accept="image/*"
+                                       style="display:none">
+                            </label>
+                            <button id="pp-avatar-remove"
+                                    style="background:none;border:none;color:#94a3b8;font-size:12px;
+                                           cursor:pointer;text-align:left;padding:0;text-decoration:underline">
+                                Remove photo
+                            </button>
+                            <div id="pp-avatar-msg" style="font-size:11px;color:#94a3b8">
+                                Max 50 kB · AVIF/WebP/JPEG · max 1024 px
+                            </div>
+                        </div>
+                    </div>
+
                     <div style="display:grid;gap:10px">
                         <label style="font-size:13px;font-weight:600;color:#374151">${t('profile_info_nickname')}
                             <input id="pp-nickname" type="text" placeholder="${t('loading')}"
@@ -5212,6 +5254,9 @@ async function openProfilePanel() {
         overlay.querySelector('#pp-nickname').value = me.nickname || '';
         overlay.querySelector('#pp-email').value    = me.email    || '';
 
+        // Cache user_id (needed by header avatar URL)
+        if (me.id) localStorage.setItem('fluxdrop_user_id', String(me.id));
+
         // Account info footer
         overlay.querySelector('#pp-account-info').innerHTML =
             `ID ${me.id} ${t('profile_info_username')} <strong>${escapeHtml(me.username)}</strong> ${t('profile_info_join_time')} ${(me.created_at||'').slice(0,10)}` +
@@ -5241,6 +5286,91 @@ async function openProfilePanel() {
             if (overlay.isConnected) { btn.disabled = false; btn.textContent = 'Save changes'; }
         }
     });
+
+    // ── Avatar upload ─────────────────────────────────────────────────────────
+    function _ppRefreshAvatar() {
+        // Append cache-buster so the browser re-fetches the new blob
+        const ts = Date.now();
+        const uid = localStorage.getItem('fluxdrop_user_id') || '0';
+        const url = `${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(uid)}?t=${ts}`;
+        const ppImg = overlay.querySelector('#pp-avatar-img');
+        const ppFallback = overlay.querySelector('#pp-avatar-fallback');
+        const hdrImg = document.getElementById('header-avatar');
+        const hdrFallback = document.getElementById('header-avatar-fallback');
+        if (ppImg) {
+            ppImg.style.display = 'block';
+            ppFallback && (ppFallback.style.display = 'none');
+            ppImg.onerror = () => {
+                ppImg.style.display = 'none';
+                ppFallback && (ppFallback.style.display = 'flex');
+            };
+            ppImg.src = url;
+        }
+        if (hdrImg) {
+            hdrImg.style.display = 'block';
+            hdrFallback && (hdrFallback.style.display = 'none');
+            hdrImg.onerror = () => {
+                hdrImg.style.display = 'none';
+                hdrFallback && (hdrFallback.style.display = 'flex');
+            };
+            hdrImg.src = url;
+        }
+    }
+
+    const _ppAvatarFile = overlay.querySelector('#pp-avatar-file');
+    const _ppAvatarMsg  = overlay.querySelector('#pp-avatar-msg');
+    if (_ppAvatarFile) {
+        _ppAvatarFile.addEventListener('change', async function () {
+            const file = this.files && this.files[0];
+            if (!file) return;
+            if (!file.type.startsWith('image/')) {
+                _ppAvatarMsg.textContent = '⚠ Please select an image file.';
+                _ppAvatarMsg.style.color = '#ef4444';
+                return;
+            }
+            _ppAvatarMsg.textContent = 'Uploading…';
+            _ppAvatarMsg.style.color = '#64748b';
+            const fd = new FormData();
+            fd.append('avatar', file);
+            try {
+                const resp = await fetchWithFallback(`${API_BASE_URL}/api/v1/me/avatar`, {
+                    method: 'POST',
+                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                    body: fd,
+                });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.error || `HTTP ${resp.status}`);
+                _ppAvatarMsg.textContent = `✓ Saved (${result.mime}, ${Math.round(result.size_bytes/1024)} kB)`;
+                _ppAvatarMsg.style.color = '#16a34a';
+                _ppRefreshAvatar();
+            } catch (e) {
+                _ppAvatarMsg.textContent = '⚠ ' + e.message;
+                _ppAvatarMsg.style.color = '#ef4444';
+            }
+            this.value = '';
+        });
+    }
+
+    const _ppAvatarRemove = overlay.querySelector('#pp-avatar-remove');
+    if (_ppAvatarRemove) {
+        _ppAvatarRemove.addEventListener('click', async () => {
+            _ppAvatarMsg.textContent = 'Removing…';
+            _ppAvatarMsg.style.color = '#64748b';
+            try {
+                const resp = await fetchWithFallback(`${API_BASE_URL}/api/v1/me/avatar`, {
+                    method: 'DELETE',
+                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                _ppAvatarMsg.textContent = 'Photo removed.';
+                _ppAvatarMsg.style.color = '#64748b';
+                _ppRefreshAvatar();
+            } catch (e) {
+                _ppAvatarMsg.textContent = '⚠ ' + e.message;
+                _ppAvatarMsg.style.color = '#ef4444';
+            }
+        });
+    }
 
     // Change password
     overlay.querySelector('#pp-change-pw').addEventListener('click', async () => {
@@ -6448,7 +6578,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-cf81aaa9'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-9cd87b5c'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

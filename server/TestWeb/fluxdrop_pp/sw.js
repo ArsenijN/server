@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v-9cd87b5c';  // replaced by build.sh — do not edit manually
+const CACHE_NAME  = 'fluxdrop-v-37e71feb';  // replaced by build.sh — do not edit manually
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 

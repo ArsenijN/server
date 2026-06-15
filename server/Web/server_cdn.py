@@ -2610,9 +2610,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     'REQUEST_METHOD': 'POST',
                     'CONTENT_TYPE': ct,
                     'CONTENT_LENGTH': str(cl),
+                    'wsgi.input': _BytesIO(raw_body),  # required by werkzeug
                 }
                 from werkzeug.formparser import parse_form_data as _pfd
-                _stream, _form, _files = _pfd(environ, _BytesIO(raw_body))
+                _stream, _form, _files = _pfd(environ)
                 av_file = _files.get('avatar')
                 if not av_file:
                     return self._send_response(400, json.dumps({'error': "Field 'avatar' missing"}))

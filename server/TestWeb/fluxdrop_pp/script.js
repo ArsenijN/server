@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-9cd87b5c
+// Current version of script.js is: fluxdrop-v-37e71feb
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-9cd87b5c'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-37e71feb'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -898,12 +898,17 @@ function renderFileBrowserView() {
             <div id="path-breadcrumb" class="text-sm text-gray-600 mb-4"></div>
 
             <!-- Selection action bar — always in the DOM so activating it never
-                 shifts the file list.  Invisible when nothing is selected. -->
+                 shifts the file list.  Invisible when nothing is selected.
+                 The opacity-0 ghost content mirrors the real bar exactly so
+                 the reserved height is never off by a pixel. -->
             <div id="fd-sel-bar"
                  style="visibility:hidden;border-radius:8px;padding:7px 12px;margin-bottom:8px;
                         display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;
                         background:var(--fd-accent-bg,#eff6ff);border:1px solid var(--fd-accent-border,#bfdbfe)">
-                &nbsp;
+                <span style="opacity:0;pointer-events:none;flex-shrink:0">0 selected</span>
+                <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ Download</button>
+                <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 Trash</button>
+                <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ Clear</button>
             </div>
 
             <div class="mb-4">
@@ -2952,6 +2957,32 @@ function _updateSelBar() {
     };
 }
 
+// ── Selection helper ─────────────────────────────────────────────────────────
+// Called from both the row-body click and from name/open buttons when a
+// modifier key is held, so Shift/Ctrl never accidentally opens a file.
+function _doRowSelect(row, idx, e) {
+    _removeContextMenu();
+    const rows = _getFileRows();
+    if (e.shiftKey && _lastClickedIdx >= 0) {
+        const lo = Math.min(_lastClickedIdx, idx);
+        const hi = Math.max(_lastClickedIdx, idx);
+        _selectedPaths.clear();
+        rows.forEach((r, i) => {
+            const sel = i >= lo && i <= hi;
+            _updateRowSelVisual(r, sel);
+            if (sel) _selectedPaths.add(r.dataset.path);
+        });
+    } else if (e.ctrlKey || e.metaKey) {
+        _toggleSelect(row);
+        _lastClickedIdx = idx;
+    } else {
+        _clearSelection();
+        _toggleSelect(row, true);
+        _lastClickedIdx = idx;
+    }
+    _updateSelBar();
+}
+
 function attachRowListeners() {
     const fileList = document.getElementById('file-list');
     if (!fileList) return;
@@ -2970,32 +3001,23 @@ function attachRowListeners() {
     fileList.querySelectorAll('.fd-file-row').forEach((row, idx) => {
         // Single / range / toggle click on row BODY (not buttons)
         row.addEventListener('click', e => {
-            if (e.target.closest('button')) return;
-            _removeContextMenu();
+            if (e.target.closest('button')) return;   // let button handlers fire
+            _doRowSelect(row, idx, e);
+        });
 
-            // ── IMPORTANT: check Shift BEFORE Ctrl so Ctrl+Shift does range select ──
-            if (e.shiftKey && _lastClickedIdx >= 0) {
-                // Range select: from _lastClickedIdx to idx
-                const rows = _getFileRows();
-                const lo = Math.min(_lastClickedIdx, idx);
-                const hi = Math.max(_lastClickedIdx, idx);
-                _selectedPaths.clear();
-                rows.forEach((r2, i) => {
-                    const inRange = (i >= lo && i <= hi);
-                    _updateRowSelVisual(r2, inRange);
-                    if (inRange) _selectedPaths.add(r2.dataset.path);
-                });
-            } else if (e.ctrlKey || e.metaKey) {
-                // Ctrl+click: toggle individual item
-                _toggleSelect(row);
-                _lastClickedIdx = idx;
-            } else {
-                // Plain click: select only this row
-                _clearSelection();
-                _toggleSelect(row, true);
-                _lastClickedIdx = idx;
-            }
-            _updateSelBar();
+        // ── Name/open buttons: Shift or Ctrl → select only, never open ───────
+        // Without this, holding Shift and clicking a filename would still
+        // navigate/preview instead of extending the selection.
+        row.querySelectorAll('.preview-btn, .open-btn').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                    _doRowSelect(row, idx, e);
+                    return;
+                }
+                if (btn.classList.contains('open-btn')) enterDir(btn.dataset.path);
+                else                                    previewFile(btn.dataset.path);
+            });
         });
 
         // Double-click — open / preview
@@ -3017,14 +3039,6 @@ function attachRowListeners() {
             }
             _showContextMenu(e.clientX, e.clientY, row);
         });
-    });
-
-    // Preview btn inside name cell — open without altering selection
-    fileList.querySelectorAll('.preview-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); previewFile(btn.dataset.path); });
-    });
-    fileList.querySelectorAll('.open-btn').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); enterDir(btn.dataset.path); });
     });
 
     // Clear selection when clicking empty table area
@@ -3082,13 +3096,19 @@ function _showContextMenu(x, y, row) {
     const path  = row.dataset.path;
     const isDir = row.dataset.isDir === '1';
 
+    // ── Multi-select mode ──────────────────────────────────────────────────
+    // When more than one item is selected and the right-clicked item is part
+    // of the selection, show a reduced menu that acts on all selected items.
+    const selCount = _selectedPaths.size;
+    const isMulti  = selCount > 1 && _selectedPaths.has(path);
+
     const menu = document.createElement('div');
     menu.id = 'fd-ctx-menu';
     menu.style.cssText =
         `position:fixed;left:${x}px;top:${y}px;` +
         `background:var(--fd-surface,#fff);border:1px solid var(--fd-border,#e2e8f0);` +
         `border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.15);` +
-        `z-index:50000;min-width:165px;padding:4px 0;font-size:13px;overflow:hidden`;
+        `z-index:50000;min-width:190px;padding:4px 0;font-size:13px;overflow:hidden`;
 
     const ITEM = (icon, label, action, danger) =>
         `<button class="fd-ctx-item" data-action="${action}"
@@ -3099,15 +3119,33 @@ function _showContextMenu(x, y, row) {
         >${icon} ${label}</button>`;
     const SEP = `<div style="border-top:1px solid var(--fd-border,#e2e8f0);margin:4px 0"></div>`;
 
-    menu.innerHTML = [
-        isDir ? ITEM('📂', 'Open',        'open')    : ITEM('👁', 'Preview',   'preview'),
-        isDir ? ITEM('⬇', 'Download ZIP', 'zip')    : ITEM('⬇', 'Download',  'download'),
-        ITEM('🔗', 'Share',                           'share'),
-        ITEM('✂',  'Move / Rename',                   'move'),
-        ITEM('ℹ',  'Info',                             'info'),
-        SEP,
-        ITEM('🗑',  'Move to Trash',                   'trash', true),
-    ].join('');
+    if (isMulti) {
+        // Work out folder/file counts for better label wording
+        const selRows = _getFileRows().filter(r => _selectedPaths.has(r.dataset.path));
+        const nDirs   = selRows.filter(r => r.dataset.isDir === '1').length;
+        const nFiles  = selRows.length - nDirs;
+
+        let dlLabel;
+        if (nDirs === 0)       dlLabel = `Download ${nFiles} file${nFiles !== 1 ? 's' : ''}`;
+        else if (nFiles === 0) dlLabel = `Download ${nDirs} folder${nDirs !== 1 ? 's' : ''} as ZIP`;
+        else                   dlLabel = `Download ${nFiles} file${nFiles !== 1 ? 's' : ''} + ${nDirs} ZIP${nDirs !== 1 ? 's' : ''}`;
+
+        menu.innerHTML = [
+            ITEM('⬇', dlLabel,                          'download-multi'),
+            SEP,
+            ITEM('🗑', `Move ${selCount} items to Trash`, 'trash-multi', true),
+        ].join('');
+    } else {
+        menu.innerHTML = [
+            isDir ? ITEM('📂', 'Open',         'open')    : ITEM('👁', 'Preview',  'preview'),
+            isDir ? ITEM('⬇',  'Download ZIP', 'zip')     : ITEM('⬇', 'Download', 'download'),
+            ITEM('🔗', 'Share',                            'share'),
+            ITEM('✂',  'Move / Rename',                   'move'),
+            ITEM('ℹ',  'Info',                             'info'),
+            SEP,
+            ITEM('🗑',  'Move to Trash',                   'trash', true),
+        ].join('');
+    }
 
     document.body.appendChild(menu);
 
@@ -3119,7 +3157,7 @@ function _showContextMenu(x, y, row) {
         document.addEventListener('scroll', _removeContextMenu, { once: true, passive: true });
     }, 0);
 
-    // Hover highlight
+    // Hover highlight + actions
     menu.querySelectorAll('.fd-ctx-item').forEach(btn => {
         btn.addEventListener('mouseenter', () => btn.style.background = 'var(--fd-surface3,#f1f5f9)');
         btn.addEventListener('mouseleave', () => btn.style.background = 'none');
@@ -3128,14 +3166,39 @@ function _showContextMenu(x, y, row) {
             const p  = row.dataset.path;
             const id = row.dataset.isDir === '1';
             switch (btn.dataset.action) {
+                // ── Single-item actions ─────────────────────────────────────
                 case 'open':     enterDir(p); break;
                 case 'preview':  previewFile(p); break;
                 case 'download': downloadFile(p); break;
                 case 'zip':      downloadFolderZip(p); break;
                 case 'share':    openShareDialog(p, id); break;
                 case 'move':     openMoveDialog(p); break;
-                case 'trash':    deleteItem(p); break;
                 case 'info':     _showFileInfo(row); break;
+                case 'trash':    deleteItem(p); break;
+
+                // ── Multi-select actions ────────────────────────────────────
+                case 'download-multi': {
+                    _getFileRows()
+                        .filter(r => _selectedPaths.has(r.dataset.path))
+                        .forEach(r => {
+                            if (r.dataset.isDir === '1') downloadFolderZip(r.dataset.path);
+                            else downloadFile(r.dataset.path);
+                        });
+                    break;
+                }
+                case 'trash-multi': {
+                    const paths = [..._selectedPaths];
+                    if (!confirm(`Move ${paths.length} item(s) to Trash?`)) return;
+                    _clearSelection(); _updateSelBar();
+                    (async () => {
+                        for (const tp of paths) {
+                            try { await apiCall('/api/v1/trash', 'POST', { path: tp }); }
+                            catch (_) { /* individual failures don't abort the rest */ }
+                        }
+                        loadDirectory(currentPath);
+                    })();
+                    break;
+                }
             }
         });
     });
@@ -4981,6 +5044,227 @@ async function handleLogout() {
         // ======================================================================
         // --- PROFILE MENU ---
         // ======================================================================
+// ── Avatar pan/zoom crop editor ───────────────────────────────────────────────
+// Opens a modal letting the user drag to pan and scroll/pinch to zoom the image
+// before committing.  The output is always a square JPEG blob (the server will
+// further compress to AVIF/WebP if Pillow supports it).
+//
+// Usage:  _showAvatarEditor(fileObject, blob => uploadFn(blob))
+//
+// Constants — mirror AVATAR_MAX_DIM in server_cdn.py if you change them:
+//   CANVAS    = size of the canvas element in the UI (px)
+//   RADIUS    = radius of the circular crop guide (< CANVAS/2)
+//   OUT_SIZE  = pixel dimensions of the square blob sent to the server
+//               (server resizes again if > AVATAR_MAX_DIM)
+function _showAvatarEditor(file, onConfirm) {
+    const CANVAS   = 300;
+    const RADIUS   = 130;   // circular guide inside the canvas
+    const OUT_SIZE = 600;   // exported square — server will resize to ≤ 1024 px
+
+    // ── Build overlay ──────────────────────────────────────────────────────
+    const ov = document.createElement('div');
+    ov.style.cssText =
+        'position:fixed;inset:0;background:rgba(0,0,0,.78);display:flex;' +
+        'align-items:center;justify-content:center;z-index:20000;font-family:Inter,sans-serif';
+
+    ov.innerHTML = `
+        <div style="background:#1e293b;border-radius:14px;overflow:hidden;
+                    width:${CANVAS + 40}px;max-width:96vw;
+                    box-shadow:0 24px 64px rgba(0,0,0,.65)">
+            <!-- Header -->
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                        padding:13px 16px;border-bottom:1px solid #334155">
+                <span style="color:#e2e8f0;font-weight:700;font-size:14px">✂ Crop Photo</span>
+                <button id="aed-x" style="background:rgba(255,255,255,.1);border:none;color:#e2e8f0;
+                    border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:15px;
+                    display:flex;align-items:center;justify-content:center">✕</button>
+            </div>
+            <!-- Canvas -->
+            <div style="padding:16px 20px;display:flex;flex-direction:column;align-items:center;gap:10px">
+                <canvas id="aed-cv" width="${CANVAS}" height="${CANVAS}"
+                    style="border-radius:8px;cursor:grab;touch-action:none;
+                           max-width:calc(96vw - 40px);max-height:calc(96vw - 40px)"></canvas>
+                <p style="margin:0;font-size:11px;color:#475569;text-align:center">
+                    Drag to pan · Scroll or pinch to zoom
+                </p>
+            </div>
+            <!-- Footer -->
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                        gap:8px;padding:13px 16px;border-top:1px solid #334155">
+                <button id="aed-reset"
+                    style="background:#334155;color:#cbd5e1;border:none;border-radius:7px;
+                           padding:7px 14px;cursor:pointer;font-size:13px">Reset</button>
+                <div style="display:flex;gap:8px">
+                    <button id="aed-cancel"
+                        style="background:#334155;color:#cbd5e1;border:none;border-radius:7px;
+                               padding:7px 14px;cursor:pointer;font-size:13px">Cancel</button>
+                    <button id="aed-ok"
+                        style="background:#3b82f6;color:#fff;border:none;border-radius:7px;
+                               padding:7px 18px;cursor:pointer;font-size:13px;font-weight:600">
+                        Set Photo
+                    </button>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(ov);
+
+    const canvas = ov.querySelector('#aed-cv');
+    const ctx    = canvas.getContext('2d');
+    const img    = new Image();
+    let blobUrl  = URL.createObjectURL(file);
+
+    // Pan/zoom state
+    let px = 0, py = 0, scale = 1, baseScale = 1;
+
+    // ── Draw ────────────────────────────────────────────────────────────────
+    function draw() {
+        ctx.clearRect(0, 0, CANVAS, CANVAS);
+
+        // Image
+        ctx.save();
+        ctx.translate(CANVAS / 2 + px, CANVAS / 2 + py);
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+        ctx.restore();
+
+        // Semi-transparent overlay with circular cutout (evenodd fill)
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.52)';
+        ctx.beginPath();
+        ctx.rect(0, 0, CANVAS, CANVAS);
+        ctx.arc(CANVAS / 2, CANVAS / 2, RADIUS, 0, Math.PI * 2, true); // hole
+        ctx.fill('evenodd');
+
+        // Circle border
+        ctx.strokeStyle = 'rgba(96,165,250,0.85)';
+        ctx.lineWidth   = 2;
+        ctx.beginPath();
+        ctx.arc(CANVAS / 2, CANVAS / 2, RADIUS, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // ── Clamp so the crop circle never shows empty canvas ───────────────────
+    function clamp() {
+        const hw = (img.naturalWidth  * scale) / 2;
+        const hh = (img.naturalHeight * scale) / 2;
+        const mx = Math.max(0, hw - RADIUS);
+        const my = Math.max(0, hh - RADIUS);
+        px = Math.max(-mx, Math.min(mx, px));
+        py = Math.max(-my, Math.min(my, py));
+    }
+
+    img.onload = () => {
+        // fit-to-fill: image covers the circle at start
+        baseScale = Math.max(
+            (2 * RADIUS) / img.naturalWidth,
+            (2 * RADIUS) / img.naturalHeight
+        );
+        scale = baseScale;
+        px = 0; py = 0;
+        draw();
+    };
+    img.src = blobUrl;
+
+    // ── Mouse drag ──────────────────────────────────────────────────────────
+    let drag = null;
+    canvas.addEventListener('mousedown', e => {
+        drag = { sx: e.clientX, sy: e.clientY, ox: px, oy: py };
+        canvas.style.cursor = 'grabbing';
+    });
+    const onMove = e => {
+        if (!drag) return;
+        px = drag.ox + (e.clientX - drag.sx);
+        py = drag.oy + (e.clientY - drag.sy);
+        clamp(); draw();
+    };
+    const onUp = () => { drag = null; canvas.style.cursor = 'grab'; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+
+    // ── Scroll to zoom ───────────────────────────────────────────────────────
+    canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        scale = Math.max(baseScale, Math.min(scale * (e.deltaY < 0 ? 1.1 : 0.9), baseScale * 10));
+        clamp(); draw();
+    }, { passive: false });
+
+    // ── Touch: drag + pinch zoom ─────────────────────────────────────────────
+    const touches = {};
+    let pinch0 = null, pscale0 = null;
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        [...e.changedTouches].forEach(t => { touches[t.identifier] = { x: t.clientX, y: t.clientY }; });
+        const ids = Object.keys(touches);
+        if (ids.length === 2) {
+            const [a, b] = ids.map(id => touches[id]);
+            pinch0   = Math.hypot(b.x - a.x, b.y - a.y);
+            pscale0  = scale;
+        }
+        if (ids.length === 1) {
+            const t = e.changedTouches[0];
+            drag = { sx: t.clientX, sy: t.clientY, ox: px, oy: py };
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        [...e.changedTouches].forEach(t => { touches[t.identifier] = { x: t.clientX, y: t.clientY }; });
+        const ids = Object.keys(touches);
+        if (ids.length === 2 && pinch0) {
+            const [a, b] = ids.map(id => touches[id]);
+            const d = Math.hypot(b.x - a.x, b.y - a.y);
+            scale = Math.max(baseScale, Math.min(pscale0 * d / pinch0, baseScale * 10));
+        } else if (ids.length === 1 && drag) {
+            const t = e.changedTouches[0];
+            px = drag.ox + (t.clientX - drag.sx);
+            py = drag.oy + (t.clientY - drag.sy);
+        }
+        clamp(); draw();
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+        [...e.changedTouches].forEach(t => { delete touches[t.identifier]; });
+        if (Object.keys(touches).length < 2) { pinch0 = null; pscale0 = null; }
+        if (Object.keys(touches).length === 0) drag = null;
+    });
+
+    // ── Cleanup helper ──────────────────────────────────────────────────────
+    function close() {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup',   onUp);
+        URL.revokeObjectURL(blobUrl);
+        ov.remove();
+    }
+
+    // ── Buttons ──────────────────────────────────────────────────────────────
+    ov.querySelector('#aed-x').addEventListener('click', close);
+    ov.querySelector('#aed-cancel').addEventListener('click', close);
+
+    ov.querySelector('#aed-reset').addEventListener('click', () => {
+        scale = baseScale; px = 0; py = 0; draw();
+    });
+
+    ov.querySelector('#aed-ok').addEventListener('click', () => {
+        // Render the crop region to an output canvas.
+        //
+        // In display-canvas space the crop circle is at (CANVAS/2, CANVAS/2)
+        // with radius RADIUS.  The image is drawn at (CANVAS/2 + px, CANVAS/2 + py)
+        // scaled by `scale`.  To extract a square of side 2*RADIUS centred on
+        // the circle, we map that region to OUT_SIZE × OUT_SIZE:
+        //   factor  = OUT_SIZE / (2 * RADIUS)
+        //   image-center in output = (RADIUS + px) * factor, (RADIUS + py) * factor
+        const out  = document.createElement('canvas');
+        out.width  = out.height = OUT_SIZE;
+        const octx = out.getContext('2d');
+        const f    = OUT_SIZE / (2 * RADIUS);
+        octx.translate((RADIUS + px) * f, (RADIUS + py) * f);
+        octx.scale(scale * f, scale * f);
+        octx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+        out.toBlob(blob => { close(); if (blob) onConfirm(blob); }, 'image/jpeg', 0.88);
+    });
+}
+
 function openProfileMenu() {
     // Close if already open
     const existing = document.getElementById('profile-menu-modal');
@@ -5319,8 +5603,32 @@ async function openProfilePanel() {
 
     const _ppAvatarFile = overlay.querySelector('#pp-avatar-file');
     const _ppAvatarMsg  = overlay.querySelector('#pp-avatar-msg');
+
+    // Upload helper — called after the editor produces a cropped blob
+    async function _ppDoUpload(blob) {
+        _ppAvatarMsg.textContent = 'Uploading…';
+        _ppAvatarMsg.style.color = '#64748b';
+        const fd = new FormData();
+        fd.append('avatar', blob, 'avatar.jpg');
+        try {
+            const resp = await fetchWithFallback(`${API_BASE_URL}/api/v1/me/avatar`, {
+                method: 'POST',
+                headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                body: fd,
+            });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.error || `HTTP ${resp.status}`);
+            _ppAvatarMsg.textContent = `✓ Saved (${result.mime}, ${Math.round(result.size_bytes / 1024)} kB)`;
+            _ppAvatarMsg.style.color = '#16a34a';
+            _ppRefreshAvatar();
+        } catch (e) {
+            _ppAvatarMsg.textContent = '⚠ ' + e.message;
+            _ppAvatarMsg.style.color = '#ef4444';
+        }
+    }
+
     if (_ppAvatarFile) {
-        _ppAvatarFile.addEventListener('change', async function () {
+        _ppAvatarFile.addEventListener('change', function () {
             const file = this.files && this.files[0];
             if (!file) return;
             if (!file.type.startsWith('image/')) {
@@ -5328,26 +5636,9 @@ async function openProfilePanel() {
                 _ppAvatarMsg.style.color = '#ef4444';
                 return;
             }
-            _ppAvatarMsg.textContent = 'Uploading…';
-            _ppAvatarMsg.style.color = '#64748b';
-            const fd = new FormData();
-            fd.append('avatar', file);
-            try {
-                const resp = await fetchWithFallback(`${API_BASE_URL}/api/v1/me/avatar`, {
-                    method: 'POST',
-                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-                    body: fd,
-                });
-                const result = await resp.json();
-                if (!resp.ok) throw new Error(result.error || `HTTP ${resp.status}`);
-                _ppAvatarMsg.textContent = `✓ Saved (${result.mime}, ${Math.round(result.size_bytes/1024)} kB)`;
-                _ppAvatarMsg.style.color = '#16a34a';
-                _ppRefreshAvatar();
-            } catch (e) {
-                _ppAvatarMsg.textContent = '⚠ ' + e.message;
-                _ppAvatarMsg.style.color = '#ef4444';
-            }
             this.value = '';
+            // Open the pan/zoom crop editor; upload the result when confirmed
+            _showAvatarEditor(file, blob => _ppDoUpload(blob));
         });
     }
 
@@ -6578,7 +6869,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-9cd87b5c'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-37e71feb'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

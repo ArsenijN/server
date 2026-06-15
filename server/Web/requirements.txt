@@ -24,6 +24,13 @@ werkzeug>=3.0.0
 #   Fedora/RHEL:   sudo dnf install ImageMagick ImageMagick-devel
 wand>=0.6.11
 
+# Used for avatar upload processing (resize + AVIF/WebP/JPEG conversion).
+# AVIF output requires Pillow ≥ 9.1 AND libavif on the system:
+#   Ubuntu/Debian: sudo apt install libavif-dev
+# Without libavif, Pillow falls back to WebP then JPEG automatically.
+#   pip install Pillow
+Pillow>=10.0.0
+
 # --- Password hashing (planned — see TODO: migrate from SHA-256) ---
 # Uncomment when the bcrypt migration is implemented:
 bcrypt>=4.1.0

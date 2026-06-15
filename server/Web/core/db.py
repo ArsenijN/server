@@ -345,6 +345,10 @@ def init_db():
                                "TEXT NOT NULL DEFAULT 'buffer'")
         _add_column_if_missing('upload_sessions', 'upload_status',
                                "TEXT NOT NULL DEFAULT 'pending'")
+        # Profile picture: stored as a compressed blob directly in the DB.
+        # Tunable constants live in server_cdn.py (AVATAR_MAX_DIM, AVATAR_MAX_BYTES).
+        _add_column_if_missing('users', 'avatar_data', 'BLOB DEFAULT NULL')
+        _add_column_if_missing('users', 'avatar_mime', 'TEXT DEFAULT NULL')
         try:
             conn.execute(
                 '''CREATE INDEX IF NOT EXISTS idx_upload_sessions_dest_status

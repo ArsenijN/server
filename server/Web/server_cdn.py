@@ -668,18 +668,27 @@ def _pending_dest_paths(user_id: int) -> set:
 # --- MAIN REQUEST HANDLER ---
 # ==============================================================================
 class _FastThreadingHTTPServer(ThreadingHTTPServer):
-    # 256 KB write buffer so Python doesn't syscall on every chunk write
-    wbufsize = 256 * 1024
+    # 512 KB write buffer — reduces syscall count for large file transfers.
+    # Raised from 256 KB: at 10 MB/s a 256 KB buffer flushes every ~25 ms;
+    # at 512 KB every ~50 ms, which is still well within any keepalive window.
+    wbufsize = 512 * 1024
     # Keep-alive: allow the OS to reuse address immediately on restart
     allow_reuse_address = True
 
     def server_bind(self):
+        # 4 MB TCP send buffer: gives the kernel room to pipeline chunks
+        # without blocking the Python write loop waiting for ACKs.
         self.socket.setsockopt(_socket.SOL_SOCKET, _socket.SO_SNDBUF, 4 * 1024 * 1024)
         super().server_bind()
 
 
 class AuthHandler(SimpleHTTPRequestHandler):
     server_version = "FluxDrop/4.0-Auth"
+
+    # Idle-connection timeout — same reasoning as server_https.py RequestHandler.
+    # Without this, zombie TCP connections (client gone but socket still open)
+    # hold OS threads indefinitely, exhausting the thread pool over days.
+    timeout = 45  # seconds
 
     # Route all HTTP access/error log lines through the logging module instead
     # of writing directly to sys.stderr (BaseHTTPRequestHandler's default).
@@ -2371,6 +2380,28 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if parsed_url.path == '/api/v1/policy/status':
             return self._handle_policy_status()
 
+        # ── Avatar serve: GET /api/v1/avatar/<user_id> ───────────────────────
+        # Public: no auth required so avatars load in the login screen too.
+        # Returns the stored AVIF/WebP blob or 404 with a JSON body if absent.
+        _avatar_m = re.match(r'^/api/v[1-3]/avatar/(\d+)$', parsed_url.path)
+        if _avatar_m:
+            _av_uid = int(_avatar_m.group(1))
+            with _db_connect() as _av_conn:
+                _av_row = _av_conn.execute(
+                    'SELECT avatar_data, avatar_mime FROM users WHERE id = ?', (_av_uid,)
+                ).fetchone()
+            if not _av_row or not _av_row[0]:
+                return self._send_response(404, json.dumps({'error': 'No avatar'}))
+            _av_data, _av_mime = _av_row
+            self.send_response(200)
+            self.send_header('Content-Type', _av_mime or 'image/avif')
+            self.send_header('Content-Length', str(len(_av_data)))
+            self.send_header('Cache-Control', 'max-age=86400')
+            self._send_cors_headers()
+            super(AuthHandler, self).end_headers()
+            self.wfile.write(_av_data)
+            return
+
         if parsed_url.path == '/api/v1/admin/users':
             admin = self._check_admin_auth()
             if not admin: return
@@ -2555,6 +2586,98 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if parsed_url.path == '/api/v1/notifications':
             return self._handle_notifications_subscribe()
 
+        # ── Avatar upload: POST /api/v1/me/avatar ────────────────────────────
+        # Accepts multipart/form-data with a single field named "avatar".
+        # Converts the image to AVIF (falls back to WebP/JPEG if Pillow lacks
+        # AVIF support), then caps to AVATAR_MAX_DIM × AVATAR_MAX_DIM px and
+        # AVATAR_MAX_BYTES.  Stores the blob directly in the DB (users table).
+        #
+        # Tunable constants (change here only — values propagated everywhere):
+        AVATAR_MAX_DIM   = 1024   # px — longest edge after resize
+        AVATAR_MAX_BYTES = 50 * 1024   # 50 kB — hard limit after encode
+        if parsed_url.path == '/api/v1/me/avatar':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Authentication required'}))
+            ct = self.headers.get('Content-Type', '')
+            if 'multipart/form-data' not in ct:
+                return self._send_response(400, json.dumps({'error': 'multipart/form-data required'}))
+            try:
+                from io import BytesIO as _BytesIO
+                cl = int(self.headers.get('Content-Length', 0))
+                raw_body = self.rfile.read(cl)
+                environ = {
+                    'REQUEST_METHOD': 'POST',
+                    'CONTENT_TYPE': ct,
+                    'CONTENT_LENGTH': str(cl),
+                }
+                from werkzeug.formparser import parse_form_data as _pfd
+                _stream, _form, _files = _pfd(environ, _BytesIO(raw_body))
+                av_file = _files.get('avatar')
+                if not av_file:
+                    return self._send_response(400, json.dumps({'error': "Field 'avatar' missing"}))
+                img_bytes = av_file.read()
+            except Exception as _ae:
+                return self._send_response(400, json.dumps({'error': f'Upload parse error: {_ae}'}))
+            try:
+                from PIL import Image as _PILImage
+                import io as _io2
+                img = _PILImage.open(_io2.BytesIO(img_bytes))
+                img = img.convert('RGBA')
+                # Resize so the longest edge ≤ AVATAR_MAX_DIM
+                w, h = img.size
+                if max(w, h) > AVATAR_MAX_DIM:
+                    ratio = AVATAR_MAX_DIM / max(w, h)
+                    img = img.resize((int(w * ratio), int(h * ratio)), _PILImage.LANCZOS)
+                # Try AVIF first (Pillow ≥ 9.1 with libavif)
+                for fmt, mime, kwargs in [
+                    ('AVIF', 'image/avif', {'quality': 70}),
+                    ('WEBP', 'image/webp', {'quality': 80, 'method': 4}),
+                    ('JPEG', 'image/jpeg', {'quality': 82}),
+                ]:
+                    try:
+                        buf = _io2.BytesIO()
+                        out_img = img if fmt != 'JPEG' else img.convert('RGB')
+                        out_img.save(buf, format=fmt, **kwargs)
+                        encoded = buf.getvalue()
+                        if len(encoded) <= AVATAR_MAX_BYTES:
+                            out_mime = mime
+                            out_bytes = encoded
+                            break
+                        # Over limit — try harder compression
+                        q = kwargs.get('quality', 80) - 20
+                        if q < 20:
+                            continue
+                        buf = _io2.BytesIO()
+                        out_img.save(buf, format=fmt, quality=q)
+                        encoded = buf.getvalue()
+                        if len(encoded) <= AVATAR_MAX_BYTES:
+                            out_mime = mime
+                            out_bytes = encoded
+                            break
+                    except Exception:
+                        continue
+                else:
+                    return self._send_response(413, json.dumps({
+                        'error': f'Avatar too large after compression (limit {AVATAR_MAX_BYTES // 1024} kB). '
+                                 'Please use a smaller source image.'
+                    }))
+            except ImportError:
+                return self._send_response(500, json.dumps({
+                    'error': 'Pillow not installed — avatar upload requires Pillow (pip install Pillow).'
+                }))
+            except Exception as _pe:
+                return self._send_response(400, json.dumps({'error': f'Image processing failed: {_pe}'}))
+            with _db_connect() as conn:
+                conn.execute(
+                    'UPDATE users SET avatar_data = ?, avatar_mime = ? WHERE id = ?',
+                    (out_bytes, out_mime, user_id)
+                )
+                conn.commit()
+            return self._send_response(200, json.dumps({
+                'ok': True, 'mime': out_mime, 'size_bytes': len(out_bytes)
+            }))
+
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     def do_PATCH(self):
@@ -2695,6 +2818,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _notif_del = re.match(r'^/api/v1/notifications/(\\d+)$', parsed_url.path)
         if _notif_del:
             return self._handle_notifications_delete(int(_notif_del.group(1)))
+
+        # Avatar remove: DELETE /api/v1/me/avatar
+        if parsed_url.path == '/api/v1/me/avatar':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Authentication required'}))
+            with _db_connect() as conn:
+                conn.execute(
+                    'UPDATE users SET avatar_data = NULL, avatar_mime = NULL WHERE id = ?',
+                    (user_id,)
+                )
+                conn.commit()
+            return self._send_response(200, json.dumps({'ok': True}))
 
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
@@ -5668,6 +5804,10 @@ def run_server(port, use_ssl=False):
             context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE
             # Prefer ChaCha20 for software-only CPU (no AES-NI).
             # See server_https.py for the full rationale.
+            # OP_PRIORITIZE_CHACHA is required for TLS 1.3; without it
+            # OP_CIPHER_SERVER_PREFERENCE alone is ignored for TLS 1.3 suites.
+            if hasattr(ssl, 'OP_PRIORITIZE_CHACHA'):
+                context.options |= ssl.OP_PRIORITIZE_CHACHA
             try:
                 context.set_ciphersuites(
                     'TLS_CHACHA20_POLY1305_SHA256:'
@@ -5683,6 +5823,14 @@ def run_server(port, use_ssl=False):
                 )
             except ssl.SSLError as _ce:
                 logging.warning('Could not set custom TLS 1.2 cipher list: %s', _ce)
+            # Disable server-side session cache — same rationale as server_https.py:
+            # unbounded growth causes memory pressure and eventual instability
+            # after days of uptime.  File transfers benefit minimally from resumption.
+            try:
+                context.set_session_cache_mode(ssl.SESS_CACHE_OFF)
+            except AttributeError:
+                pass
+            context.options |= getattr(ssl, 'OP_NO_TICKET', 0)
             context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
             server.socket = context.wrap_socket(server.socket, server_side=True)
         except Exception as e:

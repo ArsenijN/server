@@ -27,6 +27,9 @@
   --fd-accent-border:#bfdbfe;
   --fd-danger:      #dc2626;
   --fd-input-bg:    #ffffff;
+  /* Skeleton shimmer — light mode */
+  --fd-skel-base:   #e2e8f0;
+  --fd-skel-shine:  #f1f5f9;
 }
 
 [data-theme="dark"] {
@@ -45,6 +48,17 @@
   --fd-accent-border:#2563eb;
   --fd-danger:      #ef4444;
   --fd-input-bg:    #0d1520;
+  /* Skeleton shimmer — dark mode (matches the dark surface palette) */
+  --fd-skel-base:   #1e2d3d;
+  --fd-skel-shine:  #2d3f52;
+}
+
+/* ── Mobile: hide the Modified column to give Name room ─────────────────────
+   The ⋮ action button needs only ~44 px; on narrow screens the mtime column
+   can crowd it to the left making it appear to overlap the time text.
+   We hide mtime below 600 px where the table otherwise overflows.          */
+@media (max-width: 600px) {
+  .fd-col-mtime { display: none !important; }
 }
 
 /* ── Body ──────────────────────────────────────────────────────────────────── */

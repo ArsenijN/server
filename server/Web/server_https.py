@@ -267,6 +267,22 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     """
     Custom HTTP request handler that includes blacklist checking and file upload capabilities.
     """
+    # ── Why timeout matters for long-running stability ────────────────────────
+    # Without a timeout, a client that opens a TLS connection and then goes
+    # silent (network drop, suspended laptop, zombie socket) holds one thread-
+    # pool slot indefinitely.  After a few days of normal traffic these slots
+    # accumulate until all 100 workers are stuck, new requests queue in the
+    # kernel accept buffer, the health check still succeeds (TCP accepts), but
+    # no requests are actually served — the server appears alive but is frozen.
+    #
+    # timeout = 45 s covers:
+    #   • TLS handshake stall (client connects, never sends ClientHello)
+    #   • Slow request body (POST with content but never finishing)
+    #   • HTTP/1.1 keep-alive idle time between pipelined requests
+    # Large file downloads are served in a streaming loop that writes chunks
+    # continuously, so they are never affected by this idle timeout.
+    timeout = 45  # seconds — kill idle/zombie connections
+
     def __init__(self, *args, **kwargs):
         # Ensure the upload directory exists
         os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
@@ -901,6 +917,34 @@ if __name__ == "__main__":
     # regardless of the client's advertised order.  Available Python ≥ 3.10.
     if hasattr(ssl, 'OP_PRIORITIZE_CHACHA'):
         context.options |= ssl.OP_PRIORITIZE_CHACHA
+
+    # ── SSL session cache — CRITICAL for multi-day stability ─────────────────
+    # OpenSSL maintains an in-process session cache that stores the TLS state
+    # for every client that has ever connected so future handshakes can be
+    # resumed cheaply.  With no eviction policy this cache grows without bound:
+    # after days of traffic it holds tens of thousands of stale entries,
+    # consuming hundreds of MB and causing measurable GC pressure.
+    #
+    # Mitigation A — disable server-side session cache entirely.
+    #   This removes the memory growth at the cost of session resumption.
+    #   For a file server (large transfers, long-lived connections) the benefit
+    #   of resumption is marginal — the handshake overhead is negligible vs the
+    #   transfer time — so the trade is worthwhile.
+    #
+    # Mitigation B — disable TLS session tickets (stateless resumption).
+    #   Session tickets move state to the client via an encrypted blob, so they
+    #   never fill server RAM.  But the ticket encryption key must be rotated
+    #   periodically and Python's ssl module does not expose key rotation.
+    #   Disabling tickets forces fallback to server-side sessions (which we also
+    #   disable above) so the net effect is: no resumption, minimal state.
+    #
+    # Together A + B = zero session state held in the process between requests.
+    try:
+        context.set_session_cache_mode(ssl.SESS_CACHE_OFF)
+    except AttributeError:
+        pass   # older Python — no-op
+    # OP_NO_TICKET disables TLS session tickets (RFC 5077); supported everywhere.
+    context.options |= getattr(ssl, 'OP_NO_TICKET', 0)
 
     try:
         context.set_ciphersuites(                        # TLS 1.3

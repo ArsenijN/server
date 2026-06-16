@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-65819170
+// Current version of script.js is: fluxdrop-v-94bebc1d
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-65819170'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-94bebc1d'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -907,32 +907,48 @@ function renderFileBrowserView() {
                         background:var(--fd-accent-bg,#eff6ff);border:1px solid var(--fd-accent-border,#bfdbfe)">
             </div>
 
-            <div class="mb-4">
+            <!-- Upload form — hidden on touch-only devices (no fine pointer).
+                 Drag-and-drop works on fine-pointer devices only. -->
+            <div class="mb-4 fd-upload-wrap">
                 <!-- Hidden real file input — triggered programmatically -->
                 <input type="file" id="upload-file" multiple style="display:none" />
-                <form id="upload-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;row-gap:6px">
-                    <button type="button" id="btn-file-choose" class="btn text-sm"
-                        style="background:#e2e8f0;color:#374151;font-weight:500;flex-shrink:0">
-                        📎 <span id="upload-file-label">${t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…'}</span>
-                    </button>
-                    <button type="button" id="btn-folder-toggle" class="btn text-sm"
-                        style="background:#0ea5e9;flex-shrink:0;padding:.45rem .75rem" title="${t('folder_mode')}">${t('folder_button')}</button>
-                    <label class="text-sm" style="flex-shrink:0;white-space:nowrap"><input type="checkbox" id="upload-protected" /> ${t('protected')}</label>
-                    <button class="btn" id="btn-upload-submit" type="submit" style="flex-shrink:0;padding:.45rem .9rem">${t('upload')}</button>
-                    <span id="upload-spinner" style="display:none;font-size:18px;animation:spin 0.8s linear infinite">⏳</span>
-                    <button type="button" id="btn-show-queue"
-                        class="btn text-sm hidden"
-                        style="background:#6366f1;flex-shrink:0"
-                        title="${t('upload_queue')}">
-                        📋 ${t('upload_queue')} (<span id="queue-count">0</span>)
-                    </button>
-                    <button type="button" id="btn-resume-interrupted"
-                        class="btn text-sm hidden"
-                        style="background:#f59e0b;flex-shrink:0"
-                        title="${t('interrupted')}">
-                        ⟳ ${t('interrupted')} (<span id="interrupted-count">0</span>)
-                    </button>
-                </form>
+
+                <!-- Drag-and-drop zone — wraps the entire form row so the target
+                     area is generous. Folder vs file is auto-detected from dropped
+                     items and the folder-toggle button state is kept in sync. -->
+                <div id="fd-drop-zone"
+                     style="border:2px dashed transparent;border-radius:10px;
+                            transition:border-color .15s,background .15s;padding:4px">
+                    <form id="upload-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;row-gap:6px">
+                        <button type="button" id="btn-file-choose" class="btn text-sm"
+                            style="background:#e2e8f0;color:#374151;font-weight:500;flex-shrink:0">
+                            📎 <span id="upload-file-label">${t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…'}</span>
+                        </button>
+                        <button type="button" id="btn-folder-toggle" class="btn text-sm"
+                            style="background:#0ea5e9;flex-shrink:0;padding:.45rem .75rem" title="${t('folder_mode')}">${t('folder_button')}</button>
+                        <label class="text-sm" style="flex-shrink:0;white-space:nowrap"><input type="checkbox" id="upload-protected" /> ${t('protected')}</label>
+                        <button class="btn" id="btn-upload-submit" type="submit" style="flex-shrink:0;padding:.45rem .9rem">${t('upload')}</button>
+                        <span id="upload-spinner" style="display:none;font-size:18px;animation:spin 0.8s linear infinite">⏳</span>
+                        <button type="button" id="btn-show-queue"
+                            class="btn text-sm hidden"
+                            style="background:#6366f1;flex-shrink:0"
+                            title="${t('upload_queue')}">
+                            📋 ${t('upload_queue')} (<span id="queue-count">0</span>)
+                        </button>
+                        <button type="button" id="btn-resume-interrupted"
+                            class="btn text-sm hidden"
+                            style="background:#f59e0b;flex-shrink:0"
+                            title="${t('interrupted')}">
+                            ⟳ ${t('interrupted')} (<span id="interrupted-count">0</span>)
+                        </button>
+                    </form>
+                    <!-- Drop hint shown when dragging over -->
+                    <div id="fd-drop-hint"
+                         style="display:none;padding:18px 0 10px;text-align:center;
+                                color:var(--fd-accent,#3b82f6);font-size:13px;pointer-events:none">
+                        ⬆ Drop files or folders here
+                    </div>
+                </div>
             </div>
 
             <div id="file-list" class="mt-4" style="min-height:320px"></div>
@@ -1010,25 +1026,187 @@ function renderFileBrowserView() {
         _fileInput.value = '';
     });
 
-    // Auto-negotiate: if the selection contains items with a path separator it
-    // was almost certainly a folder pick — auto-enable folder mode display so
-    // the button stays in sync.  If everything is flat, revert to file mode.
-    _fileInput.addEventListener('change', () => {
-        const files = Array.from(_fileInput.files || []);
-        if (!files.length) return;
-        const hasSubPaths = files.some(f => f.webkitRelativePath && f.webkitRelativePath.includes('/'));
-        if (hasSubPaths && !_folderMode) {
-            _folderMode = true;
-            _folderBtn.textContent = '📄 Files';
-            _folderBtn.style.background = '#6366f1';
-            _folderBtn.title = 'Switch back to file upload mode';
-        } else if (!hasSubPaths && _folderMode) {
-            _folderMode = false;
-            _folderBtn.textContent = '📁 Folder';
-            _folderBtn.style.background = '#0ea5e9';
-            _folderBtn.title = 'Switch to folder upload mode';
+    // ── Mobile: hide the file picker when only a coarse pointer is available ──
+    // "pointer: fine" means mouse/trackpad; "pointer: coarse" means touch-only.
+    // The check is dynamic: connecting a Bluetooth keyboard+mouse to a phone
+    // will flip the media query to fine and reveal the controls instantly.
+    (function _updateUploadWrapVisibility() {
+        const wrap = document.querySelector('.fd-upload-wrap');
+        if (!wrap) return;
+        const mq = window.matchMedia('(pointer: fine)');
+        const apply = () => { wrap.style.display = mq.matches ? '' : 'none'; };
+        apply();
+        mq.addEventListener('change', apply);
+    })();
+
+    // ── Drag-and-drop upload ───────────────────────────────────────────────────
+    // Drop zone covers the whole fd-drop-zone div (upload row + hint line).
+    // Files and folders are both supported; type is auto-detected from the dropped
+    // DataTransferItems and the folder-toggle button is kept in sync.
+    //
+    // Folder traversal uses the FileSystem Access API (webkitGetAsEntry) to read
+    // directory trees recursively.  webkitRelativePath is injected onto each File
+    // object so the existing handleUploadForm / uploadChunked pipeline works
+    // without any modification.
+    ;(function _initDragDrop() {
+        const dropZone = document.getElementById('fd-drop-zone');
+        const dropHint = document.getElementById('fd-drop-hint');
+        if (!dropZone) return;
+
+        // Only activate on fine-pointer devices — touch drag-and-drop is unreliable
+        if (!window.matchMedia('(pointer: fine)').matches) return;
+
+        let dragDepth = 0;   // counter avoids false dragleave on child elements
+
+        function _setActive(on) {
+            dragDepth = on ? Math.max(dragDepth, 1) : 0;
+            dropZone.style.borderColor  = on ? 'var(--fd-accent,#3b82f6)' : 'transparent';
+            dropZone.style.background   = on ? 'var(--fd-accent-bg,#eff6ff)' : '';
+            if (dropHint) dropHint.style.display = on ? 'block' : 'none';
         }
-    });
+
+        dropZone.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; _setActive(true); });
+        dropZone.addEventListener('dragleave', () => { if (--dragDepth <= 0) _setActive(false); });
+        dropZone.addEventListener('dragover',  e => e.preventDefault());
+
+        // ── Recursive FileSystemEntry reader ──────────────────────────────────
+        // Returns [{ file, rel }] where rel is the path relative to the drop root.
+        async function _readEntries(dataTransferItemList) {
+            const results = [];
+            let hasDir = false;
+
+            async function traverse(entry, pathPrefix) {
+                if (entry.isFile) {
+                    const file = await new Promise((res, rej) => entry.file(res, rej));
+                    // Inject relative path so uploadChunked sees the folder structure
+                    try {
+                        Object.defineProperty(file, 'webkitRelativePath',
+                            { value: pathPrefix + entry.name, configurable: true, writable: false });
+                    } catch (_) { /* read-only on some browsers — fall back to flat name */ }
+                    results.push({ file, rel: pathPrefix + entry.name });
+                } else if (entry.isDirectory) {
+                    hasDir = true;
+                    const reader = entry.createReader();
+                    let batch;
+                    // readEntries returns at most 100 items per call — loop until empty
+                    do {
+                        batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+                        for (const child of batch) {
+                            await traverse(child, pathPrefix + entry.name + '/');
+                        }
+                    } while (batch.length > 0);
+                }
+            }
+
+            const topLevel = [];
+            for (let i = 0; i < dataTransferItemList.length; i++) {
+                const item = dataTransferItemList[i];
+                if (item.kind !== 'file') continue;
+                const entry = item.webkitGetAsEntry?.();
+                if (entry) topLevel.push(entry);
+                else {
+                    const f = item.getAsFile();
+                    if (f) results.push({ file: f, rel: f.name });
+                }
+            }
+            // Traverse all top-level entries in parallel
+            await Promise.all(topLevel.map(e => traverse(e, '')));
+            return { results, hasDir };
+        }
+
+        dropZone.addEventListener('drop', async e => {
+            e.preventDefault();
+            _setActive(false);
+
+            const { results, hasDir } = await _readEntries(e.dataTransfer.items);
+            if (!results.length) return;
+
+            // Auto-sync the folder-toggle button to match what was dropped
+            if (hasDir && !_folderMode) {
+                _folderMode = true;
+                if (_folderBtn) {
+                    _folderBtn.textContent = t('file_button') || '📄 Files';
+                    _folderBtn.style.background = '#6366f1';
+                    _folderBtn.title = t('files_mode') || 'Switch to file mode';
+                }
+            } else if (!hasDir && _folderMode) {
+                _folderMode = false;
+                if (_folderBtn) {
+                    _folderBtn.textContent = t('folder_button') || '📁 Folder';
+                    _folderBtn.style.background = '#0ea5e9';
+                    _folderBtn.title = t('folder_mode') || 'Switch to folder mode';
+                }
+            }
+
+            // Update the "Choose files…" label for visual feedback
+            const lbl = document.getElementById('upload-file-label');
+            if (lbl) {
+                lbl.textContent = results.length === 1
+                    ? results[0].file.name
+                    : `${results.length} items dropped`;
+            }
+
+            // Feed directly into the upload pipeline (same path as the form submit)
+            const isProtected = document.getElementById('upload-protected')?.checked || false;
+            const ownerType   = currentPath.startsWith('/cdn') ? 'catbox' : 'user';
+            const basePath    = currentPath.endsWith('/') ? currentPath : currentPath + '/';
+
+            window.addEventListener('beforeunload', windowLock);
+            const items = results.map(({ file, rel }) => ({
+                file,
+                destRel: basePath + rel,
+                ownerType,
+                isProtected,
+            }));
+
+            if (items.length === 1) {
+                try {
+                    await uploadChunked(items[0].file, items[0].destRel, { ownerType });
+                    _notifyUploadDone(1);
+                    showMessage('Upload successful', `${items[0].file.name} uploaded.`);
+                    loadDirectory(currentPath);
+                } catch (err) {
+                    if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled')
+                        showMessage('Upload failed', err.message || String(err));
+                } finally {
+                    window.removeEventListener('beforeunload', windowLock);
+                }
+            } else {
+                const [first, ...rest] = items;
+                window._uploadQueue = [...(window._uploadQueue || []), ...rest];
+                const refreshQ = () => {
+                    const btn = document.getElementById('btn-show-queue');
+                    const countEl = document.getElementById('queue-count');
+                    if (btn && countEl) {
+                        const q = window._uploadQueue;
+                        if (q.length > 0) { btn.classList.remove('hidden'); countEl.textContent = q.length; }
+                        else btn.classList.add('hidden');
+                    }
+                };
+                refreshQ();
+                _lastUploadBatchCount += items.length;
+                async function drainDrop(item) {
+                    while (item) {
+                        try {
+                            await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
+                            loadDirectory(currentPath);
+                        } catch (err) {
+                            if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
+                                showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
+                                window.removeEventListener('beforeunload', windowLock);
+                            }
+                        }
+                        if (window._uploadQueue?.length > 0) { item = window._uploadQueue.shift(); refreshQ(); }
+                        else { item = null; }
+                    }
+                    window.removeEventListener('beforeunload', windowLock);
+                    _notifyUploadDone(items.length);
+                    loadDirectory(currentPath);
+                }
+                drainDrop(first);
+            }
+        });
+    })();
 
     // ── Upload queue state ──────────────────────────────────────────
     // Holds { file, destRel, ownerType, isProtected } waiting to upload.
@@ -6944,7 +7122,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-65819170'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-94bebc1d'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

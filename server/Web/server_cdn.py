@@ -2423,11 +2423,17 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 abs_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, rel[len('/cdn'):].lstrip('/')))
                 cs_key   = rel        # checksum key is the CDN-relative path
                 cs_uid   = 0          # CDN checksums stored under uid 0
+                # Bounds check — never escape CDN upload dir
+                if not abs_path.startswith(os.path.normpath(CDN_UPLOAD_DIR) + os.sep):
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
             else:
-                user_dir = user_base_path_for(user_id)
+                user_dir = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
                 abs_path = os.path.normpath(os.path.join(user_dir, rel.lstrip('/')))
                 cs_key   = rel
                 cs_uid   = user_id
+                # Bounds check — never escape user's own directory
+                if not abs_path.startswith(user_dir + os.sep):
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
 
             # Safety: never escape the storage root
             if os.path.isdir(abs_path):

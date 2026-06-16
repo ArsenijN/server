@@ -53,10 +53,20 @@
   --fd-skel-shine:  #2d3f52;
 }
 
-/* ── Mobile: hide the Modified column to give Name room ─────────────────────
-   The ⋮ action button needs only ~44 px; on narrow screens the mtime column
-   can crowd it to the left making it appear to overlap the time text.
-   We hide mtime below 600 px where the table otherwise overflows.          */
+/* ── Mobile: hide file picker when no fine pointer (mouse/trackpad) present ──
+   `pointer: coarse` = touch-only device (phone, tablet without keyboard dock).
+   `pointer: fine`   = mouse or trackpad present — show upload controls.
+   JS also checks this at runtime so a Bluetooth keyboard/mouse hotplug works. */
+@media (pointer: coarse) {
+  .fd-upload-wrap { display: none !important; }
+}
+
+/* ── Drag-and-drop zone active state ──────────────────────────────────────── */
+#fd-drop-zone {
+  border-radius: 10px;
+  transition: border-color .15s, background .15s;
+}
+
 @media (max-width: 600px) {
   .fd-col-mtime { display: none !important; }
 }

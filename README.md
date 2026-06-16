@@ -1,4 +1,4 @@
-# server `v0.18.0.35`
+# server `v0.18.0.36`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -63,7 +63,7 @@ can't be sure***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Attempts to improve the UI, commit as checkpoint #8***
+- ***Attempts to improve the UI and some features, commit as checkpoint #9***
 
 ---
 

@@ -2402,6 +2402,71 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.wfile.write(_av_data)
             return
 
+        # ── File info + checksum: GET /api/v1/fileinfo/<path> ────────────────
+        # Returns cached CRC-32 (hex), size, mtime for the requested file.
+        # Auth required (user can only query their own files or CDN files they
+        # have access to).  CRC-32 is served from the background-scanner cache;
+        # if not yet computed it triggers an on-demand computation (may take a
+        # moment for large files — the endpoint streams the response after it
+        # finishes, so the client just sees a slightly delayed JSON reply).
+        if parsed_url.path.startswith('/api/v1/fileinfo/') or parsed_url.path == '/api/v1/fileinfo':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Authentication required'}))
+            # Strip the /api/v1/fileinfo prefix to get the relative file path
+            rel = parsed_url.path[len('/api/v1/fileinfo'):]
+            if not rel or rel == '/':
+                return self._send_response(400, json.dumps({'error': 'path required'}))
+
+            # Resolve to an absolute filesystem path (mirrors the download handler)
+            if rel.startswith('/cdn'):
+                abs_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, rel[len('/cdn'):].lstrip('/')))
+                cs_key   = rel        # checksum key is the CDN-relative path
+                cs_uid   = 0          # CDN checksums stored under uid 0
+            else:
+                user_dir = user_base_path_for(user_id)
+                abs_path = os.path.normpath(os.path.join(user_dir, rel.lstrip('/')))
+                cs_key   = rel
+                cs_uid   = user_id
+
+            # Safety: never escape the storage root
+            if os.path.isdir(abs_path):
+                return self._send_response(400, json.dumps({'error': 'path is a directory'}))
+            if not os.path.isfile(abs_path):
+                return self._send_response(404, json.dumps({'error': 'File not found'}))
+
+            try:
+                st = os.stat(abs_path)
+            except OSError as _oe:
+                return self._send_response(404, json.dumps({'error': str(_oe)}))
+
+            # Check checksum cache first, then compute on-demand if stale/missing
+            crc32_hex = None
+            try:
+                stored = checksum_get(cs_key, cs_uid)
+                if stored and checksum_is_fresh(stored, abs_path):
+                    crc32_hex = format(stored['crc32'], '08x')
+                else:
+                    # on-demand computation — may take a few seconds for large files
+                    crc_int = compute_and_store_crc32(abs_path, cs_key, cs_uid, 'info_panel')
+                    if crc_int is not None:
+                        crc32_hex = format(crc_int, '08x')
+            except Exception:
+                logging.exception('fileinfo: CRC-32 computation failed for %r', abs_path)
+
+            # Guess MIME type from extension
+            import mimetypes as _mt
+            mime_guess, _ = _mt.guess_type(abs_path)
+
+            payload = {
+                'name':   os.path.basename(abs_path),
+                'size':   st.st_size,
+                'mtime':  datetime.fromtimestamp(st.st_mtime).isoformat(timespec='seconds'),
+                'crc32':  crc32_hex,     # None if computation failed or file too large
+                'mime':   mime_guess,
+            }
+            return self._send_response(200, json.dumps(payload))
+
         if parsed_url.path == '/api/v1/admin/users':
             admin = self._check_admin_auth()
             if not admin: return

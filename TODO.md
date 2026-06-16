@@ -16,10 +16,7 @@ user feedback or ideas for future development.
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what -- they are caused on network switch
 
-- [x] UI update cycle for entity causes the drop of the translation (like the 
-Folder First and Mixed button, quota pre-load modal, etc.)
 - [ ] Trash bin file preview inside folders
-- [ ] `https` static hoster stops working after some time (no )
 
 ### UI
 - [ ] Markdown parser does not understand:
@@ -28,34 +25,21 @@ Folder First and Mixed button, quota pre-load modal, etc.)
   - [ ] `***` following with the new line inside the text and then `***` again
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
-- [ ] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
-JPG as fallback)
-- [x] Custom right-click menu for folders and files (reduce amount of options 
-with files)
-  - [x] Add "..." (vertical) as "fallback"
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
 - [ ] Footer versioning: make versioning system the same as the current with 
 server (like v0.17.2.4)
-- [ ] Add file picker to file browser (checkbox-styled or as "click on the 
-`border-t` to select one)
-  - [ ] Add ability to use regular keyboard shortcuts (shift for multiple file 
-  pick, ctrl to specific, ctrl+shift for multiple from latest pick with ctrl; 
-  aka regular file browser behavior like on Windows)
-  - [ ] Add ability to double-click on the `border-t` to open the file/folder
-  - [ ] Optimize FluxDrop for mobile screens, regular 16:9 and other aspect 
-ratios
-- [ ] Add file info modal
-  - [ ] Basics (file modify time, size, etc.)
+- [x] Add file info modal
+  - [x] Basics (file modify time, size, etc.)
   - [ ] Background hashsums (do it via `nice` so it will execute when server 
   isn't fully utilized, as background thing)
     - [ ] Use those hashes for silent file check activity in background
       - [ ] Add parchives to avoid file damages
       - [ ] Add some kind of messages if files got corrupted on server side and 
       was unrecoverable 
-- [ ] Redesign the move/rename/copy/delete modals
 
 ### UX
+- [ ] Add ability to double-click on the `border-t` to open the file/folder
 - [ ] Make the file info also work as turn on-off: is present on screen - show 
 the infos for the selected (or last selected) file, on item change - change the 
 display of infos
@@ -207,8 +191,6 @@ just do that fail silently -- fixed
   Samsung S5250 Wave 525 on bada OS inside the built-in browser (because it may 
   not support some JS) or K-Meleon with JS disabled?)
 
-(end of release note there)
-
 - [x] Fix HSTS redirects for FluxDrop file manager - HTTP to HTTPS redirects 
 that works with the FluxDrop, right now even login fails -- doesn't work, needs 
 changes (v0.17.2.11) -- `Location` header have 
@@ -231,6 +213,25 @@ the default options)
 - [x] Click on the "quota usage" should open the quota space analyzer
 
 - [x] On load, page no loner flashes with white page
+
+- [x] UI update cycle for entity causes the drop of the translation (like the 
+Folder First and Mixed button, quota pre-load modal, etc.)
+- [x] `https` static hoster stops working after some time (no )
+- [x] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
+JPG as fallback)
+- [x] Custom right-click menu for folders and files (reduce amount of options 
+with files)
+  - [x] Add "..." (vertical) as "fallback"
+- [x] Add file picker to file browser (checkbox-styled or as "click on the 
+`border-t` to select one)
+  - [x] Add ability to use regular keyboard shortcuts (shift for multiple file 
+  pick, ctrl to specific, ctrl+shift for multiple from latest pick with ctrl; 
+  aka regular file browser behavior like on Windows)
+  - [x] Optimize FluxDrop for mobile screens, regular 16:9 and other aspect 
+ratios
+- [x] Redesign the move/rename/copy/delete modals
+
+(end of release note there)
 
 ---
 

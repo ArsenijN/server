@@ -899,16 +899,12 @@ function renderFileBrowserView() {
 
             <!-- Selection action bar — always in the DOM so activating it never
                  shifts the file list.  Invisible when nothing is selected.
-                 The opacity-0 ghost content mirrors the real bar exactly so
-                 the reserved height is never off by a pixel. -->
+                 Ghost content (opacity:0 buttons) is injected by _updateSelBar()
+                 immediately after this template is set as innerHTML. -->
             <div id="fd-sel-bar"
                  style="visibility:hidden;border-radius:8px;padding:7px 12px;margin-bottom:8px;
                         display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;
                         background:var(--fd-accent-bg,#eff6ff);border:1px solid var(--fd-accent-border,#bfdbfe)">
-                <span style="opacity:0;pointer-events:none;flex-shrink:0">0 selected</span>
-                <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ Download</button>
-                <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 Trash</button>
-                <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ Clear</button>
             </div>
 
             <div class="mb-4">
@@ -1223,8 +1219,8 @@ async function loadDirectory(path) {
         <colgroup>
             <col style="width:auto">
             <col style="width:8%">
-            <col class="fd-col-mtime" style="width:14%">
-            <col style="width:44px">
+            <col class="fd-col-mtime" style="width:17%">
+            <col style="width:72px">
         </colgroup>`;
 
     // Show skeleton rows immediately so the table shape appears while fetching
@@ -1244,6 +1240,10 @@ async function loadDirectory(path) {
         fileList.innerHTML = TABLE_WRAP + sortHeaders() +
             `<tbody>${rows}</tbody></table>`;
         attachRowListeners();
+        // Populate the pre-rendered fd-sel-bar with ghost buttons so its height
+        // is stable before any selection is made.  _clearSelection() will call
+        // _updateSelBar() again but the bar may not yet be in the DOM on first load.
+        _updateSelBar();
     } catch (err) {
         // SESSION_EXPIRED: apiCall already cleared the token and called
         // renderApp('login') — don't overwrite the login view with an error.
@@ -1358,7 +1358,9 @@ function renderEntryRow(e) {
             </div>
         </td>
         <td ${TD_COMMON} class="text-sm text-gray-500">${sizeStr}</td>
-        <td ${TD_COMMON} class="text-sm text-gray-500 fd-col-mtime">${e.mtime}</td>
+        <td ${TD_COMMON} class="text-sm text-gray-500 fd-col-mtime"
+            style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="${escapeHtmlAttr(e.mtime || '')}">${formatMtime(e.mtime)}</td>
         <td ${TD_ACTIONS}>${moreBtn}</td>
     </tr>`;
 }
@@ -1389,6 +1391,30 @@ function formatBytes(b) {
     if (b < 1048576)     return fmt3(b / 1024)      + ' kB';
     if (b < 1073741824)  return fmt3(b / 1048576)   + ' MB';
     return                      fmt3(b / 1073741824) + ' GB';
+}
+
+/**
+ * Format an ISO mtime string to a human-friendly label.
+ *   Same calendar day  → "Today at 14:30"
+ *   Previous day       → "Yesterday at 14:30"
+ *   Older              → "15 Jan 2024 at 14:30"
+ * Falls back to the raw string on parse failure.
+ */
+function formatMtime(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return ts;
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const now  = new Date();
+    const sameDay = (a, b) =>
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth()    === b.getMonth()    &&
+        a.getDate()     === b.getDate();
+    if (sameDay(d, now)) return `Today at ${time}`;
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (sameDay(d, yesterday)) return `Yesterday at ${time}`;
+    return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) + ` at ${time}`;
 }
 
 
@@ -2913,6 +2939,15 @@ let _selectedPaths  = new Set();
 let _lastClickedIdx = -1; // used for Shift+click range selection
 
 // ── Selection bar ─────────────────────────────────────────────────────────
+// Ghost HTML for the selection bar when nothing is selected.
+// Must match the visible bar's markup so reserved height is pixel-identical.
+// Used in both renderFileBrowserView (initial render) and _updateSelBar (clear).
+const _SEL_BAR_GHOST = `
+    <span style="opacity:0;pointer-events:none;flex-shrink:0">0 selected</span>
+    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ Download</button>
+    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 Trash</button>
+    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ Clear</button>`;
+
 function _updateSelBar() {
     const n = _selectedPaths.size;
     const bar = document.getElementById('fd-sel-bar');
@@ -2920,7 +2955,8 @@ function _updateSelBar() {
 
     if (n === 0) {
         bar.style.visibility = 'hidden';
-        bar.innerHTML = '&nbsp;';
+        bar.innerHTML = _SEL_BAR_GHOST;   // restore ghost — keeps height stable
+        bar.onclick = null;
         return;
     }
 
@@ -2932,8 +2968,6 @@ function _updateSelBar() {
         <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto">✕ Clear</button>
     `;
 
-    // Re-attach click handler each time bar is populated
-    // (innerHTML replacement removes old handlers)
     bar.onclick = e => {
         const btn = e.target.closest('[data-fdsel]');
         if (!btn) return;
@@ -3218,7 +3252,7 @@ function _showFileInfo(row) {
     const name    = row.dataset.name    || '—';
     const path    = row.dataset.path    || '—';
     const isDir   = row.dataset.isDir   === '1';
-    const mtime   = row.dataset.mtime   || '—';
+    const mtime   = row.dataset.mtime   || '';
     const uploader= row.dataset.uploader|| '';
     const rawSize = parseInt(row.dataset.size, 10);
     const sizeStr = isDir
@@ -3226,16 +3260,12 @@ function _showFileInfo(row) {
         : (isNaN(rawSize) ? '—' : formatBytes(rawSize));
 
     const ext = !isDir && name.includes('.') ? name.split('.').pop().toUpperCase() : null;
-    const typeStr = isDir
-        ? (t('file_info_type_folder') !== 'file_info_type_folder' ? t('file_info_type_folder') : 'Folder')
-        : ext
-            ? `${ext} ${t('file_info_type_file') !== 'file_info_type_file' ? t('file_info_type_file') : 'file'}`
-            : (t('file_info_type_file') !== 'file_info_type_file' ? t('file_info_type_file') : 'File');
+    const typeStr = isDir ? 'Folder' : (ext ? `${ext} file` : 'File');
 
     const panel = document.createElement('div');
     panel.id = 'fd-info-panel';
     panel.style.cssText =
-        'position:fixed;right:12px;top:70px;width:260px;z-index:20000;' +
+        'position:fixed;right:12px;top:70px;width:280px;z-index:20000;' +
         'background:var(--fd-surface,#fff);border:1px solid var(--fd-border,#e2e8f0);' +
         'border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.14);' +
         'padding:0;overflow:hidden;font-size:13px;animation:fd-info-in .18s ease';
@@ -3246,12 +3276,11 @@ function _showFileInfo(row) {
         document.head.appendChild(s);
     }
 
-    const lbl = (key, fb) => (t(key) !== key ? t(key) : fb);
-    const row2 = (label, value) =>
+    const row2 = (label, value, isHTML) =>
         `<div style="display:flex;justify-content:space-between;padding:5px 14px;
                      border-bottom:1px solid var(--fd-border,#e2e8f0)">
-            <span style="color:var(--fd-muted,#64748b);flex-shrink:0;margin-right:8px">${label}</span>
-            <span style="color:var(--fd-text,#1e293b);text-align:right;word-break:break-all">${escapeHtml(value)}</span>
+            <span style="color:var(--fd-muted,#64748b);flex-shrink:0;margin-right:8px;white-space:nowrap">${label}</span>
+            <span style="color:var(--fd-text,#1e293b);text-align:right;word-break:break-all;font-family:${label==='CRC-32'?'monospace':'inherit'}">${isHTML ? value : escapeHtml(value)}</span>
          </div>`;
 
     panel.innerHTML =
@@ -3259,20 +3288,54 @@ function _showFileInfo(row) {
                      display:flex;justify-content:space-between;align-items:center;
                      border-bottom:1px solid var(--fd-border,#e2e8f0)">
             <span style="font-weight:600;color:var(--fd-text,#1e293b);font-size:14px">
-                ${isDir ? '📁' : '📄'} ${lbl('file_info_title','Info')}
+                ${isDir ? '📁' : '📄'} Info
             </span>
             <button id="fd-info-close" style="background:none;border:none;cursor:pointer;
                 font-size:18px;color:var(--fd-muted,#64748b);padding:0 2px;line-height:1">✕</button>
         </div>` +
-        row2(lbl('file_info_name','Name'), name) +
-        row2(lbl('file_info_path','Path'), path) +
-        row2(lbl('file_info_type','Type'), typeStr) +
-        row2(lbl('file_info_size','Size'), sizeStr) +
-        row2(lbl('file_info_modified','Modified'), mtime) +
-        (uploader ? row2(lbl('file_info_uploaded_by','Uploaded by'), uploader) : '');
+        row2('Name',     name) +
+        row2('Path',     path) +
+        row2('Type',     typeStr) +
+        row2('Size',     sizeStr) +
+        row2('Modified', mtime ? formatMtime(mtime) : '—') +
+        (uploader ? row2('Uploaded by', uploader) : '') +
+        (!isDir ? row2('CRC-32', '<span id="fd-info-crc" style="color:var(--fd-muted,#94a3b8)">Loading…</span>', true) : '') +
+        (!isDir ? `<div style="padding:8px 14px;border-bottom:1px solid var(--fd-border,#e2e8f0)">
+            <button id="fd-info-dl" class="btn"
+                style="width:100%;padding:5px;font-size:12px;text-align:center">
+                ⬇ Download
+            </button></div>` : '');
 
     document.body.appendChild(panel);
     document.getElementById('fd-info-close').addEventListener('click', () => panel.remove());
+
+    // Download button
+    const dlBtn = document.getElementById('fd-info-dl');
+    if (dlBtn) dlBtn.addEventListener('click', () => { panel.remove(); downloadFile(path); });
+
+    // Async CRC-32 fetch
+    if (!isDir) {
+        const crcEl = document.getElementById('fd-info-crc');
+        (async () => {
+            try {
+                // Ask server for the cached or on-demand checksum
+                const data = await apiCall(`/api/v1/fileinfo${encodePath(path)}`, 'GET', null, /*silent*/true);
+                if (!panel.isConnected || !crcEl) return;
+                if (data.crc32) {
+                    crcEl.style.color = 'var(--fd-text,#1e293b)';
+                    crcEl.textContent = data.crc32.toLowerCase();
+                } else {
+                    crcEl.style.color = 'var(--fd-muted,#94a3b8)';
+                    crcEl.textContent = 'not yet computed';
+                }
+            } catch {
+                if (crcEl && panel.isConnected) {
+                    crcEl.style.color = 'var(--fd-muted,#94a3b8)';
+                    crcEl.textContent = '—';
+                }
+            }
+        })();
+    }
 
     const closer = e => { if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', closer, true); } };
     setTimeout(() => document.addEventListener('click', closer, true), 10);
@@ -5277,7 +5340,19 @@ function openProfileMenu() {
     overlay.innerHTML = `
         <div id="profile-menu-panel" data-fd-dark="surface" style="background:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.18);min-width:260px;overflow:hidden;animation:fadeSlideDown .15s ease">
             <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:18px 20px;display:flex;align-items:center;gap:12px" data-fd-dark="header">
-                <div style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:22px">👤</div>
+                <!-- Avatar with fallback emoji -->
+                <div style="width:46px;height:46px;border-radius:50%;overflow:hidden;
+                            background:rgba(255,255,255,0.25);flex-shrink:0;
+                            display:flex;align-items:center;justify-content:center;font-size:22px">
+                    <img id="pm-avatar-img"
+                         src="${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(localStorage.getItem('fluxdrop_user_id')||'0')}?t=${Date.now()}"
+                         style="width:46px;height:46px;object-fit:cover;display:block"
+                         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+                         alt="">
+                    <span id="pm-avatar-fallback"
+                          style="display:none;width:100%;height:100%;
+                                 align-items:center;justify-content:center;font-size:22px">👤</span>
+                </div>
                 <div>
                     <div style="color:white;font-weight:700;font-size:15px">${currentUsername}</div>
                     <div style="color:rgba(255,255,255,0.75);font-size:12px">${t('menu_account_info_fluxdrop')}</div>

@@ -1,15 +1,15 @@
-# server `v0.18.0.34`
+# server `v0.18.0.35`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
 *Release notes:*
 
-***Mainstream: More user comfort with FluxDrop v.19!***
+***Mainstream: More user comfort and abilities with FluxDrop v.19!***
 
 ***We are glad to release this new and huge update to the FluxDrop that 
-fundamentally changes the user expirience with the service! We worked on it for 
-the past few weeks, and we are added a lot of features, such as:***
+fundamentally changes the user experience with the service! We worked on it for 
+the past few months, and we are added a lot of features, such as:***
 - ***New domains for the users: `arseniusgen.dev` and `fluxdrop.me`***
 - ***Welcome screen for newbies***
 - ***New loading bars and screens, skeleton pages and modals***
@@ -30,17 +30,26 @@ problems with speeds of the ZIP streaming downloads***
 - ***You can download shared files without JS required! Access the FluxDrop 
 from 2001 PC and download your work files anywhere, at any time, for 
 anything!***
+- ***More natural use of the file manager with the right mouse button and 
+selections***
+- ***Now you can set the avatar for the profile***
+- ***Action buttons are now redesigned***
+
+***And much, much more! (we gived up in the time of documentation of those 
+things)***
 
 ***Also, in the time of the server optimizations, we are managed to bump the 
 download speeds to the mindblowing 2x times! Right now, our hardware can handle 
 up to 40 MB/s download speeds, that's 2x times faster than the older code!***
 
-***Important note: if you want, you can try to use HTTP endpoints of our 
+***~~Important note: if you want, you can try to use HTTP endpoints of our 
 services to reach the theoretical 100 MB/s speeds. The problem is that our 
 hardware is old enough to struggle at encryptions, e.g. `AES` for HTTPS. For 
 even faster speeds, we have made attempts to add the 
 `TLS_CHACHA20_POLY1305_SHA256` as secondary main hashing algorithm for HTTPS, 
-but it may fallback to `AES` and cause slower speeds***
+but it may fallback to `AES` and cause slower speeds~~*** -- download speeds 
+still will be only up to 40 MB/s seems like, this are almost valid for uploads, 
+not downloads
 
 ***For developers and testers:***
 - ***Fixed the logs duplication***
@@ -51,10 +60,10 @@ workflow and GitHub's autocheck script***
 - ***Windows's sync script should be fixed for now, without the actual usage I 
 can't be sure***
 
-***Regressions: none?***
+***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Attempts to improve the UI, commit as checkpoint #7***
+- ***Attempts to improve the UI, commit as checkpoint #8***
 
 ---
 

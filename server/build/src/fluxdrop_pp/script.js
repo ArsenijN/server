@@ -907,18 +907,18 @@ function renderFileBrowserView() {
                         background:var(--fd-accent-bg,#eff6ff);border:1px solid var(--fd-accent-border,#bfdbfe)">
             </div>
 
-            <!-- Upload form — hidden on touch-only devices (no fine pointer).
-                 Drag-and-drop works on fine-pointer devices only. -->
-            <div class="mb-4 fd-upload-wrap">
-                <!-- Hidden real file input — triggered programmatically -->
-                <input type="file" id="upload-file" multiple style="display:none" />
+            <!-- Outer drag-and-drop zone — covers both the upload toolbar and the
+                 file list so the entire content area accepts drops.
+                 fd-upload-wrap defaults to hidden; JS reveals it when a fine pointer
+                 (mouse/trackpad) is detected, so the form is never shown on touch-only
+                 devices even if the CSS is cached or overridden. -->
+            <div id="fd-drop-zone"
+                 style="border:2px dashed transparent;border-radius:10px;
+                        transition:border-color .15s,background .15s">
 
-                <!-- Drag-and-drop zone — wraps the entire form row so the target
-                     area is generous. Folder vs file is auto-detected from dropped
-                     items and the folder-toggle button state is kept in sync. -->
-                <div id="fd-drop-zone"
-                     style="border:2px dashed transparent;border-radius:10px;
-                            transition:border-color .15s,background .15s;padding:4px">
+                <div class="mb-4 fd-upload-wrap" id="fd-upload-wrap" style="display:none">
+                    <!-- Hidden real file input — triggered programmatically -->
+                    <input type="file" id="upload-file" multiple style="display:none" />
                     <form id="upload-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;row-gap:6px">
                         <button type="button" id="btn-file-choose" class="btn text-sm"
                             style="background:#e2e8f0;color:#374151;font-weight:500;flex-shrink:0">
@@ -942,16 +942,19 @@ function renderFileBrowserView() {
                             ⟳ ${t('interrupted')} (<span id="interrupted-count">0</span>)
                         </button>
                     </form>
-                    <!-- Drop hint shown when dragging over -->
-                    <div id="fd-drop-hint"
-                         style="display:none;padding:18px 0 10px;text-align:center;
-                                color:var(--fd-accent,#3b82f6);font-size:13px;pointer-events:none">
-                        ⬆ Drop files or folders here
-                    </div>
                 </div>
-            </div>
 
-            <div id="file-list" class="mt-4" style="min-height:320px"></div>
+                <!-- Drop hint — appears in the file-list gap while dragging over -->
+                <div id="fd-drop-hint"
+                     style="display:none;padding:14px 0 8px;text-align:center;
+                            color:var(--fd-accent,#3b82f6);font-size:13px;
+                            font-weight:500;pointer-events:none">
+                    ⬆ Drop files or folders here to upload
+                </div>
+
+                <div id="file-list" class="mt-4" style="min-height:320px"></div>
+
+            </div>
         </div>
     `;
 
@@ -1026,17 +1029,32 @@ function renderFileBrowserView() {
         _fileInput.value = '';
     });
 
-    // ── Mobile: hide the file picker when only a coarse pointer is available ──
-    // "pointer: fine" means mouse/trackpad; "pointer: coarse" means touch-only.
-    // The check is dynamic: connecting a Bluetooth keyboard+mouse to a phone
-    // will flip the media query to fine and reveal the controls instantly.
-    (function _updateUploadWrapVisibility() {
-        const wrap = document.querySelector('.fd-upload-wrap');
+    // ── Mobile: reveal file picker only when a fine pointer is available ────
+    // fd-upload-wrap defaults to display:none (set in the HTML above).
+    // We show it only when the device has a fine pointer (mouse/trackpad).
+    // Using `removeProperty` means the CSS media-query rule is the final
+    // arbiter on change — we never fight it with an inline !important.
+    //
+    // Two separate media queries are checked as a belt-and-suspenders guard
+    // against browsers that mis-report one but not both:
+    //   (pointer: fine)  — primary pointer is a mouse/trackpad
+    //   (hover: hover)   — device supports hover (non-touch)
+    // If EITHER is true we treat the device as having a mouse attached.
+    (function _initUploadWrapVisibility() {
+        const wrap = document.getElementById('fd-upload-wrap');
         if (!wrap) return;
-        const mq = window.matchMedia('(pointer: fine)');
-        const apply = () => { wrap.style.display = mq.matches ? '' : 'none'; };
+        const mqFine  = window.matchMedia('(pointer: fine)');
+        const mqHover = window.matchMedia('(hover: hover)');
+        function apply() {
+            if (mqFine.matches || mqHover.matches) {
+                wrap.style.removeProperty('display');   // let CSS decide (default block)
+            } else {
+                wrap.style.display = 'none';            // force-hide on touch-only
+            }
+        }
         apply();
-        mq.addEventListener('change', apply);
+        mqFine.addEventListener('change',  apply);
+        mqHover.addEventListener('change', apply);
     })();
 
     // ── Drag-and-drop upload ───────────────────────────────────────────────────
@@ -3153,9 +3171,20 @@ function _updateSelBar() {
         if (action === 'clear') { _clearSelection(); _updateSelBar(); return; }
         if (action === 'trash') {
             const paths = [..._selectedPaths];
-            if (!confirm(`Move ${paths.length} item(s) to Trash?`)) return;
+            if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
             _clearSelection(); _updateSelBar();
-            (async () => { for (const p of paths) await deleteItem(p, true); loadDirectory(currentPath); })();
+            (async () => {
+                let lastDays = 30;
+                let failed   = 0;
+                for (const p of paths) {
+                    const r = await deleteItem(p, { skipConfirm: true, silent: true });
+                    if (r === false) failed++;
+                    else if (r) lastDays = r;
+                }
+                const moved = paths.length - failed;
+                if (moved > 0) _showTrashBatchNotice(moved, lastDays);
+                loadDirectory(currentPath);
+            })();
             return;
         }
         if (action === 'download') {
@@ -3400,13 +3429,18 @@ function _showContextMenu(x, y, row) {
                 }
                 case 'trash-multi': {
                     const paths = [..._selectedPaths];
-                    if (!confirm(`Move ${paths.length} item(s) to Trash?`)) return;
+                    if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
                     _clearSelection(); _updateSelBar();
                     (async () => {
+                        let lastDays = 30;
+                        let failed   = 0;
                         for (const tp of paths) {
-                            try { await apiCall('/api/v1/trash', 'POST', { path: tp }); }
-                            catch (_) { /* individual failures don't abort the rest */ }
+                            const r = await deleteItem(tp, { skipConfirm: true, silent: true });
+                            if (r === false) failed++;
+                            else if (r) lastDays = r;
                         }
+                        const moved = paths.length - failed;
+                        if (moved > 0) _showTrashBatchNotice(moved, lastDays);
                         loadDirectory(currentPath);
                     })();
                     break;
@@ -3537,19 +3571,51 @@ async function loadFolderSize(cell) {
     }
 }
 
-window.deleteItem = async function(path) {
+window.deleteItem = async function(path, optsOrLegacy = {}) {
+    // Accept either a plain options object {skipConfirm, silent} or a legacy
+    // boolean `true` (old call sites that passed `true` as skipConfirm).
+    const opts = typeof optsOrLegacy === 'boolean'
+        ? { skipConfirm: optsOrLegacy }
+        : (optsOrLegacy || {});
+    const skipConfirm = !!opts.skipConfirm;
+    const silent      = !!opts.silent;
+
     const disp = stripInternalPrefix(path);
-    if (!confirm('Move to Trash: ' + disp + '?')) return;
+    if (!skipConfirm && !confirm('Move to Trash: ' + disp + '?')) return false;
     try {
         const res = await apiCall('/api/v1/trash', 'POST', { path });
         const days = res.retention_days || 30;
-        showMessage('Moved to Trash',
-            disp + ' was moved to Trash and will be kept for ' + days + ' days.\n'
-            + 'Open Trash (🗑) to restore or permanently delete it.');
+        if (!silent) {
+            showMessage('Moved to Trash',
+                disp + ' was moved to Trash and will be kept for ' + days + ' days.\n'
+                + 'Open Trash (🗑) to restore or permanently delete it.');
+        }
         loadDirectory(currentPath);
+        return days;   // return retention days so batch callers can use the last value
     } catch (err) {
         showMessage('Failed', err.message);
+        return false;
     }
+}
+
+// ── Batch-trash notice ────────────────────────────────────────────────────────
+// Shows ONE informational message the very first time the user moves multiple
+// items to the Trash via multi-select.  Subsequent batch deletes are silent.
+// Storage key is versioned so a copy-change can re-show it if needed.
+const _TRASH_BATCH_NOTICE_KEY = 'fd-trash-batch-notice-v1';
+
+function _showTrashBatchNotice(count, retentionDays) {
+    const days = retentionDays || 30;
+    const already = localStorage.getItem(_TRASH_BATCH_NOTICE_KEY);
+    if (already) return;   // already seen — stay silent
+    localStorage.setItem(_TRASH_BATCH_NOTICE_KEY, '1');
+    showMessage(
+        `${count} item${count !== 1 ? 's' : ''} moved to Trash`,
+        `They will be kept for ${days} day${days !== 1 ? 's' : ''} before permanent deletion.\n\n`
+        + 'Open Trash (🗑 in the sidebar) at any time to restore or permanently delete them.\n\n'
+        + '💡 This notice appears only once. For more details on Trash behaviour, '
+        + 'visit the Wiki inside your profile settings.'
+    );
 }
 
 // ======================================================================

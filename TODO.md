@@ -37,6 +37,8 @@ server (like v0.17.2.4)
       - [ ] Add parchives to avoid file damages
       - [ ] Add some kind of messages if files got corrupted on server side and 
       was unrecoverable 
+- [ ] Fix the i18n translating the breadcrumbs and some other things that it 
+should not (like file and folder names, nicknames, etc.)
 
 ### UX
 - [ ] Add ability to double-click on the `border-t` to open the file/folder

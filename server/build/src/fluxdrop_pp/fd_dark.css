@@ -54,14 +54,18 @@
 }
 
 /* ── Mobile: hide file picker when no fine pointer (mouse/trackpad) present ──
-   `pointer: coarse` = touch-only device (phone, tablet without keyboard dock).
-   `pointer: fine`   = mouse or trackpad present — show upload controls.
-   JS also checks this at runtime so a Bluetooth keyboard/mouse hotplug works. */
+   Belt-and-suspenders: hide if EITHER (pointer: coarse) OR (hover: none) is
+   true.  Most Android browsers satisfy both; the OR covers edge cases where one
+   is mis-reported.  The inline style="display:none" on the element is the last
+   line of defence if CSS hasn't loaded yet. */
 @media (pointer: coarse) {
   .fd-upload-wrap { display: none !important; }
 }
+@media (hover: none) {
+  .fd-upload-wrap { display: none !important; }
+}
 
-/* ── Drag-and-drop zone active state ──────────────────────────────────────── */
+/* ── Drag-and-drop zone ──────────────────────────────────────────────────── */
 #fd-drop-zone {
   border-radius: 10px;
   transition: border-color .15s, background .15s;

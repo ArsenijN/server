@@ -1,4 +1,4 @@
-# server `v0.18.0.37`
+# server `v0.18.0.38`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -29,7 +29,8 @@ internet overhead without needing a full page reload!*
 * ***Now the FluxDrop support internationalization (i18n) and will be 
 translated to more languages, including yours!*** — *and we completely resolved 
 the translation drops during UI component state updates (like the Folder First, 
-Mixed button, and quota modals).*
+Mixed button, and quota modals). Please note that the localization isn't 
+finished yet and may lead to a problems with it*
 * ***Trash bin's folder contents are now possible to view and preview*** — 
 *plus we fully patched the underlying `206 Partial Content` streaming bugs for 
 media file previews inside the trash bin!*
@@ -73,14 +74,14 @@ things)***
 download speeds to the mindblowing 2x times! Right now, our hardware can handle 
 up to 40 MB/s download speeds, that's 2x times faster than the older code!***
 
-***~~Important note: if you want, you can try to use HTTP endpoints of our 
-services to reach the theoretical 100 MB/s speeds. The problem is that our 
-hardware is old enough to struggle at encryptions, e.g. `AES` for HTTPS. For 
-even faster speeds, we have made attempts to add the 
+***Important note: if you want, you can try to use HTTP endpoints of our 
+services to reach the theoretical 100 MB/s speeds for uploads. The problem is 
+that our hardware is old enough to struggle at encryptions, e.g. `AES-GCM` for 
+HTTPS. For even faster speeds, we have made attempts to add the 
 `TLS_CHACHA20_POLY1305_SHA256` as secondary main hashing algorithm for HTTPS, 
-but it may fallback to `AES` and cause slower speeds~~*** -- download speeds 
-still will be only up to 40 MB/s seems like, this are almost valid for uploads, 
-not downloads
+but it may fallback to `AES-GCM` again and cause slower speeds than expected. 
+Future updates should resolve this and other issues that are mentioned before 
+or later***
 
 ***Security & Infrastructure updates:***
 
@@ -108,8 +109,7 @@ can't be sure***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Attempts to improve the UI and some features, commit as checkpoint #10***
-- ***Readme changes, more close for the release***
+- ***Release as V0.19.0 release, because there's a lot of changes staging***
 
 ---
 

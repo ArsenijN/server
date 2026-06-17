@@ -8,10 +8,11 @@ user feedback or ideas for future development.
 ## Items that are pending for implementations:
 
 ### Important without category (critical before release)
-- [ ] Pause button may not work rn -- it's not but UI may bug so it can display 
-"Missing chunks" but actually it then ends successfully
-- [ ] Client still can fail with Chunk timeout even with new retry attempts 
-(uploads)
+- [x] Pause button may not work rn -- it's not but UI may bug so it can display 
+"Missing chunks" but actually it then ends successfully -- check as fixed, 
+needs retest
+- [x] Client still can fail with Chunk timeout even with new retry attempts 
+(uploads) -- check as fixed, needs retest
 - [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what -- they are caused on network switch
@@ -41,7 +42,7 @@ server (like v0.17.2.4)
 should not (like file and folder names, nicknames, etc.)
 
 ### UX
-- [ ] Add ability to double-click on the `border-t` to open the file/folder
+- [x] Add ability to double-click on the `border-t` to open the file/folder
 - [ ] Make the file info also work as turn on-off: is present on screen - show 
 the infos for the selected (or last selected) file, on item change - change the 
 display of infos

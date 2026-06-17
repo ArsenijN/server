@@ -1,4 +1,4 @@
-# server `v0.19.0`
+# server `v0.19.0.1`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -11,7 +11,7 @@ Just backend code of my server, nothing else, anyone can use it
 fundamentally changes the user experience with the service! We worked on it for 
 the past few months, and we are added a lot of features, such as:***
 
-* ***New domains for the users: `arseniusgen.dev` and `fluxdrop.me***`
+* ***New domains for the users: `arseniusgen.dev` and `fluxdrop.me`***
 * ***Welcome screen for newbies*** — *explaining (almost) everything about how 
 FluxDrop works right on your first visit!*
 * ***New loading bars and screens, skeleton pages and modals*** — *including 
@@ -110,6 +110,7 @@ can't be sure***
 
 *Patch notes: **Changelog:***
 - ***Release as V0.19.0 release, because there's a lot of changes staging***
+- ***Fix the version and Readme***
 
 ---
 

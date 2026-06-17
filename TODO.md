@@ -8,21 +8,9 @@ user feedback or ideas for future development.
 ## Items that are pending for implementations:
 
 ### Important without category (critical before release)
-- [x] Pause button may not work rn -- it's not but UI may bug so it can display 
-"Missing chunks" but actually it then ends successfully -- check as fixed, 
-needs retest
-- [x] Client still can fail with Chunk timeout even with new retry attempts 
-(uploads) -- check as fixed, needs retest
-- [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
-now I can't replicate it so I don't know why and I can't give any clues when 
-that happens and after what -- they are caused on network switch
-
-- [ ] Trash bin file preview inside folders
 
 ### UI
 - [ ] Markdown parser does not understand:
-  - [x] The tables
-  - [x] The new line inside code blocks
   - [ ] `***` following with the new line inside the text and then `***` again
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
@@ -31,7 +19,6 @@ that happens and after what -- they are caused on network switch
 - [ ] Footer versioning: make versioning system the same as the current with 
 server (like v0.17.2.4)
 - [x] Add file info modal
-  - [x] Basics (file modify time, size, etc.)
   - [ ] Background hashsums (do it via `nice` so it will execute when server 
   isn't fully utilized, as background thing)
     - [ ] Use those hashes for silent file check activity in background
@@ -40,23 +27,13 @@ server (like v0.17.2.4)
       was unrecoverable 
 - [ ] Fix the i18n translating the breadcrumbs and some other things that it 
 should not (like file and folder names, nicknames, etc.)
+- [ ] Add the visualization for retry cycles
 
 ### UX
-- [x] Add ability to double-click on the `border-t` to open the file/folder
 - [ ] Make the file info also work as turn on-off: is present on screen - show 
 the infos for the selected (or last selected) file, on item change - change the 
 display of infos
 - [ ] Ability to download the shared folders without JS (fallback option)
-- [ ] Instead of errors like "failed to fetch" after internet reconnect, 
-ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
- or at least the N times (reliable way to resume whatever operation is going) 
- -- should be already fixed by resumable file downloads, but not after when 
- internet is resolved -- will be rephrased:
-- [ ] ~~Ensure that FluxDrop will retry whatever operation is failed because of 
-the internet switch~~
-- [ ] Catch 'failed to fetch' errors - retry until success or N times (reliable 
-resume). It should be already fixed for resumable downloads, but ensure it will
-work after internet reconnect
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items -- made for status page, later for 
 FluxDrop file manager
@@ -89,16 +66,20 @@ on i5 8350U)
 ### Server-side changes:
 
 #### Critical:
-- [ ] Make separate "testing" server where I would be able to test everything 
-before pushing to the real one
-- [ ] Add `debug` mode for the code like CDN and static hosters sp they will 
+- [ ] Add `debug` mode for the code like CDN and static hosters so they will 
 not track some things to reduce the overhead time that is spent to write a log 
 to a file
+- [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
+now I can't replicate it so I don't know why and I can't give any clues when 
+that happens and after what -- they are caused on network switch
+- [ ] Trash bin file preview inside folders
 
 #### Medium:
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
 
 #### Low:
+- [ ] Make separate "testing" server where I would be able to test everything 
+before pushing to the real one
 - [ ] Reduce amount of re-imports inside the code
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching; like folder structures, quota, file properties, download 
@@ -116,15 +97,7 @@ static hoster -- doesn't CDN have that already?
 - [ ] Make special player with "video preview support", aka "slow internet 
 mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
 bandwidth and resolution)
-- [ ] Delete "CDN" path as it serves no purpose and doesn't work (line 5718 in 
-`server_cdn.py`). Seems like it was made to make "shared" folder for any user 
-of FluxDrop, but true usage is unknown since it's seems like undocumented and 
-was introduced in one of the edit sessions without need to be made -- in the 
-Terms and Policy, the same CDN may be mentioned with some explanatory of it's 
-existence there -- aha! The CDN is made so user can separate it's drive and not 
-clog the own drive with hosting materials, and also, I think that it can be 
-easily managed via API (or will be). The next patch will change that "delete" 
-to "implement"
+- [ ] Reimplement the CDN path purpose, fix it's errors
 - [ ] Migration to other host platform for HTTP and HTTPS efficiency and 
 optimizations (Python; go to gunicorn or something else) -- WIP, low priority
 - [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper 
@@ -145,96 +118,36 @@ made/applied
 ---
 
 ## Done items that are pending for removal as finished:
-- [x] Add Welcome screen for new users that will explain (almost) everything 
-about FluxDrop
-- [x] Add image placeholders between image fetch and display
-- [x] Add progressbar for blob fetches
-- [x] Add "proper" loading wheels (1 second as least amount of time for the 
-"apply" and other important features, more pleasant loadings for the file 
-manager). That means that for important things it will display at least 1 
-second and will look like it is indeed "loads"
-- [x] Add fix for the timed out chunks causing full file reupload from the part 
-where it's failed instead of pushing only the unloaded/wrong part of the file 
-(aka reduce very large internet overhead) -- immediatelly on error, not need in 
-the page reload to bring that
-- [x] Upload can fail on slow internet, causing unability to upload the files 
-to server
-- [x] Fully fix the logs duplication issue
-
-- [x] i18n support (languages for FluxDrop UI and other things)
-
-- [x] Add "view background connectivity debug console" in settings to see small 
-one-liner somewhere at the bottom of the UI that will say what site currently 
-try to fetch or do (at least via Internet)
-- [x] Add trash bin folder preview
-- [x] Add quota "space analyzer" (like WizTree or Filelight or whatever - it 
-will display what files takes the most, where and what)
-
-- [x] Add dark theme switch, or at least make addons work properly and test 
-them
-- [x] Add loading wheel/bar into stats window since bad internet causes high 
-wait times without knowing what it is doing
-- [x] Fix 206 (Partial content) not working in trash bin preview
-
-- [x] Show "Loading the acceptances..." for the acceptance modal if loading 
-times are long, with some placeholder (like the current gradient-like for the 
-main file manager UI)
-- [x] Auto negotiation for upload type (folder or file) -- doesn't work properly
-
-- [x] Fix text not being reverted back to the dark when changed from light to 
-dark to light mode
-
-Also I think the server just can't get the hashes from the DB at some point and 
-just do that fail silently -- fixed
-
-- [x] **Legacy usage without JS** — at minimum, users should be able to
-  download shared files without JavaScript enabled. -- works for files but not 
-  "Download folder as ZIP" -- will be moved as separate TODO entry for ZIP 
-  folder download ability without the JS being enabled or accessible (e.g. 2010 
-  Samsung S5250 Wave 525 on bada OS inside the built-in browser (because it may 
-  not support some JS) or K-Meleon with JS disabled?)
-
-- [x] Fix HSTS redirects for FluxDrop file manager - HTTP to HTTPS redirects 
-that works with the FluxDrop, right now even login fails -- doesn't work, needs 
-changes (v0.17.2.11) -- `Location` header have 
-`https://127.0.0.1:64800/auth/login` inside it, this cause the problem with the 
-HSTS redirect, maybe caused because of the multiple 
-`_redirect_to_https_if_needed` definitions inside `server_cdn.py` or something 
-else
-
-- [x] Check the captcha implementation
-
-- [x] Encryption algorithm fallbacks (for faster downloads, use the 
-`TLS_CHACHA20_POLY1305_SHA256`, for regular or high important secure things use 
-the default options)
-- [x] Check HTTP->HTTPS forwarding for CDN downloads/usage
-- [x] `http://arseniusgen.uk.to/api/v1/policy/status` fails with 
-`NS_ERROR_NET_TIMEOUT` even if client gets it (fully)
-
-- [x] Dark theme is broken again
-
-- [x] Click on the "quota usage" should open the quota space analyzer
-
-- [x] On load, page no loner flashes with white page
-
-- [x] UI update cycle for entity causes the drop of the translation (like the 
-Folder First and Mixed button, quota pre-load modal, etc.)
-- [x] `https` static hoster stops working after some time (no )
-- [x] Make avatar support (pre-scale down to 64x64 px, compress via AVIF and 
-JPG as fallback)
-- [x] Custom right-click menu for folders and files (reduce amount of options 
-with files)
-  - [x] Add "..." (vertical) as "fallback"
-- [x] Add file picker to file browser (checkbox-styled or as "click on the 
-`border-t` to select one)
-  - [x] Add ability to use regular keyboard shortcuts (shift for multiple file 
-  pick, ctrl to specific, ctrl+shift for multiple from latest pick with ctrl; 
-  aka regular file browser behavior like on Windows)
-  - [x] Optimize FluxDrop for mobile screens, regular 16:9 and other aspect 
-ratios
-- [x] Redesign the move/rename/copy/delete modals
-
 (end of release note there)
+
+- [x] Add ability to double-click on the `border-t` to open the file/folder
+- [x] Instead of errors like "failed to fetch" after internet reconnect, 
+ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
+ or at least the N times (reliable way to resume whatever operation is going) 
+ -- should be already fixed by resumable file downloads, but not after when 
+ internet is resolved -- will be rephrased:
+- [x] ~~Ensure that FluxDrop will retry whatever operation is failed because of 
+the internet switch~~
+- [x] Catch 'failed to fetch' errors - retry until success or N times (reliable 
+resume). It should be already fixed for resumable downloads, but ensure it will
+work after internet reconnect
+- [x] Pause button may not work rn -- it's not but UI may bug so it can display 
+"Missing chunks" but actually it then ends successfully -- check as fixed, 
+needs retest
+- [x] Client still can fail with Chunk timeout even with new retry attempts 
+(uploads) -- check as fixed, needs retest
+- [x] Add file info modal: Basics (file modify time, size, etc.)
+- [x] Markdown parser does not understand: The tables
+- [x] Markdown parser does not understand: The new line inside code blocks
+- [x] Delete "CDN" path as it serves no purpose and doesn't work (line 5718 in 
+`server_cdn.py`). Seems like it was made to make "shared" folder for any user 
+of FluxDrop, but true usage is unknown since it's seems like undocumented and 
+was introduced in one of the edit sessions without need to be made -- in the 
+Terms and Policy, the same CDN may be mentioned with some explanatory of it's 
+existence there -- aha! The CDN is made so user can separate it's drive and not 
+clog the own drive with hosting materials, and also, I think that it can be 
+easily managed via API (or will be). The next patch will change that "delete" 
+to "implement" -- purge as reimplement the CDN purpose
 
 ---
 

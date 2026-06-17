@@ -113,10 +113,22 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
 
     target = f"http://127.0.0.1:{CDN_INTERNAL_PORT}{handler.path}"
 
+    _PROXY_MAX_BODY = 512 * 1024 * 1024  # 512 MB hard cap; tune to your real max upload
+
     body = None
     cl = handler.headers.get('Content-Length')
-    if cl and int(cl) > 0:
-        body = handler.rfile.read(int(cl))
+    if cl:
+        cl_int = int(cl)
+        if cl_int > _PROXY_MAX_BODY:
+            handler.send_response(413)
+            msg = b'{"error":"request body too large"}'
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+            return
+        if cl_int > 0:
+            body = handler.rfile.read(cl_int)
 
     req = _urllib_req.Request(target, data=body, method=method)
     for k, v in handler.headers.items():
@@ -133,7 +145,10 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
     # would try to hold the whole file in the server's RAM.
     _PROXY_BUF = 256 * 1024   # 256 KiB read buffer — small enough for low-RAM i3
     try:
-        with _urllib_req.urlopen(req, timeout=60) as resp:
+        _is_download_path = handler.path.startswith(('/cdn/', '/CB_uploads/'))
+        _proxy_timeout = 90 if _is_download_path else 10
+
+        with _urllib_req.urlopen(req, timeout=_proxy_timeout) as resp:
             handler.send_response(resp.status)
             for k, v in resp.headers.items():
                 if k.lower() not in _HOP_BY_HOP | _DEDUP_FROM_UPSTREAM:
@@ -346,8 +361,24 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
 
     def do_GET(self):
+        # Fast-path health probe — must come first, before proxy and blacklist.
+        if self.path == '/healthz':
+            body = b'ok'
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        
         client_ip = self.client_address[0]
         requested_path = self.path
+        # Only log non-trivial paths to avoid lock contention under scanner floods
+        # if not requested_path.startswith(('/healthz', '/favicon')):
+        #     print(f"Request from: {client_ip} -> {requested_path}")
+        # This is not the thing that I want, but I'll leave it here for other 
+        # ones who needs it
+        # There's old variant:
         print(f"Request from: {client_ip} -> {requested_path}")
 
         # --- Proxy CDN-owned paths to server_cdn.py internally ---

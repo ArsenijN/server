@@ -1,116 +1,20 @@
-# server `v0.19.0.1`
+# server `v0.19.0.2`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
 *Release notes:*
 
-***Mainstream: More user comfort and abilities with FluxDrop v.19!***
+***Mainstream: main text***
 
-***We are glad to release this new and huge update to the FluxDrop that 
-fundamentally changes the user experience with the service! We worked on it for 
-the past few months, and we are added a lot of features, such as:***
+***commentary***
 
-* ***New domains for the users: `arseniusgen.dev` and `fluxdrop.me`***
-* ***Welcome screen for newbies*** — *explaining (almost) everything about how 
-FluxDrop works right on your first visit!*
-* ***New loading bars and screens, skeleton pages and modals*** — *including 
-fresh image placeholders during fetch, dedicated progress bars for blob 
-downloads, smooth loading animations for data-heavy stats panels, and a 
-gorgeous new gradient placeholder for the acceptance modals.*
-* ***Deliberate "Pleasant Loadings"*** — *important actions and state updates 
-now hold a smooth loading wheel for at least 1 second so the UI feels 
-incredibly stable, deliberate, and satisfying instead of flashing instantly.*
-* ***Uploads that are no longer fails if any chunk is missing*** — *network 
-errors or timed-out chunks will now immediately trigger a smart retry for 
-only the missing/corrupted piece right on the fly, drastically dropping 
-internet overhead without needing a full page reload!*
-* ***Slow internet is now not a problem for your file uploads!***
-* ***Now the FluxDrop support internationalization (i18n) and will be 
-translated to more languages, including yours!*** — *and we completely resolved 
-the translation drops during UI component state updates (like the Folder First, 
-Mixed button, and quota modals). Please note that the localization isn't 
-finished yet and may lead to a problems with it*
-* ***Trash bin's folder contents are now possible to view and preview*** — 
-*plus we fully patched the underlying `206 Partial Content` streaming bugs for 
-media file previews inside the trash bin!*
-* ***Ability to manage your quota usage with the new visual space analyzer 
-util!*** — *Think WizTree or Filelight directly in your browser to see exactly 
-what files take up the most space. You can access it via clicking directly on 
-the quota usage info panel or in the profile settings.*
-* ***Automatic dark mode is new mainstream for those who uses FluxDrop at 
-night!*** — *We even re-engineered the theme engine from scratch so the entire 
-page load cycle is perfectly synchronized, meaning **no more bright white 
-flashes** when loading the page in the dark!*
-* ***You can upload the folder or file, without need to specify the upload 
-entity type!*** — *The system now automatically negotiates the upload structure 
-seamlessly.*
-* ***Fixes are also made to the "ZIP Download" for folders to patch the 
-problems with speeds of the ZIP streaming downloads***
-* ***You can download shared files without JS required!*** — *Access the 
-FluxDrop from 2001 PC, an old K-Meleon setup, or a 2010 Samsung Wave running 
-bada OS and download your files anywhere, at any time, for anything! (Note: 
-Folder downloads as ZIP still require a script-capable browser for now).*
-* ***More natural use of the file manager with the right mouse button and 
-selections*** — *Enjoy a completely overhauled custom context menu for files 
-and folders (streamlined with clean action choices and a vertical "..." 
-fallback menu for compact viewports). Plus, we added keyboard-driven file 
-selection: use Shift, Ctrl, and Ctrl+Shift exactly like a native desktop file 
-explorer!*
-* ***Responsive layouts*** — *The entire file manager experience has been 
-deeply optimized to scale fluidly across mobile screens, standard 16:9 
-monitors, and wide-aspect displays.*
-* ***Now you can set the avatar for the profile*** — *complete with smart 
-backend optimizations that auto-scale your upload to a crisp 64x64px (actually 
-1000x1000px), heavily compressing it via modern AVIF format with JPG fallbacks 
-for older devices.*
-* ***Action buttons are now redesigned*** — *alongside a gorgeous, intuitive 
-redesign for the move, rename, copy, and delete modals.*
-
-***And much, much more! (we gived up in the time of documentation of those 
-things)***
-
-***Also, in the time of the server optimizations, we are managed to bump the 
-download speeds to the mindblowing 2x times! Right now, our hardware can handle 
-up to 40 MB/s download speeds, that's 2x times faster than the older code!***
-
-***Important note: if you want, you can try to use HTTP endpoints of our 
-services to reach the theoretical 100 MB/s speeds for uploads. The problem is 
-that our hardware is old enough to struggle at encryptions, e.g. `AES-GCM` for 
-HTTPS. For even faster speeds, we have made attempts to add the 
-`TLS_CHACHA20_POLY1305_SHA256` as secondary main hashing algorithm for HTTPS, 
-but it may fallback to `AES-GCM` again and cause slower speeds than expected. 
-Future updates should resolve this and other issues that are mentioned before 
-or later***
-
-***Security & Infrastructure updates:***
-
-* ***Hardened HTTPS & Asset Delivery*** — *Polished the underlying 
-HTTP-to-HTTPS routing layers for the file manager and CDN downloads, preventing 
-dead loops and sorting out silent DB hash retrieval timeouts.*
-* ***Network Gateway Fixes*** — *Patched API policy request timeouts 
-(`NS_ERROR_NET_TIMEOUT`) ensuring secure handshakes finish smoothly on the 
-client side.*
-* ***Verified Captcha Safeguards*** — *Audited and reinforced the integration 
-layers to block automated abuse without hurting user sign-in flows.*
-
-***For developers and testers:***
-
-* ***Fixed the logs duplication*** — *Fully tracking and eliminating redundant 
-outputs to keep the host environment clean.*
-* ***Network activity bar that shows what FluxDrop does, without need in the 
-DevTools to be available*** — *A beautiful, lightweight, one-liner background 
-connectivity debug console right at the bottom of the UI settings.*
-* ***Locales are now easier to maintain with the helper script, VSCode's 
-workflow and GitHub's autocheck script***
-* ***Windows's sync script should be fixed for now, without the actual usage I 
-can't be sure***
+- ***text***
 
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Release as V0.19.0 release, because there's a lot of changes staging***
-- ***Fix the version and Readme***
+- ***Attempt to fix the HTTPS crashes, purge the old release notes***
 
 ---
 

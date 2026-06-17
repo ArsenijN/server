@@ -117,22 +117,7 @@ def restart_server():
 
 
 def _health_check_socket(host, port, label, initial_delay=10, interval=30, max_failures=3):
-    """
-    Core health check — probes the TCP port directly instead of making a full
-    HTTP/HTTPS request.
-
-    Why a socket probe instead of urllib.request:
-      • A real HTTP request occupies a worker-pool slot.  Under high load all
-        100 slots can be busy, the health-check request queues behind them,
-        the 5 s timeout fires, and the server restarts itself — even though it
-        is serving requests perfectly.  A raw socket connect never touches the
-        pool and cannot be starved.
-      • The previous HTTPS implementation started immediately with no
-        server_ready gate and restarted on the very first timeout, which
-        caused false restarts at startup and under any burst of load.
-    """
     host = '127.0.0.1' if host in ('0.0.0.0', '', '::') else host
-
     print(f"Health check ({label}) waiting for server to be ready...")
     server_ready.wait()
     time.sleep(initial_delay)
@@ -141,8 +126,15 @@ def _health_check_socket(host, port, label, initial_delay=10, interval=30, max_f
     while True:
         time.sleep(interval)
         try:
-            with socket.create_connection((host, port), timeout=5):
-                pass  # connection established → port is alive
+            # Use a real HTTP request — a pure socket.connect() succeeds even
+            # when the thread pool is fully saturated (kernel accept buffer).
+            import urllib.request
+            url = f"https://{host}:{port}/healthz"  # or /status, or any cheap path
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(url, timeout=5, context=ctx) as r:
+                r.read(64)
             consecutive_failures = 0
             print(f"Health check OK ({label})")
         except Exception as e:

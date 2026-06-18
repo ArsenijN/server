@@ -133,7 +133,8 @@ from core.status import _build_status_page, _get_status_history, _get_recent_inc
 from core.quota import _compute_dynamic_quota, _quota_updater_thread
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
-from core.meta import _SERVER_START_TIME
+from core.meta import _SERVER_START_TIME, SERVER_VERSION
+from config import DEBUG_LOGGING
 from core.snippets import _render_snippet
 
 # Content-types that benefit from gzip (text-based, not already compressed).
@@ -697,6 +698,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
     # wrote to stderr once per request, and logging.basicConfig wrote the same
     # line again via its StreamHandler(sys.stderr).
     def log_message(self, fmt, *args):
+        if not DEBUG_LOGGING:
+            msg = fmt % args
+            # In production, skip routine static-file GETs to reduce log I/O
+            if not any(x in msg for x in ('/api/', '/auth/', '/share/', '/healthz')):
+                return
         logging.info('%s - %s', self.address_string(), fmt % args)
 
     def log_error(self, fmt, *args):
@@ -1346,6 +1352,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             _s_outage  = _net_monitor_state['outage_id'] is not None
 
         payload = {
+            'server_version': SERVER_VERSION,
             'overall': overall,
             'http_up': http_up,
             'https_up': https_up,

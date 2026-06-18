@@ -1,4 +1,4 @@
-# server `v0.19.0.2`
+# server `v0.19.0.3`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -14,7 +14,8 @@ Just backend code of my server, nothing else, anyone can use it
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Attempt to fix the HTTPS crashes, purge the old release notes***
+- ***Few TODO fixes***
+- ***Update the Readme descriptions***
 
 ---
 
@@ -35,29 +36,36 @@ New `README.md` style will be applied or merged with current after when
 FluxDrop will reach full production-ready state 
 ([current look](./README_newstyle.md)) and the version will be bumped to 1.0.0
 
-## FluxDrop relations to this server
+## Large FluxDrop relations to this server
 
-This server is a part of my own projects, like FluxDrop (whole CDN 
-implementation) and [driveguard](https://github.com/ArsenijN/driveguard) (OTA 
-updates, etc.). Since I make my own file hosting thing, I want to make it's 
-design "very human". So... there we are
+This server repo is a crucial part of my own projects, like FluxDrop (whole CDN 
+implementation and most of the changes are made for it there in the repo) and 
+[driveguard](https://github.com/ArsenijN/driveguard) (OTA updates, etc.; 
+currently stalled). Since I made my own file hosting thing, I want to make it's 
+design "very human" and open for anyone. So... there we are
 
 FluxDrop and entire server now operates with proper HTTPS thanks to **Let's 
 Encrypt**'s certificates! Test it out at: arseniusgen.uk.to or 
 arsenius-gen.uk.to (arsenius_gen.uk.to is also valid, but can't have secure 
-HTTPS)
+HTTPS due to the limitations in the URL/address of having underscores). Also 
+now on arseniusgen.dev and fluxdrop.me
+
+A huge thanks to the Afraid FreeDNS for providing the free subdomains for now 
+over than 2 years straight. Those subdomains based my interest in making own 
+internet projects since 2023
 
 > Q: Why you didn't used Let's Encrypt before?
 
-> A: High usage of domain. Yes, since I technically own a subdomain and not a 
-domain, provided by [FreeDNS](https://freedns.afraid.org/subdomain/), I was 
-restricted by the thing that other users also uses the subdomains from uk.to, 
-and... In 2023 I was not able to do this since Let's Encrypt said that "there's 
-a lot of certs already made for this domain", and... Self-signed certs is only 
-thing that was made all of this happened. At 2026 usage was lowered (or the 
-thing that uk.to now a shealth domain, basically no one can now use it except 
-those who used it before?) and I was able to do the certificates successfully 
-right and... Now there we are
+> A: High usage of domain. Yes, since I technically owned only a subdomain and 
+not a domain, provided by [FreeDNS](https://freedns.afraid.org/subdomain/), I 
+was restricted by the thing that other users also used the subdomains from 
+uk.to, and... In 2023, I was not able to do the certs because following the 
+instructions with `certbot` from Let's Encrypt, it said that "there's a lot of 
+certs already made for this domain", and... Self-signed certs was only the 
+option that made all of this happened. At 2026 usage was lowered (or because 
+the uk.to is now a shealth domain, basically no one can now use it except 
+those who used it before?), and I was able to do the certificates successfully 
+and properly, and... Now there we are
 
 ## Dev info
 ### Server deployment
@@ -70,8 +78,9 @@ lead to the total server wipe of credentials and frontend files
 Please take a note that server uses `UPLOAD_TMP_DIR` as storage for chunks that 
 are uploaded to the server, to then process them and while processing, write 
 them to the destination file. It's very recommended to ensure that 
-`UPLOAD_TMP_DIR` lives on separate drive since that will envolve severe head 
-seeks that will significantly reduce the speeds of the file processing
+`UPLOAD_TMP_DIR` lives on separate drive (other HDD from main storage of files) 
+since that will envolve severe head seeks that will significantly reduce the 
+speeds of the file processing
 
 ### Secrets handling
 

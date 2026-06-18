@@ -113,3 +113,9 @@ QUOTA_MAX_BYTES     = 100 * 1024 ** 3 # ceiling: never exceed 100 GB
 
 
 CATBOX_MAX_UPLOAD_BYTES = int(os.getenv('CATBOX_MAX_UPLOAD_BYTES', str(2 * 1024 ** 3)))  # 2 GB default
+
+# When False (production default), routine static-file access logs are suppressed
+# to reduce per-request log I/O overhead on the CDN path.  API, auth, and share
+# requests are always logged regardless of this setting.
+# Set DEBUG_LOGGING=1 in your environment to restore full access logging.
+DEBUG_LOGGING = os.getenv('DEBUG_LOGGING', '').lower() in ('1', 'true', 'yes')

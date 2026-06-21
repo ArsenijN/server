@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-1eec673e
+// Current version of script.js is: fluxdrop-v-5e6f10b2
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-1eec673e'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-5e6f10b2'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -623,8 +623,8 @@ function _mdToHtml(md) {
         .replace(/^# (.+)$/gm,   '<h1 style="font-size:1.35rem;font-weight:800;color:#1e40af;margin:1.5em 0 .5em">$1</h1>')
         // bold+italic (*** or ___) — must come BEFORE bold and italic
         // [\s\S]+? allows the span to cross line breaks (e.g. ***First\nSecond***)
-        .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-        .replace(/___([\s\S]+?)___/g,        '<strong><em>$1</em></strong>')
+        .replace(/\*\*\*((?:[^\n]|\n(?!\n))+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+        .replace(/___((?:[^\n]|\n(?!\n))+?)___/g,        '<strong><em>$1</em></strong>')
         // bold (** or __)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/__(.+?)__/g,      '<strong>$1</strong>')
@@ -1894,14 +1894,20 @@ async function _runDownload(path, dl) {
             if (fetchErr.name === 'AbortError') throw fetchErr; // re-throw; caught below
             if (attempt >= MAX_RETRIES) throw fetchErr;
             const wait = RETRY_BASE_MS * Math.pow(2, attempt);
-            dl.status = 'downloading';
-            dl.error  = `Network error — retrying in ${Math.round(wait / 1000)}s… (${attempt + 1}/${MAX_RETRIES})`;
-            renderDownloadTray();
-            // Honour abort during the wait
-            await new Promise((resolve, reject) => {
-                const t = setTimeout(resolve, wait);
-                dl._abort.signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); });
-            });
+            dl.status    = 'downloading';
+            dl._retrying = true;
+            // Per-second countdown so the tray shows a live timer
+            for (let s = Math.round(wait / 1000); s > 0; s--) {
+                dl.error = `Network error — retrying in ${s}s (${attempt + 1}/${MAX_RETRIES})`;
+                renderDownloadTray();
+                await new Promise((resolve, reject) => {
+                    const t = setTimeout(resolve, 1000);
+                    dl._abort.signal.addEventListener('abort',
+                        () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); },
+                        { once: true });
+                });
+            }
+            dl._retrying = false;
             dl.error = null;
             renderDownloadTray();
         }
@@ -2431,7 +2437,10 @@ function renderDownloadTray() {
         const statusIcon = { downloading:'⬇', paused:'⏸', error:'⚠', done:'✅', cancelled:'🚫' };
         row.querySelector('.dl-name').textContent = (statusIcon[dl.status] || '') + ' ' + name;
         row.querySelector('.dl-bytes').textContent = `${recv} / ${total}`;
-        row.querySelector('.dl-bar').style.width = pct + '%';
+        const _dlBar = row.querySelector('.dl-bar');
+        _dlBar.style.width      = pct + '%';
+        _dlBar.style.background = dl._retrying ? '#f59e0b' : '#3b82f6';
+        _dlBar.style.animation  = dl._retrying ? 'fd-retry-pulse 1s ease-in-out infinite' : '';
 
         // Status line
         let statusText = dl.status;
@@ -2440,7 +2449,9 @@ function renderDownloadTray() {
             if (dl.speed != null) parts.push(formatSpeed(dl.speed));
             if (dl.eta   != null) parts.push('ETA ' + formatEta(dl.eta));
             if (parts.length) {
-                statusText = parts.join(' \u00b7 ');
+                statusText = parts.join(' · ');
+            } else if (dl._retrying && dl.error) {
+                statusText = '🔄 ' + dl.error; // live retry countdown
             } else if (dl._mode === 'native') {
                 // Both ZIP and regular files in native mode — browser owns the download
                 statusText = 'Downloading via browser\u2026';
@@ -2577,7 +2588,7 @@ function _renderMarkdown(bodyEl, rawText) {
     // Lines that begin a Markdown block element — never soft-join with adjacent lines.
     // '|' is included so GFM table rows are never merged, which would collapse
     // the pipe-delimited columns and break table parsing entirely.
-    const BLOCK_START = /^(\s{0,3})(#{1,6}\s|```|~~~|>|[-*_]{3,}|<\/?[a-zA-Z]|[-*+]\s|\d+[.)]\s|\|)/;
+    const BLOCK_START = /^(\s{0,3})(#{1,6}\s|```|~~~|>|[-*_]{3,}[ \t]*$|<\/?[a-zA-Z]|[-*+]\s|\d+[.)]\s|\|)/;
 
     const lines  = rawText.split('\n');
     const joined = [];
@@ -4621,15 +4632,22 @@ async function uploadChunked(file, destRel, opts = {}) {
                 for (let attempt = 1; attempt <= MAX_CHUNK_RETRIES; attempt++) {
                     if (ul.cancelled) return;
                     const backoff = 1500 * attempt; // 1.5s, 3s, 4.5s
-                    ul.status = 'uploading';
-                    ul.error  = `Chunk ${idx} failed (${err.message}). Retry ${attempt}/${MAX_CHUNK_RETRIES} in ${(backoff/1000).toFixed(0)}s…`;
-                    renderUploadTray();
-                    await new Promise(r => setTimeout(r, backoff));
+                    ul.status    = 'uploading';
+                    ul._retrying = true;
+                    // Per-second countdown
+                    for (let s = Math.round(backoff / 1000); s > 0; s--) {
+                        if (ul.cancelled) return;
+                        ul.error = `Chunk ${idx} failed. Retry ${attempt}/${MAX_CHUNK_RETRIES} in ${s}s…`;
+                        renderUploadTray();
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                    ul._retrying = false;
                     if (ul.cancelled) return;
                     try {
                         await uploadChunk(idx);
-                        retryErr = null;
-                        ul.error = null;
+                        retryErr     = null;
+                        ul.error     = null;
+                        ul._retrying = false;
                         break;
                     } catch (e2) {
                         retryErr = e2;
@@ -5052,14 +5070,19 @@ function renderUploadTray() {
             ? ul.verifyPct
             : pct;
         bar.style.width = displayPct + '%';
-        bar.style.background = ul.status === 'paused' ? '#f59e0b' : ul.status === 'error' || ul.status === 'cancelled' ? '#ef4444' : ul.status === 'verifying' ? '#a78bfa' : '#22c55e';
+        bar.style.background = ul._retrying ? '#f59e0b' : ul.status === 'paused' ? '#f59e0b' : ul.status === 'error' || ul.status === 'cancelled' ? '#ef4444' : ul.status === 'verifying' ? '#a78bfa' : '#22c55e';
+        bar.style.animation  = ul._retrying ? 'fd-retry-pulse 1s ease-in-out infinite' : '';
 
         let statusText = ul.status;
         if (ul.status === 'uploading') {
             const parts = [];
             if (ul.speed != null) parts.push(formatSpeed(ul.speed));
             if (ul.eta != null) parts.push('ETA ' + formatEta(ul.eta));
-            if (parts.length) statusText = parts.join(' · ');
+            if (parts.length) {
+                statusText = parts.join(' · ');
+            } else if (ul._retrying && ul.error) {
+                statusText = '🔄 ' + ul.error; // live retry countdown
+            }
         } else if (ul.status === 'verifying') {
             // Show real progress if the poller has data, otherwise generic label
             if (ul.verifyPct != null && ul.verifyPct > 0) {
@@ -7188,7 +7211,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-1eec673e'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-5e6f10b2'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {
@@ -7257,16 +7280,26 @@ function initFooter() {
         lineHeight: '1.5',
     });
 
+
+    // Inject retry-pulse keyframe once (shared by upload + download trays)
+    if (!document.getElementById('fd-retry-pulse-style')) {
+        const _rps = document.createElement('style');
+        _rps.id = 'fd-retry-pulse-style';
+        _rps.textContent = '@keyframes fd-retry-pulse{0%,100%{opacity:1}50%{opacity:.45}}';
+        document.head.appendChild(_rps);
+    }
     // Helper to generate the HTML
-    const renderContent = (swVer) => `
+    const renderContent = (swVer, srvVer) => `
         <div>FluxDrop Preview Program | <a href="https://github.com/ArsenijN/server/" style="color: #a0a0a0; text-decoration: underline;">GitHub repo</a></div>
         <div>&copy; 2025-2026 by Arsenii Nochevnyi.</div>
         <div><button onclick="showPolicyModal('tos')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
-        <div>Script v.${SCRIPT_VERSION}, Service Worker v.${swVer}</div>
+        <div style="opacity:.7">Script v.${SCRIPT_VERSION} · SW v.${swVer} · Server v.${srvVer || '?'}</div>
     `;
 
-    // Set initial state
-    footer.innerHTML = renderContent('Loading...');
+    let _swVer = '...', _srvVer = '...';
+    const _footerUpdate = () => { footer.innerHTML = renderContent(_swVer, _srvVer); };
+
+    footer.innerHTML = renderContent(_swVer, _srvVer);
     document.body.appendChild(footer);
 
     // Request the exact Service Worker version
@@ -7274,13 +7307,21 @@ function initFooter() {
         const messageChannel = new MessageChannel();
         messageChannel.port1.onmessage = (event) => {
             if (event.data && event.data.version) {
-                footer.innerHTML = renderContent(event.data.version);
+                _swVer = event.data.version;
+                _footerUpdate();
             }
         };
         navigator.serviceWorker.controller.postMessage({ type: 'GET_VERSION' }, [messageChannel.port2]);
     } else {
-        footer.innerHTML = renderContent('N/A');
+        _swVer = 'N/A';
+        _footerUpdate();
     }
+
+    // Fetch server version from status endpoint (no auth required)
+    fetch(API_BASE_URL + '/api/v1/status.json', { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d && d.server_version) { _srvVer = d.server_version; _footerUpdate(); } })
+        .catch(() => { _srvVer = '?'; _footerUpdate(); });
 }
 
 // Initialize when the DOM is ready

@@ -16,8 +16,6 @@ user feedback or ideas for future development.
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
-- [ ] Footer versioning: make versioning system the same as the current with 
-server (like v0.17.2.4)
 - [x] Add file info modal
   - [ ] Background hashsums (do it via `nice` so it will execute when server 
   isn't fully utilized, as background thing)
@@ -66,9 +64,6 @@ on i5 8350U)
 ### Server-side changes:
 
 #### Critical:
-- [ ] Add `debug` mode for the code like CDN and static hosters so they will 
-not track some things to reduce the overhead time that is spent to write a log 
-to a file
 - [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what -- they are caused on network switch
@@ -76,6 +71,7 @@ that happens and after what -- they are caused on network switch
 
 #### Medium:
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
+- [ ] Update the helpers functionality
 
 #### Low:
 - [ ] Make separate "testing" server where I would be able to test everything 
@@ -149,10 +145,17 @@ clog the own drive with hosting materials, and also, I think that it can be
 easily managed via API (or will be). The next patch will change that "delete" 
 to "implement" -- purge as reimplement the CDN purpose
 
+- [x] Footer versioning: make versioning system the same as the current with 
+server (like v0.17.2.4) -- ok, let it display the server version instead 
+because the current site versioning is ok enough
+- [x] Add `debug` mode for the code like CDN and static hosters so they will 
+not track some things to reduce the overhead time that is spent to write a log 
+to a file
+
 ---
 
 *Note: **the "Done items that are pending for removal as finished" will purge 
-the items inside it when the release version will be ready***
+the entries inside it when the release version will be ready and released***
 
 *Note: **additional notes is now moved to the [DEVNOTES.md](/DEVNOTES.md), 
 please reach to it to acknowledge those notes***

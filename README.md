@@ -1,4 +1,4 @@
-# server `v0.19.0.3`
+# server `v0.19.0.4`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -14,8 +14,8 @@ Just backend code of my server, nothing else, anyone can use it
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Few TODO fixes***
-- ***Update the Readme descriptions***
+- ***Fix `ssl` import issues inside `shared.py`***
+- ***Update the `vars.env` sample***
 
 ---
 

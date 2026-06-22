@@ -258,6 +258,17 @@ def _upload_init(filename: str, dest_path: str, total_size: int,
         os.makedirs(tmp_dir, exist_ok=True)
 
     with _db_connect() as conn:
+        # Remove any stale incomplete sessions targeting the same dest_path.
+        # This happens when a previous upload of the same file was interrupted;
+        # _preallocate() already overwrote the pre-allocated file with O_TRUNC,
+        # so those old sessions are dead weight that would hide the file from
+        # directory listings via _pending_dest_paths().
+        conn.execute(
+            """DELETE FROM upload_sessions
+               WHERE dest_path = ? AND owner_ref = ? AND owner_type = ?
+                 AND completed = 0""",
+            (dest_path, owner_ref, owner_type)
+        )
         conn.execute(
             '''INSERT INTO upload_sessions
                (upload_token, filename, dest_path, tmp_dir, total_size,

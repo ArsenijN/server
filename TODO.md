@@ -28,6 +28,13 @@ should not (like file and folder names, nicknames, etc.)
 - [ ] Add the visualization for retry cycles
 
 ### UX
+- [ ] FIle info will have button to prematurely calculate the CRC-32 for file 
+(if not calculated) instead of dash
+  - [ ] And will show the status (e.g. "Calculating..."; by checking current 
+  jobs that will persist even after server reboot (if possible))
+  - [ ] And will have ability to calculate other type of checksum (e.g. MD5, 
+  SHA1, SHA256 or SHA512) because CRC-32 isn't that broad (for example in the 
+  Dolphin file manager)
 - [ ] Make the file info also work as turn on-off: is present on screen - show 
 the infos for the selected (or last selected) file, on item change - change the 
 display of infos

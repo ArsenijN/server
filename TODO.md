@@ -57,16 +57,22 @@ on i5 8350U)
 - [ ] Add `.7z`, `.rar` and other archive types for file table previews
 - [ ] Add `.docx`, `.pptx`, `.odt`, `.odf`, `.ods`, and other for previews
 - [ ] Add `.dng` and other raw image formats support for previews
-
 - [ ] **Family/Group accounts**
   - [ ] Let two or more usernames share a common root directory with mutual
     read/write privileges.
   - [ ] Add settings to control whether group members may add/remove other
     users, set quotas, etc.
-
 - [ ] **Misc future ideas**
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
+  - [ ] Fix i18n in:
+    - [ ] Time for items
+    - [ ] Actions modal
+    - [ ] Breadcrumbs (translate only the `root`, nothing else)
+    - [ ] Profile picture new additions
+    - [ ] Shared links remainings
+    - [ ] Shared links statictics
+    - [ ] Error-related pages
 
 ### Server-side changes:
 
@@ -158,6 +164,8 @@ because the current site versioning is ok enough
 - [x] Add `debug` mode for the code like CDN and static hosters so they will 
 not track some things to reduce the overhead time that is spent to write a log 
 to a file
+
+- [x] HTTPS proxy/server still crashes after some time
 
 ---
 

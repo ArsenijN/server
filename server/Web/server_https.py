@@ -14,7 +14,7 @@ from urllib.parse import quote_plus
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, raise_fd_limit, \
-    current_blacklist, blacklist_lock, stop_update_event
+    current_blacklist, blacklist_lock, stop_update_event, server_ready
 from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
     KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN
 import urllib.request as _urllib_req
@@ -886,7 +886,7 @@ class _QuietPooledHTTPServer(http.server.HTTPServer):
     """HTTPServer backed by a fixed-size thread pool.
     Connections are never dropped — they queue until a worker is free.
     """
-    _SILENT_ERRORS = (BrokenPipeError, ConnectionResetError)
+    _SILENT_ERRORS = (BrokenPipeError, ConnectionResetError, ssl.SSLError)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1028,13 +1028,17 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+        # Defer handshake to the worker threads to prevent main thread blocking
+        httpd.socket = context.wrap_socket(httpd.socket, server_side=True, do_handshake_on_connect=False)
     except Exception as e:
         print(f"ERROR: Error wrapping socket with SSL: {e}")
         sys.exit(1)
 
     print(f"Server starting on https://{SERVER_IP}:{HTTPS_PORT}/")
     print("=" * 50)
+    
+    # Signal the health check thread that the server is actively listening
+    server_ready.set()
 
     try:
         httpd.serve_forever()

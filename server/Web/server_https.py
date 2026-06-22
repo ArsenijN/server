@@ -145,8 +145,29 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
     # would try to hold the whole file in the server's RAM.
     _PROXY_BUF = 256 * 1024   # 256 KiB read buffer — small enough for low-RAM i3
     try:
-        _is_download_path = handler.path.startswith(('/cdn/', '/CB_uploads/'))
-        _proxy_timeout = 90 if _is_download_path else 10
+        # ── Proxy timeout — must be generous for long-running CDN operations ─────
+        # socket timeout applies to every individual send()/recv() call, NOT the
+        # total transfer.  10 s is enough for light API calls but too short for:
+        #   • chunk POSTs  — 25 MB body → CDN pwrite → SQLite update on a busy HDD
+        #   • /complete    — buffer-strategy assembly streams all chunks to dest (minutes)
+        # Downloads already have their own 90 s ceiling.
+        _path_no_qs = handler.path.split('?')[0]
+        _is_download_path   = _path_no_qs.startswith(('/cdn/', '/CB_uploads/'))
+        _is_upload_chunk    = (method == 'POST'
+                            and '/upload_session/' in _path_no_qs
+                            and '/chunk/' in _path_no_qs)
+        _is_upload_complete = (method == 'POST'
+                            and '/upload_session/' in _path_no_qs
+                            and _path_no_qs.endswith('/complete'))
+
+        if _is_download_path:
+            _proxy_timeout = 90
+        elif _is_upload_chunk:
+            _proxy_timeout = 60     # 25 MB pwrite on a busy spinner < 5 s; 60 s is generous
+        elif _is_upload_complete:
+            _proxy_timeout = 300    # buffer-strategy assembly of a multi-GB file can take minutes
+        else:
+            _proxy_timeout = 10
 
         with _urllib_req.urlopen(req, timeout=_proxy_timeout) as resp:
             handler.send_response(resp.status)

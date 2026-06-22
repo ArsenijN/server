@@ -1,4 +1,4 @@
-# server `v0.19.0.5`
+# server `v0.19.0.6`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -14,8 +14,8 @@ Just backend code of my server, nothing else, anyone can use it
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Fix upload issues where the file's completed states can desync because of 
-the upload errors***
+- ***Fix upload issues where proxy on HTTPS can timeout, causing the desync 
+(that is patched before) and file being hidden from the user's folder***
 
 ---
 

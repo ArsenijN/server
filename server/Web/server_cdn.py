@@ -118,12 +118,14 @@ import mimetypes
 # Importing core modules
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear, \
-                    checksum_get, checksum_put, checksum_is_fresh
+                    checksum_get, checksum_put, checksum_is_fresh, \
+                    checksum_job_create, checksum_job_get_latest, checksum_job_update_status, \
+                    checksum_jobs_reset_stale, checksum_jobs_get_pending
 from core.rate_limit import _rate_limit
 from core.notifications import _fire_upload_notification
 from core.upload import MAX_JSON_BODY, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, _upload_init, _upload_get, _upload_receive_chunk, \
     _upload_session_status, _upload_assemble, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, _purge_abandoned_upload_sessions, UPLOAD_TMP_DIR, \
-    _cancel_upload_session, compute_and_store_crc32
+    _cancel_upload_session, compute_and_store_crc32, dispatch_checksum_job
 from core.shares import _get_share, _get_shares_for_user, _create_share, _update_share, _delete_share, _get_share_stats, _get_share_raw, \
     _is_share_expired, _log_share_access, _parse_expiry
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
@@ -375,23 +377,26 @@ def _bg_crc32_scanner():
                         except OSError:
                             continue
                         stored = checksum_get(rel_path, uid)
-                        if stored and checksum_is_fresh(stored, abs_path):
+                        if stored and checksum_is_fresh(stored, abs_path) and stored.get('sha256'):
                             skipped += 1; user_skipped += 1
                             continue
-                        # Compute and store
-                        crc = 0; read_b = 0
+                        # Compute CRC-32 + SHA-256 in a single read pass
+                        crc = 0; h256 = _hl.sha256(); read_b = 0
                         try:
                             with open(abs_path, 'rb') as fh:
                                 while True:
                                     chunk = fh.read(_BG_SCAN_READ_BUF)
                                     if not chunk: break
                                     crc    = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
+                                    h256.update(chunk)
                                     read_b += len(chunk)
+                            sha256_hex = h256.hexdigest()
                             checksum_put(rel_path, uid, crc, st.st_size,
-                                         int(st.st_mtime_ns), 'background')
+                                         int(st.st_mtime_ns), 'background',
+                                         sha256=sha256_hex)
                             scanned    += 1; user_scanned += 1
                             bytes_read += read_b
-                            _ml(f'  HASH : {rel_path}  crc={crc:08x}  size={st.st_size}')
+                            _ml(f'  HASH : {rel_path}  crc={crc:08x}  sha256={sha256_hex[:16]}…  size={st.st_size}')
                             # Rate-limit
                             if _BG_SCAN_RATE_BYTES_S > 0:
                                 elapsed = time.time() - run_start_ts + 0.001
@@ -2410,12 +2415,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return
 
         # ── File info + checksum: GET /api/v1/fileinfo/<path> ────────────────
-        # Returns cached CRC-32 (hex), size, mtime for the requested file.
-        # Auth required (user can only query their own files or CDN files they
-        # have access to).  CRC-32 is served from the background-scanner cache;
-        # if not yet computed it triggers an on-demand computation (may take a
-        # moment for large files — the endpoint streams the response after it
-        # finishes, so the client just sees a slightly delayed JSON reply).
+        # Returns cached CRC-32 (hex), SHA-256 (hex), size, mtime, MIME, and
+        # current checksum job status for the requested file.
+        # Auth required (user can only query their own files).
+        # Checksums are served from the DB cache — no blocking computation.
+        # The client triggers on-demand computation via POST /api/v1/checksums/compute
+        # and polls this endpoint until the job finishes.
         if parsed_url.path.startswith('/api/v1/fileinfo/') or parsed_url.path == '/api/v1/fileinfo':
             user_id = self._check_token_auth()
             if not user_id:
@@ -2453,30 +2458,42 @@ class AuthHandler(SimpleHTTPRequestHandler):
             except OSError as _oe:
                 return self._send_response(404, json.dumps({'error': str(_oe)}))
 
-            # Check checksum cache first, then compute on-demand if stale/missing
-            crc32_hex = None
+            # Return cached checksums — no blocking computation.
+            crc32_hex  = None
+            sha256_hex = None
             try:
                 stored = checksum_get(cs_key, cs_uid)
                 if stored and checksum_is_fresh(stored, abs_path):
-                    crc32_hex = format(stored['crc32'], '08x')
-                else:
-                    # on-demand computation — may take a few seconds for large files
-                    crc_int = compute_and_store_crc32(abs_path, cs_key, cs_uid, 'info_panel')
-                    if crc_int is not None:
-                        crc32_hex = format(crc_int, '08x')
+                    crc32_hex  = format(stored['crc32'], '08x') if stored['crc32'] is not None else None
+                    sha256_hex = stored.get('sha256')
             except Exception:
-                logging.exception('fileinfo: CRC-32 computation failed for %r', abs_path)
+                logging.exception('fileinfo: checksum lookup failed for %r', abs_path)
 
-            # Guess MIME type from extension
-            import mimetypes as _mt
-            mime_guess, _ = _mt.guess_type(abs_path)
+            # Latest job for this file — lets the client show a "Calculating…"
+            # indicator and poll until done.
+            job_info = None
+            try:
+                job = checksum_job_get_latest(cs_key, cs_uid)
+                if job:
+                    job_info = {
+                        'id':     job['id'],
+                        'status': job['status'],
+                        'algos':  job['algos'],
+                        'error':  job['error_msg'],
+                    }
+            except Exception:
+                logging.exception('fileinfo: job lookup failed for %r', abs_path)
+
+            mime_guess, _ = mimetypes.guess_type(abs_path)
 
             payload = {
                 'name':   os.path.basename(abs_path),
                 'size':   st.st_size,
                 'mtime':  datetime.fromtimestamp(st.st_mtime).isoformat(timespec='seconds'),
-                'crc32':  crc32_hex,     # None if computation failed or file too large
+                'crc32':  crc32_hex,
+                'sha256': sha256_hex,
                 'mime':   mime_guess,
+                'job':    job_info,
             }
             return self._send_response(200, json.dumps(payload))
 
@@ -2910,6 +2927,62 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 )
                 conn.commit()
             return self._send_response(200, json.dumps({'ok': True}))
+
+        # ── On-demand checksum computation ───────────────────────────────────
+        # POST /api/v1/checksums/compute
+        # Body: {"path": "/foo/bar.txt", "algos": ["crc32", "sha256"]}
+        # Creates a persistent job, enqueues it to the background worker.
+        # Returns: {"job_id": N, "status": "pending", "algos": "crc32,sha256"}
+        if parsed_url.path == '/api/v1/checksums/compute':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Authentication required'}))
+            try:
+                cl = int(self.headers.get('Content-Length', 0))
+                if cl <= 0 or cl > MAX_JSON_BODY:
+                    raise ValueError('bad Content-Length')
+                data = json.loads(self.rfile.read(cl))
+            except Exception:
+                return self._send_response(400, json.dumps({'error': 'Invalid JSON body'}))
+
+            file_path  = data.get('path', '')
+            algos_raw  = data.get('algos', ['crc32', 'sha256'])
+            valid_set  = {'crc32', 'sha256'}
+            algos_list = [a for a in algos_raw if isinstance(a, str) and a in valid_set]
+            if not file_path or not algos_list:
+                return self._send_response(400, json.dumps({'error': 'path and algos are required'}))
+
+            # Resolve path (mirrors the fileinfo GET handler)
+            if file_path.startswith('/cdn'):
+                abs_path = os.path.normpath(
+                    os.path.join(CDN_UPLOAD_DIR, file_path[len('/cdn'):].lstrip('/')))
+                cs_key  = file_path
+                cs_uid  = 0
+                if not abs_path.startswith(os.path.normpath(CDN_UPLOAD_DIR) + os.sep):
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+            else:
+                user_dir = os.path.normpath(
+                    os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+                abs_path = os.path.normpath(
+                    os.path.join(user_dir, file_path.lstrip('/')))
+                cs_key  = file_path
+                cs_uid  = user_id
+                if not abs_path.startswith(user_dir + os.sep):
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+
+            if not os.path.isfile(abs_path):
+                return self._send_response(404, json.dumps({'error': 'File not found'}))
+
+            algos_str      = ','.join(sorted(algos_list))
+            job_id, is_new = checksum_job_create(cs_key, cs_uid, algos_str)
+            if is_new:
+                dispatch_checksum_job(job_id, abs_path, cs_key, cs_uid, algos_str)
+
+            return self._send_response(200, json.dumps({
+                'job_id': job_id,
+                'status': 'pending',
+                'algos':  algos_str,
+            }))
 
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
@@ -6132,7 +6205,33 @@ def _get_user_disk_usage(user_id: int) -> int:
 
 if __name__ == '__main__':
     # --- Pre-flight Checks & Setup ---
-    init_db() # Initialize the database
+    init_db()  # Initialize the database
+
+    # Reset any checksum jobs left in 'running' state by a previous process
+    # (they were interrupted mid-computation and need to be retriggered by the user).
+    _stale_jobs = checksum_jobs_reset_stale()
+    if _stale_jobs:
+        logging.info('Checksum jobs: reset %d stale running job(s) to error', _stale_jobs)
+    # Re-enqueue jobs that were pending when the server last shut down.
+    for _pj in checksum_jobs_get_pending():
+        try:
+            if _pj['user_id'] is not None:
+                _pj_abs = os.path.normpath(os.path.join(
+                    SERVE_ROOT, 'FluxDrop', str(_pj['user_id']),
+                    _pj['relative_path'].lstrip('/')))
+            else:
+                _pj_abs = os.path.normpath(os.path.join(
+                    CDN_UPLOAD_DIR, _pj['relative_path'].lstrip('/')))
+            if os.path.isfile(_pj_abs):
+                dispatch_checksum_job(_pj['id'], _pj_abs,
+                                       _pj['relative_path'], _pj['user_id'],
+                                       _pj['algos'])
+            else:
+                checksum_job_update_status(
+                    _pj['id'], 'error', 'File not found at startup re-queue')
+        except Exception as _pje:
+            logging.warning('Checksum jobs: could not re-enqueue job %d: %s',
+                            _pj['id'], _pje)
 
     # N1 fix: load blacklist and start refresh thread (was never started in CDN)
     load_blacklist_safely(BLACKLIST_FILE)

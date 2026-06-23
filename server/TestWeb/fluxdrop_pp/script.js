@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-968bd8e9
+// Current version of script.js is: fluxdrop-v-656281b1
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-968bd8e9'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-656281b1'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -3522,7 +3522,16 @@ function _showFileInfo(row) {
         row2('Size',     sizeStr) +
         row2('Modified', mtime ? formatMtime(mtime) : '—') +
         (uploader ? row2('Uploaded by', uploader) : '') +
-        (!isDir ? row2('CRC-32', '<span id="fd-info-crc" style="color:var(--fd-muted,#94a3b8)">Loading…</span>', true) : '') +
+        (!isDir ? `<div id="fd-info-cs-wrap">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 14px;border-bottom:1px solid var(--fd-border,#e2e8f0);gap:8px">
+                <span style="color:var(--fd-muted,#64748b);flex-shrink:0;white-space:nowrap">CRC-32</span>
+                <span id="fd-cs-val-crc32" style="display:flex;align-items:center;gap:4px;min-width:0"><span style="color:#94a3b8;font-size:12px">Loading\u2026</span></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 14px;border-bottom:1px solid var(--fd-border,#e2e8f0);gap:8px">
+                <span style="color:var(--fd-muted,#64748b);flex-shrink:0;white-space:nowrap">SHA-256</span>
+                <span id="fd-cs-val-sha256" style="display:flex;align-items:center;gap:4px;min-width:0"><span style="color:#94a3b8;font-size:12px">Loading\u2026</span></span>
+            </div>
+        </div>` : '') +
         (!isDir ? `<div style="padding:8px 14px;border-bottom:1px solid var(--fd-border,#e2e8f0)">
             <button id="fd-info-dl" class="btn"
                 style="width:100%;padding:5px;font-size:12px;text-align:center">
@@ -3536,32 +3545,136 @@ function _showFileInfo(row) {
     const dlBtn = document.getElementById('fd-info-dl');
     if (dlBtn) dlBtn.addEventListener('click', () => { panel.remove(); downloadFile(path); });
 
-    // Async CRC-32 fetch
-    if (!isDir) {
-        const crcEl = document.getElementById('fd-info-crc');
-        (async () => {
-            try {
-                // Ask server for the cached or on-demand checksum
-                const data = await apiCall(`/api/v1/fileinfo${encodePath(path)}`, 'GET', null, /*silent*/true);
-                if (!panel.isConnected || !crcEl) return;
-                if (data.crc32) {
-                    crcEl.style.color = 'var(--fd-text,#1e293b)';
-                    crcEl.textContent = data.crc32.toLowerCase();
-                } else {
-                    crcEl.style.color = 'var(--fd-muted,#94a3b8)';
-                    crcEl.textContent = 'not yet computed';
-                }
-            } catch {
-                if (crcEl && panel.isConnected) {
-                    crcEl.style.color = 'var(--fd-muted,#94a3b8)';
-                    crcEl.textContent = '—';
-                }
-            }
-        })();
-    }
+    if (!isDir) _initChecksumSection(path, panel);
 
     const closer = e => { if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', closer, true); } };
     setTimeout(() => document.addEventListener('click', closer, true), 10);
+}
+
+// ── File info — checksum section (CRC-32 + SHA-256) ──────────────────────────
+// Fetches cached values from /api/v1/fileinfo, shows Calc buttons when missing,
+// polls while a computation job is active, and shows a copy button when done.
+function _initChecksumSection(path, panel) {
+    let _pollT = null;
+
+    // Show an amber "Calculating…" spinner in the given algo row.
+    function _csSetCalc(algo) {
+        const el = panel.querySelector(`#fd-cs-val-${algo}`);
+        if (el) el.innerHTML =
+            '<span style="color:#d97706;font-size:12px">\u29d7 Calculating\u2026</span>';
+    }
+
+    // Show a computed hash value with a copy-to-clipboard button.
+    function _csSetValue(algo, value) {
+        const el = panel.querySelector(`#fd-cs-val-${algo}`);
+        if (!el) return;
+        // SHA-256 is 64 hex chars — truncate for display, keep full value in title.
+        const display = algo === 'sha256' ? (value.slice(0, 16) + '\u2026') : value;
+        el.innerHTML =
+            `<span style="font-family:monospace;font-size:11px;color:var(--fd-text,#1e293b);` +
+            `word-break:break-all;text-align:right" title="${escapeHtmlAttr(value)}">${escapeHtml(display)}</span>` +
+            `<button id="fd-cs-copy-${algo}" title="Copy ${algo.toUpperCase()}" ` +
+            `style="border:none;background:none;cursor:pointer;color:#94a3b8;font-size:13px;` +
+            `padding:0 0 0 3px;flex-shrink:0;line-height:1">\u29c9</button>`;
+        panel.querySelector(`#fd-cs-copy-${algo}`)?.addEventListener('click', e => {
+            e.stopPropagation();
+            navigator.clipboard?.writeText(value);
+            const btn = panel.querySelector(`#fd-cs-copy-${algo}`);
+            if (btn) {
+                btn.textContent = '\u2713';
+                setTimeout(() => { if (btn) btn.textContent = '\u29c9'; }, 1500);
+            }
+        });
+    }
+
+    // Show a "—" placeholder (or error badge) with a Calc / Retry button.
+    // targetAlgos: the algos list that will be sent to the server on click.
+    function _csSetMissing(algo, targetAlgos, errMsg) {
+        const el = panel.querySelector(`#fd-cs-val-${algo}`);
+        if (!el) return;
+        const tip  = errMsg ? ` title="${escapeHtmlAttr(errMsg)}"` : '';
+        const icon = errMsg ? '\u26a0\ufe0f error' : '\u2014';
+        el.innerHTML =
+            `<span style="color:#94a3b8;font-size:12px"${tip}>${icon}</span>` +
+            `<button id="fd-cs-calc-${algo}" ` +
+            `style="border:none;background:#f1f5f9;color:#3b82f6;cursor:pointer;` +
+            `padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;` +
+            `margin-left:4px;flex-shrink:0">${errMsg ? 'Retry' : 'Calc'}</button>`;
+        panel.querySelector(`#fd-cs-calc-${algo}`)?.addEventListener('click', async e => {
+            e.stopPropagation();
+            // Immediately show "Calculating…" for every algo that will be computed.
+            for (const a of targetAlgos) _csSetCalc(a);
+            try {
+                await apiCall('/api/v1/checksums/compute', 'POST',
+                              { path, algos: targetAlgos }, true);
+            } catch (err) {
+                _csSetMissing(algo, targetAlgos, err.message || 'Request failed');
+                return;
+            }
+            _schedPoll();
+        });
+    }
+
+    function _schedPoll() {
+        if (!panel.isConnected) return;
+        clearTimeout(_pollT);
+        _pollT = setTimeout(fetchAndRender, 1800);
+    }
+
+    async function fetchAndRender() {
+        if (!panel.isConnected) { clearTimeout(_pollT); return; }
+        let data;
+        try {
+            data = await apiCall(`/api/v1/fileinfo${encodePath(path)}`, 'GET', null, true);
+        } catch {
+            const dash = '<span style="color:#94a3b8;font-size:12px">\u2014</span>';
+            ['crc32', 'sha256'].forEach(a => {
+                const el = panel.querySelector(`#fd-cs-val-${a}`);
+                if (el) el.innerHTML = dash;
+            });
+            return;
+        }
+        if (!panel.isConnected) return;
+
+        const job      = data.job;
+        const isActive = job && (job.status === 'pending' || job.status === 'running');
+        const isError  = job && job.status === 'error';
+        const errMsg   = isError ? (job.error || 'Computation failed') : null;
+        const jobAlgos = job ? (job.algos || '') : '';
+
+        // When both hashes are missing, clicking either Calc button computes both
+        // in a single server-side file read.  When only one is missing, only
+        // that algo is computed.
+        const calcAlgos = [];
+        if (!data.crc32)  calcAlgos.push('crc32');
+        if (!data.sha256) calcAlgos.push('sha256');
+
+        // CRC-32 row
+        if (data.crc32) {
+            _csSetValue('crc32', data.crc32.toLowerCase());
+        } else if (isActive && jobAlgos.includes('crc32')) {
+            _csSetCalc('crc32');
+        } else {
+            _csSetMissing('crc32',
+                calcAlgos.length ? calcAlgos : ['crc32'],
+                isError && jobAlgos.includes('crc32') ? errMsg : null);
+        }
+
+        // SHA-256 row
+        if (data.sha256) {
+            _csSetValue('sha256', data.sha256.toLowerCase());
+        } else if (isActive && jobAlgos.includes('sha256')) {
+            _csSetCalc('sha256');
+        } else {
+            _csSetMissing('sha256',
+                calcAlgos.length ? calcAlgos : ['sha256'],
+                isError && jobAlgos.includes('sha256') ? errMsg : null);
+        }
+
+        if (isActive && panel.isConnected) _schedPoll();
+    }
+
+    fetchAndRender();
 }
 
 // ── [attachRowListeners defined above in _updateSelBar block] ─────────────
@@ -7211,7 +7324,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-968bd8e9'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-656281b1'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

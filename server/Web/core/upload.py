@@ -2,7 +2,8 @@ import os, json, shutil, secrets, hashlib, time, logging, threading, zlib
 from datetime import datetime, timedelta
 from core.db import _db_connect, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_clear, \
-                    checksum_put, checksum_is_fresh, checksum_get
+                    checksum_put, checksum_is_fresh, checksum_get, \
+                    checksum_set_sha256, checksum_job_update_status
 from core.notifications import _fire_upload_notification
 from config import UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, MAX_JSON_BODY, \
                    MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, UPLOAD_TMP_DIR, SERVE_ROOT
@@ -44,19 +45,77 @@ _CRC32_READ_BUF = 4 * 1024 * 1024  # 4 MB read buffer
 
 def compute_and_store_crc32(abs_path: str, relative_path: str,
                              user_id, scan_source: str = 'on_demand') -> int:
-    """Read abs_path, compute CRC32, persist it, and return the value.
-    Raises OSError if the file cannot be read."""
+    """Read abs_path, compute CRC-32 + SHA-256 in one pass, persist both.
+    Raises OSError if the file cannot be read.  Returns the CRC-32 value."""
     st  = os.stat(abs_path)
     crc = 0
+    h   = hashlib.sha256()
     with open(abs_path, 'rb') as fh:
         while True:
             chunk = fh.read(_CRC32_READ_BUF)
             if not chunk:
                 break
             crc = zlib.crc32(chunk, crc) & 0xFFFF_FFFF
+            h.update(chunk)
     checksum_put(relative_path, user_id, crc, st.st_size,
-                 int(st.st_mtime_ns), scan_source)
+                 int(st.st_mtime_ns), scan_source, sha256=h.hexdigest())
     return crc
+
+
+def compute_and_store_checksums(abs_path: str, relative_path: str,
+                                 user_id, scan_source: str = 'on_demand',
+                                 algos: 'set | None' = None) -> 'tuple[int | None, str | None]':
+    """Single-pass computation of the requested hash algorithms.
+
+    algos : set of strings from {'crc32', 'sha256'}.  Defaults to both.
+
+    When both are requested (or when sha256 is requested but crc32 is also
+    stale/missing), the file is read exactly once to compute all values.
+
+    Returns (crc32_int_or_None, sha256_hex_or_None).
+    Raises OSError if the file cannot be read.
+    """
+    if algos is None:
+        algos = {'crc32', 'sha256'}
+    algos = set(algos)
+
+    # Auto-expand: when sha256 is requested but crc32 is also stale/missing,
+    # add crc32 to the batch — it costs nothing in a single read pass.
+    if 'sha256' in algos and 'crc32' not in algos:
+        stored = checksum_get(relative_path, user_id)
+        if not (stored and checksum_is_fresh(stored, abs_path)):
+            algos.add('crc32')
+
+    st  = os.stat(abs_path)
+    crc = 0                if 'crc32'  in algos else None
+    h   = hashlib.sha256() if 'sha256' in algos else None
+
+    with open(abs_path, 'rb') as fh:
+        while True:
+            chunk = fh.read(_CRC32_READ_BUF)
+            if not chunk:
+                break
+            if crc is not None:
+                crc = zlib.crc32(chunk, crc) & 0xFFFF_FFFF
+            if h is not None:
+                h.update(chunk)
+
+    crc_val    = (crc & 0xFFFF_FFFF) if crc is not None else None
+    sha256_val = h.hexdigest()        if h   is not None else None
+
+    if crc_val is not None:
+        # Full upsert — preserve existing sha256 when we only computed crc32.
+        existing_sha256 = sha256_val
+        if existing_sha256 is None:
+            stored = checksum_get(relative_path, user_id)
+            existing_sha256 = stored.get('sha256') if stored else None
+        checksum_put(relative_path, user_id, crc_val, st.st_size,
+                     int(st.st_mtime_ns), scan_source, sha256=existing_sha256)
+    elif sha256_val is not None:
+        # sha256-only: partial update; crc32 already exists and is fresh.
+        checksum_set_sha256(relative_path, user_id, sha256_val)
+
+    return crc_val, sha256_val
 
 
 def queue_crc32_after_upload(dest_path: str, relative_path: str, user_id) -> None:
@@ -87,6 +146,58 @@ threading.Thread(
     target=_crc32_upload_worker,
     daemon=True,
     name='CRC32UploadWorker',
+).start()
+
+# ---------------------------------------------------------------------------
+# On-demand checksum job queue
+# ---------------------------------------------------------------------------
+# dispatch_checksum_job() is called from the API handler to enqueue a job.
+# The worker reads jobs from the queue, updates status in the DB, computes
+# the requested hashes via compute_and_store_checksums(), and stores results.
+# ---------------------------------------------------------------------------
+
+_checksum_job_queue: _queue.Queue = _queue.Queue()
+
+
+def dispatch_checksum_job(job_id: int, abs_path: str, relative_path: str,
+                           user_id, algos: str) -> None:
+    """Enqueue a checksum job for the background worker thread."""
+    _checksum_job_queue.put((job_id, abs_path, relative_path, user_id, algos))
+
+
+def _checksum_job_worker() -> None:
+    """Daemon thread: process on-demand checksum jobs from _checksum_job_queue."""
+    while True:
+        try:
+            job_id, abs_path, relative_path, user_id, algos_str = \
+                _checksum_job_queue.get(timeout=5)
+            try:
+                checksum_job_update_status(job_id, 'running')
+                algos_set = {a.strip() for a in algos_str.split(',') if a.strip()}
+                compute_and_store_checksums(abs_path, relative_path,
+                                             user_id, 'on_demand', algos_set)
+                checksum_job_update_status(job_id, 'done')
+                logging.debug('Checksum job %d done: %r uid=%s algos=%s',
+                              job_id, relative_path, user_id, algos_str)
+            except FileNotFoundError:
+                checksum_job_update_status(job_id, 'error', 'File not found')
+                logging.warning('Checksum job %d: file not found %r', job_id, abs_path)
+            except OSError as e:
+                checksum_job_update_status(job_id, 'error', str(e))
+                logging.warning('Checksum job %d: OS error: %s', job_id, e)
+            except Exception as e:
+                checksum_job_update_status(job_id, 'error', str(e))
+                logging.error('Checksum job %d: unexpected error: %s', job_id, e)
+            finally:
+                _checksum_job_queue.task_done()
+        except _queue.Empty:
+            continue
+
+
+threading.Thread(
+    target=_checksum_job_worker,
+    daemon=True,
+    name='ChecksumJobWorker',
 ).start()
 
 

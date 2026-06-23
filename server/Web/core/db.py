@@ -320,7 +320,27 @@ def init_db():
                 mtime_ns      INTEGER NOT NULL,
                 computed_at   REAL    NOT NULL DEFAULT 0,
                 scan_source   TEXT    NOT NULL DEFAULT 'background',
+                sha256        TEXT    DEFAULT NULL,
                 UNIQUE(relative_path, user_id)
+            )
+        ''')
+        # On-demand checksum computation jobs.
+        # Allows the frontend to trigger hash computation and poll for status.
+        # status: 'pending' | 'running' | 'done' | 'error'
+        # algos : comma-separated algorithm list, e.g. 'crc32,sha256'
+        # Rows survive server restarts — 'running' entries are reset to 'error'
+        # at startup; 'pending' entries are re-queued by the job worker.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS checksum_jobs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                relative_path TEXT    NOT NULL,
+                user_id       INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                algos         TEXT    NOT NULL DEFAULT 'crc32,sha256',
+                status        TEXT    NOT NULL DEFAULT 'pending',
+                created_at    REAL    NOT NULL DEFAULT 0,
+                started_at    REAL    DEFAULT NULL,
+                finished_at   REAL    DEFAULT NULL,
+                error_msg     TEXT    DEFAULT NULL
             )
         ''')
         conn.commit()
@@ -349,6 +369,7 @@ def init_db():
         # Tunable constants live in server_cdn.py (AVATAR_MAX_DIM, AVATAR_MAX_BYTES).
         _add_column_if_missing('users', 'avatar_data', 'BLOB DEFAULT NULL')
         _add_column_if_missing('users', 'avatar_mime', 'TEXT DEFAULT NULL')
+        _add_column_if_missing('file_checksums', 'sha256', 'TEXT DEFAULT NULL')
         try:
             conn.execute(
                 '''CREATE INDEX IF NOT EXISTS idx_upload_sessions_dest_status
@@ -374,7 +395,7 @@ def checksum_get(relative_path: str, user_id) -> dict | None:
     user_id may be an int or None (for CDN/share files without an owner)."""
     with _db_connect() as conn:
         row = conn.execute(
-            '''SELECT crc32, file_size, mtime_ns, computed_at, scan_source
+            '''SELECT crc32, file_size, mtime_ns, computed_at, scan_source, sha256
                FROM file_checksums
                WHERE relative_path = ?
                  AND (user_id IS ? OR user_id = ?)''',
@@ -388,30 +409,33 @@ def checksum_get(relative_path: str, user_id) -> dict | None:
         'mtime_ns':    row[2],
         'computed_at': row[3],
         'scan_source': row[4],
+        'sha256':      row[5],
     }
 
 
 def checksum_put(relative_path: str, user_id, crc32: int,
                  file_size: int, mtime_ns: int,
-                 scan_source: str = 'background') -> None:
+                 scan_source: str = 'background',
+                 sha256: 'str | None' = None) -> None:
     """Upsert a checksum record.  Overwrites any existing row for the same
-    (relative_path, user_id) pair."""
+    (relative_path, user_id) pair.  sha256 is stored when provided."""
     import time as _t
     with _db_connect() as conn:
         conn.execute(
             '''INSERT INTO file_checksums
                    (relative_path, user_id, crc32, file_size,
-                    mtime_ns, computed_at, scan_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+                    mtime_ns, computed_at, scan_source, sha256)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(relative_path, user_id)
                DO UPDATE SET
                    crc32       = excluded.crc32,
                    file_size   = excluded.file_size,
                    mtime_ns    = excluded.mtime_ns,
                    computed_at = excluded.computed_at,
-                   scan_source = excluded.scan_source''',
+                   scan_source = excluded.scan_source,
+                   sha256      = excluded.sha256''',
             (relative_path, user_id, crc32, file_size,
-             mtime_ns, _t.time(), scan_source)
+             mtime_ns, _t.time(), scan_source, sha256)
         )
         conn.commit()
 
@@ -438,6 +462,126 @@ def checksum_is_fresh(row: dict, abs_path: str) -> bool:
                 int(st.st_mtime_ns) == row['mtime_ns'])
     except OSError:
         return False
+
+
+def checksum_set_sha256(relative_path: str, user_id, sha256: str) -> None:
+    """Set (or update) the sha256 field on an existing checksum row without
+    touching other fields.  No-op when no row exists for this file."""
+    with _db_connect() as conn:
+        conn.execute(
+            '''UPDATE file_checksums SET sha256 = ?
+               WHERE relative_path = ?
+                 AND (user_id IS ? OR user_id = ?)''',
+            (sha256, relative_path, user_id, user_id)
+        )
+        conn.commit()
+
+
+# ── On-demand checksum job helpers ────────────────────────────────────────────
+# Jobs are persisted in the DB so the frontend can poll status across page
+# reloads.  The actual computation is done by a worker thread in upload.py.
+
+def checksum_job_create(relative_path: str, user_id,
+                        algos: str = 'crc32,sha256') -> 'tuple[int, bool]':
+    """Create a new on-demand checksum job if no active job exists.
+    Returns (job_id, is_new).  When a pending/running job already exists for
+    the same (path, user_id) pair, returns that job's id with is_new=False."""
+    import time as _t
+    with _db_connect() as conn:
+        existing = conn.execute(
+            '''SELECT id FROM checksum_jobs
+               WHERE relative_path = ? AND (user_id IS ? OR user_id = ?)
+                 AND status IN ('pending', 'running')
+               LIMIT 1''',
+            (relative_path, user_id, user_id)
+        ).fetchone()
+        if existing:
+            return existing[0], False
+        result = conn.execute(
+            '''INSERT INTO checksum_jobs
+                   (relative_path, user_id, algos, status, created_at)
+               VALUES (?, ?, ?, 'pending', ?)''',
+            (relative_path, user_id, algos, _t.time())
+        )
+        conn.commit()
+        return result.lastrowid, True
+
+
+def checksum_job_get_latest(relative_path: str, user_id) -> 'dict | None':
+    """Return the most recent job row for this file (any status), or None."""
+    with _db_connect() as conn:
+        row = conn.execute(
+            '''SELECT id, algos, status, created_at, started_at, finished_at, error_msg
+               FROM checksum_jobs
+               WHERE relative_path = ? AND (user_id IS ? OR user_id = ?)
+               ORDER BY id DESC LIMIT 1''',
+            (relative_path, user_id, user_id)
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        'id':          row[0],
+        'algos':       row[1],
+        'status':      row[2],
+        'created_at':  row[3],
+        'started_at':  row[4],
+        'finished_at': row[5],
+        'error_msg':   row[6],
+    }
+
+
+def checksum_job_update_status(job_id: int, status: str,
+                                error_msg: 'str | None' = None) -> None:
+    """Update a job's status, stamping started_at / finished_at as appropriate."""
+    import time as _t
+    now = _t.time()
+    with _db_connect() as conn:
+        if status == 'running':
+            conn.execute(
+                'UPDATE checksum_jobs SET status = ?, started_at = ? WHERE id = ?',
+                (status, now, job_id)
+            )
+        elif status in ('done', 'error'):
+            conn.execute(
+                '''UPDATE checksum_jobs
+                   SET status = ?, finished_at = ?, error_msg = ?
+                   WHERE id = ?''',
+                (status, now, error_msg, job_id)
+            )
+        else:
+            conn.execute(
+                'UPDATE checksum_jobs SET status = ? WHERE id = ?',
+                (status, job_id)
+            )
+        conn.commit()
+
+
+def checksum_jobs_reset_stale() -> int:
+    """Reset any 'running' jobs left from a previous server process to 'error'.
+    Call once at startup, before the worker thread begins.
+    Returns the number of rows reset."""
+    with _db_connect() as conn:
+        result = conn.execute(
+            '''UPDATE checksum_jobs
+               SET status    = 'error',
+                   error_msg = 'Interrupted by server restart — click Recalculate',
+                   finished_at = strftime('%s', 'now')
+               WHERE status = 'running' '''
+        )
+        conn.commit()
+        return result.rowcount
+
+
+def checksum_jobs_get_pending() -> list:
+    """Return all pending jobs for re-queuing on startup."""
+    with _db_connect() as conn:
+        rows = conn.execute(
+            '''SELECT id, relative_path, user_id, algos
+               FROM checksum_jobs WHERE status = 'pending'
+               ORDER BY id'''
+        ).fetchall()
+    return [{'id': r[0], 'relative_path': r[1], 'user_id': r[2], 'algos': r[3]}
+            for r in rows]
 
 
 # Per-upload-session lock to serialise concurrent chunk writes.

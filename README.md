@@ -1,21 +1,30 @@
-# server `v0.19.0.7`
+# server `v0.19.0.8`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes:*
+*Release notes: Few fine-tune touches to the server*
 
-***Mainstream: main text***
+***Mainstream: the backend instability and the overall user experience are now 
+improved***
 
-***commentary***
+***Recent v.19 release had a lot of flaws and issues with the code, that are 
+now mainly fixed, and the new additions to the FluxDrop.***
 
-- ***text***
+***Additions:***
+- ***File info modal now contains SHA-256***
+
+***Fixes:***
+- ***Inabilty to access the server after few days of uptime, caused by the 
+problems inside one of the backend files***
+- ***Current server version are now displayed in the footer***
+- ***Upload fails in some specific conditions***
+- ***.***
 
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Fix HTTPS static hoster crash, needs confirmation that it's indeed fixed 
-now***
+- ***Add the new hash, but needs fix for endpoint***
 
 ---
 

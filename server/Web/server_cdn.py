@@ -2425,8 +2425,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             user_id = self._check_token_auth()
             if not user_id:
                 return self._send_response(401, json.dumps({'error': 'Authentication required'}))
-            # Strip the /api/v1/fileinfo prefix to get the relative file path
-            rel = parsed_url.path[len('/api/v1/fileinfo'):]
+            # Strip the /api/v1/fileinfo prefix to get the relative file path,
+            # then URL-decode so spaces (%20) and non-ASCII (%D1%86…) resolve correctly.
+            rel = _up.unquote(parsed_url.path[len('/api/v1/fileinfo'):])
             if not rel or rel == '/':
                 return self._send_response(400, json.dumps({'error': 'path required'}))
 

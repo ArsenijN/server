@@ -1,4 +1,4 @@
-# server `v0.19.0.10`
+# server `v0.19.0.11`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -24,7 +24,7 @@ problems inside one of the backend files***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Fix for endpoint, iteration #2 (almost)***
+- ***Fix for hash retrieval endpoint, iteration #3***
 
 ---
 

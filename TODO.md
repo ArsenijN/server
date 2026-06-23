@@ -11,7 +11,7 @@ user feedback or ideas for future development.
 
 ### UI
 - [ ] Markdown parser does not understand:
-  - [ ] `***` following with the new line inside the text and then `***` again
+  - [ ] `***` following with the new lines inside the text and then `***` again
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make proper header and footer for the main FluxDrop UI
@@ -22,10 +22,12 @@ user feedback or ideas for future development.
     - [ ] Use those hashes for silent file check activity in background
       - [ ] Add parchives to avoid file damages
       - [ ] Add some kind of messages if files got corrupted on server side and 
-      was unrecoverable 
-- [ ] Fix the i18n translating the breadcrumbs and some other things that it 
-should not (like file and folder names, nicknames, etc.)
-- [ ] Add the visualization for retry cycles
+      was unrecoverable
+- [ ] Dark mode are half-broken and didn't "obay" if the browser says dark, and 
+user sets light, or otherwize
+- [ ] Slightly redesign the login modal (make it not as the one page but as the 
+appearing modal, so the landing page will be intact at the time of login)
+- [ ] Add Google OAuth support (for now visually, later the backend)
 
 ### UX
 - [ ] Make the file info also work as turn on-off: is present on screen - show 
@@ -58,14 +60,20 @@ on i5 8350U)
 - [ ] **Misc future ideas**
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
-  - [ ] Fix i18n in:
-    - [ ] Time for items
-    - [ ] Actions modal
-    - [ ] Breadcrumbs (translate only the `root`, nothing else)
-    - [ ] Profile picture new additions
-    - [ ] Shared links remainings
-    - [ ] Shared links statictics
-    - [ ] Error-related pages
+- [ ] Fix i18n in:
+  - [ ] Time for items
+  - [ ] Actions modal
+  - [ ] Breadcrumbs (translate only the `root`, nothing else)
+  - [ ] Profile picture new additions
+  - [ ] Shared links remainings
+  - [ ] Shared links statictics
+  - [ ] Error-related pages
+- [ ] Add more animations to:
+  - [ ] (things)
+- [ ] Upload ends successfully even if the upload of one of the files fails 
+(for example because of the quota)
+- [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
+the scene (aka it just shows "Downloading via browser...")
 
 ### Server-side changes:
 
@@ -74,6 +82,9 @@ on i5 8350U)
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what -- they are caused on network switch
 - [ ] Trash bin file preview inside folders
+- [ ] Hash are not moved/re-attached to a file after move
+- [ ] Maybe cancel the file hashing or avoid the ~~async~~ multithreadrf file 
+hash
 
 #### Medium:
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
@@ -118,6 +129,7 @@ since I can just remember CSS and HTML, and do that by hands)
 made/applied
 - [ ] Dark mode auto switch
 - [ ] HSTS redirect should work correctly
+- [x] Add the visualization for retry cycles -- should be added, need testing
 
 ---
 

@@ -1,4 +1,4 @@
-# server `v0.19.0.11`
+# server `v0.19.0.12`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -12,7 +12,8 @@ improved***
 now mainly fixed, and the new additions to the FluxDrop.***
 
 ***Additions:***
-- ***File info modal now contains SHA-256***
+- ***File info modal now shows SHA-256 hash, and have ability to generate both 
+of the hashes on-demand***
 
 ***Fixes:***
 - ***Inabilty to access the server after few days of uptime, caused by the 
@@ -24,7 +25,7 @@ problems inside one of the backend files***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Fix for hash retrieval endpoint, iteration #3***
+- ***Change the main page***
 
 ---
 

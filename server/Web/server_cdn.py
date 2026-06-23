@@ -2869,6 +2869,63 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 conn.execute(f'UPDATE users SET {parts} WHERE id = ?', vals)
                 conn.commit()
             return self._send_response(200, json.dumps({'message': 'Updated'}))
+
+        # ── On-demand checksum computation ───────────────────────────────────
+        # POST /api/v1/checksums/compute
+        # Body: {"path": "/foo/bar.txt", "algos": ["crc32", "sha256"]}
+        # Creates a persistent job, enqueues it to the background worker.
+        # Returns: {"job_id": N, "status": "pending", "algos": "crc32,sha256"}
+        if parsed_url.path == '/api/v1/checksums/compute':
+            user_id = self._check_token_auth()
+            if not user_id:
+                return self._send_response(401, json.dumps({'error': 'Authentication required'}))
+            try:
+                cl = int(self.headers.get('Content-Length', 0))
+                if cl <= 0 or cl > MAX_JSON_BODY:
+                    raise ValueError('bad Content-Length')
+                data = json.loads(self.rfile.read(cl))
+            except Exception:
+                return self._send_response(400, json.dumps({'error': 'Invalid JSON body'}))
+
+            file_path  = data.get('path', '')
+            algos_raw  = data.get('algos', ['crc32', 'sha256'])
+            valid_set  = {'crc32', 'sha256'}
+            algos_list = [a for a in algos_raw if isinstance(a, str) and a in valid_set]
+            if not file_path or not algos_list:
+                return self._send_response(400, json.dumps({'error': 'path and algos are required'}))
+
+            # Resolve path (mirrors the fileinfo GET handler)
+            if file_path.startswith('/cdn'):
+                abs_path = os.path.normpath(
+                    os.path.join(CDN_UPLOAD_DIR, file_path[len('/cdn'):].lstrip('/')))
+                cs_key  = file_path
+                cs_uid  = 0
+                if not abs_path.startswith(os.path.normpath(CDN_UPLOAD_DIR) + os.sep):
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+            else:
+                user_dir = os.path.normpath(
+                    os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+                abs_path = os.path.normpath(
+                    os.path.join(user_dir, file_path.lstrip('/')))
+                cs_key  = file_path
+                cs_uid  = user_id
+                if not abs_path.startswith(user_dir + os.sep):
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+
+            if not os.path.isfile(abs_path):
+                return self._send_response(404, json.dumps({'error': 'File not found'}))
+
+            algos_str      = ','.join(sorted(algos_list))
+            job_id, is_new = checksum_job_create(cs_key, cs_uid, algos_str)
+            if is_new:
+                dispatch_checksum_job(job_id, abs_path, cs_key, cs_uid, algos_str)
+
+            return self._send_response(200, json.dumps({
+                'job_id': job_id,
+                'status': 'pending',
+                'algos':  algos_str,
+            }))
+
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 
     def do_DELETE(self):
@@ -2927,62 +2984,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 )
                 conn.commit()
             return self._send_response(200, json.dumps({'ok': True}))
-
-        # ── On-demand checksum computation ───────────────────────────────────
-        # POST /api/v1/checksums/compute
-        # Body: {"path": "/foo/bar.txt", "algos": ["crc32", "sha256"]}
-        # Creates a persistent job, enqueues it to the background worker.
-        # Returns: {"job_id": N, "status": "pending", "algos": "crc32,sha256"}
-        if parsed_url.path == '/api/v1/checksums/compute':
-            user_id = self._check_token_auth()
-            if not user_id:
-                return self._send_response(401, json.dumps({'error': 'Authentication required'}))
-            try:
-                cl = int(self.headers.get('Content-Length', 0))
-                if cl <= 0 or cl > MAX_JSON_BODY:
-                    raise ValueError('bad Content-Length')
-                data = json.loads(self.rfile.read(cl))
-            except Exception:
-                return self._send_response(400, json.dumps({'error': 'Invalid JSON body'}))
-
-            file_path  = data.get('path', '')
-            algos_raw  = data.get('algos', ['crc32', 'sha256'])
-            valid_set  = {'crc32', 'sha256'}
-            algos_list = [a for a in algos_raw if isinstance(a, str) and a in valid_set]
-            if not file_path or not algos_list:
-                return self._send_response(400, json.dumps({'error': 'path and algos are required'}))
-
-            # Resolve path (mirrors the fileinfo GET handler)
-            if file_path.startswith('/cdn'):
-                abs_path = os.path.normpath(
-                    os.path.join(CDN_UPLOAD_DIR, file_path[len('/cdn'):].lstrip('/')))
-                cs_key  = file_path
-                cs_uid  = 0
-                if not abs_path.startswith(os.path.normpath(CDN_UPLOAD_DIR) + os.sep):
-                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
-            else:
-                user_dir = os.path.normpath(
-                    os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
-                abs_path = os.path.normpath(
-                    os.path.join(user_dir, file_path.lstrip('/')))
-                cs_key  = file_path
-                cs_uid  = user_id
-                if not abs_path.startswith(user_dir + os.sep):
-                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
-
-            if not os.path.isfile(abs_path):
-                return self._send_response(404, json.dumps({'error': 'File not found'}))
-
-            algos_str      = ','.join(sorted(algos_list))
-            job_id, is_new = checksum_job_create(cs_key, cs_uid, algos_str)
-            if is_new:
-                dispatch_checksum_job(job_id, abs_path, cs_key, cs_uid, algos_str)
-
-            return self._send_response(200, json.dumps({
-                'job_id': job_id,
-                'status': 'pending',
-                'algos':  algos_str,
-            }))
 
         return self._send_response(404, json.dumps({"error": "Endpoint not found"}))
 

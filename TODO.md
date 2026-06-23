@@ -85,8 +85,8 @@ that happens and after what -- they are caused on network switch
 #### Medium:
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
 - [ ] Update the helpers functionality
-- [ ] Add hash logs to the debug category for main log file (keep the separate 
-file work always)
+- [ ] Add hash (maintenance) logs to the debug category for main log file (keep 
+the separate file work always)
 
 #### Low:
 - [ ] Make separate "testing" server where I would be able to test everything 

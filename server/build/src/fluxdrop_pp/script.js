@@ -419,8 +419,9 @@ function renderApp(route = null) {
 }
 
 function renderLandingView() {
+    appRoot.dataset.fdLanding = '1';
     appRoot.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:2rem">
+        <div style="display:flex;flex-direction:column;gap:2rem;animation:fd-fade-in-up .35s ease both">
 
             <!-- Hero -->
             <div class="card" style="text-align:center;padding:3rem 2rem">
@@ -623,8 +624,8 @@ function _mdToHtml(md) {
         .replace(/^# (.+)$/gm,   '<h1 style="font-size:1.35rem;font-weight:800;color:#1e40af;margin:1.5em 0 .5em">$1</h1>')
         // bold+italic (*** or ___) — must come BEFORE bold and italic
         // [\s\S]+? allows the span to cross line breaks (e.g. ***First\nSecond***)
-        .replace(/\*\*\*((?:[^\n]|\n(?!\n))+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-        .replace(/___((?:[^\n]|\n(?!\n))+?)___/g,        '<strong><em>$1</em></strong>')
+        .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+        .replace(/___([\s\S]+?)___/g,        '<strong><em>$1</em></strong>')
         // bold (** or __)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/__(.+?)__/g,      '<strong>$1</strong>')
@@ -719,11 +720,11 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
                         display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem">
                 <div>
                     <h2 style="font-size:1.1rem;font-weight:700;color:#1e40af;margin:0 0 .25rem;display:flex;align-items:center;gap:.5rem">
-                        Please review our updated ${label}
+                        ${t('policy_review_title', { label })}
                         ${_langSelectorHtml(availableLangs, languages, lang, 'pam-lang')}
                     </h2>
                     <p style="font-size:.85rem;color:#3730a3;margin:0">
-                        v${version} — You must agree to continue using FluxDrop.
+                        ${t('policy_version_note', { version })}
                     </p>
                 </div>
             </div>
@@ -739,14 +740,14 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             <div style="padding:1rem 1.5rem;border-top:1px solid #e2e8f0;
                         display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#f8fafc">
                 <span id="pam-scroll-hint" style="font-size:.82rem;color:#94a3b8">
-                    ↓ Scroll to the bottom to enable the agree button
+                    ${t('policy_scroll_hint')}
                 </span>
                 <div style="display:flex;gap:8px">
                     <button id="pam-decline-btn" class="btn" style="background:#e2e8f0;color:#1e293b">
-                        Decline &amp; log out
+                        ${t('policy_decline_btn')}
                     </button>
                     <button id="pam-agree-btn" class="btn" disabled style="opacity:.45;cursor:not-allowed;white-space:nowrap">
-                        I agree to the ${label}
+                        ${t('policy_agree_btn', { label })}
                     </button>
                 </div>
             </div>
@@ -763,13 +764,13 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
     bodyEl.addEventListener('scroll', () => {
         if (bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 40) {
             _enableAgree();
-            hint.textContent = '✓ You have read the document';
+            hint.textContent = t('policy_scroll_done');
         }
     });
 
     agreeBtn.addEventListener('click', async () => {
         agreeBtn.disabled = true;
-        agreeBtn.textContent = 'Saving…';
+        agreeBtn.textContent = t('policy_saving');
         const _paDismiss = showSpinnerOverlay('Saving your agreement…', { minMs: 1000 });
         try {
             await withMinDelay(apiCall('/api/v1/policy/accept', 'POST', { [type]: version }), 1000);
@@ -783,7 +784,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
                 return;
             }
             agreeBtn.disabled = false;
-            agreeBtn.textContent = 'I agree to the ' + label;
+            agreeBtn.textContent = t('policy_agree_btn', { label });
             showMessage('Error', 'Could not save your agreement: ' + err.message);
         }
     });
@@ -792,7 +793,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
     declineBtn.addEventListener('click', () => {
         overlay.remove();
         showMessage('Policy not accepted',
-            'You must accept the updated policies to use FluxDrop. You have been logged out.');
+            t('policy_logout_msg'));
         handleLogout();
     });
 
@@ -807,7 +808,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             agreeBtn.disabled = true;
             agreeBtn.style.opacity = '.45';
             agreeBtn.style.cursor = 'not-allowed';
-            hint.textContent = '↓ Scroll to the bottom to enable the agree button';
+            hint.textContent = t('policy_scroll_hint');
             loadDoc(lang);
         });
     }
@@ -844,33 +845,128 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
 }
 
 function renderLoginView() {
-    appRoot.innerHTML = `
-        <div class="card">
-            <h2 class="text-2xl font-semibold mb-6 text-center text-blue-800">Login</h2>
-            <form id="login-form" class="space-y-4">
-                <input type="text" id="username" class="w-full p-3 border rounded-lg" placeholder="Username" required>
-                <input type="password" id="password" class="w-full p-3 border rounded-lg" placeholder="Password" required>
-                <button type="submit" class="btn w-full">Login</button>
-            </form>
-        </div>
-    `;
-    document.getElementById('login-form').addEventListener('submit', handleLogin);
+    // Keep the landing page visible — show login as an overlay modal
+    if (!appRoot.dataset.fdLanding) renderLandingView();
+    _showAuthModal('login');
 }
 
 function renderRegisterView() {
-    appRoot.innerHTML = `
-        <div class="card">
-            <h2 class="text-2xl font-semibold mb-6 text-center text-blue-800">Register</h2>
-            <form id="register-form" class="space-y-4">
-                <input type="text" id="reg-username" class="w-full p-3 border rounded-lg" placeholder="Username (for login)" required>
-                <input type="text" id="reg-nickname" class="w-full p-3 border rounded-lg" placeholder="Nickname (publicly visible)" required>
-                <input type="email" id="reg-email" class="w-full p-3 border rounded-lg" placeholder="Email Address" required>
-                <input type="password" id="reg-password" class="w-full p-3 border rounded-lg" placeholder="Password" required>
-                <button type="submit" class="btn w-full">Register</button>
-            </form>
-        </div>
-    `;
-    document.getElementById('register-form').addEventListener('submit', handleRegister);
+    if (!appRoot.dataset.fdLanding) renderLandingView();
+    _showAuthModal('register');
+}
+
+// ── Auth modal: Login / Register overlay on landing page ─────────────────────
+// Keeps the landing page visible in the background.
+// Includes a visual-only Google OAuth button (backend not yet implemented).
+function _showAuthModal(initialMode) {
+    document.getElementById('fd-auth-modal')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'fd-auth-modal';
+    overlay.style.cssText =
+        'position:fixed;inset:0;background:rgba(15,23,42,.48);display:flex;' +
+        'align-items:center;justify-content:center;z-index:9500;padding:1rem;' +
+        'backdrop-filter:blur(4px);animation:fd-fade-in .18s ease';
+
+    overlay.innerHTML = `
+        <div id="fd-auth-card"
+             style="background:var(--fd-surface,#fff);border-radius:1.25rem;width:100%;
+                    max-width:400px;box-shadow:0 24px 64px rgba(0,0,0,.3);overflow:hidden;
+                    animation:fd-modal-in .22s cubic-bezier(.22,1,.36,1)">
+
+            <!-- Tabs -->
+            <div style="display:flex;border-bottom:2px solid var(--fd-border,#e2e8f0)">
+                <button id="fd-tab-login" data-tab="login"
+                    style="flex:1;padding:.85rem 1rem;background:none;border:none;
+                           font-weight:700;font-size:.93rem;cursor:pointer;font-family:inherit;
+                           color:#3b82f6;border-bottom:2px solid #3b82f6;margin-bottom:-2px;
+                           transition:color .15s,border-color .15s">
+                    ${t('login')}
+                </button>
+                <button id="fd-tab-register" data-tab="register"
+                    style="flex:1;padding:.85rem 1rem;background:none;border:none;
+                           font-weight:600;font-size:.93rem;cursor:pointer;font-family:inherit;
+                           color:#94a3b8;border-bottom:2px solid transparent;margin-bottom:-2px;
+                           transition:color .15s,border-color .15s">
+                    ${t('register')}
+                </button>
+            </div>
+
+            <div style="padding:1.5rem">
+                <!-- Google OAuth (visual-only placeholder) -->
+                <button id="fd-google-btn" disabled title="${t('google_coming_soon')}"
+                    style="width:100%;display:flex;align-items:center;justify-content:center;
+                           gap:.65rem;padding:.72rem 1rem;border:1.5px solid var(--fd-border,#e2e8f0);
+                           border-radius:.75rem;background:var(--fd-surface,#fff);font-size:.9rem;
+                           font-weight:600;color:var(--fd-text,#374151);cursor:not-allowed;
+                           opacity:.6;margin-bottom:1rem;font-family:inherit">
+                    <svg width="18" height="18" viewBox="0 0 18 18" style="flex-shrink:0" aria-hidden="true">
+                        <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908C16.658 14.016 17.64 11.707 17.64 9.2z"/>
+                        <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+                        <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
+                        <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 6.294C4.672 4.167 6.656 3.58 9 3.58z"/>
+                    </svg>
+                    ${t('continue_with_google')}
+                    <span style="font-size:.75rem;color:#94a3b8;font-weight:400">(${t('google_coming_soon')})</span>
+                </button>
+
+                <!-- Divider -->
+                <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:1rem">
+                    <div style="flex:1;height:1px;background:var(--fd-border,#e2e8f0)"></div>
+                    <span style="font-size:.8rem;color:#94a3b8">${t('auth_or')}</span>
+                    <div style="flex:1;height:1px;background:var(--fd-border,#e2e8f0)"></div>
+                </div>
+
+                <!-- Login form -->
+                <form id="fd-login-form"
+                      style="display:${initialMode==='login'?'flex':'none'};flex-direction:column;gap:.75rem">
+                    <input type="text" id="username" class="w-full p-3 border rounded-lg"
+                           placeholder="${t('username')}" required autocomplete="username">
+                    <input type="password" id="password" class="w-full p-3 border rounded-lg"
+                           placeholder="${t('password')}" required autocomplete="current-password">
+                    <button type="submit" class="btn w-full">${t('login')}</button>
+                </form>
+
+                <!-- Register form -->
+                <form id="fd-register-form"
+                      style="display:${initialMode==='register'?'flex':'none'};flex-direction:column;gap:.75rem">
+                    <input type="text" id="reg-username" class="w-full p-3 border rounded-lg"
+                           placeholder="${t('placeholder_username')}" required autocomplete="username">
+                    <input type="text" id="reg-nickname" class="w-full p-3 border rounded-lg"
+                           placeholder="${t('placeholder_nickname')}" required autocomplete="nickname">
+                    <input type="email" id="reg-email" class="w-full p-3 border rounded-lg"
+                           placeholder="${t('placeholder_email')}" required autocomplete="email">
+                    <input type="password" id="reg-password" class="w-full p-3 border rounded-lg"
+                           placeholder="${t('password')}" required autocomplete="new-password">
+                    <button type="submit" class="btn w-full">${t('register')}</button>
+                </form>
+            </div>
+        </div>`;
+
+    document.body.appendChild(overlay);
+
+    // Tab switching
+    overlay.querySelectorAll('#fd-tab-login, #fd-tab-register').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const mode = tab.id === 'fd-tab-login' ? 'login' : 'register';
+            ['login','register'].forEach(m => {
+                const btn  = overlay.querySelector('#fd-tab-' + m);
+                const form = overlay.querySelector('#fd-' + m + '-form');
+                const active = m === mode;
+                btn.style.color           = active ? '#3b82f6' : '#94a3b8';
+                btn.style.fontWeight      = active ? '700' : '600';
+                btn.style.borderBottomColor = active ? '#3b82f6' : 'transparent';
+                form.style.display        = active ? 'flex' : 'none';
+            });
+        });
+    });
+
+    // Close on backdrop click
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    // Form submissions
+    overlay.querySelector('#fd-login-form').addEventListener('submit', handleLogin);
+    overlay.querySelector('#fd-register-form').addEventListener('submit', handleRegister);
 }
 
 function renderFileBrowserView() {
@@ -1365,7 +1461,7 @@ async function loadDirectory(path) {
         segs.forEach((seg, idx) => {
             if (idx === 0) {
                 built = '/';
-                html += `<button onclick="navigateTo('/')" style="background:none;border:none;color:#3b82f6;cursor:pointer;font-weight:600;padding:0 2px">🏠 root</button>`;
+                html += `<button onclick="navigateTo('/')" style="background:none;border:none;color:#3b82f6;cursor:pointer;font-weight:600;padding:0 2px">${t('fluxdrop_file_manager_path_root')}</button>`;
             } else {
                 built = built.endsWith('/') ? built + seg : built + '/' + seg;
                 const bp = built;
@@ -1606,11 +1702,11 @@ function formatMtime(ts) {
         a.getFullYear() === b.getFullYear() &&
         a.getMonth()    === b.getMonth()    &&
         a.getDate()     === b.getDate();
-    if (sameDay(d, now)) return `Today at ${time}`;
+    if (sameDay(d, now)) return t('fmt_today_at', { time });
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
-    if (sameDay(d, yesterday)) return `Yesterday at ${time}`;
-    return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) + ` at ${time}`;
+    if (sameDay(d, yesterday)) return t('fmt_yesterday_at', { time });
+    return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + t('fmt_at_time', { time });
 }
 
 
@@ -5344,7 +5440,13 @@ async function handleRegister(e) {
     try {
         const data = await apiCall('/auth/register', 'POST', { username, nickname, email, password }, false);
         showMessage('Registration Success', data.message);
-        renderApp('login'); // Show login form after successful registration message
+        // Switch to the login tab in the existing modal (or open fresh login)
+        const _existingModal = document.getElementById('fd-auth-modal');
+        if (_existingModal) {
+            _existingModal.querySelector('#fd-tab-login')?.click();
+        } else {
+            renderApp('login');
+        }
     } catch (error) {
         showMessage('Registration Failed', error.message);
     }
@@ -5364,6 +5466,8 @@ async function handleLogin(e) {
         localStorage.setItem('fluxdrop_is_admin', data.is_admin ? '1' : '0');
         localStorage.setItem('fluxdrop_username', currentUsername);
         if (data.id) localStorage.setItem('fluxdrop_user_id', String(data.id));
+        document.getElementById('fd-auth-modal')?.remove();
+        delete appRoot.dataset.fdLanding;
         const _welcomeKey = `fluxdrop_welcomed_${currentUsername}`;
         if (!localStorage.getItem(_welcomeKey)) {
             localStorage.setItem(_welcomeKey, '1');
@@ -5517,7 +5621,7 @@ function _showAvatarEditor(file, onConfirm) {
             <!-- Header -->
             <div style="display:flex;justify-content:space-between;align-items:center;
                         padding:13px 16px;border-bottom:1px solid #334155">
-                <span style="color:#e2e8f0;font-weight:700;font-size:14px">✂ Crop Photo</span>
+                <span style="color:#e2e8f0;font-weight:700;font-size:14px">✂ ${t('avatar_crop_title')}</span>
                 <button id="aed-x" style="background:rgba(255,255,255,.1);border:none;color:#e2e8f0;
                     border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:15px;
                     display:flex;align-items:center;justify-content:center">✕</button>
@@ -5528,7 +5632,7 @@ function _showAvatarEditor(file, onConfirm) {
                     style="border-radius:8px;cursor:grab;touch-action:none;
                            max-width:calc(96vw - 40px);max-height:calc(96vw - 40px)"></canvas>
                 <p style="margin:0;font-size:11px;color:#475569;text-align:center">
-                    Drag to pan · Scroll or pinch to zoom
+                    ${t('avatar_crop_hint')}
                 </p>
             </div>
             <!-- Footer -->
@@ -5536,15 +5640,15 @@ function _showAvatarEditor(file, onConfirm) {
                         gap:8px;padding:13px 16px;border-top:1px solid #334155">
                 <button id="aed-reset"
                     style="background:#334155;color:#cbd5e1;border:none;border-radius:7px;
-                           padding:7px 14px;cursor:pointer;font-size:13px">Reset</button>
+                           padding:7px 14px;cursor:pointer;font-size:13px">${t('avatar_crop_reset')}</button>
                 <div style="display:flex;gap:8px">
                     <button id="aed-cancel"
                         style="background:#334155;color:#cbd5e1;border:none;border-radius:7px;
-                               padding:7px 14px;cursor:pointer;font-size:13px">Cancel</button>
+                               padding:7px 14px;cursor:pointer;font-size:13px">${t('cancel')}</button>
                     <button id="aed-ok"
                         style="background:#3b82f6;color:#fff;border:none;border-radius:7px;
                                padding:7px 18px;cursor:pointer;font-size:13px;font-weight:600">
-                        Set Photo
+                        ${t('avatar_set_photo')}
                     </button>
                 </div>
             </div>
@@ -5855,17 +5959,17 @@ async function openProfilePanel() {
                         <div style="display:grid;gap:6px">
                             <label id="pp-avatar-btn" class="btn"
                                    style="padding:5px 12px;font-size:12px;cursor:pointer;display:inline-block">
-                                📷 Change photo
+                                ${t('avatar_change_photo')}
                                 <input type="file" id="pp-avatar-file" accept="image/*"
                                        style="display:none">
                             </label>
                             <button id="pp-avatar-remove"
                                     style="background:none;border:none;color:#94a3b8;font-size:12px;
                                            cursor:pointer;text-align:left;padding:0;text-decoration:underline">
-                                Remove photo
+                                ${t('avatar_remove_photo')}
                             </button>
                             <div id="pp-avatar-msg" style="font-size:11px;color:#94a3b8">
-                                Max 50 kB · AVIF/WebP/JPEG · max 1024 px
+                                ${t('avatar_hint')}
                             </div>
                         </div>
                     </div>
@@ -6734,7 +6838,7 @@ function renderShareRow(s) {
     const created = s.created_at ? new Date(s.created_at).toLocaleDateString() : '?';
 
     // Format expiry for display and for the date input (YYYY-MM-DD)
-    let expiryDisplay = '<span style="color:#94a3b8">Never</span>';
+    let expiryDisplay = `<span style="color:#94a3b8">${t('shares_info_never')}</span>`;
     let expiryInputVal = '';
     if (s.expires_at) {
         const expDate = new Date(s.expires_at);
@@ -6756,42 +6860,42 @@ function renderShareRow(s) {
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0;margin-left:8px">
                 ${s.track_stats ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}"
-                    style="background:#0ea5e9;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">Stats</button>` : ''}
+                    style="background:#0ea5e9;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_stats_button')}</button>` : ''}
                 <button class="sm-copy-btn" data-url="${urlEsc}"
-                    style="background:#3b82f6;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">Copy Link</button>
+                    style="background:#3b82f6;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_copy_link_button')}</button>
                 <button class="sm-delete-btn" data-token="${s.token}"
-                    style="background:#ef4444;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">Revoke</button>
+                    style="background:#ef4444;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_revoke_button')}</button>
             </div>
         </div>
 
         <div style="display:flex;gap:12px 20px;flex-wrap:wrap;align-items:center">
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
                 <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="require_account" ${s.require_account ? 'checked' : ''}>
-                Require account
+                ${t('shares_info_account_requirement')}
             </label>
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
                 <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="track_stats" ${s.track_stats ? 'checked' : ''}>
-                Track stats
+                ${t('shares_info_stats_tracking')}
             </label>
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
                 <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_preview" ${s.allow_preview ? 'checked' : ''}>
-                Allow preview
+                ${t('shares_info_preview')}
             </label>
             ${!s.is_dir ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
                 <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_cdn_embed" ${s.allow_cdn_embed ? 'checked' : ''}>
-                CDN embed
+                ${t('shares_info_cdn_embed')}
             </label>` : ''}
             ${s.is_dir ? `
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
                 <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_anon_upload" ${s.allow_anon_upload ? 'checked' : ''}>
-                Anyone can upload
+                ${t('shares_info_uploads_anyone')}
             </label>
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
                 <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_auth_upload" ${s.allow_auth_upload ? 'checked' : ''}>
-                Auth users can upload
+                ${t('shares_info_uploads_auth_only')}
             </label>` : ''}
             <div style="display:flex;align-items:center;gap:6px;font-size:13px">
-                <span style="white-space:nowrap">⏰ Expiry:</span>
+                <span style="white-space:nowrap">${t('shares_info_expiry')}</span>
                 <input type="date" class="sm-expiry-input" data-token="${s.token}"
                     value="${expiryInputVal}"
                     style="padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#1e293b">
@@ -6827,18 +6931,20 @@ async function openShareStats(token, name) {
     try {
         const data = await apiCall(`/api/v1/shares/${token}/stats`, 'GET');
         const logs = data.logs || [];
-        const rows = logs.length === 0 ? '<tr><td colspan="3" style="padding:12px;color:#94a3b8;text-align:center">No accesses recorded yet</td></tr>' :
-            logs.map(l => `<tr style="border-top:1px solid #f1f5f9">
+        const _anonSpan = `<span style="color:#94a3b8">${t('shares_stats_anonymous')}</span>`;
+        const rows = logs.length === 0
+            ? `<tr><td colspan="3" style="padding:12px;color:#94a3b8;text-align:center">${t('shares_stats_no_accesses')}</td></tr>`
+            : logs.map(l => `<tr style="border-top:1px solid #f1f5f9">
                 <td style="padding:8px 12px;font-size:13px">${l.accessed_at ? new Date(l.accessed_at).toLocaleString() : '?'}</td>
-                <td style="padding:8px 12px;font-size:13px">${l.username || '<span style="color:#94a3b8">anonymous</span>'}</td>
+                <td style="padding:8px 12px;font-size:13px">${l.username || _anonSpan}</td>
                 <td style="padding:8px 12px;font-size:13px">${escapeHtmlAttr(l.action || 'view')}</td>
             </tr>`).join('');
         showMessage(`📊 Stats: ${name}`,
             `<div style="text-align:left;max-height:300px;overflow-y:auto">` +
             `<table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f8fafc">
-                <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">Time</th>
-                <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">User</th>
-                <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">Action</th>
+                <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">${t('shares_stats_col_time')}</th>
+                <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">${t('shares_stats_col_user')}</th>
+                <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">${t('shares_stats_col_action')}</th>
             </tr></thead><tbody>${rows}</tbody></table></div>`,
             true /* isHtml */
         );

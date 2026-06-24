@@ -39,6 +39,39 @@
     close:                  '✕',
     // File info panel
     file_info_title:        'Info',
+    // Time formatting
+    fmt_today_at:           'Today at {time}',
+    fmt_yesterday_at:       'Yesterday at {time}',
+    fmt_at_time:            'at {time}',
+    // Share row labels (CDN embed + short "Never")
+    shares_info_cdn_embed:  'CDN embed',
+    shares_info_never:      'Never',
+    // Share stats dialog
+    shares_stats_no_accesses: 'No accesses recorded yet',
+    shares_stats_col_time:  'Time',
+    shares_stats_col_user:  'User',
+    shares_stats_col_action: 'Action',
+    shares_stats_anonymous: 'anonymous',
+    // Avatar crop editor
+    avatar_crop_title:      'Crop Photo',
+    avatar_crop_hint:       'Drag to pan · Scroll or pinch to zoom',
+    avatar_crop_reset:      'Reset',
+    avatar_set_photo:       'Set Photo',
+    avatar_change_photo:    '📷 Change photo',
+    avatar_remove_photo:    'Remove photo',
+    avatar_hint:            'Max 50 kB · AVIF/WebP/JPEG · max 1024 px',
+    // Policy acceptance modal
+    policy_scroll_hint:     '↓ Scroll to the bottom to enable the agree button',
+    policy_scroll_done:     '✓ You have read the document',
+    policy_decline_btn:     'Decline & log out',
+    policy_review_title:    'Please review our updated {label}',
+    policy_version_note:    'v{version} — You must agree to continue using FluxDrop.',
+    policy_agree_btn:       'I agree to the {label}',
+    policy_saving:          'Saving…',
+    // Auth modal
+    continue_with_google:   'Continue with Google',
+    google_coming_soon:     'coming soon',
+    auth_or:                'or',
   };
   const EXTRA_UK = {
     // Trash bin
@@ -58,6 +91,39 @@
     trash_browse:           'Переглянути',
     close:                  '✕',
     file_info_title:        'Інфо',
+    // Time formatting
+    fmt_today_at:           'Сьогодні о {time}',
+    fmt_yesterday_at:       'Вчора о {time}',
+    fmt_at_time:            'о {time}',
+    // Share row labels
+    shares_info_cdn_embed:  'CDN вбудовування',
+    shares_info_never:      'Ніколи',
+    // Share stats dialog
+    shares_stats_no_accesses: 'Ще немає записів доступу',
+    shares_stats_col_time:  'Час',
+    shares_stats_col_user:  'Користувач',
+    shares_stats_col_action: 'Дія',
+    shares_stats_anonymous: 'анонімний',
+    // Avatar crop editor
+    avatar_crop_title:      'Обрізати фото',
+    avatar_crop_hint:       'Перетягніть · Прокрутіть або зведіть для масштабування',
+    avatar_crop_reset:      'Скинути',
+    avatar_set_photo:       'Встановити фото',
+    avatar_change_photo:    '📷 Змінити фото',
+    avatar_remove_photo:    'Видалити фото',
+    avatar_hint:            'Макс. 50 КБ · AVIF/WebP/JPEG · макс. 1024 пкс',
+    // Policy acceptance modal
+    policy_scroll_hint:     '↓ Прокрутіть до кінця, щоб активувати кнопку погодження',
+    policy_scroll_done:     '✓ Ви прочитали документ',
+    policy_decline_btn:     'Відхилити та вийти',
+    policy_review_title:    'Будь ласка, ознайомтеся з оновленою {label}',
+    policy_version_note:    'v{version} — Ви повинні погодитися, щоб продовжити використання FluxDrop.',
+    policy_agree_btn:       'Я погоджуюся з {label}',
+    policy_saving:          'Зберігання…',
+    // Auth modal
+    continue_with_google:   'Продовжити з Google',
+    google_coming_soon:     'незабаром',
+    auth_or:                'або',
   };
 
   const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };
@@ -274,6 +340,13 @@
   function _applyTheme(mode) {
     const dark = _isDark(mode);
     ROOT_EL.setAttribute('data-theme', dark ? 'dark' : 'light');
+    // When switching to light, remove the early-dark bootstrap <style> injected
+    // by the inline <head> script.  That element has no [data-theme] guard and
+    // uses !important, so it persists and overrides light-mode backgrounds.
+    if (!dark) {
+      const early = document.getElementById('fd-early-dark');
+      if (early) early.remove();
+    }
     document.querySelectorAll('.fd-theme-toggle-btn').forEach(btn => {
       btn.textContent = dark ? '☀ Light' : '🌙 Dark';
     });

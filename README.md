@@ -1,4 +1,4 @@
-# server `v0.19.0.12`
+# server `v0.19.0.13`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -14,18 +14,25 @@ now mainly fixed, and the new additions to the FluxDrop.***
 ***Additions:***
 - ***File info modal now shows SHA-256 hash, and have ability to generate both 
 of the hashes on-demand***
+- ***More i18n adaptations***
+- ***More animations***
+- ***Placeholder for the Google OAuth support (coming soon)***
 
 ***Fixes:***
 - ***Inabilty to access the server after few days of uptime, caused by the 
 problems inside one of the backend files***
 - ***Current server version are now displayed in the footer***
 - ***Upload fails in some specific conditions***
-- ***.***
+- ***Dark mode fixes - mainly when the user have dark mode in the system, and 
+light mode in the FluxDrop***
+- ***Markdown parser properly understands the bold italic formatting with the 
+new lines inside the text (e.g. in this Readme, there's a lot of those used and 
+a lot of the same cases that previously caused the problems with parser)
 
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Change the main page***
+- ***A lot of things changed, pre-release for the `v.0.19.1` when polished***
 
 ---
 

@@ -61,19 +61,30 @@ on i5 8350U)
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 - [ ] Fix i18n in:
-  - [ ] Time for items
   - [ ] Actions modal
   - [ ] Breadcrumbs (translate only the `root`, nothing else)
-  - [ ] Profile picture new additions
-  - [ ] Shared links remainings
-  - [ ] Shared links statictics
-  - [ ] Error-related pages
+  - [x] Shared links remainings
+    - [ ] "CDN Embed..." not fixed
+    - [ ] operation type (e.g. `download`, `view`, `embed`, etc.)
+  - [ ] Error-related pages -- untested
+  - [ ] Translate the `⚠ Due to server capacity demand, new items are kept for 
+  7 days. Retention will return to 30 days once space is freed.` (not i18n, 
+  rather l10n issue with missing key)
 - [ ] Add more animations to:
-  - [ ] (things)
+  - [ ] Closing the profile menu
+  - [ ] File selection (checkmark appearance and disappearance)
+  - [ ] `fd-sel-bar` animations of appearance and disappearance
+  - [ ] `profile-panel-overlay` closing
+  - [ ] `share-manager-overlay` closing
+  - [ ] `trash-overlay` closing
+  - [ ] 
 - [ ] Upload ends successfully even if the upload of one of the files fails 
 (for example because of the quota)
 - [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
 the scene (aka it just shows "Downloading via browser...")
+- [ ] Status page doesn't updates fully (e.g. uptime)
+- [ ] Status page doesn't load the amount of files on server on first load
+- [ ] I forgot what I want to include there also...
 
 ### Server-side changes:
 
@@ -181,6 +192,13 @@ to a file
   - [x] And will have ability to calculate other type of checksum (e.g. MD5, 
   SHA1, SHA256 or SHA512) because CRC-32 isn't that broad (for example in the 
   Dolphin file manager)
+
+- [x] Fix i18n in:
+  - [x] Time for items
+  - [x] Profile picture new additions
+  - [x] Shared links statictics
+- [x] Add more animations to:
+  - [x] (things)
 
 ---
 

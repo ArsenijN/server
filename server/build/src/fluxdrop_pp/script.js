@@ -4069,16 +4069,16 @@ async function _refreshTrashView() {
                 // a normal directory — requires a server-side endpoint that can
                 // read from the trash dir.  Until that's available we fall back
                 // to showing a "not yet supported" message.
-                const panel = document.createElement('div');
-                panel.className = 'trash-tree-panel';
-                panel.style.cssText = 'background:#f8fafc;border-bottom:1px solid #e2e8f0;' +
-                    'padding:10px 20px 10px 44px;font-size:12px;color:#475569';
-                // TODO: replace with real API call once server exposes
-                //       GET /api/v1/trash/<id>/list or similar.
-                panel.innerHTML = `<em style="color:#94a3b8">📂 Folder browsing from trash requires a
-                    server-side listing endpoint (<code>/api/v1/trash/${btn.dataset.id}/list</code>).
-                    Restore the folder first to browse its contents.</em>`;
-                row.insertAdjacentElement('afterend', panel);
+                // const panel = document.createElement('div');
+                // panel.className = 'trash-tree-panel';
+                // panel.style.cssText = 'background:#f8fafc;border-bottom:1px solid #e2e8f0;' +
+                //     'padding:10px 20px 10px 44px;font-size:12px;color:#475569';
+                // // TODO: replace with real API call once server exposes
+                // //       GET /api/v1/trash/<id>/list or similar.
+                // // panel.innerHTML = `<em style="color:#94a3b8">📂 Folder browsing from trash requires a
+                // //     server-side listing endpoint (<code>/api/v1/trash/${btn.dataset.id}/list</code>).
+                // //     Restore the folder first to browse its contents.</em>`;
+                // row.insertAdjacentElement('afterend', panel);
                 btn.textContent = 'Close'; btn.disabled = false;
             } catch (err) {
                 btn.textContent = 'Browse'; btn.disabled = false;

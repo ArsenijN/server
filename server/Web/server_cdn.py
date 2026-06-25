@@ -3917,6 +3917,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if retention == 7:
             notice = ('Due to server capacity demand, new items are kept for 7 days. '
                       'Retention will return to 30 days once space is freed.')
+            # bad hardcode, needs complex fix I think because l10n key does nothing
         return self._send_response(200, json.dumps({
             'items': items,
             'retention_days': retention,

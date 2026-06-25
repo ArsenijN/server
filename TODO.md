@@ -11,7 +11,8 @@ user feedback or ideas for future development.
 
 ### UI
 - [ ] Markdown parser does not understand:
-  - [ ] `***` following with the new lines inside the text and then `***` again
+  - [ ] `***` following with the new lines inside the text and then `***` again 
+  -- still doesn't
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 - [ ] Make proper header and footer for the main FluxDrop UI
@@ -23,11 +24,6 @@ user feedback or ideas for future development.
       - [ ] Add parchives to avoid file damages
       - [ ] Add some kind of messages if files got corrupted on server side and 
       was unrecoverable
-- [ ] Dark mode are half-broken and didn't "obay" if the browser says dark, and 
-user sets light, or otherwize
-- [ ] Slightly redesign the login modal (make it not as the one page but as the 
-appearing modal, so the landing page will be intact at the time of login)
-- [ ] Add Google OAuth support (for now visually, later the backend)
 
 ### UX
 - [ ] Make the file info also work as turn on-off: is present on screen - show 
@@ -69,7 +65,7 @@ on i5 8350U)
   - [ ] Error-related pages -- untested
   - [ ] Translate the `⚠ Due to server capacity demand, new items are kept for 
   7 days. Retention will return to 30 days once space is freed.` (not i18n, 
-  rather l10n issue with missing key)
+  rather l10n issue with missing key -- no, i18n)
 - [ ] Add more animations to:
   - [ ] Closing the profile menu
   - [ ] File selection (checkmark appearance and disappearance)
@@ -84,7 +80,6 @@ on i5 8350U)
 the scene (aka it just shows "Downloading via browser...")
 - [ ] Status page doesn't updates fully (e.g. uptime)
 - [ ] Status page doesn't load the amount of files on server on first load
-- [ ] I forgot what I want to include there also...
 
 ### Server-side changes:
 
@@ -199,6 +194,12 @@ to a file
   - [x] Shared links statictics
 - [x] Add more animations to:
   - [x] (things)
+
+- [x] Dark mode are half-broken and didn't "obay" if the browser says dark, and 
+user sets light, or otherwize
+- [x] Slightly redesign the login modal (make it not as the one page but as the 
+appearing modal, so the landing page will be intact at the time of login)
+- [x] Add Google OAuth support (for now visually, later the backend)
 
 ---
 

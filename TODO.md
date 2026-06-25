@@ -19,7 +19,8 @@ user feedback or ideas for future development.
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
 - [x] Add file info modal
   - [ ] Background hashsums (do it via `nice` so it will execute when server 
-  isn't fully utilized, as background thing)
+  isn't fully utilized, as background thing) -- improvement for the current 
+  `maintenance window`
     - [ ] Use those hashes for silent file check activity in background
       - [ ] Add parchives to avoid file damages
       - [ ] Add some kind of messages if files got corrupted on server side and 
@@ -28,7 +29,7 @@ user feedback or ideas for future development.
 ### UX
 - [ ] Make the file info also work as turn on-off: is present on screen - show 
 the infos for the selected (or last selected) file, on item change - change the 
-display of infos
+display of infos -- make as toggle in the settings for this feature
 - [ ] Ability to download the shared folders without JS (fallback option)
 - [ ] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items -- made for status page, later for 
@@ -58,7 +59,6 @@ on i5 8350U)
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 - [ ] Fix i18n in:
   - [ ] Actions modal
-  - [ ] Breadcrumbs (translate only the `root`, nothing else)
   - [x] Shared links remainings
     - [ ] "CDN Embed..." not fixed
     - [ ] operation type (e.g. `download`, `view`, `embed`, etc.)
@@ -89,8 +89,9 @@ now I can't replicate it so I don't know why and I can't give any clues when
 that happens and after what -- they are caused on network switch
 - [ ] Trash bin file preview inside folders
 - [ ] Hash are not moved/re-attached to a file after move
-- [ ] Maybe cancel the file hashing or avoid the ~~async~~ multithreadrf file 
-hash
+- [ ] Maybe cancel the file hashing or avoid the ~~async~~ multithreaded file 
+hash after canceling the ZIP download, or do it only if server is unused or via 
+`nice`
 
 #### Medium:
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
@@ -200,6 +201,9 @@ user sets light, or otherwize
 - [x] Slightly redesign the login modal (make it not as the one page but as the 
 appearing modal, so the landing page will be intact at the time of login)
 - [x] Add Google OAuth support (for now visually, later the backend)
+
+- [x] Fix i18n in:
+  - [x] Breadcrumbs (translate only the `root`, nothing else)
 
 ---
 

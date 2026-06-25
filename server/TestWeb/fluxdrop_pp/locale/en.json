@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "en",
     "label": "English",
-    "version": "1.4.0"
+    "version": "1.4.1"
   },
   "login": "Login",
   "register": "Register",
@@ -36,7 +36,7 @@
   "restore": "Restore",
   "empty_trash": "Empty Trash",
   "browse": "Browse",
-  "trash_empty": "Trash is empty",
+  "trash_empty": "🗑 Trash is empty",
   "trash_title": "Trash",
   "trash_hint": "Files are automatically deleted after their retention period.",
   "trash_loading": "Loading trash…",

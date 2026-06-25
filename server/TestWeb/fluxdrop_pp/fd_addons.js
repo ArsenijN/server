@@ -18,112 +18,37 @@
 // Add any keys missing from fd_locale_bundle.js here so t() never returns
 // a bare key in supported languages.  Keys already present in the bundle
 // take precedence (the bundle is loaded before this file).
+//
+// This function purpose is to serve as a runtime fallback for keys that were 
+// added to the JSON locales after the last build_locale_bundle.py run. Once 
+// python3 build_locale_bundle.py locale/ fd_locale_bundle.js is run after 
+// updating the JSON files, all those keys are in the bundle and t() finds them 
+// from there directly. The EXTRA_* objects become dead code, so once the 
+// bundle are rebuilt, and verified t('fmt_today_at') etc. return correctly, 
+// both EXTRA_EN and EXTRA_UK blocks can be deleted from fd_addons.js entirely. 
+// The JSON files are the canonical source; fd_addons.js was just the staging 
+// area.
 ;(function () {
   const EXTRA_EN = {
     // Trash bin
-    trash_retention_notice: 'Files are automatically deleted after their retention period. Trash does not count toward your storage quota.',
-    trash_empty_btn:        'Empty Trash',
-    trash_empty_confirm:    'Permanently delete everything in Trash? This cannot be undone.',
     trash_1_item:           '1 item',
     trash_n_items:          '{n} items',
     trash_days_expiring:    'Expiring soon',
     trash_days_1:           '1 day left',
     trash_days_n:           '{n} days left',
     trash_deleted_label:    'Deleted',
-    trash_is_empty:         '🗑 Trash is empty',
-    trash_restore:          'Restore',
-    trash_delete:           'Delete',
-    trash_preview:          'Preview',
-    trash_browse:           'Browse',
     // Shared UI
     close:                  '✕',
-    // File info panel
-    file_info_title:        'Info',
-    // Time formatting
-    fmt_today_at:           'Today at {time}',
-    fmt_yesterday_at:       'Yesterday at {time}',
-    fmt_at_time:            'at {time}',
-    // Share row labels (CDN embed + short "Never")
-    shares_info_cdn_embed:  'CDN embed',
-    shares_info_never:      'Never',
-    // Share stats dialog
-    shares_stats_no_accesses: 'No accesses recorded yet',
-    shares_stats_col_time:  'Time',
-    shares_stats_col_user:  'User',
-    shares_stats_col_action: 'Action',
-    shares_stats_anonymous: 'anonymous',
-    // Avatar crop editor
-    avatar_crop_title:      'Crop Photo',
-    avatar_crop_hint:       'Drag to pan · Scroll or pinch to zoom',
-    avatar_crop_reset:      'Reset',
-    avatar_set_photo:       'Set Photo',
-    avatar_change_photo:    '📷 Change photo',
-    avatar_remove_photo:    'Remove photo',
-    avatar_hint:            'Max 50 kB · AVIF/WebP/JPEG · max 1024 px',
-    // Policy acceptance modal
-    policy_scroll_hint:     '↓ Scroll to the bottom to enable the agree button',
-    policy_scroll_done:     '✓ You have read the document',
-    policy_decline_btn:     'Decline & log out',
-    policy_review_title:    'Please review our updated {label}',
-    policy_version_note:    'v{version} — You must agree to continue using FluxDrop.',
-    policy_agree_btn:       'I agree to the {label}',
-    policy_saving:          'Saving…',
-    // Auth modal
-    continue_with_google:   'Continue with Google',
-    google_coming_soon:     'coming soon',
-    auth_or:                'or',
   };
   const EXTRA_UK = {
     // Trash bin
-    trash_retention_notice: 'Файли автоматично видаляються після закінчення терміну зберігання. Кошик не зараховується в квоту.',
-    trash_empty_btn:        'Очистити кошик',
-    trash_empty_confirm:    'Остаточно видалити все у кошику? Це незворотно.',
     trash_1_item:           '1 елемент',
     trash_n_items:          '{n} елементи',
     trash_days_expiring:    'Скоро видалиться',
     trash_days_1:           'Залишився 1 день',
     trash_days_n:           'Залишилось {n} днів',
     trash_deleted_label:    'Видалено',
-    trash_is_empty:         '🗑 Кошик порожній',
-    trash_restore:          'Відновити',
-    trash_delete:           'Видалити',
-    trash_preview:          'Перегляд',
-    trash_browse:           'Переглянути',
     close:                  '✕',
-    file_info_title:        'Інфо',
-    // Time formatting
-    fmt_today_at:           'Сьогодні о {time}',
-    fmt_yesterday_at:       'Вчора о {time}',
-    fmt_at_time:            'о {time}',
-    // Share row labels
-    shares_info_cdn_embed:  'CDN вбудовування',
-    shares_info_never:      'Ніколи',
-    // Share stats dialog
-    shares_stats_no_accesses: 'Ще немає записів доступу',
-    shares_stats_col_time:  'Час',
-    shares_stats_col_user:  'Користувач',
-    shares_stats_col_action: 'Дія',
-    shares_stats_anonymous: 'анонімний',
-    // Avatar crop editor
-    avatar_crop_title:      'Обрізати фото',
-    avatar_crop_hint:       'Перетягніть · Прокрутіть або зведіть для масштабування',
-    avatar_crop_reset:      'Скинути',
-    avatar_set_photo:       'Встановити фото',
-    avatar_change_photo:    '📷 Змінити фото',
-    avatar_remove_photo:    'Видалити фото',
-    avatar_hint:            'Макс. 50 КБ · AVIF/WebP/JPEG · макс. 1024 пкс',
-    // Policy acceptance modal
-    policy_scroll_hint:     '↓ Прокрутіть до кінця, щоб активувати кнопку погодження',
-    policy_scroll_done:     '✓ Ви прочитали документ',
-    policy_decline_btn:     'Відхилити та вийти',
-    policy_review_title:    'Будь ласка, ознайомтеся з оновленою {label}',
-    policy_version_note:    'v{version} — Ви повинні погодитися, щоб продовжити використання FluxDrop.',
-    policy_agree_btn:       'Я погоджуюся з {label}',
-    policy_saving:          'Зберігання…',
-    // Auth modal
-    continue_with_google:   'Продовжити з Google',
-    google_coming_soon:     'незабаром',
-    auth_or:                'або',
   };
 
   const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };
@@ -178,8 +103,11 @@
   function _buildRevMap(catalog) {
     const map = {};
     Object.entries(catalog).forEach(([k, v]) => {
-      if (typeof v === 'string' && v.length > 1 && !v.includes('{'))
-        map[v] = k;
+      if (typeof v !== 'string') return;
+      if (v.includes('{'))      return;   // template — skip
+      if (v.length <= 3)        return;   // too short, high collision risk (OK, Up, of …)
+      if (/^[A-Z0-9]+$/.test(v)) return; // all-caps abbreviation — TOS, PP, CDN …
+      map[v] = k;
     });
     return map;
   }
@@ -242,7 +170,15 @@
   /** Translate text nodes and key attributes inside `root`. */
   function _translateSubtree(root) {
     if (!_ready || _lang === 'en') return;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    // Skip the whole subtree if it (or any ancestor) is marked non-translatable.
+    // Use this on elements that display user-supplied strings (file names, paths…).
+    if (root.closest?.('[data-fd-notranslate]')) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: node =>
+        node.parentElement?.closest('[data-fd-notranslate]')
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT,
+    });
     let node;
     while ((node = walker.nextNode())) {
       const txt = node.textContent.trim();
@@ -253,6 +189,7 @@
       }
     }
     root.querySelectorAll && root.querySelectorAll('[title],[placeholder],[aria-label]').forEach(el => {
+      if (el.closest('[data-fd-notranslate]')) return;
       ['title', 'placeholder', 'aria-label'].forEach(attr => {
         const v = el.getAttribute(attr);
         if (v && _revMap[v.trim()]) {

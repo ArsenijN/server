@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-c6808be4
+// Current version of script.js is: fluxdrop-v-4635aa50
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-c6808be4'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-4635aa50'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -1468,9 +1468,11 @@ async function loadDirectory(path) {
                 html += ` <span style="color:#94a3b8">/</span> `;
                 const isLast = idx === segs.length - 1;
                 if (isLast) {
-                    html += `<span style="color:#1e293b;font-weight:600">${escapeHtml(seg)}</span>`;
+                    // data-fd-notranslate: this is a user-supplied folder/file name —
+                    // prevent the MutationObserver from auto-translating it.
+                    html += `<span style="color:#1e293b;font-weight:600" data-fd-notranslate>${escapeHtml(seg)}</span>`;
                 } else {
-                    html += `<button onclick="navigateTo('${escapeHtmlAttr(bp)}')" style="background:none;border:none;color:#3b82f6;cursor:pointer;padding:0 2px">${escapeHtml(seg)}</button>`;
+                    html += `<button onclick="navigateTo('${escapeHtmlAttr(bp)}')" style="background:none;border:none;color:#3b82f6;cursor:pointer;padding:0 2px" data-fd-notranslate>${escapeHtml(seg)}</button>`;
                 }
             }
         });
@@ -1612,12 +1614,12 @@ function renderEntryRow(e) {
                style="background:none;border:none;cursor:pointer;font-weight:600;
                       color:var(--fd-accent,#2563eb);font-size:14px;text-align:left;padding:0;
                       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:block"
-               title="${safePA}">📁 ${nameEsc}</button>`
+               data-fd-notranslate title="${safePA}">📁 ${nameEsc}</button>`
         : `<button class="preview-btn fd-entry-name" data-path="${safePA}"
                style="background:none;border:none;cursor:pointer;font-weight:500;
                       color:var(--fd-text,#1e293b);font-size:14px;text-align:left;padding:0;
                       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:block"
-               title="${safePA}">📄 ${nameEsc}</button>`;
+               data-fd-notranslate title="${safePA}">📄 ${nameEsc}</button>`;
 
     const uploaderLine = e.uploader
         ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">by ${escapeHtml(e.uploader)}</div>`
@@ -7430,7 +7432,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-c6808be4'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-4635aa50'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

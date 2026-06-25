@@ -1,4 +1,4 @@
-# server `v0.19.0.14`
+# server `v0.19.0.15`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -33,7 +33,7 @@ a lot of the same cases that previously caused the problems with parser)
 
 *Patch notes: **Changelog:***
 - ***A lot of things changed, pre-release for the `v.0.19.1` when polished***
-- ***Small things***
+- ***Breadcrumbs resistant l10n***
 
 ---
 

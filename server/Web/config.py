@@ -51,8 +51,8 @@ AUDIT_LOG = os.getenv('AUDIT_LOG', os.path.join(SECRETS_DIR, 'audit.log'))
 # SSL certificate/key
 CERT_FILE = os.getenv('CERT_FILE', os.path.join(SECRETS_DIR, 'myCA.pem'))
 KEY_FILE = os.getenv('KEY_FILE', os.path.join(SECRETS_DIR, 'myCA.key'))
-WILDCARD_CERT_FILE = os.getenv('WILDCARD_CERT_FILE', os.path.join(SECRETS_DIR, '/etc/letsencrypt/live/cf-wildcard/fullchain.pem'))
-WILDCARD_KEY_FILE  = os.getenv('WILDCARD_KEY_FILE', os.path.join(SECRETS_DIR, '/etc/letsencrypt/live/cf-wildcard/privkey.pem'))
+WILDCARD_CERT_FILE = os.getenv('WILDCARD_CERT_FILE', '/etc/letsencrypt/live/cf-wildcard/fullchain.pem')
+WILDCARD_KEY_FILE  = os.getenv('WILDCARD_KEY_FILE',  '/etc/letsencrypt/live/cf-wildcard/privkey.pem')
 
 # CDN upload area (sensitive if private). By default keep under secrets.
 CDN_UPLOAD_DIR = os.getenv('CDN_UPLOAD_DIR', os.path.join(SECRETS_DIR, 'CDN_uploads'))

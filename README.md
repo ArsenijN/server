@@ -1,4 +1,4 @@
-# server `v0.19.0.16`
+# server `v0.19.0.17`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -18,6 +18,7 @@ of the hashes on-demand***
 - ***More i18n adaptations***
 - ***More animations***
 - ***Placeholder for the Google OAuth support (coming soon)***
+- ***SNI aka multi-cert setup for usage with `certbot`***
 
 ***Fixes:***
 - ***Inabilty to access the server after few days of uptime, caused by the 
@@ -36,6 +37,7 @@ parser)***
 *Patch notes: **Changelog:***
 - ***A lot of things changed, pre-release for the `v.0.19.1` when polished***
 - ***Server works with SNI, muti-certs, or how it's called***
+- ***Fix my bad, indeed SNI works as should***
 
 ---
 

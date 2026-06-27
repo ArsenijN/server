@@ -16,7 +16,8 @@ import shutil # For securely moving uploaded files
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
-    KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN
+    KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN, \
+    WILDCARD_CERT_FILE, WILDCARD_KEY_FILE
 import urllib.request as _urllib_req
 import urllib.error   as _urllib_err
 import posixpath as _psp
@@ -941,91 +942,62 @@ if __name__ == "__main__":
     httpd = _QuietPooledHTTPServer((SERVER_IP, HTTPS_PORT), RequestHandler)
 
     # --- SSL Context Setup ---
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 
-    # ── TLS version floor ────────────────────────────────────────────────────
-    # Drop SSLv3/TLS 1.0/1.1 — all deprecated and insecure.
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    # ── Helper: build a fully configured SSLContext ───────────────────────────
+    def _make_ssl_context(certfile, keyfile):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.options |= ssl.OP_CIPHER_SERVER_PREFERENCE
+        if hasattr(ssl, 'OP_PRIORITIZE_CHACHA'):
+            ctx.options |= ssl.OP_PRIORITIZE_CHACHA
+        try:
+            ctx.set_session_cache_mode(ssl.SESS_CACHE_OFF)
+        except AttributeError:
+            pass
+        ctx.options |= getattr(ssl, 'OP_NO_TICKET', 0)
+        try:
+            ctx.set_ciphersuites(
+                'TLS_CHACHA20_POLY1305_SHA256:'
+                'TLS_AES_256_GCM_SHA384:'
+                'TLS_AES_128_GCM_SHA256'
+            )
+        except AttributeError:
+            pass
+        try:
+            ctx.set_ciphers(
+                'ECDHE+CHACHA20:ECDHE+AESGCM:DHE+CHACHA20:DHE+AESGCM:'
+                '!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK'
+            )
+        except ssl.SSLError as e:
+            print(f'WARNING: Could not set TLS 1.2 cipher list: {e}')
+        ctx.load_cert_chain(certfile=certfile, keyfile=keyfile)
+        return ctx
 
-    # ── Cipher suite preferences ─────────────────────────────────────────────
-    # Server preference order is enforced (OP_CIPHER_SERVER_PREFERENCE), so
-    # the cipher listed first wins regardless of what the client advertises.
-    #
-    # Why ChaCha20 first:
-    #   Old Intel CPUs (pre-Westmere, e.g. Core i3 370M) lack AES-NI hardware
-    #   acceleration. On those, AES-GCM is ~3-5× slower in software than
-    #   ChaCha20-Poly1305 which is designed for pure software speed.
-    #   Modern CPUs with AES-NI negotiate at equal or better speed and are not
-    #   disadvantaged — both sides accept either cipher.
-    #
-    # TLS 1.3 ciphers (set_ciphersuites):
-    #   Order: ChaCha20 → AES-256-GCM → AES-128-GCM
-    # TLS 1.2 ciphers (set_ciphers):
-    #   ECDHE+ChaCha20 → ECDHE+AES-GCM → DHE fallbacks; no aNULL/eNULL/EXPORT.
-    context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE   # server's order wins
-    # OP_PRIORITIZE_CHACHA: for TLS 1.3, OP_CIPHER_SERVER_PREFERENCE alone is
-    # not enough — OpenSSL still follows the client's preference.  This flag
-    # makes the server pick ChaCha20 whenever the client supports it,
-    # regardless of the client's advertised order.  Available Python ≥ 3.10.
-    if hasattr(ssl, 'OP_PRIORITIZE_CHACHA'):
-        context.options |= ssl.OP_PRIORITIZE_CHACHA
-
-    # ── SSL session cache — CRITICAL for multi-day stability ─────────────────
-    # OpenSSL maintains an in-process session cache that stores the TLS state
-    # for every client that has ever connected so future handshakes can be
-    # resumed cheaply.  With no eviction policy this cache grows without bound:
-    # after days of traffic it holds tens of thousands of stale entries,
-    # consuming hundreds of MB and causing measurable GC pressure.
-    #
-    # Mitigation A — disable server-side session cache entirely.
-    #   This removes the memory growth at the cost of session resumption.
-    #   For a file server (large transfers, long-lived connections) the benefit
-    #   of resumption is marginal — the handshake overhead is negligible vs the
-    #   transfer time — so the trade is worthwhile.
-    #
-    # Mitigation B — disable TLS session tickets (stateless resumption).
-    #   Session tickets move state to the client via an encrypted blob, so they
-    #   never fill server RAM.  But the ticket encryption key must be rotated
-    #   periodically and Python's ssl module does not expose key rotation.
-    #   Disabling tickets forces fallback to server-side sessions (which we also
-    #   disable above) so the net effect is: no resumption, minimal state.
-    #
-    # Together A + B = zero session state held in the process between requests.
-    try:
-        context.set_session_cache_mode(ssl.SESS_CACHE_OFF)
-    except AttributeError:
-        pass   # older Python — no-op
-    # OP_NO_TICKET disables TLS session tickets (RFC 5077); supported everywhere.
-    context.options |= getattr(ssl, 'OP_NO_TICKET', 0)
+    # ── Two contexts: default (uk.to + bare CF domains) and wildcard (*.CF) ──
+    _CF_WILDCARD_DOMAINS = {
+        'arseniusgen.dev', 'www.arseniusgen.dev',
+        'fluxdrop.me',     'www.fluxdrop.me',
+    }
+    _CF_WILDCARD_SUFFIXES = ('.arseniusgen.dev', '.fluxdrop.me')
 
     try:
-        context.set_ciphersuites(                        # TLS 1.3
-            'TLS_CHACHA20_POLY1305_SHA256:'
-            'TLS_AES_256_GCM_SHA384:'
-            'TLS_AES_128_GCM_SHA256'
-        )
-    except AttributeError:
-        pass  # Python < 3.7 — no set_ciphersuites; TLS 1.3 suite order is OS default
-
-    try:
-        context.set_ciphers(                             # TLS 1.2
-            'ECDHE+CHACHA20:'
-            'ECDHE+AESGCM:'
-            'DHE+CHACHA20:'
-            'DHE+AESGCM:'
-            '!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK'
-        )
-    except ssl.SSLError as _ce:
-        print(f'WARNING: Could not set custom TLS 1.2 cipher list: {_ce}')
-
-    try:
-        context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
-    except FileNotFoundError:
-        print(f"ERROR: SSL certificate or key file not found. Please ensure '{CERT_FILE}' and '{KEY_FILE}' exist.")
+        context      = _make_ssl_context(CERT_FILE,          KEY_FILE)
+        wildcard_ctx = _make_ssl_context(WILDCARD_CERT_FILE, WILDCARD_KEY_FILE)
+    except FileNotFoundError as e:
+        print(f"ERROR: Certificate file not found: {e}")
         sys.exit(1)
     except Exception as e:
-        print(f"ERROR: Error loading SSL certificate chain: {e}")
+        print(f"ERROR: Failed to load SSL certificates: {e}")
         sys.exit(1)
+
+    def _sni_callback(ssl_obj, server_name, base_ctx):
+        if server_name is None:
+            return  # no SNI — keep default context
+        name = server_name.lower()
+        if name in _CF_WILDCARD_DOMAINS or any(name.endswith(s) for s in _CF_WILDCARD_SUFFIXES):
+            ssl_obj.context = wildcard_ctx
+
+    context.set_servername_callback(_sni_callback)
 
     try:
         # Defer handshake to the worker threads to prevent main thread blocking

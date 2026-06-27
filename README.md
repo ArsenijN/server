@@ -1,4 +1,4 @@
-# server `v0.19.0.15`
+# server `v0.19.0.16`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -8,8 +8,9 @@ Just backend code of my server, nothing else, anyone can use it
 ***Mainstream: the backend instability and the overall user experience are now 
 improved***
 
-***Recent v.19 release had a lot of flaws and issues with the code, that are 
-now mainly fixed, and the new additions to the FluxDrop.***
+***Recent v.19.0 release had a lot of flaws and issues with the code, that are 
+now mainly fixed, and the new additions to the FluxDrop was made with the 
+v.19.1.***
 
 ***Additions:***
 - ***File info modal now shows SHA-256 hash, and have ability to generate both 
@@ -25,15 +26,16 @@ problems inside one of the backend files***
 - ***Upload fails in some specific conditions***
 - ***Dark mode fixes - mainly when the user have dark mode in the system, and 
 light mode in the FluxDrop***
-- ***Markdown parser properly understands the bold italic formatting with the 
-new lines inside the text (e.g. in this Readme, there's a lot of those used and 
-a lot of the same cases that previously caused the problems with parser)
+- ***Markdown parser isn't properly understanded the bold italic formatting 
+with the new lines inside the text (e.g. in this Readme, there's a lot of those 
+used and a lot of the same cases that previously caused the problems with 
+parser)***
 
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
 - ***A lot of things changed, pre-release for the `v.0.19.1` when polished***
-- ***Breadcrumbs resistant l10n***
+- ***Server works with SNI, muti-certs, or how it's called***
 
 ---
 

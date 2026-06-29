@@ -39,6 +39,7 @@ parser)***
 - ***Addind a proxy for my Immich gallery, later will be documented and 
 polished for usage for others***
 - ***Fix the missing proxy check for the `do_HEAD`***
+- ***Add socket.io rejector***
 
 ---
 

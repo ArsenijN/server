@@ -99,6 +99,16 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     Identical in structure to _proxy_to_cdn but with a configurable target
     URL and timeout instead of the hardcoded CDN loopback port.
     """
+    _upgrade = handler.headers.get('Upgrade', '').lower()
+    if _upgrade == 'websocket' or '/socket.io/' in handler.path:
+        handler.send_response(501)
+        msg = b'{"error":"WebSocket not supported through this proxy"}'
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(msg)))
+        handler.end_headers()
+        handler.wfile.write(msg)
+        return
+    
     _HOP_BY_HOP = frozenset({
         'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
         'te', 'trailers', 'transfer-encoding', 'upgrade', 'host',

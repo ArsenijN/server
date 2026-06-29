@@ -154,8 +154,9 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
         t1 = _thr.Thread(target=_pipe, args=(handler.connection, backend), daemon=True)
         t2 = _thr.Thread(target=_pipe, args=(backend, handler.connection), daemon=True)
         t1.start(); t2.start()
-        t1.join();  t2.join()
-        handler.close_connection = True  # ← add this
+        # Don't join — release the executor thread immediately.
+        # The daemon pipe threads will clean up when the socket closes.
+        handler.close_connection = True
         return
     # ── end WebSocket tunnel ──────────────────────────────────────────────
     """Forward the current request to an arbitrary backend origin.

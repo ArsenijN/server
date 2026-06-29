@@ -155,6 +155,7 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
         t2 = _thr.Thread(target=_pipe, args=(backend, handler.connection), daemon=True)
         t1.start(); t2.start()
         t1.join();  t2.join()
+        handler.close_connection = True  # ← add this
         return
     # ── end WebSocket tunnel ──────────────────────────────────────────────
     """Forward the current request to an arbitrary backend origin.

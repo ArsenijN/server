@@ -94,21 +94,74 @@ def _get_host_proxy(headers) -> dict | None:
     return None
 
 def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
+    # ── WebSocket tunnel ──────────────────────────────────────────────────
+    # urllib cannot do WebSocket upgrades. Instead we open a raw TCP
+    # connection to the backend and pipe bytes in both directions.
+    if handler.headers.get('Upgrade', '').lower() == 'websocket':
+        from urllib.parse import urlparse as _urlparse
+        import socket as _raw_sock
+        import threading as _thr
+
+        _p = _urlparse(target_base)
+        try:
+            backend = _raw_sock.create_connection(
+                (_p.hostname, _p.port or 80), timeout=10)
+        except Exception as e:
+            handler.send_response(502)
+            msg = f'{{"error":"WS backend unreachable: {e}"}}'.encode()
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+            return
+
+        # Forward the original HTTP upgrade request to the backend
+        _skip = frozenset({'host', 'content-length'})
+        req  = f"{handler.command} {handler.path} HTTP/1.1\r\n"
+        req += f"Host: {_p.hostname}:{_p.port or 80}\r\n"
+        for k, v in handler.headers.items():
+            if k.lower() not in _skip:
+                req += f"{k}: {v}\r\n"
+        req += "\r\n"
+        backend.sendall(req.encode())
+
+        # Read backend's 101 Switching Protocols and forward to client
+        head = b""
+        while b"\r\n\r\n" not in head:
+            chunk = backend.recv(4096)
+            if not chunk:
+                backend.close()
+                return
+            head += chunk
+        handler.connection.sendall(head)
+
+        # Pipe raw bytes in both directions until one side closes
+        def _pipe(src, dst):
+            try:
+                while True:
+                    data = src.recv(65536)
+                    if not data:
+                        break
+                    dst.sendall(data)
+            except Exception:
+                pass
+            finally:
+                try: src.close()
+                except: pass
+                try: dst.close()
+                except: pass
+
+        t1 = _thr.Thread(target=_pipe, args=(handler.connection, backend), daemon=True)
+        t2 = _thr.Thread(target=_pipe, args=(backend, handler.connection), daemon=True)
+        t1.start(); t2.start()
+        t1.join();  t2.join()
+        return
+    # ── end WebSocket tunnel ──────────────────────────────────────────────
     """Forward the current request to an arbitrary backend origin.
 
     Identical in structure to _proxy_to_cdn but with a configurable target
     URL and timeout instead of the hardcoded CDN loopback port.
     """
-    _upgrade = handler.headers.get('Upgrade', '').lower()
-    if _upgrade == 'websocket' or '/socket.io/' in handler.path:
-        handler.send_response(501)
-        msg = b'{"error":"WebSocket not supported through this proxy"}'
-        handler.send_header('Content-Type', 'application/json')
-        handler.send_header('Content-Length', str(len(msg)))
-        handler.end_headers()
-        handler.wfile.write(msg)
-        return
-    
     _HOP_BY_HOP = frozenset({
         'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
         'te', 'trailers', 'transfer-encoding', 'upgrade', 'host',

@@ -1,4 +1,4 @@
-# server `v0.19.0.19`
+# server `v0.19.0.21`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -39,7 +39,8 @@ parser)***
 - ***Addind a proxy for my Immich gallery, later will be documented and 
 polished for usage for others***
 - ***Fix the missing proxy check for the `do_HEAD`***
-- ***Add socket.io rejector***
+- ***Undo the socket.io rejector***
+- ***Add proper WebSocket handler (tunnel)***
 
 ---
 

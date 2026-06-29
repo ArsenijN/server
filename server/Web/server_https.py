@@ -743,6 +743,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers = old_end_headers
 
     def do_HEAD(self):
+        _hp = _get_host_proxy(self.headers)
+        if _hp:
+            return _proxy_to_host(self, 'HEAD', _hp['target'], _hp.get('timeout', 60))
         client_ip = self.client_address[0]
         requested_path = self.path
 

@@ -1,4 +1,4 @@
-# server `v0.19.0.17`
+# server `v0.19.0.18`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -36,8 +36,8 @@ parser)***
 
 *Patch notes: **Changelog:***
 - ***A lot of things changed, pre-release for the `v.0.19.1` when polished***
-- ***Server works with SNI, muti-certs, or how it's called***
-- ***Fix my bad, indeed SNI works as should***
+- ***Addind a proxy for my Immich gallery, later will be documented and 
+polished for usage for others***
 
 ---
 

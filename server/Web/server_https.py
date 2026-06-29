@@ -59,6 +59,139 @@ _CDN_PROXY_PREFIXES = (
     '/CB_uploads/',
 )
 
+# ── Host-based reverse proxy ──────────────────────────────────────────────
+# Maps a bare hostname to a backend service.  Any request whose Host header
+# matches is forwarded wholesale — all paths, all methods — to the target.
+# This is how subdomains reach internal services without a separate proxy.
+#
+# Each entry:
+#   'hostname': {
+#       'target':  'http://host:port'  — backend origin, no trailing slash
+#       'enabled': True | False        — flip False to disable without deleting
+#       'timeout': int                 — per-host proxy timeout in seconds
+#   }
+_HOST_PROXY: dict[str, dict] = {
+    # Immich photo management — https://gallery.arseniusgen.dev
+    'gallery.arseniusgen.dev': {
+        'target':  'http://127.0.0.1:2283',
+        'enabled': True,
+        'timeout': 120,  # generous — Immich uploads/API can be slow
+    },
+    # Template for future services — copy, rename, set enabled=True:
+    # 'service.arseniusgen.dev': {
+    #     'target':  'http://127.0.0.1:PORT',
+    #     'enabled': False,
+    #     'timeout': 60,
+    # },
+}
+
+def _get_host_proxy(headers) -> dict | None:
+    """Return the active _HOST_PROXY entry for this request, or None."""
+    host = headers.get('Host', '').split(':')[0].lower()
+    entry = _HOST_PROXY.get(host)
+    if entry and entry.get('enabled', True):
+        return entry
+    return None
+
+def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
+    """Forward the current request to an arbitrary backend origin.
+
+    Identical in structure to _proxy_to_cdn but with a configurable target
+    URL and timeout instead of the hardcoded CDN loopback port.
+    """
+    _HOP_BY_HOP = frozenset({
+        'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+        'te', 'trailers', 'transfer-encoding', 'upgrade', 'host',
+    })
+    _DEDUP_FROM_UPSTREAM = frozenset({
+        'access-control-allow-origin', 'access-control-allow-methods',
+        'access-control-allow-headers', 'access-control-allow-credentials',
+        'access-control-max-age', 'cross-origin-resource-policy',
+        'date', 'server',
+    })
+
+    target = f"{target_base}{handler.path}"
+    _PROXY_MAX_BODY = 512 * 1024 * 1024
+
+    body = None
+    cl = handler.headers.get('Content-Length')
+    if cl:
+        cl_int = int(cl)
+        if cl_int > _PROXY_MAX_BODY:
+            handler.send_response(413)
+            msg = b'{"error":"request body too large"}'
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+            return
+        if cl_int > 0:
+            body = handler.rfile.read(cl_int)
+
+    req = _urllib_req.Request(target, data=body, method=method)
+    for k, v in handler.headers.items():
+        if k.lower() not in _HOP_BY_HOP:
+            try:
+                req.add_header(k, v)
+            except Exception:
+                pass
+    req.add_header('X-Forwarded-For', handler.client_address[0])
+    req.add_header('X-Forwarded-Proto', 'https')
+
+    _PROXY_BUF = 256 * 1024
+    try:
+        with _urllib_req.urlopen(req, timeout=timeout) as resp:
+            handler.send_response(resp.status)
+            for k, v in resp.headers.items():
+                if k.lower() not in _HOP_BY_HOP | _DEDUP_FROM_UPSTREAM:
+                    try:
+                        handler.send_header(k, v)
+                    except Exception:
+                        pass
+            handler._proxying = True
+            handler.end_headers()
+            handler._proxying = False
+            while True:
+                chunk = resp.read(_PROXY_BUF)
+                if not chunk:
+                    break
+                try:
+                    handler.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+    except _urllib_err.HTTPError as e:
+        try:
+            raw = e.read() or b''
+        except Exception:
+            raw = b''
+        try:
+            handler.send_response(e.code)
+            for k, v in e.headers.items():
+                if k.lower() not in _HOP_BY_HOP | _DEDUP_FROM_UPSTREAM | {'content-length'}:
+                    try:
+                        handler.send_header(k, v)
+                    except Exception:
+                        pass
+            handler.send_header('Content-Length', str(len(raw)))
+            handler._proxying = True
+            handler.end_headers()
+            handler._proxying = False
+            handler.wfile.write(raw)
+        except Exception:
+            pass
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+    except Exception as exc:
+        msg = f'{{"error":"host proxy error: {exc}"}}'.encode()
+        try:
+            handler.send_response(502)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+        except Exception:
+            pass
+
 # ── Root-domain path rewriting ────────────────────────────────────────────
 # Maps a bare hostname to the URL subpath where the FluxDrop SPA is installed.
 # When a request arrives on one of these domains the path is rewritten
@@ -392,7 +525,12 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        
+
+        # ── Host-based proxy ─────────────────────────────────────────────────
+        _hp = _get_host_proxy(self.headers)
+        if _hp:
+            return _proxy_to_host(self, 'GET', _hp['target'], _hp.get('timeout', 60))
+
         client_ip = self.client_address[0]
         requested_path = self.path
         # Only log non-trivial paths to avoid lock contention under scanner floods
@@ -698,6 +836,11 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         Handles POST requests, primarily for file uploads.
         Includes security checks and CAPTCHA verification.
         """
+
+        _hp = _get_host_proxy(self.headers)
+        if _hp:
+            return _proxy_to_host(self, 'POST', _hp['target'], _hp.get('timeout', 60))
+        
         client_ip = self.client_address[0]
         print(f"POST request from: {client_ip} -> {self.path}")
 
@@ -802,6 +945,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(b"<h1>404 Not Found</h1><p>The requested POST resource was not found.</p>")
 
     def do_DELETE(self):
+        _hp = _get_host_proxy(self.headers)
+        if _hp:
+            return _proxy_to_host(self, 'DELETE', _hp['target'], _hp.get('timeout', 60))
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'DELETE')
@@ -810,6 +956,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_PUT(self):
+        _hp = _get_host_proxy(self.headers)
+        if _hp:
+            return _proxy_to_host(self, 'PUT', _hp['target'], _hp.get('timeout', 60))
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'PUT')
@@ -818,6 +967,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_PATCH(self):
+        _hp = _get_host_proxy(self.headers)
+        if _hp:
+            return _proxy_to_host(self, 'PATCH', _hp['target'], _hp.get('timeout', 60))
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'PATCH')
@@ -827,6 +979,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_OPTIONS(self):
         """Proxy OPTIONS to CDN for CORS preflight on CDN paths; else 204."""
+        _hp = _get_host_proxy(self.headers)
+        if _hp:
+            return _proxy_to_host(self, 'OPTIONS', _hp['target'], _hp.get('timeout', 60))
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'OPTIONS')

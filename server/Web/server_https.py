@@ -117,6 +117,7 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
 
         # Forward the original HTTP upgrade request to the backend
         _skip = frozenset({'host', 'content-length'})
+        handler.connection.settimeout(None)  # ← add this line
         req  = f"{handler.command} {handler.path} HTTP/1.1\r\n"
         req += f"Host: {_p.hostname}:{_p.port or 80}\r\n"
         for k, v in handler.headers.items():

@@ -154,11 +154,19 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
         t1 = _thr.Thread(target=_pipe, args=(handler.connection, backend), daemon=True)
         t2 = _thr.Thread(target=_pipe, args=(backend, handler.connection), daemon=True)
         t1.start(); t2.start()
-        # Don't join — release the executor thread immediately.
-        # The daemon pipe threads will clean up when the socket closes.
-        handler.close_connection = True
+        t1.join(); t2.join()   # ← restore these, remove close_connection line
         return
     # ── end WebSocket tunnel ──────────────────────────────────────────────
+    # socket.io long-polling fallback — reject immediately to prevent
+    # thread starvation. Client will retry WebSocket instead.
+    if '/socket.io/' in handler.path and 'transport=polling' in handler.path:
+        handler.send_response(400)
+        msg = b'{"code":1,"message":"Session ID unknown"}'
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(msg)))
+        handler.end_headers()
+        handler.wfile.write(msg)
+        return
     """Forward the current request to an arbitrary backend origin.
 
     Identical in structure to _proxy_to_cdn but with a configurable target

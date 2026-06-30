@@ -186,13 +186,21 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     })
 
     target = f"{target_base}{handler.path}"
-    _PROXY_MAX_BODY = 512 * 1024 * 1024
+    _PROXY_MAX_BODY = 2 * 1024 * 1024 * 1024  # 2 GB — covers normal phone videos with margin
 
     body = None
     cl = handler.headers.get('Content-Length')
     if cl:
         cl_int = int(cl)
         if cl_int > _PROXY_MAX_BODY:
+            # Drain the body so it doesn't corrupt the next request on
+            # this keep-alive connection.
+            _remaining = cl_int
+            while _remaining > 0:
+                chunk = handler.rfile.read(min(_remaining, 1024 * 1024))
+                if not chunk:
+                    break
+                _remaining -= len(chunk)
             handler.send_response(413)
             msg = b'{"error":"request body too large"}'
             handler.send_header('Content-Type', 'application/json')

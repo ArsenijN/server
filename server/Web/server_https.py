@@ -94,6 +94,11 @@ def _get_host_proxy(headers) -> dict | None:
     return None
 
 def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
+    """Forward the current request to an arbitrary backend origin.
+
+    Identical in structure to _proxy_to_cdn but with a configurable target
+    URL and timeout instead of the hardcoded CDN loopback port.
+    """
     # ── WebSocket tunnel ──────────────────────────────────────────────────
     # urllib cannot do WebSocket upgrades. Instead we open a raw TCP
     # connection to the backend and pipe bytes in both directions.
@@ -155,7 +160,8 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
         t1 = _thr.Thread(target=_pipe, args=(handler.connection, backend), daemon=True)
         t2 = _thr.Thread(target=_pipe, args=(backend, handler.connection), daemon=True)
         t1.start(); t2.start()
-        t1.join(); t2.join()   # ← restore these, remove close_connection line
+        t1.join(); t2.join()
+        handler.close_connection = True
         return
     # ── end WebSocket tunnel ──────────────────────────────────────────────
     # socket.io long-polling fallback — reject immediately to prevent
@@ -168,11 +174,6 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
         handler.end_headers()
         handler.wfile.write(msg)
         return
-    """Forward the current request to an arbitrary backend origin.
-
-    Identical in structure to _proxy_to_cdn but with a configurable target
-    URL and timeout instead of the hardcoded CDN loopback port.
-    """
     _HOP_BY_HOP = frozenset({
         'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
         'te', 'trailers', 'transfer-encoding', 'upgrade', 'host',
@@ -216,23 +217,39 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     try:
         with _urllib_req.urlopen(req, timeout=timeout) as resp:
             handler.send_response(resp.status)
+            
+            _cl = resp.headers.get('Content-Length')
+            
             for k, v in resp.headers.items():
                 if k.lower() not in _HOP_BY_HOP | _DEDUP_FROM_UPSTREAM:
                     try:
                         handler.send_header(k, v)
                     except Exception:
                         pass
-            handler._proxying = True
-            handler.end_headers()
-            handler._proxying = False
-            while True:
-                chunk = resp.read(_PROXY_BUF)
-                if not chunk:
-                    break
-                try:
-                    handler.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    break
+            
+            if not _cl:
+                # Chunked response — buffer it and add Content-Length
+                # so the client knows when the body ends without waiting
+                # for the connection to close
+                body = resp.read()
+                handler.send_header('Content-Length', str(len(body)))
+                handler._proxying = True
+                handler.end_headers()
+                handler._proxying = False
+                handler.wfile.write(body)
+            else:
+                # Content-Length known — stream normally
+                handler._proxying = True
+                handler.end_headers()
+                handler._proxying = False
+                while True:
+                    chunk = resp.read(_PROXY_BUF)
+                    if not chunk:
+                        break
+                    try:
+                        handler.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        break
     except _urllib_err.HTTPError as e:
         try:
             raw = e.read() or b''

@@ -109,8 +109,15 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
 
         _p = _urlparse(target_base)
         try:
+            # timeout=10 here only bounds the TCP handshake/connect step.
+            # socket.create_connection() does NOT reset the timeout after
+            # connecting — it stays on the socket forever unless cleared,
+            # which silently killed long-idle WS tunnels (e.g. between
+            # socket.io heartbeat frames) with a bare TimeoutError.
             backend = _raw_sock.create_connection(
                 (_p.hostname, _p.port or 80), timeout=10)
+            backend.settimeout(None)  # now a long-lived tunnel — no read/write timeout
+            backend.setsockopt(_raw_sock.IPPROTO_TCP, _raw_sock.TCP_NODELAY, 1)
         except Exception as e:
             handler.send_response(502)
             msg = f'{{"error":"WS backend unreachable: {e}"}}'.encode()
@@ -122,7 +129,8 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
 
         # Forward the original HTTP upgrade request to the backend
         _skip = frozenset({'host', 'content-length'})
-        handler.connection.settimeout(None)  # ← add this line
+        handler.connection.settimeout(None)
+        handler.connection.setsockopt(_raw_sock.IPPROTO_TCP, _raw_sock.TCP_NODELAY, 1)
         req  = f"{handler.command} {handler.path} HTTP/1.1\r\n"
         req += f"Host: {_p.hostname}:{_p.port or 80}\r\n"
         for k, v in handler.headers.items():
@@ -142,23 +150,26 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
         handler.connection.sendall(head)
 
         # Pipe raw bytes in both directions until one side closes
-        def _pipe(src, dst):
+        def _pipe(src, dst, label):
             try:
                 while True:
                     data = src.recv(65536)
                     if not data:
+                        logging.info('WS tunnel %s: clean EOF', label)
                         break
                     dst.sendall(data)
-            except Exception:
-                pass
+            except Exception as e:
+                # Logged (not swallowed) so a future disconnect cause is
+                # visible instead of looking like an unexplained reset.
+                logging.info('WS tunnel %s closed: %r', label, e)
             finally:
                 try: src.close()
                 except: pass
                 try: dst.close()
                 except: pass
 
-        t1 = _thr.Thread(target=_pipe, args=(handler.connection, backend), daemon=True)
-        t2 = _thr.Thread(target=_pipe, args=(backend, handler.connection), daemon=True)
+        t1 = _thr.Thread(target=_pipe, args=(handler.connection, backend, 'client->backend'), daemon=True)
+        t2 = _thr.Thread(target=_pipe, args=(backend, handler.connection, 'backend->client'), daemon=True)
         t1.start(); t2.start()
         t1.join(); t2.join()
         handler.close_connection = True

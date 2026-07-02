@@ -1,4 +1,4 @@
-# server `v0.19.0.27`
+# server `v0.19.0.28`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -39,6 +39,7 @@ parser)***
 - ***Addind a proxy for my Immich gallery, later will be documented and 
 polished for usage for others***
 - ***Raised the file size limit for upload to a Immich via proxy***
+- ***Fix the WebSocket's 45 seconds closing issue***
 
 ---
 

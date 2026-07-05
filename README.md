@@ -1,4 +1,4 @@
-# server `v0.19.0.29`
+# server `v0.19.1`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -38,8 +38,7 @@ Immich gallery instance. This proxy will be documented later properly***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***A lot of things changed, pre-release for the `v.0.19.1`***
-- ***Prepare for release***
+- ***A lot of things changed, release for the `v.0.19.1`***
 
 ---
 

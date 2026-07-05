@@ -1,4 +1,4 @@
-# server `v0.19.0.28`
+# server `v0.19.0.29`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -9,7 +9,7 @@ Just backend code of my server, nothing else, anyone can use it
 improved***
 
 ***Recent v.19.0 release had a lot of flaws and issues with the code, that are 
-now mainly fixed, and the new additions to the FluxDrop was made with the 
+now mostly fixed, and the new additions to the FluxDrop was made with the 
 v.19.1.***
 
 ***Additions:***
@@ -32,14 +32,14 @@ with the new lines inside the text (e.g. in this Readme, there's a lot of those
 used and a lot of the same cases that previously caused the problems with 
 parser)***
 
+***Right now, backend code exposures new proxy method that are used for my own 
+Immich gallery instance. This proxy will be documented later properly***
+
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***A lot of things changed, pre-release for the `v.0.19.1` when polished***
-- ***Addind a proxy for my Immich gallery, later will be documented and 
-polished for usage for others***
-- ***Raised the file size limit for upload to a Immich via proxy***
-- ***Fix the WebSocket's 45 seconds closing issue***
+- ***A lot of things changed, pre-release for the `v.0.19.1`***
+- ***Prepare for release***
 
 ---
 

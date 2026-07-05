@@ -98,6 +98,9 @@ hash after canceling the ZIP download, or do it only if server is unused or via
 - [ ] Update the helpers functionality
 - [ ] Add hash (maintenance) logs to the debug category for main log file (keep 
 the separate file work always)
+- [ ] Document the new proxy method that is currently used with my Immich 
+instance
+- [ ] Check code for security flaws/vulnerabilities
 
 #### Low:
 - [ ] Make separate "testing" server where I would be able to test everything 

@@ -9,39 +9,54 @@ user feedback or ideas for future development.
 
 ### Important without category (critical before release)
 
-### UI
+### UI - add new features
 - [ ] Markdown parser does not understand:
   - [ ] `***` following with the new lines inside the text and then `***` again 
-  -- still doesn't
+  -- still does not understand, aka there:
+  ```
+  ***This is an example Markdown text
+  that is broken with current text
+  parser, and will not end with proper formatting.***
+  ```
+  ```
+  ***This is an example of the text that
+  is not broken with current text parser.***
+  ```
+  ```
+  ***This is also example of not broken text***
+  ```
+  Following text does not have a problems:
+  ```
+  ***Also, in the time of the server optimizations, we are managed to bump the 
+  download speeds to the mindblowing 2x times! Right now, our hardware can handle 
+  up to 40 MB/s download speeds, that's 2x times faster than the older code!***
+
+  ***Important note: if you want, you can try to use HTTP endpoints of our 
+  services to reach the theoretical 100 MB/s speeds. The problem is that our 
+  hardware is old enough to struggle at encryptions, e.g. `AES` for HTTPS. For 
+  even faster speeds, we have made attempts to add the 
+  `TLS_CHACHA20_POLY1305_SHA256` as secondary main hashing algorithm for HTTPS, 
+  but it may fallback to `AES` and cause slower speeds***
+
+  ***For developers and testers:***
+  ```
+- [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
+- [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
-- [ ] Make proper header and footer for the main FluxDrop UI
-- [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
-- [x] Add file info modal
-  - [ ] Background hashsums (do it via `nice` so it will execute when server 
-  isn't fully utilized, as background thing) -- improvement for the current 
-  `maintenance window`
-    - [ ] Use those hashes for silent file check activity in background
-      - [ ] Add parchives to avoid file damages
-      - [ ] Add some kind of messages if files got corrupted on server side and 
-      was unrecoverable
 
-### UX
-- [ ] Make the file info also work as turn on-off: is present on screen - show 
-the infos for the selected (or last selected) file, on item change - change the 
-display of infos -- make as toggle in the settings for this feature
-- [ ] Ability to download the shared folders without JS (fallback option)
-- [ ] Make caching or optimize the quota size counting for reducing the time 
-that is needed to process the 150k+ items -- made for status page, later for 
-FluxDrop file manager
-- [ ] Make an mobile version of the FluxDrop as an installable app 
-via Chrome or as "native" Android Material Design one
+### UX - fixes for existing features or new overall experience enhancements
+- [ ] Make file info modal able to work as "turn on and stay until closed": 
+toggle in settings to change this behavior; works as file info modal that 
+doesn't close when user clicks outside of it
 - [ ] Add multiple files streaming (archive and stream to the server; one 
 stream - a lot of files) feature to site UI from `batch_tar_upload.py`
 - [ ] Make file upload multithreaded (2+ files processing simultaneously on 
 upload)
+- [ ] Make an mobile version of the FluxDrop as an installable app 
+via Chrome or as "native" Android Material Design one
 - [ ] Make AJAX-like updates for the file manager (no visual reloads of the 
-content)
+content) -- file manager, ...
 - [ ] Add ability to preload the JPEG/any current format for previews like AVIF 
 and for other files (contribute to the background media scan via FFmpeg)
 - [ ] Check why HEIF files are slow to decode (on client, it takes ~5 seconds 
@@ -62,10 +77,12 @@ on i5 8350U)
   - [x] Shared links remainings
     - [ ] "CDN Embed..." not fixed
     - [ ] operation type (e.g. `download`, `view`, `embed`, etc.)
+    - [ ] Expired [date]
+    - [ ] "📊 Stats: [folder name]"
   - [ ] Error-related pages -- untested
   - [ ] Translate the `⚠ Due to server capacity demand, new items are kept for 
   7 days. Retention will return to 30 days once space is freed.` (not i18n, 
-  rather l10n issue with missing key -- no, i18n)
+  rather l10n issue with missing key -- no, it's i18n)
 - [ ] Add more animations to:
   - [ ] Closing the profile menu
   - [ ] File selection (checkmark appearance and disappearance)
@@ -73,7 +90,14 @@ on i5 8350U)
   - [ ] `profile-panel-overlay` closing
   - [ ] `share-manager-overlay` closing
   - [ ] `trash-overlay` closing
-  - [ ] 
+- [ ] Add loading wheels/bars/things to:
+  - [ ] Stats button for shared links manager
+  - [ ] Profile infos
+- [ ] Add caching for:
+  - [ ] Profile picture
+- [ ] Add compression for:
+  - [ ] JSON responces that are large
+  - [ ] `.md` files
 - [ ] Upload ends successfully even if the upload of one of the files fails 
 (for example because of the quota)
 - [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
@@ -93,19 +117,35 @@ that happens and after what -- they are caused on network switch
 hash after canceling the ZIP download, or do it only if server is unused or via 
 `nice`
 
-#### Medium:
-- [ ] Update the services (and exclude the entry in the `.gitignore`)
+#### High:
+- [ ] Ability to download the shared folders without JS (fallback option)
 - [ ] Update the helpers functionality
-- [ ] Add hash (maintenance) logs to the debug category for main log file (keep 
-the separate file work always)
 - [ ] Document the new proxy method that is currently used with my Immich 
 instance
 - [ ] Check code for security flaws/vulnerabilities
+- [ ] Background hashsums (do it via `nice` so it will execute when server 
+isn't fully utilized, as background thing) -- make it as improvement for the 
+current `maintenance window`
+  - [ ] Use those hashes for silent file check activity in background -- 
+  specifiable time period in server config
+    - [ ] Add parchives to avoid file damages on server
+    - [ ] Add some kind of messages if files got corrupted on server side and 
+    was unrecoverable
+
+#### Medium:
+- [ ] Make caching or optimize the quota size counting for reducing the time 
+that is needed to process the 150k+ items -- made for status page, later for 
+FluxDrop file manager
+- [ ] Update the services (and exclude the entry in the `.gitignore`)
+- [ ] Add hash (maintenance) logs to the debug category for main log file (keep 
+the separate file work always)
+- [ ] Fix CSP for used domain other than `PUBLIC_DOMAIN` (e.g. accessing 
+FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to 
+as specified in `PUBLIC_DOMAIN`)
 
 #### Low:
-- [ ] Make separate "testing" server where I would be able to test everything 
-before pushing to the real one
-- [ ] Reduce amount of re-imports inside the code
+- [ ] Reduce amount of re-imports inside the code if this will add overall 
+overhead
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching; like folder structures, quota, file properties, download 
 tokens (pre-generate the download tokens for files to fasten up the ping 
@@ -123,6 +163,10 @@ static hoster -- doesn't CDN have that already?
 mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
 bandwidth and resolution)
 - [ ] Reimplement the CDN path purpose, fix it's errors
+
+#### Lowest:
+- [ ] Make separate "testing" server where I would be able to test everything 
+before pushing to the real one
 - [ ] Migration to other host platform for HTTP and HTTPS efficiency and 
 optimizations (Python; go to gunicorn or something else) -- WIP, low priority
 - [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper 
@@ -146,67 +190,9 @@ made/applied
 ## Done items that are pending for removal as finished:
 (end of release note there)
 
-- [x] Add ability to double-click on the `border-t` to open the file/folder
-- [x] Instead of errors like "failed to fetch" after internet reconnect, 
-ALWAYS catch it and DO NOT drop the hard error - RETRY until it IS successfull,
- or at least the N times (reliable way to resume whatever operation is going) 
- -- should be already fixed by resumable file downloads, but not after when 
- internet is resolved -- will be rephrased:
-- [x] ~~Ensure that FluxDrop will retry whatever operation is failed because of 
-the internet switch~~
-- [x] Catch 'failed to fetch' errors - retry until success or N times (reliable 
-resume). It should be already fixed for resumable downloads, but ensure it will
-work after internet reconnect
-- [x] Pause button may not work rn -- it's not but UI may bug so it can display 
-"Missing chunks" but actually it then ends successfully -- check as fixed, 
-needs retest
-- [x] Client still can fail with Chunk timeout even with new retry attempts 
-(uploads) -- check as fixed, needs retest
-- [x] Add file info modal: Basics (file modify time, size, etc.)
-- [x] Markdown parser does not understand: The tables
-- [x] Markdown parser does not understand: The new line inside code blocks
-- [x] Delete "CDN" path as it serves no purpose and doesn't work (line 5718 in 
-`server_cdn.py`). Seems like it was made to make "shared" folder for any user 
-of FluxDrop, but true usage is unknown since it's seems like undocumented and 
-was introduced in one of the edit sessions without need to be made -- in the 
-Terms and Policy, the same CDN may be mentioned with some explanatory of it's 
-existence there -- aha! The CDN is made so user can separate it's drive and not 
-clog the own drive with hosting materials, and also, I think that it can be 
-easily managed via API (or will be). The next patch will change that "delete" 
-to "implement" -- purge as reimplement the CDN purpose
+- [x] Add file info modal
 
-- [x] Footer versioning: make versioning system the same as the current with 
-server (like v0.17.2.4) -- ok, let it display the server version instead 
-because the current site versioning is ok enough
-- [x] Add `debug` mode for the code like CDN and static hosters so they will 
-not track some things to reduce the overhead time that is spent to write a log 
-to a file
 
-- [x] HTTPS proxy/server still crashes after some time
-
-- [x] FIle info will have button to prematurely calculate the CRC-32 for file 
-(if not calculated) instead of dash
-  - [x] And will show the status (e.g. "Calculating..."; by checking current 
-  jobs that will persist even after server reboot (if possible))
-  - [x] And will have ability to calculate other type of checksum (e.g. MD5, 
-  SHA1, SHA256 or SHA512) because CRC-32 isn't that broad (for example in the 
-  Dolphin file manager)
-
-- [x] Fix i18n in:
-  - [x] Time for items
-  - [x] Profile picture new additions
-  - [x] Shared links statictics
-- [x] Add more animations to:
-  - [x] (things)
-
-- [x] Dark mode are half-broken and didn't "obay" if the browser says dark, and 
-user sets light, or otherwize
-- [x] Slightly redesign the login modal (make it not as the one page but as the 
-appearing modal, so the landing page will be intact at the time of login)
-- [x] Add Google OAuth support (for now visually, later the backend)
-
-- [x] Fix i18n in:
-  - [x] Breadcrumbs (translate only the `root`, nothing else)
 
 ---
 

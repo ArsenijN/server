@@ -260,3 +260,46 @@
     0%   { background-position: -200% 0; }
     100% { background-position:  200% 0; }
 }
+
+/* ── Overlay closing animations (window.fdCloseOverlay) ─────────────────────
+   Applied to: profile menu, profile panel, share manager, trash overlay. */
+@keyframes fd-overlay-fade-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+@keyframes fd-panel-scale-out {
+    from { opacity: 1; transform: scale(1)    translateY(0); }
+    to   { opacity: 0; transform: scale(.96)  translateY(-8px); }
+}
+.fd-overlay-closing {
+    animation: fd-overlay-fade-out .16s ease forwards;
+    pointer-events: none;
+}
+.fd-panel-closing {
+    animation: fd-panel-scale-out .16s cubic-bezier(.4,0,.2,1) forwards;
+}
+
+/* ── fd-sel-bar appear/disappear ─────────────────────────────────────────── */
+#fd-sel-bar {
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+}
+#fd-sel-bar.fd-sel-bar-visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+/* ── File selection checkmark appear/disappear ───────────────────────────── */
+@keyframes fd-check-in {
+    from { opacity: 0; transform: scale(.4); }
+    to   { opacity: 1; transform: scale(1); }
+}
+@keyframes fd-check-out {
+    from { opacity: 1; transform: scale(1); }
+    to   { opacity: 0; transform: scale(.4); }
+}
+.fd-sel-dot-in  { animation: fd-check-in  .16s cubic-bezier(.34,1.56,.64,1) both; }
+.fd-sel-dot-out { animation: fd-check-out .15s ease both; }

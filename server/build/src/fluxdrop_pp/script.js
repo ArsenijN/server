@@ -998,7 +998,7 @@ function renderFileBrowserView() {
                  Ghost content (opacity:0 buttons) is injected by _updateSelBar()
                  immediately after this template is set as innerHTML. -->
             <div id="fd-sel-bar"
-                 style="visibility:hidden;border-radius:8px;padding:7px 12px;margin-bottom:8px;
+                 style="border-radius:8px;padding:7px 12px;margin-bottom:8px;
                         display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;
                         background:var(--fd-accent-bg,#eff6ff);border:1px solid var(--fd-accent-border,#bfdbfe)">
             </div>
@@ -3259,13 +3259,13 @@ function _updateSelBar() {
     if (!bar) return;
 
     if (n === 0) {
-        bar.style.visibility = 'hidden';
+        bar.classList.remove('fd-sel-bar-visible');
         bar.innerHTML = _SEL_BAR_GHOST;   // restore ghost — keeps height stable
         bar.onclick = null;
         return;
     }
 
-    bar.style.visibility = 'visible';
+    bar.classList.add('fd-sel-bar-visible');
     bar.innerHTML = `
         <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${n} selected</span>
         <button data-fdsel="download" class="btn" style="padding:3px 10px;font-size:12px">⬇ Download</button>
@@ -3414,12 +3414,25 @@ function _updateRowSelVisual(row, selected) {
         dot.style.background = 'var(--fd-accent,#3b82f6)';
         dot.textContent = '✓';
         dot.style.color = '#fff';
+        dot.classList.remove('fd-sel-dot-out');
+        // Force reflow so re-adding the class restarts the animation even
+        // if the dot was mid fade-out from a fast double-toggle.
+        void dot.offsetWidth;
+        dot.classList.add('fd-sel-dot-in');
         row.style.background = 'var(--fd-accent-bg,#eff6ff)';
     } else {
-        dot.style.display = 'none';
-        dot.style.background = 'transparent';
-        dot.textContent = '';
+        if (dot.style.display === 'none') return; // already hidden, nothing to animate
+        dot.classList.remove('fd-sel-dot-in');
+        dot.classList.add('fd-sel-dot-out');
         row.style.background = '';
+        const finish = () => {
+            dot.style.display = 'none';
+            dot.style.background = 'transparent';
+            dot.textContent = '';
+            dot.classList.remove('fd-sel-dot-out');
+        };
+        dot.addEventListener('animationend', finish, { once: true });
+        setTimeout(finish, 180); // safety net if animationend doesn't fire
     }
 }
 
@@ -3868,7 +3881,7 @@ async function openTrashView() {
                     <div style="color:white;font-weight:700;font-size:16px">🗑 Trash</div>
                     <div id="trash-subtitle" style="color:rgba(255,255,255,.75);font-size:12px;margin-top:2px"></div>
                 </div>
-                <div onclick="document.getElementById('trash-overlay').remove()"
+                <div onclick="window.fdCloseOverlay(document.getElementById('trash-overlay'))"
                     style="background:rgba(255,255,255,.15);border:none;color:white;
                            border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px
                            ;display:inline-block">${t('close') || '✕'}</div>
@@ -3894,7 +3907,7 @@ async function openTrashView() {
             </div>
         </div>`;
     document.body.appendChild(overlay);
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
 
     await _refreshTrashView();
 
@@ -5869,7 +5882,7 @@ function openProfileMenu() {
     overlay.appendChild(style);
     document.body.appendChild(overlay);
 
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
     document.getElementById('pm-profile').addEventListener('click', () => { overlay.remove(); openProfilePanel(); });
     // Quota bar → open space analyzer directly
     document.getElementById('pm-quota-bar').style.cursor = 'pointer';
@@ -6047,8 +6060,8 @@ async function openProfilePanel() {
         </div>`;
     document.body.appendChild(overlay);
 
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-    overlay.querySelector('#pp-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
+    overlay.querySelector('#pp-close').addEventListener('click', () => window.fdCloseOverlay(overlay));
 
     // Helper: show message in a field's msg element
     function ppMsg(elId, text, isError) {
@@ -6721,8 +6734,8 @@ async function openShareManager() {
             </div>
         </div>`;
     document.body.appendChild(overlay);
-    document.getElementById('sm-close').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('sm-close').addEventListener('click', () => window.fdCloseOverlay(overlay));
+    overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
 
     await loadShareManager();
 }
@@ -6846,7 +6859,7 @@ function renderShareRow(s) {
         const expDate = new Date(s.expires_at);
         const isExpired = expDate < new Date();
         expiryDisplay = isExpired
-            ? `<span style="color:#ef4444;font-weight:600">Expired ${expDate.toLocaleDateString()}</span>`
+            ? `<span style="color:#ef4444;font-weight:600">${t('shares_expired_label')} ${expDate.toLocaleDateString()}</span>`
             : `<span style="color:#f59e0b;font-weight:600">⏰ ${expDate.toLocaleDateString()}</span>`;
         expiryInputVal = expDate.toISOString().slice(0, 10);
     }
@@ -6903,30 +6916,34 @@ function renderShareRow(s) {
                     style="padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#1e293b">
                 <button class="sm-expiry-clear" data-token="${s.token}"
                     style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:11px;color:#94a3b8"
-                    title="Remove expiry (make permanent)">✕</button>
+                    title="${t('shares_expiry_remove_title')}">✕</button>
             </div>
         </div>
         ${s.allow_cdn_embed && !s.is_dir ? `
         <div style="margin-top:10px;padding:10px;background:#fefce8;border:1px solid #fde047;border-radius:8px">
             <div style="font-size:11px;color:#854d0e;font-weight:600;margin-bottom:5px">
-                🌐 CDN Embed URL (direct media link):
+                ${t('shares_cdn_embed_title')}
                 <span class="fd-tooltip-wrap" id="cdn-tip-wrap">
                     <span class="fd-tooltip-icon" style="font-family: Playwrite Norge; font-style: italic;">i</span>
-                    <div class="fd-tooltip-bubble">
-                        Use this URL directly in
-                        <code>&lt;img src="…"&gt;</code>,
-                        <code>&lt;video src="…"&gt;</code>,
-                        Discord embeds, or anywhere a direct media link is accepted.
-                        No authentication required.
-                    </div>
+                    <div class="fd-tooltip-bubble">${t('shares_cdn_embed_tooltip')}</div>
                 </span>
             </div>
             <div style="display:flex;gap:6px">
                 <input type="text" readonly value="${urlEsc}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
-                <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#ca8a04;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">Copy</button>
+                <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#ca8a04;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">${t('shares_copy_button')}</button>
             </div>
         </div>` : '' }
     </div>`;
+}
+
+// Translates a share-access log's action code (view/download/embed/…) to a
+// localized label. Falls back to the raw action code if no translation key
+// exists for it, so unknown/future action types still render something.
+function _shareActionLabel(action) {
+    const code = action || 'view';
+    const key  = 'share_action_' + code;
+    const label = t(key);
+    return label !== key ? label : code;
 }
 
 async function openShareStats(token, name) {
@@ -6939,9 +6956,9 @@ async function openShareStats(token, name) {
             : logs.map(l => `<tr style="border-top:1px solid #f1f5f9">
                 <td style="padding:8px 12px;font-size:13px">${l.accessed_at ? new Date(l.accessed_at).toLocaleString() : '?'}</td>
                 <td style="padding:8px 12px;font-size:13px">${l.username || _anonSpan}</td>
-                <td style="padding:8px 12px;font-size:13px">${escapeHtmlAttr(l.action || 'view')}</td>
+                <td style="padding:8px 12px;font-size:13px">${escapeHtmlAttr(_shareActionLabel(l.action))}</td>
             </tr>`).join('');
-        showMessage(`📊 Stats: ${name}`,
+        showMessage(t('shares_stats_title', {name}),
             `<div style="text-align:left;max-height:300px;overflow-y:auto">` +
             `<table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f8fafc">
                 <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">${t('shares_stats_col_time')}</th>

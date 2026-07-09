@@ -1,44 +1,28 @@
-# server `v0.19.1`
+# server `v0.19.1.1`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes: Few fine-tune touches to the server*
+*Release notes: text*
 
-***Mainstream: the backend instability and the overall user experience are now 
-improved***
+***Mainstream: text***
 
-***Recent v.19.0 release had a lot of flaws and issues with the code, that are 
-now mostly fixed, and the new additions to the FluxDrop was made with the 
-v.19.1.***
+***This update will improve overall user experience things that was missing 
+from the V0.19.0 release***
 
 ***Additions:***
-- ***File info modal now shows SHA-256 hash, and have ability to generate both 
-of the hashes on-demand***
-- ***More i18n adaptations***
-- ***More animations***
-- ***Placeholder for the Google OAuth support (coming soon)***
-- ***SNI aka multi-cert setup for usage with `certbot`***
+- ***text***
 
 ***Fixes:***
-- ***Inabilty to access the server after few days of uptime, caused by the 
-problems inside one of the backend files***
-- ***Current server version are now displayed in the footer***
-- ***Upload fails in some specific conditions***
-- ***Dark mode fixes - mainly when the user have dark mode in the system, and 
-light mode in the FluxDrop***
-- ***Markdown parser isn't properly understanded the bold italic formatting 
-with the new lines inside the text (e.g. in this Readme, there's a lot of those 
-used and a lot of the same cases that previously caused the problems with 
-parser)***
+- ****text****
 
-***Right now, backend code exposures new proxy method that are used for my own 
-Immich gallery instance. This proxy will be documented later properly***
+***text***
 
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***A lot of things changed, release for the `v.0.19.1`***
+- ***Fixes for closing animations, selection animations, i18n issues, needs 
+testing***
 
 ---
 

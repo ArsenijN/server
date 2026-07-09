@@ -1451,6 +1451,15 @@ async function loadDirectory(path) {
     // Normalize path
     if (!path) path = '/';
     if (!path.startsWith('/')) path = '/' + path;
+    // Clear the multi-selection when actually navigating to a different
+    // folder, unless the user opted into "keep selection while browsing" via
+    // the fd-sel-bar checkbox. Same-path reloads (refresh button, post-action
+    // refresh after rename/move/upload) never clear — several callers rely
+    // on loadDirectory(currentPath) to redraw without touching selection.
+    if (path !== currentPath && !window._fdKeepSelectionOnNav) {
+        _selectedPaths.clear();
+        _lastClickedIdx = -1;
+    }
     currentPath = path;
     // Render clickable breadcrumb
     (function renderBreadcrumb(p) {
@@ -1534,6 +1543,12 @@ async function loadDirectory(path) {
         fileList.innerHTML = TABLE_WRAP + sortHeaders() +
             `<tbody>${rows}</tbody></table>`;
         attachRowListeners();
+        // Re-apply checkmarks (exact selected paths) and dash indicators
+        // (folders containing a selected descendant) to the freshly-rendered
+        // rows — a fresh loadDirectory() render always starts with plain,
+        // unselected row markup, so this is what makes persisted selections
+        // (see _fdKeepSelectionOnNav) actually visible again.
+        _applySelectionVisuals();
         // Populate the pre-rendered fd-sel-bar with ghost buttons so its height
         // is stable before any selection is made.  _clearSelection() will call
         // _updateSelBar() again but the bar may not yet be in the DOM on first load.
@@ -2454,7 +2469,8 @@ function renderDownloadTray() {
         header.innerHTML = `<span class="dl-count"></span>` +
             `<span style="cursor:pointer;opacity:.6" id="dl-tray-close">✕</span>`;
         tray.prepend(header);
-        header.querySelector('#dl-tray-close').addEventListener('click', () => {
+        header.querySelector('#dl-tray-close').addEventListener('click', async () => {
+            await window.fdCollapseTray(tray);
             tray.innerHTML = '';
         });
     }
@@ -2688,6 +2704,21 @@ function _renderMarkdown(bodyEl, rawText) {
     // the pipe-delimited columns and break table parsing entirely.
     const BLOCK_START = /^(\s{0,3})(#{1,6}\s|```|~~~|>|[-*_]{3,}[ \t]*$|<\/?[a-zA-Z]|[-*+]\s|\d+[.)]\s|\|)/;
 
+    // Subset of BLOCK_START that supports CommonMark "lazy continuation" —
+    // list items and blockquotes can have follow-up lines with no marker of
+    // their own that still belong to the same item/quote. Headings, hr,
+    // fences, tables and raw HTML do NOT: those are always single-line
+    // starters, so a following line always begins a new block.
+    //
+    // Without this distinction, a line like "- ***Some text" that opens a
+    // list item was correctly refused a join with its own next line (since
+    // it matches BLOCK_START), but the loop would then join THAT next line
+    // onto the line after it instead — leaving the list item's first line
+    // dangling and turning its continuation into a stray, un-indented
+    // paragraph outside the list (visible as broken bold/italic spanning
+    // list items in the file preview).
+    const LAZY_CONTINUABLE_START = /^(\s{0,3})(>|[-*+]\s|\d+[.)]\s)/;
+
     const lines  = rawText.split('\n');
     const joined = [];
     let _inFence = false; // true while inside a fenced code block (``` or ~~~)
@@ -2710,7 +2741,7 @@ function _renderMarkdown(bodyEl, rawText) {
             !_inFence &&
             line.trim() !== '' &&
             next !== undefined && next.trim() !== '' &&
-            !BLOCK_START.test(line) &&
+            (!BLOCK_START.test(line) || LAZY_CONTINUABLE_START.test(line)) &&
             !BLOCK_START.test(next) &&
             // Preserve two-space hard break (CommonMark spec)
             !line.endsWith('  ') &&
@@ -2946,24 +2977,43 @@ async function _previewTrashFile(trashId, filename) {
 }
 
 window.closePreview = function() {
-    // Cancel any in-progress background fetch (text, markdown, HEIC, etc.)\n    if (_previewAbortCtrl) { _previewAbortCtrl.abort(); _previewAbortCtrl = null; }
     const modal = document.getElementById('preview-modal');
-    modal.classList.add('hidden');
-    const body = document.getElementById('preview-body');
-    // Properly tear down media elements before clearing innerHTML.
-    // Setting el.src = '' resolves to the current page URL, causing Firefox
-    // to attempt to load the HTML page as a media resource and log
-    // 'HTTP Content-Type of text/html is not supported' warnings.
-    // The correct teardown is: pause → remove <source> children →
-    // removeAttribute('src') → call load() to reset internal state.
-    body.querySelectorAll('video,audio').forEach(el => {
-        el.pause();
-        Array.from(el.querySelectorAll('source')).forEach(s => s.remove());
-        el.removeAttribute('src');
-        el.load();   // resets the media element's network state to NETWORK_EMPTY
-    });
-    body.innerHTML = '';
-    document.getElementById('preview-download-btn').style.display = 'none';
+    if (modal.classList.contains('hidden') || modal.dataset.fdClosing) return;
+    // Cancel any in-progress background fetch (text, markdown, HEIC, etc.)
+    if (_previewAbortCtrl) { _previewAbortCtrl.abort(); _previewAbortCtrl = null; }
+
+    modal.dataset.fdClosing = '1';
+    modal.classList.add('fd-overlay-closing');
+    const content = modal.querySelector('.preview-modal-content');
+    if (content) content.classList.add('fd-panel-closing');
+
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        modal.classList.remove('fd-overlay-closing');
+        if (content) content.classList.remove('fd-panel-closing');
+        delete modal.dataset.fdClosing;
+        modal.classList.add('hidden');
+
+        const body = document.getElementById('preview-body');
+        // Properly tear down media elements before clearing innerHTML.
+        // Setting el.src = '' resolves to the current page URL, causing Firefox
+        // to attempt to load the HTML page as a media resource and log
+        // 'HTTP Content-Type of text/html is not supported' warnings.
+        // The correct teardown is: pause → remove <source> children →
+        // removeAttribute('src') → call load() to reset internal state.
+        body.querySelectorAll('video,audio').forEach(el => {
+            el.pause();
+            Array.from(el.querySelectorAll('source')).forEach(s => s.remove());
+            el.removeAttribute('src');
+            el.load();   // resets the media element's network state to NETWORK_EMPTY
+        });
+        body.innerHTML = '';
+        document.getElementById('preview-download-btn').style.display = 'none';
+    };
+    modal.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, 200); // safety net if animationend doesn't fire
 };
 
 // Render a read-only archive file tree inside the preview body element.
@@ -3242,6 +3292,12 @@ window.previewText = window.previewFile;
 // ── Selection state ──────────────────────────────────────────────────────
 let _selectedPaths  = new Set();
 let _lastClickedIdx = -1; // used for Shift+click range selection
+// When true (toggled via the fd-sel-bar "keep selection" checkbox), navigating
+// into a different folder does NOT clear the current multi-selection — rows
+// matching a selected path re-show their checkmark when you return to that
+// folder, and ancestor folders show a dash to indicate they contain a
+// selected descendant. Off by default so normal browsing behaves as before.
+window._fdKeepSelectionOnNav = false;
 
 // ── Selection bar ─────────────────────────────────────────────────────────
 // Ghost HTML for the selection bar when nothing is selected.
@@ -3266,12 +3322,26 @@ function _updateSelBar() {
     }
 
     bar.classList.add('fd-sel-bar-visible');
+    const showKeepToggle = window.matchMedia('(pointer: fine)').matches;
     bar.innerHTML = `
         <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${n} selected</span>
+        ${showKeepToggle ? `
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--fd-muted,#64748b);
+                       cursor:pointer;flex-shrink:0;user-select:none" title="${t('sel_bar_keep_tooltip')}">
+            <input type="checkbox" id="fd-sel-keep-chk" ${window._fdKeepSelectionOnNav ? 'checked' : ''}
+                   style="width:13px;height:13px">
+            📌 ${t('sel_bar_keep_label')}
+        </label>` : ''}
         <button data-fdsel="download" class="btn" style="padding:3px 10px;font-size:12px">⬇ Download</button>
         <button data-fdsel="trash"    class="btn" style="padding:3px 10px;font-size:12px;background:#ef4444">🗑 Trash</button>
         <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto">✕ Clear</button>
     `;
+
+    if (showKeepToggle) {
+        bar.querySelector('#fd-sel-keep-chk').addEventListener('change', function () {
+            window._fdKeepSelectionOnNav = this.checked;
+        });
+    }
 
     bar.onclick = e => {
         const btn = e.target.closest('[data-fdsel]');
@@ -3441,6 +3511,63 @@ function _toggleSelect(row, force) {
     const nowSelected = (force !== undefined) ? force : !_selectedPaths.has(path);
     if (nowSelected) _selectedPaths.add(path); else _selectedPaths.delete(path);
     _updateRowSelVisual(row, nowSelected);
+}
+
+// Shows a dash ("–") on a folder row's selection dot to indicate it contains
+// a selected item somewhere inside it (without the folder itself being
+// selected) — same dot slot as the checkmark, slightly muted color so it
+// reads as "partially selected" rather than "selected".
+function _setRowIndeterminate(row, on) {
+    const dot = row.querySelector('.fd-sel-dot');
+    if (!dot) return;
+    if (on) {
+        dot.style.display = 'inline-flex';
+        dot.style.background = 'var(--fd-accent-dim,#93c5fd)';
+        dot.textContent = '–';
+        dot.style.color = '#fff';
+        dot.classList.remove('fd-sel-dot-out');
+        void dot.offsetWidth; // restart animation if mid fade-out
+        dot.classList.add('fd-sel-dot-in');
+    } else {
+        if (dot.textContent !== '–') return; // not currently a dash — nothing to clear
+        dot.classList.remove('fd-sel-dot-in');
+        dot.classList.add('fd-sel-dot-out');
+        const finish = () => {
+            dot.style.display = 'none';
+            dot.style.background = 'transparent';
+            dot.textContent = '';
+            dot.classList.remove('fd-sel-dot-out');
+        };
+        dot.addEventListener('animationend', finish, { once: true });
+        setTimeout(finish, 180); // safety net if animationend doesn't fire
+    }
+}
+
+// True if some currently-selected path lives inside dirPath (dirPath is a
+// strict ancestor of a selected item) — drives the dash indicator above.
+function _hasSelectedDescendant(dirPath) {
+    const prefix = dirPath.endsWith('/') ? dirPath : dirPath + '/';
+    for (const p of _selectedPaths) {
+        if (p !== dirPath && p.startsWith(prefix)) return true;
+    }
+    return false;
+}
+
+// Re-applies checkmark/dash visuals to whatever rows are currently rendered,
+// based on the persisted _selectedPaths set. A fresh loadDirectory() render
+// always starts with plain, unselected row markup — this is what makes a
+// kept-across-navigation selection (see window._fdKeepSelectionOnNav) show
+// up again when the user returns to a folder.
+function _applySelectionVisuals() {
+    _getFileRows().forEach(row => {
+        const p = row.dataset.path;
+        if (_selectedPaths.has(p)) {
+            _updateRowSelVisual(row, true);
+        } else if (row.dataset.isDir === '1' && _hasSelectedDescendant(p)) {
+            _setRowIndeterminate(row, true);
+        }
+        // else: leave as freshly-rendered default (unselected, dot hidden)
+    });
 }
 
 function _clearSelection() {
@@ -3650,7 +3777,7 @@ function _showFileInfo(row) {
             </button></div>` : '');
 
     document.body.appendChild(panel);
-    document.getElementById('fd-info-close').addEventListener('click', () => panel.remove());
+    document.getElementById('fd-info-close').addEventListener('click', () => window.fdCloseFloatingPanel(panel));
 
     // Download button
     const dlBtn = document.getElementById('fd-info-dl');
@@ -3658,7 +3785,7 @@ function _showFileInfo(row) {
 
     if (!isDir) _initChecksumSection(path, panel);
 
-    const closer = e => { if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', closer, true); } };
+    const closer = e => { if (!panel.contains(e.target)) { window.fdCloseFloatingPanel(panel); document.removeEventListener('click', closer, true); } };
     setTimeout(() => document.addEventListener('click', closer, true), 10);
 }
 
@@ -5186,7 +5313,10 @@ function renderUploadTray() {
         header.style.cssText = 'padding:10px 14px 6px;font-weight:700;font-size:14px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;';
         header.innerHTML = `<span class="ul-count"></span><span style="cursor:pointer;opacity:.6" id="ul-tray-close">✕</span>`;
         tray.prepend(header);
-        header.querySelector('#ul-tray-close').addEventListener('click', () => { tray.innerHTML = ''; });
+        header.querySelector('#ul-tray-close').addEventListener('click', async () => {
+            await window.fdCollapseTray(tray);
+            tray.innerHTML = '';
+        });
     }
     header.querySelector('.ul-count').textContent = `📤 Uploads (${activeUploads.size})`;
 

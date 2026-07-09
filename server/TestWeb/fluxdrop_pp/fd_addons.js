@@ -12,6 +12,7 @@
  *   7. Trash preview 206 fix  (direct stream URL for video/audio)
  *   8. Loading spinners
  *   9. Settings panel extensions
+ *   10. Overlay closing animations  (window.fdCloseOverlay)
  */
 
 // ── i18n key injection ────────────────────────────────────────────────────
@@ -39,6 +40,19 @@
     trash_deleted_label:    'Deleted',
     // Shared UI
     close:                  '✕',
+    // Share manager
+    shares_expired_label:       'Expired',
+    shares_expiry_remove_title: 'Remove expiry (make permanent)',
+    shares_cdn_embed_title:     '🌐 CDN Embed URL (direct media link):',
+    shares_cdn_embed_tooltip:   'Use this URL directly in <code>&lt;img src="…"&gt;</code>, <code>&lt;video src="…"&gt;</code>, Discord embeds, or anywhere a direct media link is accepted. No authentication required.',
+    shares_copy_button:         'Copy',
+    shares_stats_title:         '📊 Stats: {name}',
+    share_action_view:          'View',
+    share_action_download:      'Download',
+    share_action_embed:         'Embed',
+    share_action_preview:       'Preview',
+    sel_bar_keep_label:         'Keep selection',
+    sel_bar_keep_tooltip:       'Keep your selection when you open a different folder. Selected files show a checkmark and folders containing a selected item show a dash when you come back to them.',
   };
   const EXTRA_UK = {
     // Trash bin
@@ -49,6 +63,19 @@
     trash_days_n:           'Залишилось {n} днів',
     trash_deleted_label:    'Видалено',
     close:                  '✕',
+    // Share manager
+    shares_expired_label:       'Закінчився',
+    shares_expiry_remove_title: 'Прибрати термін дії (зробити безстроковим)',
+    shares_cdn_embed_title:     '🌐 CDN URL для вставки (пряме посилання на медіа):',
+    shares_cdn_embed_tooltip:   'Використовуйте це посилання напряму в <code>&lt;img src="…"&gt;</code>, <code>&lt;video src="…"&gt;</code>, вставках Discord, або будь-де, де приймається пряме посилання на медіафайл. Автентифікація не потрібна.',
+    shares_copy_button:         'Копіювати',
+    shares_stats_title:         '📊 Статистика: {name}',
+    share_action_view:          'Перегляд',
+    share_action_download:      'Завантаження',
+    share_action_embed:         'Вставка',
+    share_action_preview:       'Попередній перегляд',
+    sel_bar_keep_label:         'Зберігати вибір',
+    sel_bar_keep_tooltip:       'Зберігати вибір під час переходу до іншої папки. Вибрані файли показують позначку, а папки, що містять вибраний елемент, показують риску, коли ви повертаєтесь до них.',
   };
 
   const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };
@@ -983,3 +1010,75 @@
     _obs.observe(document.body, { childList: true });
   });
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 10. OVERLAY CLOSING ANIMATIONS
+ * ═══════════════════════════════════════════════════════════════════════════
+ * script.js closes modal overlays (profile menu, profile panel, share
+ * manager, trash) by calling `overlay.remove()` directly, which pops the
+ * whole thing off the DOM with no transition. window.fdCloseOverlay() is a
+ * drop-in replacement for those specific close-trigger call sites (backdrop
+ * click / ✕ button) — it plays a fade-out on the overlay and a scale/slide-out
+ * on its content panel (assumed to be the overlay's first element child),
+ * then removes the overlay once the animation ends (or after a fallback
+ * timeout, in case animationend never fires for some reason).
+ *
+ * Overlays that navigate elsewhere immediately on click (e.g. "Profile" or
+ * "Logout" inside the profile menu) intentionally still call overlay.remove()
+ * directly — the screen changes right away in those cases, so an exit
+ * animation on the overlay itself would just add latency.
+ */
+window.fdCloseOverlay = function (overlay, ms) {
+    if (!overlay || overlay.dataset.fdClosing) return;
+    overlay.dataset.fdClosing = '1';
+    overlay.classList.add('fd-overlay-closing');
+    const panel = overlay.firstElementChild;
+    if (panel) panel.classList.add('fd-panel-closing');
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        overlay.remove();
+    };
+    overlay.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, ms || 200); // safety net if animationend doesn't fire
+};
+
+// For the docked download/upload trays (#dl-tray / #ul-tray): unlike the
+// modal overlays above, the tray container is NOT removed on close — it's
+// reused for the next transfer (stable DOM patching, see renderDownloadTray/
+// renderUploadTray comments), only its innerHTML is cleared. This plays a
+// slide-down-and-fade animation on the tray, awaits it, then resolves so the
+// caller can safely clear the contents.
+window.fdCollapseTray = function (tray, ms) {
+    return new Promise(resolve => {
+        if (!tray) { resolve(); return; }
+        tray.classList.add('fd-tray-closing');
+        let done = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            tray.classList.remove('fd-tray-closing');
+            resolve();
+        };
+        tray.addEventListener('animationend', finish, { once: true });
+        setTimeout(finish, ms || 200); // safety net if animationend doesn't fire
+    });
+};
+
+// For standalone floating panels that aren't a backdrop+content pair (e.g.
+// #fd-info-panel, which is itself the positioned card with no overlay behind
+// it) — fades/slides the panel itself out, then removes it.
+window.fdCloseFloatingPanel = function (panel, ms) {
+    if (!panel || panel.dataset.fdClosing) return;
+    panel.dataset.fdClosing = '1';
+    panel.classList.add('fd-float-panel-closing');
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        panel.remove();
+    };
+    panel.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, ms || 200); // safety net if animationend doesn't fire
+};

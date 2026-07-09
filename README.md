@@ -1,4 +1,4 @@
-# server `v0.19.1.1`
+# server `v0.19.1.2`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -21,8 +21,7 @@ from the V0.19.0 release***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Fixes for closing animations, selection animations, i18n issues, needs 
-testing***
+- ***Additional fixes for the code, check the TODO changes***
 
 ---
 

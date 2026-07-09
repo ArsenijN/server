@@ -10,42 +10,14 @@ user feedback or ideas for future development.
 ### Important without category (critical before release)
 
 ### UI - add new features
-- [ ] Markdown parser does not understand:
-  - [ ] `***` following with the new lines inside the text and then `***` again 
-  -- still does not understand, aka there:
-  ```
-  ***This is an example Markdown text
-  that is broken with current text
-  parser, and will not end with proper formatting.***
-  ```
-  ```
-  ***This is an example of the text that
-  is not broken with current text parser.***
-  ```
-  ```
-  ***This is also example of not broken text***
-  ```
-  Following text does not have a problems:
-  ```
-  ***Also, in the time of the server optimizations, we are managed to bump the 
-  download speeds to the mindblowing 2x times! Right now, our hardware can handle 
-  up to 40 MB/s download speeds, that's 2x times faster than the older code!***
-
-  ***Important note: if you want, you can try to use HTTP endpoints of our 
-  services to reach the theoretical 100 MB/s speeds. The problem is that our 
-  hardware is old enough to struggle at encryptions, e.g. `AES` for HTTPS. For 
-  even faster speeds, we have made attempts to add the 
-  `TLS_CHACHA20_POLY1305_SHA256` as secondary main hashing algorithm for HTTPS, 
-  but it may fallback to `AES` and cause slower speeds***
-
-  ***For developers and testers:***
-  ```
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
 
 ### UX - fixes for existing features or new overall experience enhancements
+- [ ] Status page doesn't updates fully (e.g. uptime)
+- [ ] Status page doesn't load the amount of files on server on first load
 - [ ] Make file info modal able to work as "turn on and stay until closed": 
 toggle in settings to change this behavior; works as file info modal that 
 doesn't close when user clicks outside of it
@@ -64,46 +36,28 @@ on i5 8350U)
 - [ ] Add `.7z`, `.rar` and other archive types for file table previews
 - [ ] Add `.docx`, `.pptx`, `.odt`, `.odf`, `.ods`, and other for previews
 - [ ] Add `.dng` and other raw image formats support for previews
-- [ ] **Family/Group accounts**
-  - [ ] Let two or more usernames share a common root directory with mutual
-    read/write privileges.
-  - [ ] Add settings to control whether group members may add/remove other
-    users, set quotas, etc.
-- [ ] **Misc future ideas**
-  - [ ] Server-side filename sanitisation for illegal characters.
-  - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 - [ ] Fix i18n in:
   - [ ] Actions modal
-  - [x] Shared links remainings
-    - [ ] "CDN Embed..." not fixed
-    - [ ] operation type (e.g. `download`, `view`, `embed`, etc.)
-    - [ ] Expired [date]
-    - [ ] "📊 Stats: [folder name]"
   - [ ] Error-related pages -- untested
   - [ ] Translate the `⚠ Due to server capacity demand, new items are kept for 
   7 days. Retention will return to 30 days once space is freed.` (not i18n, 
   rather l10n issue with missing key -- no, it's i18n)
 - [ ] Add more animations to:
-  - [ ] Closing the profile menu
-  - [ ] File selection (checkmark appearance and disappearance)
-  - [ ] `fd-sel-bar` animations of appearance and disappearance
-  - [ ] `profile-panel-overlay` closing
-  - [ ] `share-manager-overlay` closing
-  - [ ] `trash-overlay` closing
+  - [x] File download and upload modals (ETA modal)
+    - [ ] When closed or opened by itself
+  - [ ] File action modal
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
 - [ ] Add caching for:
   - [ ] Profile picture
-- [ ] Add compression for:
+- [ ] Add compession for:
   - [ ] JSON responces that are large
   - [ ] `.md` files
 - [ ] Upload ends successfully even if the upload of one of the files fails 
-(for example because of the quota)
+(for example because of the quota) (message that are displayed in notifications)
 - [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
-the scene (aka it just shows "Downloading via browser...")
-- [ ] Status page doesn't updates fully (e.g. uptime)
-- [ ] Status page doesn't load the amount of files on server on first load
+the scene (aka it just shows "Downloading via browser...") -- needs checks
 
 ### Server-side changes:
 
@@ -163,6 +117,14 @@ static hoster -- doesn't CDN have that already?
 mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
 bandwidth and resolution)
 - [ ] Reimplement the CDN path purpose, fix it's errors
+- [ ] **Family/Group accounts**
+  - [ ] Let two or more usernames share a common root directory with mutual
+    read/write privileges.
+  - [ ] Add settings to control whether group members may add/remove other
+    users, set quotas, etc.
+- [ ] **Misc future ideas**
+  - [ ] Server-side filename sanitisation for illegal characters.
+  - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
 
 #### Lowest:
 - [ ] Make separate "testing" server where I would be able to test everything 
@@ -192,7 +154,23 @@ made/applied
 
 - [x] Add file info modal
 
-
+- [x] Add more animations to:
+  - [x] Closing the profile menu
+  - [x] File selection (checkmark appearance and disappearance)
+  - [x] `fd-sel-bar` animations of appearance and disappearance
+  - [x] `profile-panel-overlay` closing
+  - [x] `share-manager-overlay` closing
+  - [x] `trash-overlay` closing
+  - [x] Markdown modal closing
+- [x] Markdown parser does not understand:
+  - [x] `***` following with the new lines inside the text and then `***` again 
+  -- still does not understand
+- [ ] Fix i18n in:
+  - [x] Shared links remainings
+    - [x] "CDN Embed..." not fixed
+    - [x] operation type (e.g. `download`, `view`, `embed`, etc.)
+    - [x] Expired [date]
+    - [x] "📊 Stats: [folder name]"
 
 ---
 

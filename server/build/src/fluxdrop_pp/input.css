@@ -275,6 +275,14 @@
     animation: fd-overlay-fade-out .16s ease forwards;
     pointer-events: none;
 }
+/* .modal-overlay:not(.hidden) (entrance fade-in, defined above) has equal
+   specificity to a bare .fd-overlay-closing selector; without this compound
+   selector it would win by source order and silently cancel the exit
+   animation on every overlay that carries the modal-overlay class. */
+.modal-overlay.fd-overlay-closing {
+    animation: fd-overlay-fade-out .16s ease forwards;
+    pointer-events: none;
+}
 .fd-panel-closing {
     animation: fd-panel-scale-out .16s cubic-bezier(.4,0,.2,1) forwards;
 }
@@ -303,3 +311,23 @@
 }
 .fd-sel-dot-in  { animation: fd-check-in  .16s cubic-bezier(.34,1.56,.64,1) both; }
 .fd-sel-dot-out { animation: fd-check-out .15s ease both; }
+
+/* ── Download/upload tray (ETA modal) close ──────────────────────────────── */
+@keyframes fd-tray-slide-out {
+    from { opacity: 1; transform: translateY(0); }
+    to   { opacity: 0; transform: translateY(16px); }
+}
+.fd-tray-closing {
+    animation: fd-tray-slide-out .18s ease forwards;
+    pointer-events: none;
+}
+
+/* ── Floating panel close (e.g. file info/action panel) ──────────────────── */
+@keyframes fd-float-panel-out {
+    from { opacity: 1; transform: translateY(0); }
+    to   { opacity: 0; transform: translateY(-8px); }
+}
+.fd-float-panel-closing {
+    animation: fd-float-panel-out .16s ease forwards;
+    pointer-events: none;
+}

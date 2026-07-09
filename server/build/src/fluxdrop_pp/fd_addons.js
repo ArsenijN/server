@@ -50,6 +50,9 @@
     share_action_view:          'View',
     share_action_download:      'Download',
     share_action_embed:         'Embed',
+    share_action_preview:       'Preview',
+    sel_bar_keep_label:         'Keep selection',
+    sel_bar_keep_tooltip:       'Keep your selection when you open a different folder. Selected files show a checkmark and folders containing a selected item show a dash when you come back to them.',
   };
   const EXTRA_UK = {
     // Trash bin
@@ -70,6 +73,9 @@
     share_action_view:          'Перегляд',
     share_action_download:      'Завантаження',
     share_action_embed:         'Вставка',
+    share_action_preview:       'Попередній перегляд',
+    sel_bar_keep_label:         'Зберігати вибір',
+    sel_bar_keep_tooltip:       'Зберігати вибір під час переходу до іншої папки. Вибрані файли показують позначку, а папки, що містять вибраний елемент, показують риску, коли ви повертаєтесь до них.',
   };
 
   const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };
@@ -1035,5 +1041,44 @@ window.fdCloseOverlay = function (overlay, ms) {
         overlay.remove();
     };
     overlay.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, ms || 200); // safety net if animationend doesn't fire
+};
+
+// For the docked download/upload trays (#dl-tray / #ul-tray): unlike the
+// modal overlays above, the tray container is NOT removed on close — it's
+// reused for the next transfer (stable DOM patching, see renderDownloadTray/
+// renderUploadTray comments), only its innerHTML is cleared. This plays a
+// slide-down-and-fade animation on the tray, awaits it, then resolves so the
+// caller can safely clear the contents.
+window.fdCollapseTray = function (tray, ms) {
+    return new Promise(resolve => {
+        if (!tray) { resolve(); return; }
+        tray.classList.add('fd-tray-closing');
+        let done = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            tray.classList.remove('fd-tray-closing');
+            resolve();
+        };
+        tray.addEventListener('animationend', finish, { once: true });
+        setTimeout(finish, ms || 200); // safety net if animationend doesn't fire
+    });
+};
+
+// For standalone floating panels that aren't a backdrop+content pair (e.g.
+// #fd-info-panel, which is itself the positioned card with no overlay behind
+// it) — fades/slides the panel itself out, then removes it.
+window.fdCloseFloatingPanel = function (panel, ms) {
+    if (!panel || panel.dataset.fdClosing) return;
+    panel.dataset.fdClosing = '1';
+    panel.classList.add('fd-float-panel-closing');
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        panel.remove();
+    };
+    panel.addEventListener('animationend', finish, { once: true });
     setTimeout(finish, ms || 200); // safety net if animationend doesn't fire
 };

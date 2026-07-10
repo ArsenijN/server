@@ -53,6 +53,7 @@
     share_action_preview:       'Preview',
     sel_bar_keep_label:         'Keep selection',
     sel_bar_keep_tooltip:       'Keep your selection when you open a different folder. Selected files show a checkmark and folders containing a selected item show a dash when you come back to them.',
+    trash_retention_reduced_notice: 'Due to server capacity demand, new items are kept for {days} days. Retention will return to 30 days once space is freed.',
   };
   const EXTRA_UK = {
     // Trash bin
@@ -76,6 +77,7 @@
     share_action_preview:       'Попередній перегляд',
     sel_bar_keep_label:         'Зберігати вибір',
     sel_bar_keep_tooltip:       'Зберігати вибір під час переходу до іншої папки. Вибрані файли показують позначку, а папки, що містять вибраний елемент, показують риску, коли ви повертаєтесь до них.',
+    trash_retention_reduced_notice: 'Через високе навантаження на сервер нові елементи зберігаються {days} днів. Термін зберігання повернеться до 30 днів після звільнення місця.',
   };
 
   const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };

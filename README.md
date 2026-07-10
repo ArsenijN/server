@@ -1,27 +1,37 @@
-# server `v0.19.1.2`
+# server `v0.19.1.3`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes: text*
+*Release notes: Slight touches to the user experience with the service*
 
-***Mainstream: text***
+***Mainstream: more animations, backend changes, ...***
 
-***This update will improve overall user experience things that was missing 
+***This update improves overall user experience things that was missing 
 from the V0.19.0 release***
 
 ***Additions:***
-- ***text***
+- ***New animations: file selection, selector bar, ETA trays and others. Fixes: 
+profile menu, mini profile menu, share manager, trash overlay, media preview 
+modals and others***
+- ***i18n fixes for links manager***
 
 ***Fixes:***
-- ****text****
+- ***Trash retention message are now translatable***
+- ***File selector now properly resets after changing the directory***
 
 ***text***
 
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Additional fixes for the code, check the TODO changes***
+- ***Add the version notes for the v0.19.2***
+- ***Retention message are not hardcoded anymore***
+- ***`fd-sel-bar` (file selection bar) now correctly resets after changing the 
+current directory***
+- ***`fd-ctx-menu` (item action modal) now have animation when appears***
+- ***ETA trays now have full animations***
+- ***Stats modal for links manager now have animations***
 
 ---
 

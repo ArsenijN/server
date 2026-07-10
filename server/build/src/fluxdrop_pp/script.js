@@ -160,6 +160,15 @@ const _APP_BASE = (() => {
 // Push a new folder path into the browser history and navigate to it.
 function navigateTo(path) {
     if (path === currentPath) return;
+    // Clear the multi-selection on a real folder change, unless the user
+    // opted into "keep selection while browsing" via the fd-sel-bar
+    // checkbox. Must happen here, before currentPath is reassigned below —
+    // loadDirectory() itself can't tell "new navigation" from "same-folder
+    // refresh" once currentPath already matches the incoming path.
+    if (!window._fdKeepSelectionOnNav) {
+        _selectedPaths.clear();
+        _lastClickedIdx = -1;
+    }
     currentPath = path;
     const urlPath = _APP_BASE + '/files' + (path === '/' ? '' : encodePath(path));
     history.pushState({ fdPath: path }, '', urlPath);
@@ -175,6 +184,10 @@ function _syncUrlToPath(path) {
 // Restore path when user clicks Back/Forward
 window.addEventListener('popstate', event => {
     const path = (event.state && event.state.fdPath) ? event.state.fdPath : '/';
+    if (path !== currentPath && !window._fdKeepSelectionOnNav) {
+        _selectedPaths.clear();
+        _lastClickedIdx = -1;
+    }
     currentPath = path;
     loadDirectory(path);
 });
@@ -245,10 +258,39 @@ function showSpinnerOverlay(message = 'Loading…', opts = {}) {
     };
 }
 
-function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function showModal(id) {
+    const modal = document.getElementById(id);
+    // Defensive cleanup in case the modal is being re-shown while a previous
+    // hideModal() animation hasn't finished yet.
+    modal.classList.remove('hidden', 'fd-overlay-closing');
+    delete modal.dataset.fdClosing;
+    const content = modal.querySelector('.modal-content');
+    if (content) content.classList.remove('fd-panel-closing');
+}
 function hideModal(id) {
-    document.getElementById(id).classList.add('hidden');
+    const modal = document.getElementById(id);
+    if (!modal || modal.classList.contains('hidden') || modal.dataset.fdClosing) {
+        _detachModalKeys();   // P12: always clean up keyboard handler on close
+        return;
+    }
     _detachModalKeys();   // P12: always clean up keyboard handler on close
+
+    modal.dataset.fdClosing = '1';
+    modal.classList.add('fd-overlay-closing');
+    const content = modal.querySelector('.modal-content');
+    if (content) content.classList.add('fd-panel-closing');
+
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        modal.classList.remove('fd-overlay-closing');
+        if (content) content.classList.remove('fd-panel-closing');
+        delete modal.dataset.fdClosing;
+        modal.classList.add('hidden');
+    };
+    modal.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, 200); // safety net if animationend doesn't fire
 }
 
 // P12: Enter confirms / Escape cancels any open modal.
@@ -1451,15 +1493,11 @@ async function loadDirectory(path) {
     // Normalize path
     if (!path) path = '/';
     if (!path.startsWith('/')) path = '/' + path;
-    // Clear the multi-selection when actually navigating to a different
-    // folder, unless the user opted into "keep selection while browsing" via
-    // the fd-sel-bar checkbox. Same-path reloads (refresh button, post-action
-    // refresh after rename/move/upload) never clear — several callers rely
-    // on loadDirectory(currentPath) to redraw without touching selection.
-    if (path !== currentPath && !window._fdKeepSelectionOnNav) {
-        _selectedPaths.clear();
-        _lastClickedIdx = -1;
-    }
+    // NOTE: multi-selection clearing on real navigation happens in
+    // navigateTo() / the popstate handler, BEFORE they call this function —
+    // by the time loadDirectory() runs, currentPath already equals `path`
+    // for both a genuine navigation and a same-folder refresh, so this
+    // function has no reliable way to tell the two apart itself.
     currentPath = path;
     // Render clickable breadcrumb
     (function renderBreadcrumb(p) {
@@ -2452,12 +2490,26 @@ function renderDownloadTray() {
             font-family:Inter,sans-serif; font-size:13px; color:#e2e8f0;
         `;
         document.body.appendChild(tray);
+        tray.classList.add('fd-tray-in');
+        tray.addEventListener('animationend', () => tray.classList.remove('fd-tray-in'), { once: true });
     }
 
     if (activeDownloads.size === 0) {
-        tray.innerHTML = '';
+        // Auto-hide (all downloads finished/cleared) gets the same slide-out
+        // as the manual ✕ button, instead of an instant innerHTML wipe.
+        if (tray.innerHTML.trim() !== '') {
+            window.fdCollapseTray(tray).then(() => {
+                // A new download may have started while this was animating —
+                // only actually clear if the tray is still meant to be empty.
+                if (activeDownloads.size === 0) tray.innerHTML = '';
+            });
+        }
         return;
     }
+    // A new download can start mid auto-hide-animation (see above) — cancel
+    // any pending collapse so the tray doesn't fade out from under the rows
+    // we're about to (re)populate below.
+    tray.classList.remove('fd-tray-closing');
 
     // Header (created once)
     let header = tray.querySelector('.dl-tray-header');
@@ -3581,6 +3633,18 @@ function _removeContextMenu() {
     document.getElementById('fd-ctx-menu')?.remove();
 }
 
+// Animated dismiss, for user-initiated closes (click outside / scroll) only.
+// _removeContextMenu() itself must stay instant: _showContextMenu() calls it
+// right before creating a brand-new menu with the same id, and _doRowSelect/
+// the menu-item click handler call it right before an action fires — in all
+// of those cases the screen is about to change anyway, so an exit animation
+// would just add latency (and, for the "new menu right after" case, risk a
+// duplicate #fd-ctx-menu existing mid-animation).
+function _dismissContextMenu() {
+    const menu = document.getElementById('fd-ctx-menu');
+    if (menu) window.fdCloseFloatingPanel(menu);
+}
+
 function _showContextMenu(x, y, row) {
     _removeContextMenu();
     const path  = row.dataset.path;
@@ -3638,13 +3702,14 @@ function _showContextMenu(x, y, row) {
     }
 
     document.body.appendChild(menu);
+    menu.classList.add('fd-ctx-menu-in');
 
     // Close on click anywhere outside the menu, or on scroll.
     // setTimeout 0 defers registration past the current click event that opened
     // the menu, so the same click that shows it doesn't immediately close it.
     setTimeout(() => {
-        document.addEventListener('click',  _removeContextMenu, { once: true, capture: true });
-        document.addEventListener('scroll', _removeContextMenu, { once: true, passive: true });
+        document.addEventListener('click',  _dismissContextMenu, { once: true, capture: true });
+        document.addEventListener('scroll', _dismissContextMenu, { once: true, passive: true });
     }, 0);
 
     // Hover highlight + actions
@@ -4072,8 +4137,11 @@ async function _refreshTrashView() {
             ? t('trash_n_items', { n: items.length })
             : `${items.length} items`);
 
-    if (data.notice && notice) {
-        notice.textContent = '⚠ ' + data.notice;
+    // The backend only sends retention_days now (see server_cdn.py
+    // _handle_trash_list) — the "reduced retention" notice is built here so
+    // it goes through i18n instead of being a hardcoded English sentence.
+    if (data.retention_days === 7 && notice) {
+        notice.textContent = '⚠ ' + t('trash_retention_reduced_notice', { days: data.retention_days });
         notice.style.display = 'block';
     } else if (notice) {
         notice.style.display = 'none';
@@ -5298,12 +5366,26 @@ function renderUploadTray() {
             font-family:Inter,sans-serif; font-size:13px; color:#e2e8f0;
         `;
         document.body.appendChild(tray);
+        tray.classList.add('fd-tray-in');
+        tray.addEventListener('animationend', () => tray.classList.remove('fd-tray-in'), { once: true });
     }
 
     if (activeUploads.size === 0) {
-        tray.innerHTML = '';
+        // Auto-hide (all uploads finished/cleared) gets the same slide-out
+        // as the manual ✕ button, instead of an instant innerHTML wipe.
+        if (tray.innerHTML.trim() !== '') {
+            window.fdCollapseTray(tray).then(() => {
+                // A new upload may have started while this was animating —
+                // only actually clear if the tray is still meant to be empty.
+                if (activeUploads.size === 0) tray.innerHTML = '';
+            });
+        }
         return;
     }
+    // A new upload can start mid auto-hide-animation (see above) — cancel
+    // any pending collapse so the tray doesn't fade out from under the rows
+    // we're about to (re)populate below.
+    tray.classList.remove('fd-tray-closing');
 
     // Header
     let header = tray.querySelector('.ul-tray-header');

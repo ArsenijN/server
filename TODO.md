@@ -39,21 +39,13 @@ on i5 8350U)
 - [ ] Fix i18n in:
   - [ ] Actions modal
   - [ ] Error-related pages -- untested
-  - [ ] Translate the `⚠ Due to server capacity demand, new items are kept for 
-  7 days. Retention will return to 30 days once space is freed.` (not i18n, 
-  rather l10n issue with missing key -- no, it's i18n)
 - [ ] Add more animations to:
-  - [x] File download and upload modals (ETA modal)
-    - [ ] When closed or opened by itself
   - [ ] File action modal
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
 - [ ] Add caching for:
   - [ ] Profile picture
-- [ ] Add compession for:
-  - [ ] JSON responces that are large
-  - [ ] `.md` files
 - [ ] Upload ends successfully even if the upload of one of the files fails 
 (for example because of the quota) (message that are displayed in notifications)
 - [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
@@ -72,6 +64,9 @@ hash after canceling the ZIP download, or do it only if server is unused or via
 `nice`
 
 #### High:
+- [ ] Add compession for:
+  - [ ] JSON responces that are large
+  - [ ] `.md` files
 - [ ] Ability to download the shared folders without JS (fallback option)
 - [ ] Update the helpers functionality
 - [ ] Document the new proxy method that is currently used with my Immich 
@@ -88,8 +83,7 @@ current `maintenance window`
 
 #### Medium:
 - [ ] Make caching or optimize the quota size counting for reducing the time 
-that is needed to process the 150k+ items -- made for status page, later for 
-FluxDrop file manager
+that is needed to process the 150k+ items for FluxDrop file manager
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
 - [ ] Add hash (maintenance) logs to the debug category for main log file (keep 
 the separate file work always)
@@ -171,6 +165,12 @@ made/applied
     - [x] operation type (e.g. `download`, `view`, `embed`, etc.)
     - [x] Expired [date]
     - [x] "📊 Stats: [folder name]"
+
+- [x] Add more animations to: File download and upload modals (ETA modal): When 
+closed or opened by itself
+- [x] Fix i18n in: Translate the `⚠ Due to server capacity demand, new items 
+are kept for 7 days. Retention will return to 30 days once space is freed.` 
+(not i18n, rather l10n issue with missing key -- no, it's i18n)
 
 ---
 

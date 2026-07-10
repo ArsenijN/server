@@ -3913,15 +3913,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
         items = _trash_list(user_id)
         retention = _trash_retention_days()
-        notice = None
-        if retention == 7:
-            notice = ('Due to server capacity demand, new items are kept for 7 days. '
-                      'Retention will return to 30 days once space is freed.')
-            # bad hardcode, needs complex fix I think because l10n key does nothing
+        # Deliberately NOT sending a pre-built English sentence here anymore —
+        # that can't be localized on the frontend. retention_days alone is
+        # enough for the client to decide whether to show a "reduced
+        # retention" notice and build it through its own i18n t() call.
+        # See fd-addons.js / script.js _refreshTrashView().
         return self._send_response(200, json.dumps({
             'items': items,
             'retention_days': retention,
-            'notice': notice,
         }))
 
     def _handle_trash_file_stream(self, item_id: int):

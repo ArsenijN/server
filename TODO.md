@@ -61,7 +61,11 @@ the scene (aka it just shows "Downloading via browser...") -- needs checks
 
 #### Critical:
 - [ ] CDN server's HTTPS port crashes if internet is not available for long
+<<<<<<< HEAD
 time -- it's Websocket problem, should be fixed soon
+=======
+time
+>>>>>>> 2efd0c4 (V0.19.1.4)
 - [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what -- they are caused on network switch

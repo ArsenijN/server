@@ -14,6 +14,12 @@ user feedback or ideas for future development.
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
+- [ ] Acceptance modal (opens via the footer buttons) displays plain HTML with 
+Markdown formatting applied
+- [ ] Markdown modal are open for i18n strings translations, but it should not
+- [ ] File selector does not unselect after item deletion
+- [ ] File preview modal may blink with light when it doesn't keep up when file 
+loads/decodes 
 
 ### UX - fixes for existing features or new overall experience enhancements
 - [ ] Status page doesn't updates fully (e.g. uptime)
@@ -62,6 +68,7 @@ that happens and after what -- they are caused on network switch
 - [ ] Maybe cancel the file hashing or avoid the ~~async~~ multithreaded file 
 hash after canceling the ZIP download, or do it only if server is unused or via 
 `nice`
+- [ ] Do not make speed probe for small files (e.g. less than 25 MB)
 
 #### High:
 - [ ] Add compession for:

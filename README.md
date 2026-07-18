@@ -25,13 +25,7 @@ modals and others***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Add the version notes for the v0.19.2***
-- ***Retention message are not hardcoded anymore***
-- ***`fd-sel-bar` (file selection bar) now correctly resets after changing the 
-current directory***
-- ***`fd-ctx-menu` (item action modal) now have animation when appears***
-- ***ETA trays now have full animations***
-- ***Stats modal for links manager now have animations***
+- ***Add the new static site for own usage***
 
 ---
 

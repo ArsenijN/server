@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WHEP Monitor</title>
+<style>
+  :root {
+    --bg: #0a0c0d;
+    --panel: #13171a;
+    --panel-line: #23292d;
+    --amber: #ffb020;
+    --amber-dim: #7a5613;
+    --cyan: #4fd8e0;
+    --cyan-dim: #1f5a5e;
+    --red: #ff4d4d;
+    --text: #d8dee2;
+    --text-dim: #6b7680;
+    --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- top bar ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--panel-line);
+    background: var(--panel);
+    flex-wrap: wrap;
+  }
+
+  .tally {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .tally.live {
+    background: var(--red);
+    box-shadow: 0 0 8px 1px var(--red);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .tally.connecting {
+    background: var(--amber);
+    box-shadow: 0 0 6px 1px var(--amber);
+    animation: pulse 0.8s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  .brand {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-right: 6px;
+    white-space: nowrap;
+  }
+
+  input[type="text"] {
+    flex: 1 1 260px;
+    min-width: 160px;
+    background: #0d1012;
+    border: 1px solid var(--panel-line);
+    color: var(--text);
+    padding: 7px 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+    border-radius: 3px;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--cyan-dim); }
+
+  button {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 8px 16px;
+    border-radius: 3px;
+    border: 1px solid var(--panel-line);
+    background: #1a1f23;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  button:hover { border-color: var(--cyan-dim); color: #fff; }
+  button.primary {
+    background: var(--amber);
+    color: #1a1200;
+    border-color: var(--amber);
+    font-weight: 600;
+  }
+  button.primary:hover { background: #ffc450; border-color: #ffc450; color: #1a1200; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ---------- video ---------- */
+  .stage {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    position: relative;
+    min-height: 0;
+  }
+  video {
+    max-width: 100%;
+    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+  .placeholder {
+    position: absolute;
+    color: var(--text-dim);
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+
+  /* ---------- footer / telemetry ---------- */
+  footer {
+    display: flex;
+    align-items: stretch;
+    border-top: 1px solid var(--panel-line);
+    background: var(--panel);
+    flex-wrap: wrap;
+  }
+
+  .metric {
+    padding: 10px 18px;
+    border-right: 1px solid var(--panel-line);
+    min-width: 100px;
+  }
+  .metric:last-child { border-right: none; }
+  .metric-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 3px;
+  }
+  .metric-value {
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+    color: var(--cyan);
+  }
+  .metric-value.hero {
+    font-size: 26px;
+    color: var(--amber);
+  }
+  .metric-value .unit {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-left: 3px;
+  }
+
+  /* ---------- delay hint control ---------- */
+  .delay-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+    border-right: 1px solid var(--panel-line);
+    flex: 1 1 220px;
+  }
+  .delay-control label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  input[type="range"] {
+    flex: 1;
+    accent-color: var(--amber);
+  }
+  .delay-readout {
+    font-size: 13px;
+    color: var(--amber);
+    min-width: 48px;
+    text-align: right;
+  }
+
+  .log {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 4px 14px 8px;
+    border-top: 1px solid var(--panel-line);
+    background: var(--panel);
+    max-height: 46px;
+    overflow-y: auto;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="tally" id="tally"></div>
+  <span class="brand">WHEP Monitor</span>
+  <input type="text" id="whepUrl" placeholder="http://host:8889/path/whep" value="http://192.168.0.141:8889/translate/whep">
+  <button class="primary" id="connectBtn">Connect</button>
+  <button id="disconnectBtn" disabled>Disconnect</button>
+  <button id="muteBtn" disabled>Unmute</button>
+</header>
+
+<div class="stage">
+  <video id="video" autoplay playsinline muted></video>
+  <div class="placeholder" id="placeholder">Not connected</div>
+</div>
+
+<footer>
+  <div class="metric">
+    <div class="metric-label">Buffer delay</div>
+    <div class="metric-value hero" id="mJitter">&mdash;<span class="unit">ms</span></div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Round trip</div>
+    <div class="metric-value" id="mRtt">&mdash;<span class="unit">ms</span></div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Bitrate</div>
+    <div class="metric-value" id="mBitrate">&mdash;<span class="unit">kbps</span></div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Frame</div>
+    <div class="metric-value" id="mRes">&mdash;</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Dropped</div>
+    <div class="metric-value" id="mDropped">&mdash;</div>
+  </div>
+  <div class="delay-control">
+    <label for="delaySlider">Playout hint</label>
+    <input type="range" id="delaySlider" min="0" max="300" step="10" value="0">
+    <span class="delay-readout" id="delayReadout">0 ms</span>
+  </div>
+</footer>
+
+<div class="log" id="log">Idle.</div>
+
+<script>
+(() => {
+  const els = {
+    whepUrl: document.getElementById('whepUrl'),
+    connectBtn: document.getElementById('connectBtn'),
+    disconnectBtn: document.getElementById('disconnectBtn'),
+    muteBtn: document.getElementById('muteBtn'),
+    video: document.getElementById('video'),
+    placeholder: document.getElementById('placeholder'),
+    tally: document.getElementById('tally'),
+    log: document.getElementById('log'),
+    mJitter: document.getElementById('mJitter'),
+    mRtt: document.getElementById('mRtt'),
+    mBitrate: document.getElementById('mBitrate'),
+    mRes: document.getElementById('mRes'),
+    mDropped: document.getElementById('mDropped'),
+    delaySlider: document.getElementById('delaySlider'),
+    delayReadout: document.getElementById('delayReadout'),
+  };
+
+  let pc = null;
+  let resourceUrl = null;
+  let statsTimer = null;
+  let lastBytes = 0;
+  let lastTs = 0;
+  let playoutHintSec = 0;
+
+  function log(msg) {
+    els.log.textContent = msg;
+  }
+
+  function setTally(state) {
+    els.tally.className = 'tally' + (state ? ' ' + state : '');
+  }
+
+  function applyPlayoutHint() {
+    if (!pc) return;
+    pc.getReceivers().forEach(r => {
+      try { r.playoutDelayHint = playoutHintSec; } catch (e) {}
+      try { if ('jitterBufferTarget' in r) r.jitterBufferTarget = playoutHintSec * 1000; } catch (e) {}
+    });
+  }
+
+  els.delaySlider.addEventListener('input', () => {
+    const ms = parseInt(els.delaySlider.value, 10);
+    playoutHintSec = ms / 1000;
+    els.delayReadout.textContent = ms + ' ms';
+    applyPlayoutHint();
+  });
+
+  async function connect() {
+    const url = els.whepUrl.value.trim();
+    if (!url) { log('Enter a WHEP URL first.'); return; }
+
+    els.connectBtn.disabled = true;
+    setTally('connecting');
+    log('Opening peer connection...');
+
+    pc = new RTCPeerConnection({ iceServers: [] });
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+
+    pc.ontrack = (event) => {
+      if (els.video.srcObject !== event.streams[0]) {
+        els.video.srcObject = event.streams[0];
+        els.placeholder.style.display = 'none';
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      log('Connection: ' + pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        setTally('live');
+        applyPlayoutHint();
+        startStats();
+      } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+        setTally('');
+        stopStats();
+      }
+    };
+
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // Wait for ICE gathering to complete (non-trickle, simplest for WHEP)
+      await new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') { resolve(); return; }
+        const check = () => {
+          if (pc.iceGatheringState === 'complete') {
+            pc.removeEventListener('icegatheringstatechange', check);
+            resolve();
+          }
+        };
+        pc.addEventListener('icegatheringstatechange', check);
+        setTimeout(resolve, 2000); // safety timeout
+      });
+
+      log('Posting SDP offer to WHEP endpoint...');
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/sdp' },
+        body: pc.localDescription.sdp,
+      });
+
+      if (!res.ok) throw new Error('WHEP server responded ' + res.status);
+
+      const loc = res.headers.get('Location');
+      if (loc) {
+        resourceUrl = new URL(loc, url).toString();
+      }
+
+      const answerSdp = await res.text();
+      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+      els.disconnectBtn.disabled = false;
+      els.muteBtn.disabled = false;
+      log('Connected. Streaming.');
+    } catch (err) {
+      log('Error: ' + err.message);
+      setTally('');
+      els.connectBtn.disabled = false;
+      if (pc) { pc.close(); pc = null; }
+    }
+  }
+
+  async function disconnect() {
+    stopStats();
+    if (resourceUrl) {
+      try { await fetch(resourceUrl, { method: 'DELETE' }); } catch (e) {}
+    }
+    if (pc) { pc.close(); pc = null; }
+    resourceUrl = null;
+    els.video.srcObject = null;
+    els.placeholder.style.display = 'block';
+    setTally('');
+    els.connectBtn.disabled = false;
+    els.disconnectBtn.disabled = true;
+    els.muteBtn.disabled = true;
+    els.muteBtn.textContent = 'Unmute';
+    els.video.muted = true;
+    resetMetrics();
+    log('Disconnected.');
+  }
+
+  function resetMetrics() {
+    els.mJitter.innerHTML = '&mdash;<span class="unit">ms</span>';
+    els.mRtt.innerHTML = '&mdash;<span class="unit">ms</span>';
+    els.mBitrate.innerHTML = '&mdash;<span class="unit">kbps</span>';
+    els.mRes.textContent = '\u2014';
+    els.mDropped.textContent = '\u2014';
+    lastBytes = 0; lastTs = 0;
+  }
+
+  function startStats() {
+    stopStats();
+    statsTimer = setInterval(pollStats, 500);
+  }
+  function stopStats() {
+    if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+  }
+
+  async function pollStats() {
+    if (!pc) return;
+    const stats = await pc.getStats();
+    let jitterMs = null, rttMs = null, bytesReceived = null;
+    let width = null, height = null, dropped = null;
+
+    stats.forEach(report => {
+      if (report.type === 'inbound-rtp' && report.kind === 'video') {
+        if (report.jitterBufferDelay != null && report.jitterBufferEmittedCount) {
+          jitterMs = (report.jitterBufferDelay / report.jitterBufferEmittedCount) * 1000;
+        }
+        bytesReceived = report.bytesReceived;
+        width = report.frameWidth;
+        height = report.frameHeight;
+        dropped = report.framesDropped ?? null;
+      }
+      if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.currentRoundTripTime != null) {
+        rttMs = report.currentRoundTripTime * 1000;
+      }
+    });
+
+    if (jitterMs != null) els.mJitter.innerHTML = jitterMs.toFixed(0) + '<span class="unit">ms</span>';
+    if (rttMs != null) els.mRtt.innerHTML = rttMs.toFixed(0) + '<span class="unit">ms</span>';
+    if (width && height) els.mRes.textContent = width + '\u00d7' + height;
+    if (dropped != null) els.mDropped.textContent = dropped;
+
+    if (bytesReceived != null) {
+      const now = performance.now();
+      if (lastTs) {
+        const deltaBytes = bytesReceived - lastBytes;
+        const deltaSec = (now - lastTs) / 1000;
+        const kbps = (deltaBytes * 8 / 1000) / deltaSec;
+        if (kbps >= 0) els.mBitrate.innerHTML = kbps.toFixed(0) + '<span class="unit">kbps</span>';
+      }
+      lastBytes = bytesReceived;
+      lastTs = now;
+    }
+  }
+
+  els.connectBtn.addEventListener('click', connect);
+  els.disconnectBtn.addEventListener('click', disconnect);
+  els.muteBtn.addEventListener('click', () => {
+    els.video.muted = !els.video.muted;
+    els.muteBtn.textContent = els.video.muted ? 'Unmute' : 'Mute';
+  });
+})();
+</script>
+
+</body>
+</html>

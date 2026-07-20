@@ -129,13 +129,25 @@ def _health_check_socket(host, port, label, initial_delay=10, interval=30, max_f
         try:
             # Use a real HTTP request — a pure socket.connect() succeeds even
             # when the thread pool is fully saturated (kernel accept buffer).
+            #
+            # BUGFIX: this used to hardcode https:// regardless of `label`,
+            # so the HTTP health check (label="HTTP") sent a TLS ClientHello
+            # at the plain-HTTP listener. The server correctly rejected it
+            # as a bad request, urlopen saw it as SSL: WRONG_VERSION_NUMBER,
+            # and 3 consecutive "failures" triggered a restart — every ~100s,
+            # forever, of a server that was never actually broken.
             import urllib.request
-            url = f"https://{host}:{port}/healthz"  # or /status, or any cheap path
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            with urllib.request.urlopen(url, timeout=5, context=ctx) as r:
-                r.read(64)
+            scheme = 'https' if label == 'HTTPS' else 'http'
+            url = f"{scheme}://{host}:{port}/healthz"  # or /status, or any cheap path
+            if scheme == 'https':
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                with urllib.request.urlopen(url, timeout=5, context=ctx) as r:
+                    r.read(64)
+            else:
+                with urllib.request.urlopen(url, timeout=5) as r:
+                    r.read(64)
             consecutive_failures = 0
             print(f"Health check OK ({label})")
         except Exception as e:

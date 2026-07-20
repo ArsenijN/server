@@ -1,4 +1,4 @@
-# server `v0.19.1.7`
+# server `v0.19.1.9`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -25,7 +25,12 @@ modals and others***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Add the new static site for own usage***
+- ***Fix "memory leak" (server memory exaustion) for the HTTPS (caused by 
+finite amount of staled Websocket connections without proper close by message***
+- ***Fix HTTPS proxy connection drop after timeout***
+- ***Fix server memory exaustion because of not properly handled proxying***
+- ***Fix HTTP server's health check failing because of the forcefully enforced 
+HTTPS requests from the `shared.py`***
 
 ---
 

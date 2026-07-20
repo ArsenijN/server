@@ -60,8 +60,6 @@ the scene (aka it just shows "Downloading via browser...") -- needs checks
 ### Server-side changes:
 
 #### Critical:
-- [ ] CDN server's HTTPS port crashes if internet is not available for long
-time -- it's Websocket problem, should be fixed soon
 - [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
 now I can't replicate it so I don't know why and I can't give any clues when 
 that happens and after what -- they are caused on network switch
@@ -110,7 +108,7 @@ issues (aka preview tokens), or resolve the issues that FluxDrop is very
 unstable in bad internet areas) or something else) -- merged into the rela... 
 No it's not since that entry issues the JSON multi-answer instead on only 
 related to fetch/question
-- [ ] Add checkers for external HTTP and HTTPS hosters
+- [ ] Add checkers for external HTTP and HTTPS hosters for outage page
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
 any type of file that's supported, thumbs can be included into the quota, or 
 excluded from quota)
@@ -148,7 +146,7 @@ since I can just remember CSS and HTML, and do that by hands)
 made/applied
 - [ ] Dark mode auto switch
 - [ ] HSTS redirect should work correctly
-- [x] Add the visualization for retry cycles -- should be added, need testing
+- [ ] Add the visualization for retry cycles
 
 ---
 
@@ -180,6 +178,9 @@ closed or opened by itself
 - [x] Fix i18n in: Translate the `⚠ Due to server capacity demand, new items 
 are kept for 7 days. Retention will return to 30 days once space is freed.` 
 (not i18n, rather l10n issue with missing key -- no, it's i18n)
+
+- [x] CDN server's HTTPS port crashes if internet is not available for long
+time -- it's Websocket problem, should be fixed soon
 
 ---
 

@@ -75,7 +75,13 @@ _HOST_PROXY: dict[str, dict] = {
     'gallery.arseniusgen.dev': {
         'target':  'http://127.0.0.1:2283',
         'enabled': True,
-        'timeout': 120,  # generous — Immich uploads/API can be slow
+        # 900s — archive downloads (/api/download/archive) stream a zip
+        # Immich is building on the fly; a multi-GB / 300+-asset archive
+        # can go many minutes between socket writes under load. This
+        # timeout applies per recv() call, not to the total transfer, so
+        # it only needs to cover the longest gap between chunks, not the
+        # whole download.
+        'timeout': 900,
     },
     # Template for future services — copy, rename, set enabled=True:
     # 'service.arseniusgen.dev': {
@@ -107,16 +113,35 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
         import socket as _raw_sock
         import threading as _thr
 
+        def _enable_keepalive(sock, idle=60, interval=15, count=4):
+            """TCP keepalive so a truly dead peer (NAT drop, sleep, network
+            change) gets detected and the socket closed, instead of blocking
+            recv() forever."""
+            sock.setsockopt(_raw_sock.SOL_SOCKET, _raw_sock.SO_KEEPALIVE, 1)
+            try:
+                sock.setsockopt(_raw_sock.IPPROTO_TCP, _raw_sock.TCP_KEEPIDLE, idle)
+                sock.setsockopt(_raw_sock.IPPROTO_TCP, _raw_sock.TCP_KEEPINTVL, interval)
+                sock.setsockopt(_raw_sock.IPPROTO_TCP, _raw_sock.TCP_KEEPCNT, count)
+            except AttributeError:
+                pass  # not available on this platform, SO_KEEPALIVE alone still helps
+
         _p = _urlparse(target_base)
         try:
             # timeout=10 here only bounds the TCP handshake/connect step.
-            # socket.create_connection() does NOT reset the timeout after
-            # connecting — it stays on the socket forever unless cleared,
-            # which silently killed long-idle WS tunnels (e.g. between
-            # socket.io heartbeat frames) with a bare TimeoutError.
+            #
+            # BUGFIX: settimeout(None) below used to mean "no read/write
+            # timeout, ever." If a client just disappeared without sending
+            # TCP FIN/RST (phone sleeps, WiFi->cellular handoff, NAT mapping
+            # silently expires), the kernel never tells Python the peer is
+            # gone and recv() blocks forever — 3 leaked threads per dead
+            # connection, permanently, for the life of the process. A
+            # generous-but-finite timeout plus OS-level keepalive as a
+            # backstop fixes this without killing legitimate idle tunnels
+            # (300s is well above socket.io's ~25s heartbeat).
             backend = _raw_sock.create_connection(
                 (_p.hostname, _p.port or 80), timeout=10)
-            backend.settimeout(None)  # now a long-lived tunnel — no read/write timeout
+            backend.settimeout(300)
+            _enable_keepalive(backend)
             backend.setsockopt(_raw_sock.IPPROTO_TCP, _raw_sock.TCP_NODELAY, 1)
         except Exception as e:
             handler.send_response(502)
@@ -129,7 +154,8 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
 
         # Forward the original HTTP upgrade request to the backend
         _skip = frozenset({'host', 'content-length'})
-        handler.connection.settimeout(None)
+        handler.connection.settimeout(300)
+        _enable_keepalive(handler.connection)
         handler.connection.setsockopt(_raw_sock.IPPROTO_TCP, _raw_sock.TCP_NODELAY, 1)
         req  = f"{handler.command} {handler.path} HTTP/1.1\r\n"
         req += f"Host: {_p.hostname}:{_p.port or 80}\r\n"
@@ -158,6 +184,8 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
                         logging.info('WS tunnel %s: clean EOF', label)
                         break
                     dst.sendall(data)
+            except _raw_sock.timeout:
+                logging.info('WS tunnel %s: idle timeout, closing dead peer', label)
             except Exception as e:
                 # Logged (not swallowed) so a future disconnect cause is
                 # visible instead of looking like an unexplained reset.
@@ -233,6 +261,7 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     req.add_header('X-Forwarded-Proto', 'https')
 
     _PROXY_BUF = 256 * 1024
+    _headers_sent = False  # once True, we can no longer fall back to an error response
     try:
         with _urllib_req.urlopen(req, timeout=timeout) as resp:
             handler.send_response(resp.status)
@@ -247,28 +276,66 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
                         pass
             
             if not _cl:
-                # Chunked response — buffer it and add Content-Length
-                # so the client knows when the body ends without waiting
-                # for the connection to close
-                body = resp.read()
-                handler.send_header('Content-Length', str(len(body)))
+                # BUGFIX: this used to do `body = resp.read()` — buffering the
+                # ENTIRE response into RAM before writing anything back, which
+                # is exactly wrong for something like Immich's
+                # /api/download/archive: it streams a zip with unknown final
+                # size (no Content-Length), so a 300-asset / multi-GB album
+                # export tried to sit in process memory whole on a low-RAM
+                # box. Worse: if resp.read() raised partway through (a stall
+                # over the timeout, a backend hiccup), the exception fell
+                # through to the generic handler below, which called
+                # send_response(502) a SECOND time — but send_response(200)
+                # and the headers for the first response had already gone
+                # out. That second status line landed inside what the client
+                # thought was still body bytes, corrupting the archive
+                # (reproduced as "Unexpected end of data" on whichever asset
+                # happened to be mid-flight when it hit).
+                #
+                # Fix: stream it as chunked transfer-encoding of our own,
+                # exactly like the Content-Length-known branch does, and if
+                # anything goes wrong mid-stream, just drop the connection
+                # instead of trying to send a second response.
+                handler.send_header('Transfer-Encoding', 'chunked')
                 handler._proxying = True
                 handler.end_headers()
                 handler._proxying = False
-                handler.wfile.write(body)
+                _headers_sent = True
+                try:
+                    while True:
+                        chunk = resp.read(_PROXY_BUF)
+                        if not chunk:
+                            break
+                        handler.wfile.write(b'%x\r\n' % len(chunk))
+                        handler.wfile.write(chunk)
+                        handler.wfile.write(b'\r\n')
+                    handler.wfile.write(b'0\r\n\r\n')
+                except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError,
+                        _urllib_err.URLError) as e:
+                    logging.info('Host proxy chunked stream to %s cut short: %r',
+                                  handler.path, e)
+                    handler.close_connection = True
             else:
                 # Content-Length known — stream normally
                 handler._proxying = True
                 handler.end_headers()
                 handler._proxying = False
-                while True:
-                    chunk = resp.read(_PROXY_BUF)
-                    if not chunk:
-                        break
-                    try:
+                _headers_sent = True
+                try:
+                    while True:
+                        chunk = resp.read(_PROXY_BUF)
+                        if not chunk:
+                            break
                         handler.wfile.write(chunk)
-                    except (BrokenPipeError, ConnectionResetError):
-                        break
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                except (TimeoutError, OSError, _urllib_err.URLError) as e:
+                    # Same double-response hazard as above: headers are
+                    # already out, so don't try to send an error response —
+                    # just log and drop the connection.
+                    logging.info('Host proxy stream to %s cut short: %r',
+                                  handler.path, e)
+                    handler.close_connection = True
     except _urllib_err.HTTPError as e:
         try:
             raw = e.read() or b''
@@ -292,15 +359,24 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     except (BrokenPipeError, ConnectionResetError):
         pass
     except Exception as exc:
-        msg = f'{{"error":"host proxy error: {exc}"}}'.encode()
-        try:
-            handler.send_response(502)
-            handler.send_header('Content-Type', 'application/json')
-            handler.send_header('Content-Length', str(len(msg)))
-            handler.end_headers()
-            handler.wfile.write(msg)
-        except Exception:
-            pass
+        if _headers_sent:
+            # A 200 (or whatever status) and headers already went to the
+            # client — sending a fresh send_response() here is what corrupted
+            # the archive downloads. Log it and let the connection close
+            # instead.
+            logging.info('Host proxy error after headers sent for %s: %r',
+                          handler.path, exc)
+            handler.close_connection = True
+        else:
+            msg = f'{{"error":"host proxy error: {exc}"}}'.encode()
+            try:
+                handler.send_response(502)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Content-Length', str(len(msg)))
+                handler.end_headers()
+                handler.wfile.write(msg)
+            except Exception:
+                pass
 
 # ── Root-domain path rewriting ────────────────────────────────────────────
 # Maps a bare hostname to the URL subpath where the FluxDrop SPA is installed.

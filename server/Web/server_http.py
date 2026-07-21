@@ -220,6 +220,21 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         Supports HTTP Range requests for partial content delivery.
         Always advertises Accept-Ranges support and includes CORS headers.
         """
+        # Fast-path health probe — must come first, before blacklist/proxy/static
+        # serving. This was missing entirely on the HTTP side (server_https.py
+        # has always had it), so every health check fell through to
+        # SimpleHTTPRequestHandler's static file lookup, found no file literally
+        # named "healthz" in SERVE_DIRECTORY, and legitimately 404'd — which then
+        # looked like a failed health check and triggered a restart loop.
+        if self.path == '/healthz':
+            body = b'ok'
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         client_ip = self.client_address[0]
         requested_path = self.path
         print(f"Request from: {client_ip} -> {requested_path}")

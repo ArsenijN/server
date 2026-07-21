@@ -1,4 +1,4 @@
-# server `v0.19.1.9`
+# server `v0.19.1.10`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -20,17 +20,22 @@ modals and others***
 - ***Trash retention message are now translatable***
 - ***File selector now properly resets after changing the directory***
 
+***Backend fixes:***
+- ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 
+Websocket connections without proper close by message***
+- ***Fix HTTPS proxy connection drop after timeout***
+- ***Fix server memory exaustion because of not properly handled proxying***
+- ***Fix HTTP's hoster health check failing because of the forced HTTPS 
+requests from the `shared.py`***
+- ***Fix HTTP didn't have the `healthz` endpoint and causing repeated hoster 
+reload***
+
 ***text***
 
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Fix "memory leak" (server memory exaustion) for the HTTPS (caused by 
-finite amount of staled Websocket connections without proper close by message***
-- ***Fix HTTPS proxy connection drop after timeout***
-- ***Fix server memory exaustion because of not properly handled proxying***
-- ***Fix HTTP server's health check failing because of the forcefully enforced 
-HTTPS requests from the `shared.py`***
+- ***Fix HTTP didn't have the `healthz` endpoint***
 
 ---
 

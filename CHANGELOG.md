@@ -31,6 +31,19 @@ Also raised the `gallery.arseniusgen.dev` per-host proxy timeout from 120s to
 it only needs to cover the longest gap between chunks during archive
 generation, not the whole download.
 
+### HTTP server restart loop, round 2 — /healthz didn't exist (server_http.py)
+After the scheme fix, the health check correctly reached `http://127.0.0.1:8080/healthz` —
+but `server_http.py` never had a `/healthz` route at all. It fell through to
+`SimpleHTTPRequestHandler`'s static file lookup, found no file literally named
+`healthz` in `SERVE_DIRECTORY`, and returned a legitimate `404`. Same
+3-strikes restart loop, new root cause. `server_https.py` has had a fast-path
+`/healthz` handler at the top of `do_GET` all along; `server_http.py` simply
+never got the equivalent.
+
+**Fix:** added the same fast-path `/healthz` → `200 ok` handler to
+`server_http.py`, positioned first in `do_GET`, before blacklist checks,
+CDN proxying, or static file serving.
+
 ### HTTP server restart loop, every ~90–110s (shared.py)
 `_health_check_socket()` hardcoded `https://` in its self-ping URL regardless
 of which server it was checking. The HTTP health check (`label="HTTP"`) was
@@ -61,7 +74,4 @@ rather than falling into the generic exception path.
 ## Files changed
 - `server_https.py`
 - `shared.py`
-
-## Files reviewed, no change needed
-- `server_http.py` — uses the now-fixed `health_check_self_ping_http()` from
-  `shared.py`; no bug local to this file.
+- `server_http.py`

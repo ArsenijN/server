@@ -1,4 +1,4 @@
-# server `v0.19.1.10`
+# server `v0.19.1.11`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -35,7 +35,8 @@ reload***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Fix HTTP didn't have the `healthz` endpoint***
+- ***Attempt to fix the status page not updating the amount of FluxDrop, CatBox 
+and other things/files/counts***
 
 ---
 

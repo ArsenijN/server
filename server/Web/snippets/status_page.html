@@ -1454,6 +1454,30 @@ function _fmtUtc(s) {
       const diskBar = document.getElementById('cdn-disk-bar');
       if (diskBar) diskBar.style.width = d.disk_pct + '%';
 
+      // User count
+      const userCountEl = document.getElementById('user-count');
+      if (userCountEl) userCountEl.textContent = d.user_count;
+
+      // Active sessions
+      const activeSessionsEl = document.getElementById('active-sessions');
+      if (activeSessionsEl) activeSessionsEl.textContent = d.active_sessions;
+
+      // FluxDrop files
+      const fluxdropFilesEl = document.getElementById('fluxdrop-files');
+      if (fluxdropFilesEl) fluxdropFilesEl.textContent = d.fluxdrop_files;
+
+      // CatBox files
+      const catboxFilesEl = document.getElementById('catbox-files');
+      if (catboxFilesEl) catboxFilesEl.textContent = d.catbox_files;
+
+      // Active shares
+      const activeSharesEl = document.getElementById('active-shares');
+      if (activeSharesEl) activeSharesEl.textContent = d.active_shares;
+
+      // Total share views
+      const totalShareViewsEl = document.getElementById('total-share-views');
+      if (totalShareViewsEl) totalShareViewsEl.textContent = d.total_share_views;
+
       // Incident log
       const incEl = document.getElementById('incident-rows');
       if (incEl && d.incidents) {

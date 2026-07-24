@@ -3395,27 +3395,34 @@ function _updateSelBar() {
         });
     }
 
+// ── Shared bulk-trash flow ───────────────────────────────────────────────────
+// Used by the sel-bar "Trash" button, the context-menu "trash-multi" action,
+// and the Del-key hotkey — all three want the same confirm → clear selection
+// → move each path to Trash → show one batch notice → reload flow. Works
+// fine for a single path too (batch notice text handles singular/plural).
+async function _trashSelectedPaths(paths) {
+    if (!paths.length) return;
+    if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
+    _clearSelection(); _updateSelBar();
+    let lastDays = 30;
+    let failed   = 0;
+    for (const p of paths) {
+        const r = await deleteItem(p, { skipConfirm: true, silent: true });
+        if (r === false) failed++;
+        else if (r) lastDays = r;
+    }
+    const moved = paths.length - failed;
+    if (moved > 0) _showTrashBatchNotice(moved, lastDays);
+    loadDirectory(currentPath);
+}
+
     bar.onclick = e => {
         const btn = e.target.closest('[data-fdsel]');
         if (!btn) return;
         const action = btn.dataset.fdsel;
         if (action === 'clear') { _clearSelection(); _updateSelBar(); return; }
         if (action === 'trash') {
-            const paths = [..._selectedPaths];
-            if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
-            _clearSelection(); _updateSelBar();
-            (async () => {
-                let lastDays = 30;
-                let failed   = 0;
-                for (const p of paths) {
-                    const r = await deleteItem(p, { skipConfirm: true, silent: true });
-                    if (r === false) failed++;
-                    else if (r) lastDays = r;
-                }
-                const moved = paths.length - failed;
-                if (moved > 0) _showTrashBatchNotice(moved, lastDays);
-                loadDirectory(currentPath);
-            })();
+            _trashSelectedPaths([..._selectedPaths]);
             return;
         }
         if (action === 'download') {
@@ -3742,21 +3749,7 @@ function _showContextMenu(x, y, row) {
                     break;
                 }
                 case 'trash-multi': {
-                    const paths = [..._selectedPaths];
-                    if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
-                    _clearSelection(); _updateSelBar();
-                    (async () => {
-                        let lastDays = 30;
-                        let failed   = 0;
-                        for (const tp of paths) {
-                            const r = await deleteItem(tp, { skipConfirm: true, silent: true });
-                            if (r === false) failed++;
-                            else if (r) lastDays = r;
-                        }
-                        const moved = paths.length - failed;
-                        if (moved > 0) _showTrashBatchNotice(moved, lastDays);
-                        loadDirectory(currentPath);
-                    })();
+                    _trashSelectedPaths([..._selectedPaths]);
                     break;
                 }
             }
@@ -4012,7 +4005,17 @@ window.deleteItem = async function(path, optsOrLegacy = {}) {
     try {
         const res = await apiCall('/api/v1/trash', 'POST', { path });
         const days = res.retention_days || 30;
+        // Deleted paths must never linger in _selectedPaths: batch callers
+        // (trash-multi, sel-bar trash) already clear the whole set up front,
+        // so this is a no-op for them, but the single-item context-menu
+        // "Move to Trash" action calls deleteItem() directly with nothing
+        // else scrubbing the selection — without this, a deleted item's path
+        // stays "selected" forever (wrong sel-bar count, stale ancestor dash
+        // indicators, and a phantom pre-selected row if the same path is
+        // ever recreated).
+        _selectedPaths.delete(path);
         if (!silent) {
+            _updateSelBar();
             showMessage('Moved to Trash',
                 disp + ' was moved to Trash and will be kept for ' + days + ' days.\n'
                 + 'Open Trash (🗑) to restore or permanently delete it.');
@@ -7600,7 +7603,24 @@ document.addEventListener('DOMContentLoaded', () => {
             hideModal('message-modal');
         }
     });
-    // Check if user was redirected from a verification link
+
+    // Del key: trash the current selection. Guarded so it never fires while
+    // typing (rename fields, filter boxes, etc.) or while another overlay
+    // (preview, move/share dialogs, admin/profile panels, trash view) is on
+    // top of the file list — those should own Delete/text-input semantics.
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Delete') return;
+        const ae = document.activeElement;
+        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+        if (!document.getElementById('preview-modal').classList.contains('hidden')) return;
+        if (document.getElementById('mv-dialog-overlay') || document.getElementById('share-dialog-overlay') ||
+            document.getElementById('ap-edit-overlay') || document.getElementById('admin-panel-overlay') ||
+            document.getElementById('profile-panel-overlay') || document.getElementById('share-manager-overlay') ||
+            document.getElementById('profile-menu-modal') || document.getElementById('trash-overlay')) return;
+        if (_selectedPaths.size === 0) return;
+        e.preventDefault();
+        _trashSelectedPaths([..._selectedPaths]);
+    });
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('verified')) {
         showMessage('Verification Successful', 'Your account is verified. Please log in.');

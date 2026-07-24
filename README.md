@@ -1,14 +1,15 @@
-# server `v0.19.1.11`
+# server `v0.19.1.12`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
 *Release notes: Slight touches to the user experience with the service*
 
-***Mainstream: more animations, backend changes, ...***
+***Mainstream: more animations, backend changes, and overall usage 
+improvements***
 
 ***This update improves overall user experience things that was missing 
-from the V0.19.0 release***
+from the V0.19.1 release***
 
 ***Additions:***
 - ***New animations: file selection, selector bar, ETA trays and others. Fixes: 
@@ -35,8 +36,7 @@ reload***
 ***Regressions: none***
 
 *Patch notes: **Changelog:***
-- ***Attempt to fix the status page not updating the amount of FluxDrop, CatBox 
-and other things/files/counts***
+- ***TODO implementations***
 
 ---
 

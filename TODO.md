@@ -20,10 +20,13 @@ Markdown formatting applied
 - [ ] File selector does not unselect after item deletion
 - [ ] File preview modal may blink with light when it doesn't keep up when file 
 loads/decodes 
+- [ ] Rework the trash bin messages (drop the browser-native, rework the 
+current trash deletion notifier, etc.)
+- [ ] Profile icon is not cached and reloads every time from the ground
+- [ ] Add `Del` key as hotkey to delete selected item(s)
 
 ### UX - fixes for existing features or new overall experience enhancements
 - [ ] Status page doesn't updates fully (e.g. uptime)
-- [ ] Status page doesn't load the amount of files on server on first load
 - [ ] Make file info modal able to work as "turn on and stay until closed": 
 toggle in settings to change this behavior; works as file info modal that 
 doesn't close when user clicks outside of it
@@ -60,9 +63,8 @@ the scene (aka it just shows "Downloading via browser...") -- needs checks
 ### Server-side changes:
 
 #### Critical:
-- [ ] Sometimes FluxDrop makes config connections, resulting in 404, but right 
-now I can't replicate it so I don't know why and I can't give any clues when 
-that happens and after what -- they are caused on network switch
+- [ ] Sometimes FluxDrop makes config connections, resulting in 404 -- they are 
+caused by network switch (on client device)
 - [ ] Trash bin file preview inside folders
 - [ ] Hash are not moved/re-attached to a file after move
 - [ ] Maybe cancel the file hashing or avoid the ~~async~~ multithreaded file 
@@ -71,7 +73,7 @@ hash after canceling the ZIP download, or do it only if server is unused or via
 - [ ] Do not make speed probe for small files (e.g. less than 25 MB)
 
 #### High:
-- [ ] Add compession for:
+- [ ] Add responce compession (gzip?) for:
   - [ ] JSON responces that are large
   - [ ] `.md` files
 - [ ] Ability to download the shared folders without JS (fallback option)
@@ -93,7 +95,8 @@ current `maintenance window`
 that is needed to process the 150k+ items for FluxDrop file manager
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
 - [ ] Add hash (maintenance) logs to the debug category for main log file (keep 
-the separate file work always)
+the separate `maintenance.log` file work always, but not include the infos into 
+CDN's logs if debug isn't enabled)
 - [ ] Fix CSP for used domain other than `PUBLIC_DOMAIN` (e.g. accessing 
 FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to 
 as specified in `PUBLIC_DOMAIN`)
@@ -144,9 +147,10 @@ since I can just remember CSS and HTML, and do that by hands)
 - [ ] Missing ZIP's files may be never displayed on client
 - [ ] Check the acceptance modal loader on slow internet when new terms will be 
 made/applied
-- [ ] Dark mode auto switch
+- [ ] Dark mode auto switch -- doesn't work
 - [ ] HSTS redirect should work correctly
 - [ ] Add the visualization for retry cycles
+- [ ] Status page doesn't load the amount of files on server on first load
 
 ---
 

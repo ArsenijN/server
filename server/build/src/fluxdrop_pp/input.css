@@ -198,6 +198,62 @@
         border-top-color: transparent;
         border-bottom-color: #1e3a5f;
     }
+
+    /* ── Policy / acceptance modal Markdown content (light theme) ────────────
+       Rendered via _mdParseAndSanitize() (marked.js) into #pm-body / #pam-body.
+       marked emits plain semantic tags with no styling of their own — the old
+       hand-rolled _mdToHtml() baked inline styles into every tag it produced,
+       so once policy docs moved to the shared marked.js engine they needed an
+       explicit stylesheet here or headings/links/tables/code rendered unstyled. */
+    #pm-body h1, #pam-body h1,
+    #pm-body h2, #pam-body h2,
+    #pm-body h3, #pam-body h3,
+    #pm-body h4, #pam-body h4 {
+        font-weight: 700;
+        color: #1e40af;
+        margin: 1.2em 0 .4em;
+    }
+    #pm-body h1, #pam-body h1 { font-size: 1.35em; }
+    #pm-body h2, #pam-body h2 { font-size: 1.15em; }
+    #pm-body h3, #pam-body h3 { font-size: 1.05em; }
+    #pm-body p,  #pam-body p  { margin: .7em 0; }
+    #pm-body a,  #pam-body a  { color: #2563eb; text-decoration: underline; }
+    #pm-body strong, #pam-body strong { font-weight: 700; }
+    #pm-body code, #pam-body code {
+        background: #f1f5f9;
+        color: #be123c;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-family: ui-monospace, monospace;
+        font-size: .85em;
+    }
+    #pm-body pre, #pam-body pre {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: .9rem;
+        overflow-x: auto;
+        margin: .75em 0;
+    }
+    #pm-body pre code, #pam-body pre code { background: none; padding: 0; }
+    #pm-body blockquote, #pam-body blockquote {
+        border-left: 3px solid #3b82f6;
+        margin: .75em 0;
+        padding: .4em .75em;
+        background: #eff6ff;
+        border-radius: 0 6px 6px 0;
+        color: #475569;
+    }
+    #pm-body hr, #pam-body hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.25em 0; }
+    #pm-body table, #pam-body table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: .75em 0;
+        font-size: .9em;
+    }
+    #pm-body th, #pam-body th,
+    #pm-body td, #pam-body td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
+    #pm-body th, #pam-body th { background: #f8fafc; font-weight: 600; }
 }
 /* ── FluxDrop animations ────────────────────────────────────────────────────── */
 @keyframes fd-fade-in {

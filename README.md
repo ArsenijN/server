@@ -1,4 +1,4 @@
-# server `v0.19.1.13`
+# server `v0.19.1.14`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -18,8 +18,11 @@ modals and others***
 - ***i18n fixes for links manager***
 
 ***Fixes:***
+- ***Acceptance modal displayed plain HTML due to lack of the proxy's alias for 
+policy files***
 - ***Trash retention message are now translatable***
-- ***File selector now properly resets after changing the directory***
+- ***File selector now properly resets after changing the directory and when 
+item is deleted***
 
 ***Backend fixes:***
 - ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 
@@ -30,6 +33,9 @@ Websocket connections without proper close by message***
 requests from the `shared.py`***
 - ***Fix HTTP didn't have the `healthz` endpoint and causing repeated hoster 
 reload***
+- ***Fix dependency of hardcoded domain, resulting in failing to load lazy JS 
+assets when accessing from different domain (CORS/CSP or just one-domain ideal 
+dependency being broken)***
 
 ***text***
 

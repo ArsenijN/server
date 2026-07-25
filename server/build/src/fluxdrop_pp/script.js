@@ -2718,7 +2718,7 @@ function _loadHeic2any() {
     if (_heic2anyLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/heic2any.min.js';
+        s.src = '/fluxdrop_pp/assets/heic2any.min.js';
         s.onload  = () => { _heic2anyLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load heic2any'));
         document.head.appendChild(s);
@@ -2731,7 +2731,7 @@ function _loadJSZip() {
     if (_jszipLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/jszip.min.js';
+        s.src = '/fluxdrop_pp/assets/jszip.min.js';
         s.onload  = () => { _jszipLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load JSZip'));
         document.head.appendChild(s);
@@ -2744,7 +2744,7 @@ function _loadUntar() {
     if (_untarLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/untar.min.js';
+        s.src = '/fluxdrop_pp/assets/untar.min.js';
         s.onload  = () => { _untarLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load js-untar'));
         document.head.appendChild(s);
@@ -2757,7 +2757,7 @@ function _loadMarked() {
     if (_markedLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/marked.min.js';
+        s.src = '/fluxdrop_pp/assets/marked.min.js';
         s.onload  = () => { _markedLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load marked.js'));
         document.head.appendChild(s);
@@ -3398,6 +3398,27 @@ const _SEL_BAR_GHOST = `
     <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 Trash</button>
     <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ Clear</button>`;
 
+// ── Shared bulk-trash flow ───────────────────────────────────────────────────
+// Used by the sel-bar "Trash" button, the context-menu "trash-multi" action,
+// and the Del-key hotkey — all three want the same confirm → clear selection
+// → move each path to Trash → show one batch notice → reload flow. Works
+// fine for a single path too (batch notice text handles singular/plural).
+async function _trashSelectedPaths(paths) {
+    if (!paths.length) return;
+    if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
+    _clearSelection(); _updateSelBar();
+    let lastDays = 30;
+    let failed   = 0;
+    for (const p of paths) {
+        const r = await deleteItem(p, { skipConfirm: true, silent: true });
+        if (r === false) failed++;
+        else if (r) lastDays = r;
+    }
+    const moved = paths.length - failed;
+    if (moved > 0) _showTrashBatchNotice(moved, lastDays);
+    loadDirectory(currentPath);
+}
+
 function _updateSelBar() {
     const n = _selectedPaths.size;
     const bar = document.getElementById('fd-sel-bar');
@@ -3431,27 +3452,6 @@ function _updateSelBar() {
             window._fdKeepSelectionOnNav = this.checked;
         });
     }
-
-// ── Shared bulk-trash flow ───────────────────────────────────────────────────
-// Used by the sel-bar "Trash" button, the context-menu "trash-multi" action,
-// and the Del-key hotkey — all three want the same confirm → clear selection
-// → move each path to Trash → show one batch notice → reload flow. Works
-// fine for a single path too (batch notice text handles singular/plural).
-async function _trashSelectedPaths(paths) {
-    if (!paths.length) return;
-    if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
-    _clearSelection(); _updateSelBar();
-    let lastDays = 30;
-    let failed   = 0;
-    for (const p of paths) {
-        const r = await deleteItem(p, { skipConfirm: true, silent: true });
-        if (r === false) failed++;
-        else if (r) lastDays = r;
-    }
-    const moved = paths.length - failed;
-    if (moved > 0) _showTrashBatchNotice(moved, lastDays);
-    loadDirectory(currentPath);
-}
 
     bar.onclick = e => {
         const btn = e.target.closest('[data-fdsel]');

@@ -400,6 +400,13 @@ _STATIC_ASSET_EXTS = frozenset({
     '.svg', '.png', '.ico', '.jpg', '.jpeg', '.gif', '.webp', '.avif',
     '.woff', '.woff2', '.ttf', '.eot', '.otf',
     '.html', '.htm', '.txt', '.xml', '.webmanifest',
+    # .md was missing here: a request like /policies/PP/ukr/v0.0.2.md on a
+    # root-domain host (fluxdrop.me) didn't match any extension in this set,
+    # so it fell into the "else" branch below and was treated as an SPA
+    # navigation URL — the server served index.html (200, text/html) instead
+    # of the actual policy document, which is why the acceptance/policy modal
+    # rendered the app shell's raw HTML instead of the Markdown text.
+    '.md',
 })
 
 def _proxy_to_cdn(handler, method: str = 'GET'):

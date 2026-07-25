@@ -14,16 +14,21 @@ user feedback or ideas for future development.
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
-- [x] Acceptance modal (opens via the footer buttons) displays plain HTML with 
-Markdown formatting applied
 - [ ] Markdown modal are open for i18n strings translations, but it should not
-- [x] File selector does not unselect after item deletion
 - [ ] File preview modal may blink with light when it doesn't keep up when file 
 loads/decodes 
 - [ ] Rework the trash bin messages (drop the browser-native, rework the 
 current trash deletion notifier, etc.)
 - [ ] Profile icon is not cached and reloads every time from the ground
-- [x] Add `Del` key as hotkey to delete selected item(s)
+- [x] Add `Del` key as hotkey to delete selected item(s) -- broken before
+- [ ] No dedicated upload button for mobile and desktop
+- [ ] Make file explorer use fixed by size main modal and overflow buffer 
+inside it to...
+  - [ ] Make an animation for the `fd-sel-bar` as slide in (slide down with 
+  some part of the UI)
+- [ ] Rework the `btn-toolbar-toggle` to become as mini modal (aka menu) with 
+options
+- [ ] Fix some modals being server-side generated instead of frontend's work
 
 ### UX - fixes for existing features or new overall experience enhancements
 - [ ] Status page doesn't updates fully (e.g. uptime)
@@ -185,6 +190,10 @@ are kept for 7 days. Retention will return to 30 days once space is freed.`
 
 - [x] CDN server's HTTPS port crashes if internet is not available for long
 time -- it's Websocket problem, should be fixed soon
+
+- [x] Acceptance modal (opens via the footer buttons) displays plain HTML with 
+Markdown formatting applied
+- [x] File selector does not unselect after item deletion
 
 ---
 

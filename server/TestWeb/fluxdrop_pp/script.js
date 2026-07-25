@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-ac742ac5
+// Current version of script.js is: fluxdrop-v-7b877897
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-ac742ac5'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-7b877897'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -637,7 +637,21 @@ async function showPolicyModal(type) {
         try {
             const resp = await fetch(_policyUrl(type, loadLang, loadVer), { cache: 'no-cache' });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            bodyEl.innerHTML = _mdToHtml(await resp.text());
+            const text = await resp.text();
+            try {
+                // Same engine used for file-preview Markdown (GFM tables,
+                // links, code fences, blockquotes) — the old hand-rolled
+                // _mdToHtml() below only understood headings/bold/italic/
+                // lists, so any policy doc using a link or table rendered
+                // as literal, unformatted Markdown text.
+                await _loadMarked();
+                bodyEl.innerHTML = _mdParseAndSanitize(text);
+            } catch (mdErr) {
+                // marked.js failed to load (CDN blocked/offline) — we already
+                // have the document text, so fall back to the tiny renderer
+                // rather than showing a hard error for a doc we did fetch.
+                bodyEl.innerHTML = _mdToHtml(text);
+            }
         } catch (err) {
             bodyEl.innerHTML =
                 `<p style="color:#dc2626">Could not load the document. Please try again later.<br>
@@ -656,7 +670,14 @@ async function showPolicyModal(type) {
     loadDoc(lang);
 }
 
-// Tiny Markdown renderer (enough for policy docs — headings, bold, italic, lists, paragraphs)
+// Tiny built-in Markdown renderer — headings, bold, italic, lists, paragraphs
+// only (no links, tables, code fences, or blockquotes). This used to be the
+// only renderer for policy docs, which is why a ToS/PP file using a link or
+// table would show up as literal, unformatted Markdown text. Both policy
+// modals now render via the full marked.js-based _mdParseAndSanitize()
+// instead; this function is kept only as a fallback for when marked.js
+// itself fails to load (CDN blocked/offline) — degraded formatting is still
+// better than a hard "could not load" error for a document we already fetched.
 function _mdToHtml(md) {
     return md
         .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -868,7 +889,13 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
         try {
             const resp = await fetch(_policyUrl(type, loadLang, loadVer), { cache: 'no-cache' });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            bodyEl.innerHTML = _mdToHtml(await resp.text());
+            const text = await resp.text();
+            try {
+                await _loadMarked();
+                bodyEl.innerHTML = _mdParseAndSanitize(text);
+            } catch (mdErr) {
+                bodyEl.innerHTML = _mdToHtml(text);
+            }
             // Short doc that doesn't need scrolling — enable immediately
             if (bodyEl.scrollHeight <= bodyEl.clientHeight + 40) {
                 _enableAgree();
@@ -2691,7 +2718,7 @@ function _loadHeic2any() {
     if (_heic2anyLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/heic2any.min.js';
+        s.src = '/fluxdrop_pp/assets/heic2any.min.js';
         s.onload  = () => { _heic2anyLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load heic2any'));
         document.head.appendChild(s);
@@ -2704,7 +2731,7 @@ function _loadJSZip() {
     if (_jszipLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/jszip.min.js';
+        s.src = '/fluxdrop_pp/assets/jszip.min.js';
         s.onload  = () => { _jszipLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load JSZip'));
         document.head.appendChild(s);
@@ -2717,7 +2744,7 @@ function _loadUntar() {
     if (_untarLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/untar.min.js';
+        s.src = '/fluxdrop_pp/assets/untar.min.js';
         s.onload  = () => { _untarLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load js-untar'));
         document.head.appendChild(s);
@@ -2730,19 +2757,23 @@ function _loadMarked() {
     if (_markedLoaded) return Promise.resolve();
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://arseniusgen.uk.to/fluxdrop_pp/assets/marked.min.js';
+        s.src = '/fluxdrop_pp/assets/marked.min.js';
         s.onload  = () => { _markedLoaded = true; resolve(); };
         s.onerror = () => reject(new Error('Failed to load marked.js'));
         document.head.appendChild(s);
     });
 }
 
-// Render Markdown text safely into bodyEl.
+// Core Markdown parse+sanitize step, shared by both consumers:
+//   - _renderMarkdown() below (file preview — dark theme, its own container)
+//   - showPolicyModal() / _showPolicyAgreementModal() (policy docs — light
+//     theme, rendered straight into #pm-body / #pam-body)
+// Kept free of any bodyEl/theme coupling so callers can wrap the returned
+// HTML string however their modal is themed.
 // - Uses marked for parsing (GFM: tables, fenced code, strikethrough, task lists)
 // - Sanitises every HTML tag that marked emits using a strict allowlist so
 //   user-uploaded .md files cannot inject scripts even without a CSP.
-function _renderMarkdown(bodyEl, rawText) {
-    bodyEl.classList.add('fd-md-body');
+function _mdParseAndSanitize(rawText) {
     // Pre-process: join soft-wrapped lines (single bare \n between two
     // non-empty, non-block lines) into a single space so that editors
     // that hard-wrap prose at column 80 don't produce staircase <br>s.
@@ -2849,11 +2880,17 @@ function _renderMarkdown(bodyEl, rawText) {
     }
     tmp.childNodes.forEach(sanitise);
 
+    return tmp.innerHTML;
+}
+
+// Render Markdown text safely into bodyEl (file preview — dark theme).
+function _renderMarkdown(bodyEl, rawText) {
+    bodyEl.classList.add('fd-md-body');
     bodyEl.innerHTML = '';
     const container = document.createElement('div');
     container.className = 'md-preview';
     container.style.cssText = 'color:#e2e8f0;font-size:15px;line-height:1.75;padding:1.25rem 1.5rem;overflow-y:auto;max-height:70vh';
-    container.appendChild(tmp);
+    container.innerHTML = _mdParseAndSanitize(rawText);
 
     if (!document.getElementById('md-preview-style')) {
         const st = document.createElement('style');
@@ -3361,6 +3398,27 @@ const _SEL_BAR_GHOST = `
     <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 Trash</button>
     <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ Clear</button>`;
 
+// ── Shared bulk-trash flow ───────────────────────────────────────────────────
+// Used by the sel-bar "Trash" button, the context-menu "trash-multi" action,
+// and the Del-key hotkey — all three want the same confirm → clear selection
+// → move each path to Trash → show one batch notice → reload flow. Works
+// fine for a single path too (batch notice text handles singular/plural).
+async function _trashSelectedPaths(paths) {
+    if (!paths.length) return;
+    if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
+    _clearSelection(); _updateSelBar();
+    let lastDays = 30;
+    let failed   = 0;
+    for (const p of paths) {
+        const r = await deleteItem(p, { skipConfirm: true, silent: true });
+        if (r === false) failed++;
+        else if (r) lastDays = r;
+    }
+    const moved = paths.length - failed;
+    if (moved > 0) _showTrashBatchNotice(moved, lastDays);
+    loadDirectory(currentPath);
+}
+
 function _updateSelBar() {
     const n = _selectedPaths.size;
     const bar = document.getElementById('fd-sel-bar');
@@ -3401,21 +3459,7 @@ function _updateSelBar() {
         const action = btn.dataset.fdsel;
         if (action === 'clear') { _clearSelection(); _updateSelBar(); return; }
         if (action === 'trash') {
-            const paths = [..._selectedPaths];
-            if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
-            _clearSelection(); _updateSelBar();
-            (async () => {
-                let lastDays = 30;
-                let failed   = 0;
-                for (const p of paths) {
-                    const r = await deleteItem(p, { skipConfirm: true, silent: true });
-                    if (r === false) failed++;
-                    else if (r) lastDays = r;
-                }
-                const moved = paths.length - failed;
-                if (moved > 0) _showTrashBatchNotice(moved, lastDays);
-                loadDirectory(currentPath);
-            })();
+            _trashSelectedPaths([..._selectedPaths]);
             return;
         }
         if (action === 'download') {
@@ -3742,21 +3786,7 @@ function _showContextMenu(x, y, row) {
                     break;
                 }
                 case 'trash-multi': {
-                    const paths = [..._selectedPaths];
-                    if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
-                    _clearSelection(); _updateSelBar();
-                    (async () => {
-                        let lastDays = 30;
-                        let failed   = 0;
-                        for (const tp of paths) {
-                            const r = await deleteItem(tp, { skipConfirm: true, silent: true });
-                            if (r === false) failed++;
-                            else if (r) lastDays = r;
-                        }
-                        const moved = paths.length - failed;
-                        if (moved > 0) _showTrashBatchNotice(moved, lastDays);
-                        loadDirectory(currentPath);
-                    })();
+                    _trashSelectedPaths([..._selectedPaths]);
                     break;
                 }
             }
@@ -4012,7 +4042,17 @@ window.deleteItem = async function(path, optsOrLegacy = {}) {
     try {
         const res = await apiCall('/api/v1/trash', 'POST', { path });
         const days = res.retention_days || 30;
+        // Deleted paths must never linger in _selectedPaths: batch callers
+        // (trash-multi, sel-bar trash) already clear the whole set up front,
+        // so this is a no-op for them, but the single-item context-menu
+        // "Move to Trash" action calls deleteItem() directly with nothing
+        // else scrubbing the selection — without this, a deleted item's path
+        // stays "selected" forever (wrong sel-bar count, stale ancestor dash
+        // indicators, and a phantom pre-selected row if the same path is
+        // ever recreated).
+        _selectedPaths.delete(path);
         if (!silent) {
+            _updateSelBar();
             showMessage('Moved to Trash',
                 disp + ' was moved to Trash and will be kept for ' + days + ' days.\n'
                 + 'Open Trash (🗑) to restore or permanently delete it.');
@@ -7600,7 +7640,24 @@ document.addEventListener('DOMContentLoaded', () => {
             hideModal('message-modal');
         }
     });
-    // Check if user was redirected from a verification link
+
+    // Del key: trash the current selection. Guarded so it never fires while
+    // typing (rename fields, filter boxes, etc.) or while another overlay
+    // (preview, move/share dialogs, admin/profile panels, trash view) is on
+    // top of the file list — those should own Delete/text-input semantics.
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Delete') return;
+        const ae = document.activeElement;
+        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+        if (!document.getElementById('preview-modal').classList.contains('hidden')) return;
+        if (document.getElementById('mv-dialog-overlay') || document.getElementById('share-dialog-overlay') ||
+            document.getElementById('ap-edit-overlay') || document.getElementById('admin-panel-overlay') ||
+            document.getElementById('profile-panel-overlay') || document.getElementById('share-manager-overlay') ||
+            document.getElementById('profile-menu-modal') || document.getElementById('trash-overlay')) return;
+        if (_selectedPaths.size === 0) return;
+        e.preventDefault();
+        _trashSelectedPaths([..._selectedPaths]);
+    });
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('verified')) {
         showMessage('Verification Successful', 'Your account is verified. Please log in.');
@@ -7661,7 +7718,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-ac742ac5'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-7b877897'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

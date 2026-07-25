@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-7b877897
+// Current version of script.js is: fluxdrop-v-457ccb1b
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-7b877897'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-457ccb1b'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -326,6 +326,29 @@ function stripInternalPrefix(path) {
     return path.replace(/^\/FluxDrop\/\d+\//, '/');
 }
 
+// ── Avatar URL (cacheable) ───────────────────────────────────────────────────
+// Every avatar <img> render site used to build its own `?t=${Date.now()}`
+// cache-buster inline — which made the URL unique on *every single render*
+// (page load, opening the profile menu, opening the profile panel), so the
+// browser could never cache the avatar even though it rarely changes.
+// Fix: the cache-buster is now a stored "version" that only advances when the
+// avatar is actually uploaded or removed (see _bumpAvatarVersion below), so a
+// normal render reuses the same URL and the browser's HTTP cache applies.
+const _AVATAR_VERSION_KEY = 'fd-avatar-v';
+
+function _avatarUrl(userId) {
+    const uid = userId || localStorage.getItem('fluxdrop_user_id') || '0';
+    const v = localStorage.getItem(_AVATAR_VERSION_KEY) || '0';
+    return `${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(uid)}?v=${v}`;
+}
+
+// Call this exactly when the avatar content actually changes (upload/remove)
+// to force every subsequent render to fetch the new image instead of a
+// cached copy of the old one.
+function _bumpAvatarVersion() {
+    localStorage.setItem(_AVATAR_VERSION_KEY, String(Date.now()));
+}
+
 function escapeHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -340,6 +363,49 @@ function showMessage(title, content, isHtml = false) {
         () => hideModal('message-modal'),
         () => hideModal('message-modal')
     );
+}
+
+// ── Bottom-center toast/snackbar ─────────────────────────────────────────────
+// For quick, self-explanatory confirmations (item moved to Trash, folder
+// created, etc.) that don't need the user to stop and read/dismiss a
+// full-screen modal every single time. Reserve showMessage() for things that
+// genuinely need acknowledgement: errors, failures, and anything requiring a
+// decision or careful reading.
+//
+// Stacks multiple toasts (newest at the bottom), auto-dismisses each on its
+// own timer, and reuses the existing fd-tray-slide-in/out keyframes (already
+// defined in the stylesheet for the upload/download ETA tray) rather than
+// introducing a new animation.
+function _getToastStack() {
+    let stack = document.getElementById('fd-toast-stack');
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.id = 'fd-toast-stack';
+        stack.className = 'fd-toast-stack';
+        document.body.appendChild(stack);
+    }
+    return stack;
+}
+
+function showToast(message, opts = {}) {
+    const { type = 'success', duration = 3200 } = opts;
+    const stack = _getToastStack();
+    const icon = type === 'error' ? '⚠' : type === 'info' ? 'ℹ' : '✓';
+
+    const el = document.createElement('div');
+    el.className = `fd-toast fd-toast-${type} fd-tray-in`;
+    el.innerHTML = `<span class="fd-toast-icon">${icon}</span><span class="fd-toast-msg"></span>`;
+    el.querySelector('.fd-toast-msg').textContent = message;
+    stack.appendChild(el);
+
+    const dismiss = () => {
+        if (!el.isConnected) return;
+        el.classList.remove('fd-tray-in');
+        el.classList.add('fd-tray-closing');
+        el.addEventListener('animationend', () => el.remove(), { once: true });
+    };
+    el.addEventListener('click', dismiss);
+    setTimeout(dismiss, duration);
 }
 
 async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = true) {
@@ -415,7 +481,7 @@ function renderAuthControls() {
                             flex-shrink:0;transition:background .2s;overflow:hidden;padding:0"
                     onmouseenter="this.style.background='#2563eb'" onmouseleave="this.style.background='#3b82f6'">
                     <img id="header-avatar"
-                         src="${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(localStorage.getItem('fluxdrop_user_id')||'0')}?t=${Date.now()}"
+                         src="${_avatarUrl()}"
                          style="width:36px;height:36px;border-radius:50%;object-fit:cover;display:block"
                          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
                          alt="">
@@ -4053,9 +4119,7 @@ window.deleteItem = async function(path, optsOrLegacy = {}) {
         _selectedPaths.delete(path);
         if (!silent) {
             _updateSelBar();
-            showMessage('Moved to Trash',
-                disp + ' was moved to Trash and will be kept for ' + days + ' days.\n'
-                + 'Open Trash (🗑) to restore or permanently delete it.');
+            showToast(`${disp} moved to Trash (${days} day${days !== 1 ? 's' : ''})`);
         }
         loadDirectory(currentPath);
         return days;   // return retention days so batch callers can use the last value
@@ -4683,7 +4747,7 @@ async function promptCreateFolder() {
         let targetPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
         await withMinDelay(apiCall('/api/v1/mkdir', 'POST', { path: targetPath }, true), 1000);
         _cfDismiss();
-        showMessage('Folder created', name);
+        showToast(`Folder "${name}" created`);
         loadDirectory(currentPath);
     } catch (err) {
         _cfDismiss();
@@ -4693,7 +4757,7 @@ async function promptCreateFolder() {
             let endpointPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
             const endpoint = '/api/v1/upload/' + encodePath(endpointPath);
             await uploadFormData(endpoint, fd);
-            showMessage('Folder created (via fallback)', name);
+            showToast(`Folder "${name}" created`);
             loadDirectory(currentPath);
         } catch (err2) {
             showMessage('Create folder failed', err.message || String(err2));
@@ -6096,7 +6160,7 @@ function openProfileMenu() {
                             background:rgba(255,255,255,0.25);flex-shrink:0;
                             display:flex;align-items:center;justify-content:center;font-size:22px">
                     <img id="pm-avatar-img"
-                         src="${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(localStorage.getItem('fluxdrop_user_id')||'0')}?t=${Date.now()}"
+                         src="${_avatarUrl()}"
                          style="width:46px;height:46px;object-fit:cover;display:block"
                          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
                          alt="">
@@ -6213,7 +6277,7 @@ async function openProfilePanel() {
                     <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
                         <div id="pp-avatar-wrap" style="position:relative;flex-shrink:0">
                             <img id="pp-avatar-img"
-                                 src="${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(localStorage.getItem('fluxdrop_user_id')||'0')}?t=${Date.now()}"
+                                 src="${_avatarUrl()}"
                                  style="width:64px;height:64px;border-radius:50%;object-fit:cover;
                                         border:2px solid #e2e8f0;background:#f1f5f9"
                                  onerror="this.style.display='none';document.getElementById('pp-avatar-fallback').style.display='flex'"
@@ -6399,10 +6463,13 @@ async function openProfilePanel() {
 
     // ── Avatar upload ─────────────────────────────────────────────────────────
     function _ppRefreshAvatar() {
-        // Append cache-buster so the browser re-fetches the new blob
-        const ts = Date.now();
+        // Bump the shared avatar version so this element AND every future
+        // normal render (header, profile menu, next time this panel opens)
+        // fetch the new image instead of a stale cached copy — then goes back
+        // to being cacheable again until the avatar changes again.
+        _bumpAvatarVersion();
         const uid = localStorage.getItem('fluxdrop_user_id') || '0';
-        const url = `${API_BASE_URL}/api/v1/avatar/${encodeURIComponent(uid)}?t=${ts}`;
+        const url = _avatarUrl(uid);
         const ppImg = overlay.querySelector('#pp-avatar-img');
         const ppFallback = overlay.querySelector('#pp-avatar-fallback');
         const hdrImg = document.getElementById('header-avatar');
@@ -7718,7 +7785,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-7b877897'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-457ccb1b'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

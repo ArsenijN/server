@@ -19,8 +19,6 @@ user feedback or ideas for future development.
 loads/decodes 
 - [ ] Rework the trash bin messages (drop the browser-native, rework the 
 current trash deletion notifier, etc.)
-- [ ] Profile icon is not cached and reloads every time from the ground
-- [x] Add `Del` key as hotkey to delete selected item(s) -- broken before
 - [ ] No dedicated upload button for mobile and desktop
 - [ ] Make file explorer use fixed by size main modal and overflow buffer 
 inside it to...
@@ -58,12 +56,8 @@ on i5 8350U)
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
-- [ ] Add caching for:
-  - [ ] Profile picture
 - [ ] Upload ends successfully even if the upload of one of the files fails 
 (for example because of the quota) (message that are displayed in notifications)
-- [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
-the scene (aka it just shows "Downloading via browser...") -- needs checks
 
 ### Server-side changes:
 
@@ -78,6 +72,8 @@ hash after canceling the ZIP download, or do it only if server is unused or via
 - [ ] Do not make speed probe for small files (e.g. less than 25 MB)
 
 #### High:
+- [ ] Status page doesn't load the amount of files on server on first load 
+because of backend stalement
 - [ ] Add responce compession (gzip?) for:
   - [ ] JSON responces that are large
   - [ ] `.md` files
@@ -155,7 +151,8 @@ made/applied
 - [ ] Dark mode auto switch -- doesn't work
 - [ ] HSTS redirect should work correctly
 - [ ] Add the visualization for retry cycles
-- [ ] Status page doesn't load the amount of files on server on first load
+- [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
+the scene (aka it just shows "Downloading via browser...")
 
 ---
 
@@ -194,6 +191,11 @@ time -- it's Websocket problem, should be fixed soon
 - [x] Acceptance modal (opens via the footer buttons) displays plain HTML with 
 Markdown formatting applied
 - [x] File selector does not unselect after item deletion
+- [x] Add `Del` key as hotkey to delete selected item(s)
+
+- [x] Profile icon is not cached and reloads every time from the ground
+- [x] Add caching for:
+  - [x] Profile picture
 
 ---
 

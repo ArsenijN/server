@@ -1,4 +1,4 @@
-# server `v0.19.1.15`
+# server `v0.19.1.16`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -17,6 +17,7 @@ profile menu, mini profile menu, share manager, trash overlay, media preview
 modals and others***
 - ***i18n fixes for links manager***
 - ***`Del` key now works as the shortcut to delete the current seleted items***
+- ***Reworked the trash bin deletion modals so they're more laconic***
 
 ***Fixes:***
 - ***Acceptance modal displayed plain HTML due to lack of the proxy's alias for 
@@ -26,6 +27,8 @@ policy files***
 item is deleted***
 - ***Profile picture icon is not cached, resulting in need to reload it every 
 time it's displayed***
+- ***Mobile users was unable to upload because there's no button to do so 
+(check the left bottom corner)
 
 ***Backend fixes:***
 - ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 

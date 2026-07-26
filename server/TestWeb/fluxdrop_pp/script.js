@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-457ccb1b
+// Current version of script.js is: fluxdrop-v-be70ee53
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-457ccb1b'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-be70ee53'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -140,7 +140,18 @@ let currentUsername = localStorage.getItem('fluxdrop_username');
 let isAdmin = localStorage.getItem('fluxdrop_is_admin') === '1';
 // Track the currently viewed path in the file browser (always starts at root)
 let currentPath = '/';
+// Best-effort cache of the current Trash retention period, kept up to date
+// from every server response that mentions it (trash list, delete response).
+// Used to word the "Delete N items?" confirmation dialog realistically
+// without a dedicated round-trip before every delete — defaults to the
+// standard 30-day period until we learn otherwise.
+let _lastKnownRetentionDays = 30;
 let _lastUploadBatchCount = 0;  // P10: tracks file count in the current upload batch
+// Set right before programmatically opening the file picker from the mobile
+// upload FAB (see _initMobileUploadFab). There's no visible upload form on
+// touch-only devices to press "Upload" on, so the resulting file selection
+// should submit immediately instead of just updating a label nobody can see.
+let _mobileUploadPending = false;
 // P11: URL-path navigation ────────────────────────────────────────────────
 
 // P11: Derive the app's base directory from the current page URL at runtime.
@@ -408,6 +419,106 @@ function showToast(message, opts = {}) {
     setTimeout(dismiss, duration);
 }
 
+// ── Custom prompt/confirm modals ─────────────────────────────────────────────
+// Replacements for the browser-native prompt()/confirm() dialogs — those
+// can't be styled, don't match the rest of the app, and (on some
+// browsers/embedded webviews) can be suppressed or look completely different
+// from platform to platform. Both are dynamically-created one-off overlays,
+// closed via the existing window.fdCloseOverlay() fade/scale-out, and wired
+// to the same Enter-confirms/Escape-cancels handler already used by
+// showMessage() (_attachModalKeys), so keyboard behaviour stays consistent
+// across every modal in the app.
+
+// Returns a Promise<string|null> — the trimmed input value, or null if the
+// user cancelled (Escape, backdrop click, or the Cancel button).
+function showPromptModal({ title, label = '', placeholder = '', defaultValue = '',
+                            confirmLabel = 'OK', cancelLabel = 'Cancel' } = {}) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width:380px">
+                <h3 style="font-size:1.15rem;font-weight:700;margin-bottom:.75rem;color:#1e293b"></h3>
+                ${label ? `<label style="display:block;font-size:13px;color:#64748b;margin-bottom:6px"></label>` : ''}
+                <input type="text" id="fd-prompt-input"
+                       style="width:100%;padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;
+                              font-size:14px;margin-bottom:1.1rem;box-sizing:border-box"
+                       autocomplete="off" spellcheck="false">
+                <div style="display:flex;gap:8px;justify-content:flex-end">
+                    <button id="fd-prompt-cancel" class="btn" style="background:#6b7280"></button>
+                    <button id="fd-prompt-ok" class="btn"></button>
+                </div>
+            </div>
+        `;
+        overlay.querySelector('h3').textContent = title || '';
+        if (label) overlay.querySelector('label').textContent = label;
+        const input = overlay.querySelector('#fd-prompt-input');
+        input.value = defaultValue;
+        input.placeholder = placeholder;
+        overlay.querySelector('#fd-prompt-cancel').textContent = cancelLabel;
+        overlay.querySelector('#fd-prompt-ok').textContent = confirmLabel;
+        document.body.appendChild(overlay);
+
+        let settled = false;
+        function finish(value) {
+            if (settled) return;
+            settled = true;
+            _detachModalKeys();
+            window.fdCloseOverlay(overlay);
+            resolve(value);
+        }
+        overlay.querySelector('#fd-prompt-ok').addEventListener('click', () => finish(input.value.trim() || null));
+        overlay.querySelector('#fd-prompt-cancel').addEventListener('click', () => finish(null));
+        overlay.addEventListener('click', e => { if (e.target === overlay) finish(null); });
+        _attachModalKeys(
+            () => finish(input.value.trim() || null),
+            () => finish(null)
+        );
+        input.focus();
+        input.select();
+    });
+}
+
+// Returns a Promise<boolean> — true if confirmed, false if cancelled/dismissed.
+function showConfirmModal({ title, message = '', confirmLabel = 'Yes', cancelLabel = 'No', danger = true } = {}) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal-content text-center" style="max-width:380px">
+                <h3 style="font-size:1.15rem;font-weight:700;margin-bottom:.6rem;color:#1e293b"></h3>
+                <p style="color:#64748b;font-size:13.5px;line-height:1.55;margin-bottom:1.25rem;white-space:pre-line"></p>
+                <div style="display:flex;gap:8px;justify-content:center">
+                    <button id="fd-confirm-no" class="btn" style="background:#6b7280"></button>
+                    <button id="fd-confirm-yes" class="btn"></button>
+                </div>
+            </div>
+        `;
+        overlay.querySelector('h3').textContent = title || '';
+        overlay.querySelector('p').textContent = message;
+        const noBtn  = overlay.querySelector('#fd-confirm-no');
+        const yesBtn = overlay.querySelector('#fd-confirm-yes');
+        noBtn.textContent  = cancelLabel;
+        yesBtn.textContent = confirmLabel;
+        if (danger) yesBtn.style.background = '#ef4444';
+        document.body.appendChild(overlay);
+
+        let settled = false;
+        function finish(value) {
+            if (settled) return;
+            settled = true;
+            _detachModalKeys();
+            window.fdCloseOverlay(overlay);
+            resolve(value);
+        }
+        yesBtn.addEventListener('click', () => finish(true));
+        noBtn.addEventListener('click', () => finish(false));
+        overlay.addEventListener('click', e => { if (e.target === overlay) finish(false); });
+        _attachModalKeys(() => finish(true), () => finish(false));
+        yesBtn.focus();
+    });
+}
+
 async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = true) {
     const headers = new Headers({ 'Content-Type': 'application/json' });
     if (requiresAuth) {
@@ -504,7 +615,7 @@ function renderAuthControls() {
 }
 
 let _renderAppBusy = false;
-function renderApp(route = null) {
+async function renderApp(route = null) {
     // Guard against re-entrant calls (e.g. a 401 inside checkAndShowPolicies
     // calling renderApp('login') while a previous renderApp is still awaiting
     // the policy/status fetch — without this the policy fetch loop runs again
@@ -518,6 +629,21 @@ function renderApp(route = null) {
             else if (route === 'login') renderLoginView();
             else renderLandingView();   // ← default: show landing page
             return;
+        }
+        // Backfill the cached user id if it's missing. It's normally set by
+        // handleLogin() (only when /auth/login's response happens to include
+        // an `id` field) or when the user opens their Profile panel (which
+        // fetches /api/v1/me). A session that never hit either of those —
+        // e.g. a login response without an id field, on a device that's
+        // never opened Profile — would have every avatar render permanently
+        // fall back to _avatarUrl()'s hardcoded '0', fetching the wrong
+        // user's avatar. Checking here means it's fixed on the very next load
+        // instead of staying wrong until Profile happens to be opened.
+        if (!localStorage.getItem('fluxdrop_user_id')) {
+            try {
+                const me = await apiCall('/api/v1/me');
+                if (me && me.id) localStorage.setItem('fluxdrop_user_id', String(me.id));
+            } catch (_) { /* non-fatal — header just falls back as before */ }
         }
         _requestNotificationPermission();
         checkAndShowPolicies(() => renderFileBrowserView());
@@ -1186,6 +1312,20 @@ function renderFileBrowserView() {
                 <div id="file-list" class="mt-4" style="min-height:320px"></div>
 
             </div>
+
+            <!-- Mobile-only floating upload button. Hidden by default;
+                 _initMobileUploadFab() reveals it on touch-only devices —
+                 the exact inverse of fd-upload-wrap's own visibility check,
+                 since that toolbar hides itself there and nothing replaced it.
+                 Bottom-LEFT to match #ul-tray's side (renderUploadTray, same
+                 corner makes sense for an upload trigger) and to avoid sitting
+                 under #dl-tray on the right; z-index above both trays (9000)
+                 so it stays reachable even while a transfer is in progress. -->
+            <button id="fd-mobile-upload-fab" type="button" title="${t('upload')}"
+                style="display:none;position:fixed;left:18px;bottom:22px;width:52px;height:52px;
+                       border-radius:50%;background:#3b82f6;color:#fff;border:none;
+                       align-items:center;justify-content:center;font-size:22px;
+                       box-shadow:0 6px 16px rgba(0,0,0,.3);z-index:9100;cursor:pointer">⬆</button>
         </div>
     `;
 
@@ -1215,10 +1355,15 @@ function renderFileBrowserView() {
     document.getElementById('upload-file').addEventListener('change', function () {
         const n   = this.files ? this.files.length : 0;
         const lbl = document.getElementById('upload-file-label');
-        if (!lbl) return;
-        lbl.textContent = n === 0
-            ? (t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…')
-            : n === 1 ? this.files[0].name : `${n} files selected`;
+        if (lbl) {
+            lbl.textContent = n === 0
+                ? (t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…')
+                : n === 1 ? this.files[0].name : `${n} files selected`;
+        }
+        if (_mobileUploadPending) {
+            _mobileUploadPending = false;
+            if (n > 0) handleUploadForm({ preventDefault(){} });
+        }
     });
     // Folders-first toggle
     function updateFoldersMixedBtn() {
@@ -1286,6 +1431,39 @@ function renderFileBrowserView() {
         apply();
         mqFine.addEventListener('change',  apply);
         mqHover.addEventListener('change', apply);
+    })();
+
+    // ── Mobile: dedicated upload button when no fine pointer is available ───
+    // _initUploadWrapVisibility (above) hides the desktop upload toolbar on
+    // touch-only devices, but nothing replaced it — touch users had no way to
+    // trigger an upload at all (drag-and-drop is also fine-pointer-only; see
+    // _initDragDrop below, which bails out early on touch devices). This FAB
+    // is the visual inverse of that same check, PLUS a viewport-width
+    // fallback: (pointer: fine)/(hover: hover) turned out to be unreliable on
+    // real mobile Chrome/Firefox (both reported as if a mouse were attached,
+    // hiding the FAB) even though Chrome DevTools' mobile emulation — which
+    // forces these media features deterministically — showed it correctly.
+    // Width doesn't have that inconsistency, so the FAB shows if EITHER
+    // signal says "this looks like a touch/mobile device".
+    (function _initMobileUploadFab() {
+        const fab = document.getElementById('fd-mobile-upload-fab');
+        if (!fab) return;
+        const mqFine  = window.matchMedia('(pointer: fine)');
+        const mqHover = window.matchMedia('(hover: hover)');
+        const mqWidth = window.matchMedia('(max-width: 820px)');
+        function apply() {
+            const looksTouchOrMobile = !(mqFine.matches || mqHover.matches) || mqWidth.matches;
+            fab.style.display = looksTouchOrMobile ? 'flex' : 'none';
+        }
+        apply();
+        mqFine.addEventListener('change',  apply);
+        mqHover.addEventListener('change', apply);
+        mqWidth.addEventListener('change', apply);
+
+        fab.addEventListener('click', () => {
+            _mobileUploadPending = true;
+            document.getElementById('upload-file').click();
+        });
     })();
 
     // ── Drag-and-drop upload ───────────────────────────────────────────────────
@@ -3471,9 +3649,15 @@ const _SEL_BAR_GHOST = `
 // fine for a single path too (batch notice text handles singular/plural).
 async function _trashSelectedPaths(paths) {
     if (!paths.length) return;
-    if (!confirm(`Move ${paths.length} item${paths.length !== 1 ? 's' : ''} to Trash?`)) return;
+    const n = paths.length;
+    const ok = await showConfirmModal({
+        title: `Delete ${n} item${n !== 1 ? 's' : ''}?`,
+        message: `You'll be able to retrieve ${n !== 1 ? 'them' : 'it'} from the Trash bin for the next `
+                 + `${_lastKnownRetentionDays} day${_lastKnownRetentionDays !== 1 ? 's' : ''}.`,
+    });
+    if (!ok) return;
     _clearSelection(); _updateSelBar();
-    let lastDays = 30;
+    let lastDays = _lastKnownRetentionDays;
     let failed   = 0;
     for (const p of paths) {
         const r = await deleteItem(p, { skipConfirm: true, silent: true });
@@ -4104,10 +4288,18 @@ window.deleteItem = async function(path, optsOrLegacy = {}) {
     const silent      = !!opts.silent;
 
     const disp = stripInternalPrefix(path);
-    if (!skipConfirm && !confirm('Move to Trash: ' + disp + '?')) return false;
+    if (!skipConfirm) {
+        const ok = await showConfirmModal({
+            title: `Move "${disp}" to Trash?`,
+            message: `You'll be able to retrieve it from the Trash bin for the next `
+                     + `${_lastKnownRetentionDays} day${_lastKnownRetentionDays !== 1 ? 's' : ''}.`,
+        });
+        if (!ok) return false;
+    }
     try {
         const res = await apiCall('/api/v1/trash', 'POST', { path });
         const days = res.retention_days || 30;
+        _lastKnownRetentionDays = days;
         // Deleted paths must never linger in _selectedPaths: batch callers
         // (trash-multi, sel-bar trash) already clear the whole set up front,
         // so this is a no-op for them, but the single-item context-menu
@@ -4208,7 +4400,11 @@ async function openTrashView() {
     await _refreshTrashView();
 
     document.getElementById('trash-empty-btn').addEventListener('click', async () => {
-        if (!confirm('Permanently delete everything in Trash? This cannot be undone.')) return;
+        const ok = await showConfirmModal({
+            title: 'Empty Trash?',
+            message: 'Everything in the Trash will be permanently deleted. This cannot be undone.',
+        });
+        if (!ok) return;
         try {
             await apiCall('/api/v1/trash', 'DELETE');
             await _refreshTrashView();
@@ -4235,6 +4431,7 @@ async function _refreshTrashView() {
     }
 
     const items = data.items || [];
+    if (data.retention_days) _lastKnownRetentionDays = data.retention_days;
     subtitle.textContent = items.length === 1
         ? (t('trash_1_item') !== 'trash_1_item' ? t('trash_1_item') : '1 item')
         : (t('trash_n_items') !== 'trash_n_items'
@@ -4349,7 +4546,11 @@ async function _refreshTrashView() {
             const id = +btn.dataset.id;
             const row = body.querySelector(`.trash-row[data-id="${id}"]`);
             const name = row?.querySelector('div > div')?.textContent?.trim() || 'this item';
-            if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
+            const ok = await showConfirmModal({
+                title: `Permanently delete "${name}"?`,
+                message: 'This cannot be undone.',
+            });
+            if (!ok) return;
             try {
                 await apiCall(`/api/v1/trash/${id}`, 'DELETE');
                 await _refreshTrashView();
@@ -4740,17 +4941,19 @@ async function openMoveDialog(srcPath) {
 }
 
 async function promptCreateFolder() {
-    const name = prompt('Create a folder with a name:', 'NewFolder');
+    const name = await showPromptModal({
+        title: 'Create Folder',
+        label: 'Folder name',
+        defaultValue: 'NewFolder',
+        confirmLabel: 'Create',
+    });
     if (!name) return;
-    const _cfDismiss = showSpinnerOverlay('Creating folder…', { minMs: 1000 });
     try {
         let targetPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
-        await withMinDelay(apiCall('/api/v1/mkdir', 'POST', { path: targetPath }, true), 1000);
-        _cfDismiss();
+        await apiCall('/api/v1/mkdir', 'POST', { path: targetPath }, true);
         showToast(`Folder "${name}" created`);
         loadDirectory(currentPath);
     } catch (err) {
-        _cfDismiss();
         try {
             const fd = new FormData();
             fd.append('fileToUpload', new Blob(['']), '.placeholder');
@@ -7785,7 +7988,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-457ccb1b'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-be70ee53'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

@@ -17,9 +17,6 @@ user feedback or ideas for future development.
 - [ ] Markdown modal are open for i18n strings translations, but it should not
 - [ ] File preview modal may blink with light when it doesn't keep up when file 
 loads/decodes 
-- [ ] Rework the trash bin messages (drop the browser-native, rework the 
-current trash deletion notifier, etc.)
-- [ ] No dedicated upload button for mobile and desktop
 - [ ] Make file explorer use fixed by size main modal and overflow buffer 
 inside it to...
   - [ ] Make an animation for the `fd-sel-bar` as slide in (slide down with 
@@ -52,12 +49,13 @@ on i5 8350U)
   - [ ] Actions modal
   - [ ] Error-related pages -- untested
 - [ ] Add more animations to:
-  - [ ] File action modal
+  - [ ] File action modal closing
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
 - [ ] Upload ends successfully even if the upload of one of the files fails 
 (for example because of the quota) (message that are displayed in notifications)
+- [ ] Uploads can't be paused and instead "cancels"
 
 ### Server-side changes:
 
@@ -196,6 +194,13 @@ Markdown formatting applied
 - [x] Profile icon is not cached and reloads every time from the ground
 - [x] Add caching for:
   - [x] Profile picture
+
+- [x] Profile picture not loading on new machines
+- [x] Dedicated buttons for upload is not showing on mobile devices (but shows 
+on desktop and desktop's mobile option)
+- [x] Rework the trash bin messages (drop the browser-native, rework the 
+current trash deletion notifier, etc.)
+- [x] No dedicated upload button for mobile and desktop
 
 ---
 

@@ -421,6 +421,39 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         """
         client_ip = self.client_address[0]
         requested_path = self.path
+
+        # --- Root-domain: upgrade all non-CDN HTTP traffic to HTTPS ──────────
+        # --- Redirect auth/API to HTTPS — never proxy credentials in plaintext ---
+        # --- Proxy CDN-owned paths to server_cdn.py internally ---
+        # None of this existed here at all (do_GET/do_POST/do_DELETE/do_PUT/
+        # do_PATCH all have it) — every HEAD request just fell straight through
+        # to the blacklist/range/static-file logic below, on port 80, with no
+        # redirect and no proxy. For an API path like
+        # /api/v1/upload_session/config (the client's connectivity probe) that
+        # meant a guaranteed 404 from this server's own static-file handler.
+        _clean = requested_path.split('?')[0]
+        _host_bare = self.headers.get('Host', '').split(':')[0].lower()
+        if _host_bare in _ROOT_HTTPS_DOMAINS:
+            _is_cdn = any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _CDN_PROXY_PREFIXES)
+            if not _is_cdn:
+                _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+                self.send_response(308)
+                self.send_header('Location', f'https://{_host_bare}{_port_suffix}{requested_path}')
+                self.send_header('Content-Length', '0')
+                self.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+                self.end_headers()
+                return
+        if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _HTTPS_REDIRECT_PREFIXES):
+            _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+            self.send_response(308)
+            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{requested_path}')
+            self.send_header('Content-Length', '0')
+            self.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+            self.end_headers()
+            return
+        if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _CDN_PROXY_PREFIXES):
+            return _proxy_to_cdn_http(self, 'HEAD')
+
         with blacklist_lock:
             if client_ip in current_blacklist:
                 self.send_response(403)

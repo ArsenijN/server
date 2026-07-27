@@ -60,8 +60,6 @@ on i5 8350U)
 ### Server-side changes:
 
 #### Critical:
-- [ ] Sometimes FluxDrop makes config connections, resulting in 404 -- they are 
-caused by network switch (on client device)
 - [ ] Trash bin file preview inside folders
 - [ ] Hash are not moved/re-attached to a file after move
 - [ ] Maybe cancel the file hashing or avoid the ~~async~~ multithreaded file 
@@ -201,6 +199,9 @@ on desktop and desktop's mobile option)
 - [x] Rework the trash bin messages (drop the browser-native, rework the 
 current trash deletion notifier, etc.)
 - [x] No dedicated upload button for mobile and desktop
+
+- [x] Sometimes FluxDrop makes config connections, resulting in 404 -- they are 
+caused by network switch (on client device)
 
 ---
 

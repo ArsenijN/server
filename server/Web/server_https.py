@@ -939,6 +939,19 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _hp = _get_host_proxy(self.headers)
         if _hp:
             return _proxy_to_host(self, 'HEAD', _hp['target'], _hp.get('timeout', 60))
+
+        # --- Proxy CDN-owned paths to server_cdn.py internally (mirrors do_GET) ---
+        # This check was missing here specifically — do_GET/do_POST/do_DELETE/
+        # do_PUT/do_PATCH/do_OPTIONS all have it. Without it, every HEAD request
+        # to an API path (e.g. the client's /api/v1/upload_session/config
+        # connectivity probe) fell straight through to this server's own
+        # static-file handler below, which 404'd — with the default SimpleHTTP
+        # server signature, not FluxDrop's, since server_cdn.py was never
+        # actually reached.
+        _clean_head = self.path.split('?')[0]
+        if any(_clean_head == p.rstrip('/') or _clean_head.startswith(p) for p in _CDN_PROXY_PREFIXES):
+            return _proxy_to_cdn(self, 'HEAD')
+
         client_ip = self.client_address[0]
         requested_path = self.path
 

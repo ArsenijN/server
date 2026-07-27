@@ -1209,7 +1209,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
             # Security headers (X-Frame-Options, HSTS, CSP, etc.) are sent
             # automatically by the end_headers() override — no duplicates needed here.
             self.end_headers()
-            self.wfile.write(body)
+            # HEAD must send the same headers a GET would (including this
+            # Content-Length) but MUST NOT send a body. Writing the body
+            # anyway would desync HTTP/1.1 keep-alive: the client won't read
+            # body bytes for a HEAD response, so those bytes are left
+            # unconsumed and corrupt the framing of whatever request that
+            # connection serves next.
+            if self.command != 'HEAD':
+                self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError):
             # Client closed the connection before we finished writing.
             # (e.g. after a 460 chunk-hash mismatch). Not an error on our side.
@@ -2091,6 +2098,23 @@ class AuthHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_HEAD(self):
+        # Route recognized API paths through their real handler instead of
+        # falling straight to the static-file server below. do_GET() has a
+        # whole dispatch table of these, but only upload_session_config is
+        # mirrored here: it's the one endpoint the client actually calls via
+        # HEAD (the offline/online connectivity probe — see script.js
+        # probeConnectivity()), and it's known side-effect-free, so it's safe
+        # to invoke directly. Without this, that HEAD request always fell
+        # through to super().do_HEAD() (plain static-file serving), and since
+        # "/api/v1/upload_session/config" isn't a real file on disk, every
+        # single connectivity probe 404'd — unconditionally, not just on
+        # actual network changes.
+        if self.upload_session_config_pattern.match(urlparse(self.path).path):
+            with blacklist_lock:
+                if self.client_address[0] in current_blacklist:
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+            return self.handle_upload_session_config()
+
         # Ensure CORS and Accept-Ranges headers are present on HEAD responses.
         # patched_end_headers delegates to self.end_headers (the class override)
         # so X-Frame-Options, HSTS, and CSP are included — previously it called

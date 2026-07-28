@@ -22,6 +22,14 @@ import urllib.request as _urllib_req
 import urllib.error   as _urllib_err
 import posixpath as _psp
 import re
+import gzip as _gzip_mod
+from email.utils import formatdate as _formatdate
+
+# Static .md files (policy documents, etc.) are the one static-asset type
+# worth gzipping here — see send_head() below. Mirrors the thresholds used
+# in server_cdn.py's _send_response() for API JSON responses.
+_GZIP_MIN_SIZE   = 512                # below this the header overhead isn't worth it
+_GZIP_MAX_INLINE = 16 * 1024 * 1024   # 16 MB — avoid buffering huge files in RAM
 
 # --- Configuration ---
 # Read bind IP and SSL port from environment. Default to 0.0.0.0 and non-privileged 8443.
@@ -695,6 +703,49 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers',
                          'Content-Type, Authorization, Range, X-Requested-With')
         super().end_headers()
+
+    def send_head(self):
+        """Gzip static .md files before falling back to normal static serving.
+
+        Policy documents (ToS/Privacy Policy) and any other .md file are
+        served as plain static assets through this class's inherited
+        do_GET() → send_head() path — there was no gzip support anywhere on
+        that path at all. (server_cdn.py has its own identical copy of this
+        logic for CDN-proxied paths, but policy docs aren't proxied there —
+        this is the actual code path they go through.)
+
+        Skipped when the client doesn't advertise gzip support, the file is
+        outside the sane size range, or a Range request is in play (a
+        byte-range against a whole-body-gzip'd response doesn't make sense —
+        we explicitly advertise Accept-Ranges: none for this response instead
+        of letting the client assume ranges work).
+        """
+        _clean_path = self.path.split('?')[0]
+        filepath = self.translate_path(_clean_path)
+        if (os.path.isfile(filepath)
+                and filepath.lower().endswith('.md')
+                and 'gzip' in self.headers.get('Accept-Encoding', '')
+                and not self.headers.get('Range')):
+            try:
+                st = os.stat(filepath)
+                if _GZIP_MIN_SIZE <= st.st_size <= _GZIP_MAX_INLINE:
+                    with open(filepath, 'rb') as f:
+                        raw = f.read()
+                    compressed = _gzip_mod.compress(raw, compresslevel=6)
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/markdown; charset=utf-8')
+                    self.send_header('Content-Encoding', 'gzip')
+                    self.send_header('Vary', 'Accept-Encoding')
+                    self.send_header('Content-Length', str(len(compressed)))
+                    self.send_header('Last-Modified', _formatdate(st.st_mtime, usegmt=True))
+                    self.send_header('Accept-Ranges', 'none')
+                    self.end_headers()
+                    self.wfile.write(compressed)
+                    return None
+            except Exception:
+                logging.exception('gzip static .md serving failed for %r — falling back to plain', filepath)
+                # Fall through to the normal (uncompressed) path below.
+        return super().send_head()
 
     def _set_headers(self, status_code=200, content_type='text/html'):
         """Helper to set common headers including CORS."""

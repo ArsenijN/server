@@ -452,6 +452,57 @@ def checksum_delete(relative_path: str, user_id) -> None:
         conn.commit()
 
 
+def checksum_rename(old_relative_path: str, new_relative_path: str, user_id) -> None:
+    """Re-key checksum row(s) after a file/folder rename or move, instead of
+    leaving them orphaned under the old path.
+
+    Without this, a renamed/moved file's checksum was never carried over:
+    the old row stayed keyed to a path no file will ever match again, and a
+    lookup at the new path found nothing — forcing a full recompute even
+    though the file's actual bytes never changed. Mirrors the same
+    exact-match + prefix-match pattern already used for share-link path
+    updates after a rename.
+
+    old_relative_path may be a single file (exact match) or a folder whose
+    contents each have their own checksum row (prefix match) — both are
+    handled here since the caller (a rename/move endpoint) doesn't know in
+    advance which one it is without an extra stat() call.
+    """
+    with _db_connect() as conn:
+        try:
+            # Exact match: old_relative_path itself was a file with a checksum.
+            conn.execute(
+                '''UPDATE file_checksums SET relative_path = ?
+                   WHERE relative_path = ? AND (user_id IS ? OR user_id = ?)''',
+                (new_relative_path, old_relative_path, user_id, user_id)
+            )
+        except sqlite3.IntegrityError:
+            # A checksum already existed at the destination path (shouldn't
+            # normally happen — renaming onto an existing file is blocked
+            # earlier — but don't let a stale/orphaned row crash the rename).
+            logging.warning('checksum_rename: exact-match update skipped, '
+                             'destination already has a checksum row: %r', new_relative_path)
+
+        # Prefix match: old_relative_path was a folder — re-key every checksum
+        # for files that were inside it.
+        old_prefix = old_relative_path.rstrip('/') + '/'
+        new_prefix = new_relative_path.rstrip('/') + '/'
+        rows = conn.execute(
+            '''SELECT id, relative_path FROM file_checksums
+               WHERE relative_path LIKE ? AND (user_id IS ? OR user_id = ?)''',
+            (old_prefix + '%', user_id, user_id)
+        ).fetchall()
+        for row_id, rel in rows:
+            updated = new_prefix + rel[len(old_prefix):]
+            try:
+                conn.execute('UPDATE file_checksums SET relative_path = ? WHERE id = ?',
+                             (updated, row_id))
+            except sqlite3.IntegrityError:
+                logging.warning('checksum_rename: skipped one row, destination '
+                                 'already has a checksum row: %r', updated)
+        conn.commit()
+
+
 def checksum_is_fresh(row: dict, abs_path: str) -> bool:
     """Return True if the stored checksum is still valid for abs_path.
     Checks both st_size and st_mtime_ns — both must match for the checksum

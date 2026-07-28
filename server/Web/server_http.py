@@ -17,6 +17,12 @@ import urllib.error   as _urllib_err
 import posixpath as _psp
 import re
 import socket
+import gzip as _gzip_mod
+from email.utils import formatdate as _formatdate
+
+# Mirrors server_https.py's identical constants/fix — see send_head() below.
+_GZIP_MIN_SIZE   = 512
+_GZIP_MAX_INLINE = 16 * 1024 * 1024
 
 HTTP_PORT = int(os.getenv('HTTP_PORT', os.getenv('SERVER_PORT', '8080')))
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
@@ -185,6 +191,38 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers',
                          'Content-Type, Authorization, Range, X-Requested-With')
         super().end_headers()
+
+    def send_head(self):
+        """Gzip static .md files — mirrors server_https.py's identical override.
+        See that copy's docstring for the full rationale; kept in sync here
+        since arseniusgen.uk.to/arseniusgen.dev traffic over plain HTTP isn't
+        redirected to HTTPS (only fluxdrop.me is, via _ROOT_HTTPS_DOMAINS),
+        so this same static-file path is genuinely reachable here too."""
+        _clean_path = self.path.split('?')[0]
+        filepath = self.translate_path(_clean_path)
+        if (os.path.isfile(filepath)
+                and filepath.lower().endswith('.md')
+                and 'gzip' in self.headers.get('Accept-Encoding', '')
+                and not self.headers.get('Range')):
+            try:
+                st = os.stat(filepath)
+                if _GZIP_MIN_SIZE <= st.st_size <= _GZIP_MAX_INLINE:
+                    with open(filepath, 'rb') as f:
+                        raw = f.read()
+                    compressed = _gzip_mod.compress(raw, compresslevel=6)
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/markdown; charset=utf-8')
+                    self.send_header('Content-Encoding', 'gzip')
+                    self.send_header('Vary', 'Accept-Encoding')
+                    self.send_header('Content-Length', str(len(compressed)))
+                    self.send_header('Last-Modified', _formatdate(st.st_mtime, usegmt=True))
+                    self.send_header('Accept-Ranges', 'none')
+                    self.end_headers()
+                    self.wfile.write(compressed)
+                    return None
+            except Exception:
+                logging.exception('gzip static .md serving failed for %r — falling back to plain', filepath)
+        return super().send_head()
 
     def add_cors_headers(self):
         """

@@ -95,6 +95,7 @@ from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
 import gzip as _gzip_mod
+from email.utils import formatdate as _formatdate
 import datetime as _dt
 import zlib     as _zl
 import tarfile as _tf
@@ -118,7 +119,7 @@ import mimetypes
 # Importing core modules
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear, \
-                    checksum_get, checksum_put, checksum_is_fresh, \
+                    checksum_get, checksum_put, checksum_is_fresh, checksum_rename, \
                     checksum_job_create, checksum_job_get_latest, checksum_job_update_status, \
                     checksum_jobs_reset_stale, checksum_jobs_get_pending
 from core.rate_limit import _rate_limit
@@ -152,6 +153,7 @@ _GZIP_COMPRESSIBLE = frozenset({
     'application/xml',
     'text/xml',
     'text/csv',
+    'text/markdown',
 })
 # Files larger than this are not gzip-buffered in _send_response to avoid
 # holding a potentially huge compressed blob in RAM.  The streaming download
@@ -2084,6 +2086,43 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"<h1>500 Internal Server Error</h1>")
                 return None
+
+        # ── Gzip for static .md files ─────────────────────────────────────────
+        # _send_response()'s gzip support (see _GZIP_COMPRESSIBLE etc. above)
+        # only ever applied to dynamically-generated API responses — static
+        # files, including policy .md docs, are served straight through to
+        # super().send_head() below, which has no gzip support at all. Scoped
+        # to just .md here (small, text-only, no legitimate Range-request use
+        # case) rather than trying to gzip every static asset type.
+        if (os.path.isfile(filepath)
+                and filepath.lower().endswith('.md')
+                and 'gzip' in self.headers.get('Accept-Encoding', '')
+                and not self.headers.get('Range')):
+            try:
+                st = os.stat(filepath)
+                if _GZIP_MIN_SIZE <= st.st_size <= _GZIP_MAX_INLINE:
+                    with open(filepath, 'rb') as f:
+                        raw = f.read()
+                    compressed = _gzip_mod.compress(raw, compresslevel=6)
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/markdown; charset=utf-8')
+                    self.send_header('Content-Encoding', 'gzip')
+                    self.send_header('Vary', 'Accept-Encoding')
+                    self.send_header('Content-Length', str(len(compressed)))
+                    self.send_header('Last-Modified', _formatdate(st.st_mtime, usegmt=True))
+                    # This response's body is gzip-compressed as a whole, so a
+                    # byte-range request against it wouldn't return sensible
+                    # results — explicitly say we don't support ranges here,
+                    # rather than advertising 'bytes' like the uncompressed
+                    # fallback below does.
+                    self.send_header('Accept-Ranges', 'none')
+                    self._send_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(compressed)
+                    return None
+            except Exception:
+                logging.exception('gzip static-file serving failed for %r — falling back to plain', filepath)
+                # Fall through to the normal (uncompressed) path below.
 
         # Fall back to default behavior
         return super().send_head()
@@ -5719,6 +5758,16 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         conn.commit()
                 except Exception:
                     logging.exception("Failed to update share paths after rename — shares may be stale")
+                    # Non-fatal: the rename itself succeeded
+
+                # Re-key the checksum cache to the new path — without this,
+                # the old row is orphaned (never matches any real file again)
+                # and the new path has no checksum, forcing a full recompute
+                # of a file whose actual bytes never changed.
+                try:
+                    checksum_rename(old_rel, new_rel, user_id)
+                except Exception:
+                    logging.exception("Failed to re-key checksum(s) after rename — will recompute on next lookup")
                     # Non-fatal: the rename itself succeeded
 
                 return self._send_response(200, json.dumps({"message": "Renamed"}))

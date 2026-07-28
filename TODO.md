@@ -56,12 +56,29 @@ on i5 8350U)
 - [ ] Upload ends successfully even if the upload of one of the files fails 
 (for example because of the quota) (message that are displayed in notifications)
 - [ ] Uploads can't be paused and instead "cancels"
+- [ ] Server sends entire file layout and their sizes in `https://fluxdrop.me/ap
+i/v1/list/tmp` but client still fetches the individual files/folders like `https
+://fluxdrop.me/api/v1/foldersize/tmp/sub` (contents of the `` is `{"path": "/tmp
+", "entries": [{"name": "U.mp4", "path": "/tmp/U.mp4", "is_dir": false, "size": 
+506758298, "mtime": "2026-05-30T20:14:22"}, {"name": "sub", "path": "/tmp/sub", 
+"is_dir": true, "size": 0, "mtime": "2026-07-28T20:41:42"}, {"name": "\u041d\u04
+3e\u0432\u0438\u0439 \u0422\u0435\u043a\u0441\u0442\u043e\u0432\u0438\u0439 \u04
+34\u043e\u043a\u0443\u043c\u0435\u043d\u0442.txt", "path": "/tmp/\u041d\u043e\u0
+432\u0438\u0439 \u0422\u0435\u043a\u0441\u0442\u043e\u0432\u0438\u0439 \u0434\u0
+43e\u043a\u0443\u043c\u0435\u043d\u0442.txt", "is_dir": false, "size": 158, "mti
+me": "2026-05-30T20:16:51"}]}`) -- problem is that **this** requests **does not 
+output the folder size**, meaning that there **is** still meaning for the curren
+t setup
+- [ ] File selector does not reset when file is moved
+- [ ] Hide file selector for the mobile version of the FluxDrop
+- [ ] Hold-to-manage feature on mobile is nifty - maybe should been also 
+mentioned in the welcoming screen
+- [ ] Opening the profile preview modal is very epilepsy-warning (mobile)
 
 ### Server-side changes:
 
 #### Critical:
 - [ ] Trash bin file preview inside folders
-- [ ] Hash are not moved/re-attached to a file after move
 - [ ] Maybe cancel the file hashing or avoid the ~~async~~ multithreaded file 
 hash after canceling the ZIP download, or do it only if server is unused or via 
 `nice`
@@ -70,9 +87,6 @@ hash after canceling the ZIP download, or do it only if server is unused or via
 #### High:
 - [ ] Status page doesn't load the amount of files on server on first load 
 because of backend stalement
-- [ ] Add responce compession (gzip?) for:
-  - [ ] JSON responces that are large
-  - [ ] `.md` files
 - [ ] Ability to download the shared folders without JS (fallback option)
 - [ ] Update the helpers functionality
 - [ ] Document the new proxy method that is currently used with my Immich 
@@ -149,6 +163,7 @@ made/applied
 - [ ] Add the visualization for retry cycles
 - [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
 the scene (aka it just shows "Downloading via browser...")
+- [ ] gzip compression indeed works and not have just the `gzip` tag used
 
 ---
 
@@ -202,6 +217,11 @@ current trash deletion notifier, etc.)
 
 - [x] Sometimes FluxDrop makes config connections, resulting in 404 -- they are 
 caused by network switch (on client device)
+
+- [x] Add responce compession (gzip?) for:
+  - [x] JSON responces that are large
+  - [x] `.md` files
+- [x] Hash are not moved/re-attached to a file after move
 
 ---
 

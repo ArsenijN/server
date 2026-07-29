@@ -345,6 +345,29 @@ def init_db():
         ''')
         conn.commit()
 
+        # Background file/folder copy jobs. Mirrors checksum_jobs' pattern:
+        # the copy handler creates a row, spawns a background thread to do
+        # the actual shutil.copy2/copytree, and returns the job id
+        # immediately — the client polls GET /api/v1/copy/status/<id> instead
+        # of holding the original POST open for the whole transfer (a big
+        # copy — many GB — was blowing past the reverse proxy's socket
+        # timeout even though the copy itself was still succeeding server-side).
+        # status: 'pending' | 'running' | 'done' | 'error'
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS copy_jobs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id       INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                src_path      TEXT    NOT NULL,
+                dest_path     TEXT    NOT NULL,
+                status        TEXT    NOT NULL DEFAULT 'pending',
+                created_at    REAL    NOT NULL DEFAULT 0,
+                started_at    REAL    DEFAULT NULL,
+                finished_at   REAL    DEFAULT NULL,
+                error_msg     TEXT    DEFAULT NULL
+            )
+        ''')
+        conn.commit()
+
     # ── Schema migrations (safe to run on every startup) ──────────────────
     # ALTER TABLE IF NOT EXISTS ... ADD COLUMN is not supported in older SQLite;
     # instead we check the column list and add only if missing.
@@ -690,6 +713,86 @@ def checksum_jobs_get_pending() -> list:
         ).fetchall()
     return [{'id': r[0], 'relative_path': r[1], 'user_id': r[2], 'algos': r[3]}
             for r in rows]
+
+
+# ── Background copy jobs ──────────────────────────────────────────────────────
+
+def copy_job_create(user_id, src_path: str, dest_path: str) -> int:
+    """Create a new background copy job and return its id.
+
+    Unlike checksum_job_create there's no dedup-by-path here: two copy
+    requests for the same src/dest are two distinct user actions (e.g. retry
+    after a failure), not the same cache-able computation.
+    """
+    with _db_connect() as conn:
+        result = conn.execute(
+            '''INSERT INTO copy_jobs (user_id, src_path, dest_path, status, created_at)
+               VALUES (?, ?, ?, 'pending', ?)''',
+            (user_id, src_path, dest_path, time.time())
+        )
+        conn.commit()
+        return result.lastrowid
+
+
+def copy_job_get(job_id: int, user_id) -> 'dict | None':
+    """Return a job row, scoped to the owning user — job ids must not leak
+    status/paths belonging to a different user."""
+    with _db_connect() as conn:
+        row = conn.execute(
+            '''SELECT id, src_path, dest_path, status, created_at, started_at, finished_at, error_msg
+               FROM copy_jobs WHERE id = ? AND (user_id IS ? OR user_id = ?)''',
+            (job_id, user_id, user_id)
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        'id':          row[0],
+        'src_path':    row[1],
+        'dest_path':   row[2],
+        'status':      row[3],
+        'created_at':  row[4],
+        'started_at':  row[5],
+        'finished_at': row[6],
+        'error_msg':   row[7],
+    }
+
+
+def copy_job_update_status(job_id: int, status: str, error_msg: 'str | None' = None) -> None:
+    """Update a job's status, stamping started_at / finished_at as appropriate."""
+    now = time.time()
+    with _db_connect() as conn:
+        if status == 'running':
+            conn.execute(
+                'UPDATE copy_jobs SET status = ?, started_at = ? WHERE id = ?',
+                (status, now, job_id)
+            )
+        elif status in ('done', 'error'):
+            conn.execute(
+                '''UPDATE copy_jobs SET status = ?, finished_at = ?, error_msg = ?
+                   WHERE id = ?''',
+                (status, now, error_msg, job_id)
+            )
+        else:
+            conn.execute('UPDATE copy_jobs SET status = ? WHERE id = ?', (status, job_id))
+        conn.commit()
+
+
+def copy_jobs_reset_stale() -> int:
+    """Reset any 'running'/'pending' copy jobs left from a previous server
+    process to 'error'. Call once at startup. Unlike checksum jobs, pending
+    copy jobs are NOT re-queued — a copy that never started is safe to just
+    report as failed and let the user retry, rather than resuming a
+    potentially-partial file copy blindly after a crash/restart."""
+    with _db_connect() as conn:
+        result = conn.execute(
+            '''UPDATE copy_jobs
+               SET status = 'error',
+                   error_msg = 'Interrupted by server restart — please retry',
+                   finished_at = strftime('%s', 'now')
+               WHERE status IN ('running', 'pending')'''
+        )
+        conn.commit()
+        return result.rowcount
 
 
 # Per-upload-session lock to serialise concurrent chunk writes.

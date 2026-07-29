@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-be70ee53
+// Current version of script.js is: fluxdrop-v-a245419b
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-be70ee53'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-a245419b'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -399,24 +399,40 @@ function _getToastStack() {
 }
 
 function showToast(message, opts = {}) {
-    const { type = 'success', duration = 3200 } = opts;
+    const { type = 'success', duration = 3200, sticky = false } = opts;
     const stack = _getToastStack();
-    const icon = type === 'error' ? '⚠' : type === 'info' ? 'ℹ' : '✓';
 
     const el = document.createElement('div');
     el.className = `fd-toast fd-toast-${type} fd-tray-in`;
-    el.innerHTML = `<span class="fd-toast-icon">${icon}</span><span class="fd-toast-msg"></span>`;
+    const iconHtml = type === 'progress'
+        ? '<span class="fd-toast-spinner"></span>'
+        : `<span class="fd-toast-icon">${type === 'error' ? '⚠' : type === 'info' ? 'ℹ' : '✓'}</span>`;
+    el.innerHTML = `${iconHtml}<span class="fd-toast-msg"></span>`;
     el.querySelector('.fd-toast-msg').textContent = message;
     stack.appendChild(el);
 
+    let dismissed = false;
     const dismiss = () => {
-        if (!el.isConnected) return;
+        if (dismissed || !el.isConnected) return;
+        dismissed = true;
         el.classList.remove('fd-tray-in');
         el.classList.add('fd-tray-closing');
         el.addEventListener('animationend', () => el.remove(), { once: true });
     };
     el.addEventListener('click', dismiss);
-    setTimeout(dismiss, duration);
+    if (!sticky) setTimeout(dismiss, duration);
+
+    // Returned so long-running operations (e.g. background copy-job polling)
+    // can update a single sticky "in progress" toast in place and dismiss it
+    // themselves once the real result is known, instead of every caller
+    // having to reach back into the DOM.
+    return {
+        dismiss,
+        setMessage(newMsg) {
+            const m = el.querySelector('.fd-toast-msg');
+            if (m) m.textContent = newMsg;
+        },
+    };
 }
 
 // ── Custom prompt/confirm modals ─────────────────────────────────────────────
@@ -517,6 +533,47 @@ function showConfirmModal({ title, message = '', confirmLabel = 'Yes', cancelLab
         _attachModalKeys(() => finish(true), () => finish(false));
         yesBtn.focus();
     });
+}
+
+// Polls a background copy job (see server-side copy_jobs) until it finishes,
+// updating/dismissing the sticky progress toast handed in from the caller.
+// A single failed poll (network hiccup) doesn't give up — only an actual
+// 'error' status from the server, or a very long stretch of no resolution,
+// does.
+async function _pollCopyJob(jobId, fname, progressToast) {
+    const POLL_MS = 1500;
+    const MAX_ATTEMPTS = Math.ceil(60 * 60 * 1000 / POLL_MS); // ~1h safety ceiling
+    let attempts = 0;
+
+    const tick = async () => {
+        attempts++;
+        try {
+            const job = await apiCall(`/api/v1/copy/status/${jobId}`, 'GET');
+            if (job.status === 'done') {
+                progressToast.dismiss();
+                showToast(`Copied "${fname}"`);
+                loadDirectory(currentPath);
+                return;
+            }
+            if (job.status === 'error') {
+                progressToast.dismiss();
+                showToast(`Copy of "${fname}" failed: ${job.error_msg || 'unknown error'}`,
+                          { type: 'error', duration: 6000 });
+                return;
+            }
+            // 'pending' or 'running' — keep polling.
+        } catch (err) {
+            logging_warn('copy job poll failed, retrying', err);
+        }
+        if (attempts < MAX_ATTEMPTS) {
+            setTimeout(tick, POLL_MS);
+        } else {
+            progressToast.dismiss();
+            showToast(`Copy of "${fname}" is taking unusually long — check manually`,
+                      { type: 'info', duration: 6000 });
+        }
+    };
+    setTimeout(tick, POLL_MS);
 }
 
 async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = true) {
@@ -4883,15 +4940,22 @@ async function openMoveDialog(srcPath) {
                 if (err.message !== 'SESSION_EXPIRED') showMessage('Move failed', err.message);
             }
         } else {
-            // Copy — use copy endpoint if available, else show message
+            // Copy — runs as an async background job server-side now (large
+            // copies were blowing past the reverse proxy's socket timeout
+            // even though the copy itself kept succeeding). The POST only
+            // does fast validation and returns a job id immediately, so the
+            // modal closes right away and a sticky progress toast tracks the
+            // actual transfer via polling instead of staying open/blocked.
             if (newPath === srcPath) { showMessage('Same location', 'The destination is the same as the source.'); return; }
             confirmBtn.disabled = true; confirmBtn.textContent = 'Copying…';
-            const _cpDismiss = showSpinnerOverlay('Copying…', { minMs: 1000 });
             try {
-                await withMinDelay(apiCall('/api/v1/copy', 'POST', { src: srcPath, dest: newPath }), 1000);
-                _cpDismiss(); overlay.remove(); loadDirectory(currentPath);
+                const res = await apiCall('/api/v1/copy', 'POST', { src: srcPath, dest: newPath });
+                overlay.remove();
+                const fname = srcPath.split('/').filter(Boolean).pop() || srcPath;
+                const progress = showToast(`Copying "${fname}"…`, { type: 'progress', sticky: true });
+                _pollCopyJob(res.job_id, fname, progress);
             } catch (err) {
-                _cpDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = 'Copy here';
+                confirmBtn.disabled = false; confirmBtn.textContent = 'Copy here';
                 if (err.message !== 'SESSION_EXPIRED') showMessage('Copy failed', err.message);
             }
         }
@@ -7988,7 +8052,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-be70ee53'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-a245419b'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

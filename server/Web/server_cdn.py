@@ -120,6 +120,7 @@ import mimetypes
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear, \
                     checksum_get, checksum_put, checksum_is_fresh, checksum_rename, checksum_copy, \
+                    copy_job_create, copy_job_get, copy_job_update_status, copy_jobs_reset_stale, \
                     checksum_job_create, checksum_job_get_latest, checksum_job_update_status, \
                     checksum_jobs_reset_stale, checksum_jobs_get_pending
 from core.rate_limit import _rate_limit
@@ -750,6 +751,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
     trash_list_pattern   = re.compile(r'^/api/(v[1-3])/trash$')
     trash_item_pattern   = re.compile(r'^/api/(v[1-3])/trash/(\d+)$')
     trash_restore_pattern= re.compile(r'^/api/(v[1-3])/trash/(\d+)/restore$')
+    # Background copy job status poll — see the 'copy' command in
+    # handle_fluxdrop_api_post() for why copying is async. Checked ahead of
+    # fluxdrop_api_pattern in do_GET (which now also matches "copy" as a
+    # command) so this specific sub-path gets its own handler instead of
+    # being treated as a generic file path under the "copy" command.
+    copy_status_pattern = re.compile(r'^/api/(v[1-3])/copy/status/(\d+)$')
     batch_tar_pattern = re.compile(r'^/api/(v[1-3])/upload_session/batch_tar$')
     
     # ── P2: Force HTTPS for sensitive paths ──────────────────────────────────
@@ -2422,6 +2429,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # GET /api/v1/space_analyze  — top files/folders by size for the space analyzer UI
         if parsed_url.path in ('/api/v1/space_analyze', '/api/v2/space_analyze'):
             return self._handle_space_analyze(parsed_url)
+
+        # Background copy job status poll
+        cp_status_m = self.copy_status_pattern.match(parsed_url.path)
+        if cp_status_m:
+            return self._handle_copy_status(int(cp_status_m.group(2)))
 
         # FluxDrop API calls
         flux_match = self.fluxdrop_api_pattern.match(parsed_url.path)
@@ -4277,6 +4289,24 @@ class AuthHandler(SimpleHTTPRequestHandler):
             logging.exception('_handle_trash_move failed')
             return self._send_response(500, json.dumps({'error': str(e)}))
 
+    def _handle_copy_status(self, job_id: int):
+        """GET /api/v1/copy/status/<job_id> — poll a background copy job.
+
+        Copies run in a background thread (see the 'copy' command in
+        handle_fluxdrop_api_post) instead of blocking the original POST for
+        the whole transfer — a multi-GB copy was blowing past the reverse
+        proxy's socket timeout even though the copy itself kept succeeding
+        server-side, since the proxy had already given up and reported
+        failure to the client with no way to know the real outcome.
+        """
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        job = copy_job_get(job_id, user_id)
+        if not job:
+            return self._send_response(404, json.dumps({'error': 'Job not found'}))
+        return self._send_response(200, json.dumps(job))
+
     def _handle_trash_restore(self, item_id: int):
         """POST /api/v1/trash/<id>/restore — restore a trash item to its original path."""
         user_id = self._check_token_auth()
@@ -5855,27 +5885,51 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 except Exception:
                     logging.exception("copy: quota check failed")
 
-                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                if os.path.isdir(src_path):
-                    shutil.copytree(src_path, dest_path, copy_function=shutil.copy2)
-                else:
-                    shutil.copy2(src_path, dest_path)
-
-                # Duplicate any cached checksum(s) to the new path. The copy
-                # has bit-identical content, and copy2/copytree preserve
-                # mtime, so the cached crc32 is still valid there and doesn't
-                # need to be recomputed from scratch — see checksum_copy()'s
-                # docstring for why that's safe specifically because of that
-                # mtime preservation.
+                # Everything above this point is fast (stat calls, a DB
+                # lookup, a quota walk) and stays synchronous so validation
+                # errors (404/409/507/etc.) come back immediately. The actual
+                # copy is the part that can take minutes for a large
+                # file/folder — that part runs in a background thread instead
+                # of blocking this request, since the reverse proxy's socket
+                # timeout for a plain POST like this one is only 10s (long
+                # enough for validation, nowhere near enough for copying tens
+                # of GB). The client polls GET /api/v1/copy/status/<job_id>
+                # for the actual result instead.
                 src_rel = '/' + src.lstrip('/')
                 dest_rel = '/' + dest.lstrip('/')
-                try:
-                    checksum_copy(src_rel, dest_rel, user_id)
-                except Exception:
-                    logging.exception("Failed to copy checksum(s) after copy — will recompute on next lookup")
-                    # Non-fatal: the copy itself succeeded
+                job_id = copy_job_create(user_id, src_rel, dest_rel)
 
-                return self._send_response(201, json.dumps({"message": "Copied"}))
+                def _run_copy_job(job_id=job_id, src_path=src_path, dest_path=dest_path,
+                                   src_rel=src_rel, dest_rel=dest_rel, user_id=user_id):
+                    copy_job_update_status(job_id, 'running')
+                    try:
+                        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                        if os.path.isdir(src_path):
+                            shutil.copytree(src_path, dest_path, copy_function=shutil.copy2)
+                        else:
+                            shutil.copy2(src_path, dest_path)
+
+                        # Duplicate any cached checksum(s) to the new path.
+                        # The copy has bit-identical content, and copy2/
+                        # copytree preserve mtime, so the cached crc32 is
+                        # still valid there and doesn't need to be
+                        # recomputed from scratch — see checksum_copy()'s
+                        # docstring for why that's safe specifically because
+                        # of that mtime preservation.
+                        try:
+                            checksum_copy(src_rel, dest_rel, user_id)
+                        except Exception:
+                            logging.exception("Failed to copy checksum(s) after copy — will recompute on next lookup")
+                            # Non-fatal: the copy itself succeeded
+
+                        copy_job_update_status(job_id, 'done')
+                    except Exception as job_err:
+                        logging.exception("Background copy job %s failed", job_id)
+                        copy_job_update_status(job_id, 'error', str(job_err))
+
+                threading.Thread(target=_run_copy_job, daemon=True).start()
+
+                return self._send_response(202, json.dumps({"job_id": job_id}))
             except Exception as e:
                 logging.exception("FluxDrop copy failed")
                 return self._send_response(500, json.dumps({"error": str(e)}))
@@ -6392,6 +6446,12 @@ if __name__ == '__main__':
     _stale_jobs = checksum_jobs_reset_stale()
     if _stale_jobs:
         logging.info('Checksum jobs: reset %d stale running job(s) to error', _stale_jobs)
+
+    # Same idea for background copy jobs — see copy_jobs_reset_stale()'s
+    # docstring for why these are marked failed rather than re-queued.
+    _stale_copy_jobs = copy_jobs_reset_stale()
+    if _stale_copy_jobs:
+        logging.info('Copy jobs: reset %d stale job(s) to error', _stale_copy_jobs)
     # Re-enqueue jobs that were pending when the server last shut down.
     for _pj in checksum_jobs_get_pending():
         try:

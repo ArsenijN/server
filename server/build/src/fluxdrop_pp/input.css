@@ -429,6 +429,18 @@
 .fd-toast-success .fd-toast-icon { color: #4ade80; }
 .fd-toast-info    .fd-toast-icon { color: #7dd3fc; }
 .fd-toast-error   .fd-toast-icon { color: #f87171; }
+.fd-toast-spinner {
+    flex-shrink: 0;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.25);
+    border-top-color: #7dd3fc;
+    animation: fd-toast-spin .7s linear infinite;
+}
+@keyframes fd-toast-spin {
+    to { transform: rotate(360deg); }
+}
 .fd-toast-msg { word-break: break-word; }
 @keyframes fd-ctx-menu-in {
     from { opacity: 0; transform: scale(.92) translateY(-4px); }

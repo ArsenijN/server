@@ -74,7 +74,6 @@ t setup
 - [ ] Hold-to-manage feature on mobile is nifty - maybe should been also 
 mentioned in the welcoming screen
 - [ ] Opening the profile preview modal is very epilepsy-warning (mobile)
-- [ ] Proxy fail on copy of the large files (timeout)
 - [ ] Add animation after login window closes due to login event
 - [ ] Add some animation to the main file browser from the landing page
 
@@ -227,6 +226,8 @@ caused by network switch (on client device)
 
 - [x] Error when making attempt to copy the files
 - [x] gzip compression indeed works and not have just the `gzip` tag used
+
+- [x] Proxy fail on copy of the large files (timeout)
 
 ---
 

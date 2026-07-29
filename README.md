@@ -1,4 +1,4 @@
-# server `v0.19.1.19`
+# server `v0.19.1.20`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -18,6 +18,8 @@ modals and others***
 - ***i18n fixes for links manager***
 - ***`Del` key now works as the shortcut to delete the current seleted items***
 - ***Reworked the trash bin deletion modals so they're more laconic***
+- ***Now copy function displays a loading toast, so large files will not 
+lock-up the user interactions with FluxDrop***
 
 ***Fixes:***
 - ***Acceptance modal displayed plain HTML due to lack of the proxy's alias for 
@@ -42,6 +44,11 @@ reload***
 - ***Fix dependency of hardcoded domain, resulting in failing to load lazy JS 
 assets when accessing from different domain (CORS/CSP or just one-domain ideal 
 dependency being broken)***
+- ***FluxDrop Web making stray `config` requests for net connectivity checks, 
+but backend didn't knew what to do***
+- ***Fix file hash not reattaching after file move***
+- ***Fix the `gzip` compression being not fully utilized***
+- ***Fix error with the `copy` endpoint being non-existent***
 
 ***text***
 

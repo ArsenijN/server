@@ -55,7 +55,7 @@ on i5 8350U)
   - [ ] Profile infos
 - [ ] Upload ends successfully even if the upload of one of the files fails 
 (for example because of the quota) (message that are displayed in notifications)
-- [ ] Uploads can't be paused and instead "cancels"
+- [ ] Uploads can't be paused and instead "cancels" is using the drag-n-drop
 - [ ] Server sends entire file layout and their sizes in `https://fluxdrop.me/ap
 i/v1/list/tmp` but client still fetches the individual files/folders like `https
 ://fluxdrop.me/api/v1/foldersize/tmp/sub` (contents of the `` is `{"path": "/tmp
@@ -70,10 +70,13 @@ me": "2026-05-30T20:16:51"}]}`) -- problem is that **this** requests **does not
 output the folder size**, meaning that there **is** still meaning for the curren
 t setup
 - [ ] File selector does not reset when file is moved
-- [ ] Hide file selector for the mobile version of the FluxDrop
+- [ ] Hide file selector for the mobile veversionversionrsion of the FluxDrop
 - [ ] Hold-to-manage feature on mobile is nifty - maybe should been also 
 mentioned in the welcoming screen
 - [ ] Opening the profile preview modal is very epilepsy-warning (mobile)
+- [ ] Proxy fail on copy of the large files (timeout)
+- [ ] Add animation after login window closes due to login event
+- [ ] Add some animation to the main file browser from the landing page
 
 ### Server-side changes:
 
@@ -163,7 +166,6 @@ made/applied
 - [ ] Add the visualization for retry cycles
 - [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
 the scene (aka it just shows "Downloading via browser...")
-- [ ] gzip compression indeed works and not have just the `gzip` tag used
 
 ---
 
@@ -222,6 +224,9 @@ caused by network switch (on client device)
   - [x] JSON responces that are large
   - [x] `.md` files
 - [x] Hash are not moved/re-attached to a file after move
+
+- [x] Error when making attempt to copy the files
+- [x] gzip compression indeed works and not have just the `gzip` tag used
 
 ---
 

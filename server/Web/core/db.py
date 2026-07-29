@@ -452,6 +452,63 @@ def checksum_delete(relative_path: str, user_id) -> None:
         conn.commit()
 
 
+def checksum_copy(old_relative_path: str, new_relative_path: str, user_id) -> None:
+    """Copy checksum row(s) to a new path after a file/folder COPY (as
+    opposed to checksum_rename, which re-keys them in place for a move).
+
+    Only safe to call when the actual file copy preserves mtime (e.g.
+    shutil.copy2 / shutil.copytree's default copy_function) — checksum_
+    is_fresh() validates a stored row against the file's current mtime and
+    size, not identity, so a bit-identical copy with the same mtime is
+    still a valid cache hit and doesn't need to be rehashed from scratch.
+    If a different copy mechanism is ever used that doesn't preserve mtime,
+    skip calling this — the copy will just go unchecksummed until the
+    background scanner gets to it, which is safe, just slower.
+    """
+    with _db_connect() as conn:
+        # Exact match: old_relative_path itself was a file.
+        row = conn.execute(
+            '''SELECT crc32, file_size, mtime_ns, scan_source, sha256
+               FROM file_checksums
+               WHERE relative_path = ? AND (user_id IS ? OR user_id = ?)''',
+            (old_relative_path, user_id, user_id)
+        ).fetchone()
+        if row:
+            crc32, file_size, mtime_ns, scan_source, sha256 = row
+            try:
+                conn.execute(
+                    '''INSERT INTO file_checksums
+                       (relative_path, user_id, crc32, file_size, mtime_ns, computed_at, scan_source, sha256)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (new_relative_path, user_id, crc32, file_size, mtime_ns, time.time(), scan_source, sha256)
+                )
+            except sqlite3.IntegrityError:
+                pass  # destination somehow already has a checksum row — harmless, just skip
+
+        # Prefix match: old_relative_path was a folder — copy every checksum
+        # for files that were inside it.
+        old_prefix = old_relative_path.rstrip('/') + '/'
+        new_prefix = new_relative_path.rstrip('/') + '/'
+        rows = conn.execute(
+            '''SELECT relative_path, crc32, file_size, mtime_ns, scan_source, sha256
+               FROM file_checksums
+               WHERE relative_path LIKE ? AND (user_id IS ? OR user_id = ?)''',
+            (old_prefix + '%', user_id, user_id)
+        ).fetchall()
+        for rel, crc32, file_size, mtime_ns, scan_source, sha256 in rows:
+            new_rel = new_prefix + rel[len(old_prefix):]
+            try:
+                conn.execute(
+                    '''INSERT INTO file_checksums
+                       (relative_path, user_id, crc32, file_size, mtime_ns, computed_at, scan_source, sha256)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (new_rel, user_id, crc32, file_size, mtime_ns, time.time(), scan_source, sha256)
+                )
+            except sqlite3.IntegrityError:
+                pass
+        conn.commit()
+
+
 def checksum_rename(old_relative_path: str, new_relative_path: str, user_id) -> None:
     """Re-key checksum row(s) after a file/folder rename or move, instead of
     leaving them orphaned under the old path.

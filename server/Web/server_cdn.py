@@ -119,7 +119,7 @@ import mimetypes
 # Importing core modules
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear, \
-                    checksum_get, checksum_put, checksum_is_fresh, checksum_rename, \
+                    checksum_get, checksum_put, checksum_is_fresh, checksum_rename, checksum_copy, \
                     checksum_job_create, checksum_job_get_latest, checksum_job_update_status, \
                     checksum_jobs_reset_stale, checksum_jobs_get_pending
 from core.rate_limit import _rate_limit
@@ -717,7 +717,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     # --- Route Patterns ---
     # Add mkdir to supported FluxDrop commands
-    fluxdrop_api_pattern = re.compile(r'^/api/(v[1-3])/(list|download|upload|delete|rename|mkdir|versions)(/.*)?$')
+    fluxdrop_api_pattern = re.compile(r'^/api/(v[1-3])/(list|download|upload|delete|rename|copy|mkdir|versions)(/.*)?$')
     download_token_pattern = re.compile(r'^/api/(v[1-3])/download_token$')
     shares_list_pattern = re.compile(r'^/api/(v[1-3])/shares$')
     shares_item_pattern = re.compile(r'^/api/(v[1-3])/shares/([A-Za-z0-9_\-]+)$')
@@ -5773,6 +5773,111 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(200, json.dumps({"message": "Renamed"}))
             except Exception as e:
                 logging.exception("FluxDrop rename failed")
+                return self._send_response(500, json.dumps({"error": str(e)}))
+
+        if command == 'copy':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(length)
+                data = json.loads(body) if body else {}
+                src = data.get('src')
+                dest = data.get('dest')
+                if not src or not dest:
+                    return self._send_response(400, json.dumps({"error": "Missing src or dest field"}))
+
+                def strip_prefix(p):
+                    if p.startswith('/FluxDrop/'):
+                        parts = p.lstrip('/').split('/', 2)
+                        if len(parts) >= 2 and parts[1] == str(user_id):
+                            return '/' + parts[2] if len(parts) >= 3 else '/'
+                    if p.startswith('/cdn/') or p == '/cdn':
+                        return p[len('/cdn'):]
+                    return p
+                src = strip_prefix(src)
+                dest = strip_prefix(dest)
+                src_path = os.path.normpath(os.path.join(base_fs, src.lstrip('/')))
+                dest_path = os.path.normpath(os.path.join(base_fs, dest.lstrip('/')))
+                if not os.path.realpath(src_path).startswith(os.path.realpath(base_fs)) or not os.path.realpath(dest_path).startswith(os.path.realpath(base_fs)):
+                    return self._send_response(400, json.dumps({"error": "Invalid path."}))
+
+                if not os.path.exists(src_path):
+                    logging.warning(f"Copy failed: source not found {src_path}")
+                    return self._send_response(404, json.dumps({"error": "Source not found."}))
+
+                if os.path.abspath(src_path) == os.path.abspath(dest_path):
+                    return self._send_response(400, json.dumps({"error": "Source and destination are identical."}))
+
+                # Copying a folder into its own subtree would recurse forever
+                # (and corrupt the copy, since copytree would be reading and
+                # writing into the same tree it's still walking).
+                if os.path.isdir(src_path):
+                    _src_real = os.path.realpath(src_path) + os.sep
+                    _dest_real = os.path.realpath(dest_path) + os.sep
+                    if _dest_real.startswith(_src_real):
+                        return self._send_response(400, json.dumps({"error": "Cannot copy a folder into itself."}))
+
+                # Unlike rename (which just relinks a path — os.rename would
+                # silently overwrite on POSIX), a copy creating a NEW set of
+                # bytes at an existing path is much more likely to be an
+                # accidental clobber, so this rejects rather than overwrites.
+                if os.path.exists(dest_path):
+                    return self._send_response(409, json.dumps({"error": "Destination already exists."}))
+
+                # Quota check — unlike rename, a copy actually duplicates
+                # bytes on disk, so (unlike the rename branch above) this
+                # needs to account for the size of what's being copied.
+                def _copy_size(p):
+                    if os.path.isfile(p):
+                        try:
+                            return os.path.getsize(p)
+                        except OSError:
+                            return 0
+                    total = 0
+                    try:
+                        for dp, _, fns in os.walk(p):
+                            for fn in fns:
+                                try:
+                                    total += os.path.getsize(os.path.join(dp, fn))
+                                except OSError:
+                                    pass
+                    except OSError:
+                        pass
+                    return total
+
+                try:
+                    with _db_connect() as _qc:
+                        _qrow = _qc.execute("SELECT quota_bytes FROM users WHERE id=?", (user_id,)).fetchone()
+                    _quota = (_qrow[0] if _qrow and _qrow[0] else _compute_dynamic_quota())
+                    _usage = _get_user_disk_usage(user_id)
+                    _needed = _copy_size(src_path)
+                    if _usage + _needed > _quota:
+                        return self._send_response(507, json.dumps({"error": "Storage quota exceeded."}))
+                except Exception:
+                    logging.exception("copy: quota check failed")
+
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                if os.path.isdir(src_path):
+                    shutil.copytree(src_path, dest_path, copy_function=shutil.copy2)
+                else:
+                    shutil.copy2(src_path, dest_path)
+
+                # Duplicate any cached checksum(s) to the new path. The copy
+                # has bit-identical content, and copy2/copytree preserve
+                # mtime, so the cached crc32 is still valid there and doesn't
+                # need to be recomputed from scratch — see checksum_copy()'s
+                # docstring for why that's safe specifically because of that
+                # mtime preservation.
+                src_rel = '/' + src.lstrip('/')
+                dest_rel = '/' + dest.lstrip('/')
+                try:
+                    checksum_copy(src_rel, dest_rel, user_id)
+                except Exception:
+                    logging.exception("Failed to copy checksum(s) after copy — will recompute on next lookup")
+                    # Non-fatal: the copy itself succeeded
+
+                return self._send_response(201, json.dumps({"message": "Copied"}))
+            except Exception as e:
+                logging.exception("FluxDrop copy failed")
                 return self._send_response(500, json.dumps({"error": str(e)}))
 
         if command == 'mkdir':

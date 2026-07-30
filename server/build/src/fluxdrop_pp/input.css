@@ -430,6 +430,7 @@
 .fd-toast-info    .fd-toast-icon { color: #7dd3fc; }
 .fd-toast-error   .fd-toast-icon { color: #f87171; }
 .fd-toast-spinner {
+    display: inline-block;
     flex-shrink: 0;
     width: 13px;
     height: 13px;
@@ -442,6 +443,23 @@
     to { transform: rotate(360deg); }
 }
 .fd-toast-msg { word-break: break-word; }
+.fd-toast-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-left: 4px;
+}
+.fd-toast-action {
+    background: rgba(255,255,255,.12);
+    color: #f1f5f9;
+    border: none;
+    border-radius: 6px;
+    padding: 3px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.fd-toast-action:hover { background: rgba(255,255,255,.22); }
 @keyframes fd-ctx-menu-in {
     from { opacity: 0; transform: scale(.92) translateY(-4px); }
     to   { opacity: 1; transform: scale(1)   translateY(0); }

@@ -1,4 +1,4 @@
-# server `v0.19.1.20`
+# server `v0.19.1.21`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -30,7 +30,7 @@ item is deleted***
 - ***Profile picture icon is not cached, resulting in need to reload it every 
 time it's displayed***
 - ***Mobile users was unable to upload because there's no button to do so 
-(check the left bottom corner)
+(check the left bottom corner)***
 
 ***Backend fixes:***
 - ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 

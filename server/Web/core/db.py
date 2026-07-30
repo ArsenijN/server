@@ -766,7 +766,7 @@ def copy_job_update_status(job_id: int, status: str, error_msg: 'str | None' = N
                 'UPDATE copy_jobs SET status = ?, started_at = ? WHERE id = ?',
                 (status, now, job_id)
             )
-        elif status in ('done', 'error'):
+        elif status in ('done', 'error', 'cancelled'):
             conn.execute(
                 '''UPDATE copy_jobs SET status = ?, finished_at = ?, error_msg = ?
                    WHERE id = ?''',

@@ -162,6 +162,53 @@ _GZIP_COMPRESSIBLE = frozenset({
 _GZIP_MAX_INLINE   = 16 * 1024 * 1024   # 16 MB
 _GZIP_MIN_SIZE     = 512                # below this the header overhead isn't worth it
 
+# ── Background copy job cancellation ────────────────────────────────────────
+# job_id -> present means "cancel requested". Checked between chunks during
+# the actual file copy (see _copy_file_cancellable) rather than only between
+# whole files in a folder copy — shutil.copy2 copies a file in one
+# uninterruptible call, so without this, cancelling a copy job mid-transfer
+# on a single huge file would never actually take effect until it finished
+# on its own.
+_copy_job_cancel_flags = set()
+_copy_job_cancel_lock  = threading.Lock()
+
+class _CopyCancelled(Exception):
+    """Raised internally when a copy job's cancel flag is set mid-transfer."""
+    pass
+
+def _copy_file_cancellable(src, dst, job_id, chunk_size=8 * 1024 * 1024):
+    """Like shutil.copy2, but copies in chunks and checks the job's cancel
+    flag between each one, so a cancel request takes effect within seconds
+    even on a multi-GB file instead of only being checked between whole
+    files (which, for a single huge file, is never)."""
+    def _check_cancelled():
+        with _copy_job_cancel_lock:
+            if job_id in _copy_job_cancel_flags:
+                raise _CopyCancelled()
+
+    _check_cancelled()
+    with open(src, 'rb') as fsrc, open(dst, 'wb') as fdst:
+        while True:
+            _check_cancelled()
+            buf = fsrc.read(chunk_size)
+            if not buf:
+                break
+            fdst.write(buf)
+    shutil.copystat(src, dst)  # preserve mtime/permissions, matching copy2
+    return dst
+
+def _cleanup_partial_copy(dest_path):
+    """Remove a partial file/folder left behind by a cancelled or failed
+    copy job — a half-written multi-GB copy shouldn't just sit there as
+    unusable partial data taking up quota."""
+    try:
+        if os.path.isdir(dest_path):
+            shutil.rmtree(dest_path, ignore_errors=True)
+        elif os.path.exists(dest_path):
+            os.remove(dest_path)
+    except Exception:
+        logging.exception("Failed to clean up partial copy destination: %r", dest_path)
+
 # ==============================================================================
 # --- CONFIGURATION ---
 # ==============================================================================
@@ -757,6 +804,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     # command) so this specific sub-path gets its own handler instead of
     # being treated as a generic file path under the "copy" command.
     copy_status_pattern = re.compile(r'^/api/(v[1-3])/copy/status/(\d+)$')
+    copy_cancel_pattern = re.compile(r'^/api/(v[1-3])/copy/cancel/(\d+)$')
     batch_tar_pattern = re.compile(r'^/api/(v[1-3])/upload_session/batch_tar$')
     
     # ── P2: Force HTTPS for sensitive paths ──────────────────────────────────
@@ -2719,6 +2767,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if self.batch_tar_pattern.match(parsed_url.path):
             return self.handle_batch_tar_upload()
 
+        # Background copy job cancellation
+        cp_cancel_m = self.copy_cancel_pattern.match(parsed_url.path)
+        if cp_cancel_m:
+            return self._handle_copy_cancel(int(cp_cancel_m.group(2)))
+
         # FluxDrop API
         flux_match = self.fluxdrop_api_pattern.match(parsed_url.path)
         if flux_match:
@@ -4306,6 +4359,28 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not job:
             return self._send_response(404, json.dumps({'error': 'Job not found'}))
         return self._send_response(200, json.dumps(job))
+
+    def _handle_copy_cancel(self, job_id: int):
+        """POST /api/v1/copy/cancel/<job_id> — request cancellation of a
+        running (or not-yet-started) background copy job.
+
+        Returns immediately; the actual stop + partial-destination cleanup
+        happens asynchronously once the background thread notices the flag —
+        within a few seconds even for a huge file, since
+        _copy_file_cancellable checks it between chunks, not just between
+        whole files.
+        """
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        job = copy_job_get(job_id, user_id)
+        if not job:
+            return self._send_response(404, json.dumps({'error': 'Job not found'}))
+        if job['status'] not in ('pending', 'running'):
+            return self._send_response(409, json.dumps({'error': f"Job already {job['status']}"}))
+        with _copy_job_cancel_lock:
+            _copy_job_cancel_flags.add(job_id)
+        return self._send_response(200, json.dumps({'message': 'Cancel requested'}))
 
     def _handle_trash_restore(self, item_id: int):
         """POST /api/v1/trash/<id>/restore — restore a trash item to its original path."""
@@ -5905,9 +5980,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     try:
                         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                         if os.path.isdir(src_path):
-                            shutil.copytree(src_path, dest_path, copy_function=shutil.copy2)
+                            shutil.copytree(
+                                src_path, dest_path,
+                                copy_function=lambda s, d: _copy_file_cancellable(s, d, job_id)
+                            )
                         else:
-                            shutil.copy2(src_path, dest_path)
+                            _copy_file_cancellable(src_path, dest_path, job_id)
 
                         # Duplicate any cached checksum(s) to the new path.
                         # The copy has bit-identical content, and copy2/
@@ -5923,9 +6001,17 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             # Non-fatal: the copy itself succeeded
 
                         copy_job_update_status(job_id, 'done')
+                    except _CopyCancelled:
+                        logging.info("Copy job %s cancelled — cleaning up partial destination", job_id)
+                        _cleanup_partial_copy(dest_path)
+                        copy_job_update_status(job_id, 'cancelled', 'Cancelled by user')
                     except Exception as job_err:
                         logging.exception("Background copy job %s failed", job_id)
+                        _cleanup_partial_copy(dest_path)
                         copy_job_update_status(job_id, 'error', str(job_err))
+                    finally:
+                        with _copy_job_cancel_lock:
+                            _copy_job_cancel_flags.discard(job_id)
 
                 threading.Thread(target=_run_copy_job, daemon=True).start()
 

@@ -77,6 +77,7 @@
 #   _SERVER_START_TIME  — float unix timestamp of process start
 # =============================================================================
 import os
+import math
 import sys
 import json
 import ssl
@@ -1760,6 +1761,30 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(400, json.dumps({'error': 'filename, dest_path, total_chunks required.'}))
             # total_chunks == 0 is valid for zero-byte files; we special-case assembly below.
 
+        # ── Adaptive chunk size ──────────────────────────────────────────────
+        # The client measures its own upload throughput via /speed_probe and
+        # sends a preferred_chunk_size derived from it (small for a slow
+        # connection, larger for a fast one) instead of always getting the
+        # flat UPLOAD_CHUNK_SIZE regardless of measured speed. Clamped to the
+        # SAME UPLOAD_CHUNK_SIZE*2 ceiling handle_upload_session_chunk already
+        # enforces (see its 413 guard) — so that handler needs zero changes;
+        # a per-session chunk_size can never exceed what it already allows.
+        _MIN_CHUNK_SIZE = 256 * 1024  # 256 KB floor — avoid pathologically tiny chunks
+        preferred_chunk_size = data.get('preferred_chunk_size')
+        if preferred_chunk_size:
+            try:
+                chunk_size = max(_MIN_CHUNK_SIZE, min(int(preferred_chunk_size), UPLOAD_CHUNK_SIZE * 2))
+            except (TypeError, ValueError):
+                chunk_size = UPLOAD_CHUNK_SIZE
+        else:
+            chunk_size = UPLOAD_CHUNK_SIZE
+
+        # Authoritative total_chunks, derived from total_size and the chunk_size
+        # actually being used — NOT trusted from the client's own total_chunks
+        # field, which was previously stored/echoed verbatim with no
+        # cross-validation against total_size at all.
+        total_chunks = 0 if total_size <= 0 else (math.ceil(total_size / chunk_size) or 1)
+
         anon_device_token: str | None = None
 
         # Resolve absolute dest_path and owner_ref
@@ -1868,8 +1893,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 owner_type=owner_type,
                 owner_ref=owner_ref,
                 anon_device_token=anon_device_token,
+                chunk_size=chunk_size,
             )
-            logging.info(f'Upload session init: token={session["upload_token"][:12]}… file={filename} chunks={total_chunks} owner={owner_type}')
+            logging.info(f'Upload session init: token={session["upload_token"][:12]}… file={filename} '
+                         f'chunks={total_chunks} chunk_size={chunk_size} owner={owner_type}')
             resp: dict = {
                 'upload_token': session['upload_token'],
                 'chunk_size':   session['chunk_size'],

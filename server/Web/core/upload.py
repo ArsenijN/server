@@ -290,9 +290,16 @@ def _preallocate(dest_path: str, total_size: int) -> bool:
 def _upload_init(filename: str, dest_path: str, total_size: int,
                  total_chunks: int, sha256_final: str | None,
                  owner_type: str, owner_ref: str,
-                 anon_device_token: str | None = None) -> dict:
+                 anon_device_token: str | None = None,
+                 chunk_size: int = UPLOAD_CHUNK_SIZE) -> dict:
     """Create a new upload session.  Now rejects uploads that would exceed
-    the owner's quota *before* any disk allocation takes place."""
+    the owner's quota *before* any disk allocation takes place.
+
+    chunk_size defaults to the flat UPLOAD_CHUNK_SIZE constant but can be
+    overridden per-session — see handle_upload_session_init(), which derives
+    an adaptive value from the client's measured upload speed (clamped to
+    the same UPLOAD_CHUNK_SIZE*2 ceiling handle_upload_session_chunk already
+    enforces, so nothing on the chunk-receiving side needs to change)."""
     
     token    = secrets.token_urlsafe(32)
     strategy = _choose_strategy(dest_path)
@@ -387,7 +394,7 @@ def _upload_init(filename: str, dest_path: str, total_size: int,
                 anon_device_token, strategy, upload_status)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
             (token, filename, dest_path, tmp_dir, total_size,
-             UPLOAD_CHUNK_SIZE, total_chunks, sha256_final, owner_type, owner_ref,
+             chunk_size, total_chunks, sha256_final, owner_type, owner_ref,
              anon_device_token, strategy, 'pending')
         )
         conn.commit()

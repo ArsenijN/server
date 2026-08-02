@@ -1,7 +1,7 @@
         // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-c573ff88
+// Current version of script.js is: fluxdrop-v-535aa944
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-c573ff88'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-535aa944'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -5207,16 +5207,39 @@ async function uploadChunked(file, destRel, opts = {}) {
 
         let serverChunkSize = (cfg && cfg.chunk_size) ? cfg.chunk_size : 1 * 1024 * 1024;
 
+        // Adaptive chunk size: aim for a chunk that takes roughly 20s to
+        // transfer at the connection's actually-measured speed — comfortably
+        // inside uploadChunk's 90s per-chunk timeout even with some margin
+        // for jitter, rather than always using the server's flat default
+        // regardless of whether the connection can realistically move that
+        // much data before timing out. Falls back to the server's default
+        // when the probe itself failed (probeSpeed === null) rather than
+        // guessing. The server clamps this independently too (see
+        // handle_upload_session_init's _MIN_CHUNK_SIZE / UPLOAD_CHUNK_SIZE*2
+        // bounds) — this client-side clamp just avoids sending something
+        // wildly out of range in the first place.
+        const TARGET_CHUNK_SECONDS = 20;
+        const MIN_CHUNK_SIZE = 256 * 1024;                     // 256 KB floor
+        const maxChunkSize   = (cfg && cfg.max_chunk_size) ? cfg.max_chunk_size : serverChunkSize;
+        let preferredChunkSize = null;
+        if (probeSpeed) {
+            preferredChunkSize = Math.round(
+                Math.max(MIN_CHUNK_SIZE, Math.min(probeSpeed * TARGET_CHUNK_SECONDS, maxChunkSize))
+            );
+        }
+        const effectiveChunkSize = preferredChunkSize || serverChunkSize;
+
         // ── Init session (no blocking whole-file SHA — server verifies after assembly) ──
-        const tentativeTotalChunks = file.size === 0 ? 0 : (Math.ceil(file.size / serverChunkSize) || 1);
+        const tentativeTotalChunks = file.size === 0 ? 0 : (Math.ceil(file.size / effectiveChunkSize) || 1);
         const initBody = {
-            filename:     file.name,
-            dest_path:    destRel,
-            total_size:   file.size,
-            total_chunks: tentativeTotalChunks,
-            sha256:       null,
-            owner_type:   ownerType,
-            share_token:  shareToken,
+            filename:             file.name,
+            dest_path:            destRel,
+            total_size:           file.size,
+            total_chunks:         tentativeTotalChunks,
+            preferred_chunk_size: preferredChunkSize,
+            sha256:               null,
+            owner_type:           ownerType,
+            share_token:          shareToken,
         };
         const initRes = await fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/init`, {
             method: 'POST',
@@ -5342,7 +5365,10 @@ async function uploadChunked(file, destRel, opts = {}) {
 
     function samplerOnBytes(delta) {
         // Thread-safe: JavaScript is single-threaded; no mutex needed.
-        samplerLoaded = Math.min(file.size, samplerLoaded + delta);
+        // Clamped on both ends: ceiling so a burst of progress events can't
+        // report more than the file's actual size, floor so a rollback (see
+        // uploadChunk's failure paths below) can't push it negative.
+        samplerLoaded = Math.max(0, Math.min(file.size, samplerLoaded + delta));
         ul.loaded     = samplerLoaded;
 
         const now = Date.now();
@@ -5391,7 +5417,20 @@ async function uploadChunked(file, destRel, opts = {}) {
                 abort: () => { activeXhrs.forEach(x => x.abort()); }
             };
 
-            let chunkSentPrev = 0; // bytes already fed to sampler from this XHR
+            let chunkSentPrev = 0; // bytes already fed to sampler from this XHR attempt
+
+            // Roll back whatever THIS attempt has credited to the shared
+            // progress sampler so far. Called on every non-success
+            // termination path — a retried chunk needs to start crediting
+            // progress from the same baseline as before this attempt began,
+            // not stack failed-attempt bytes on top of each other across
+            // retries.
+            function rollBackCredit() {
+                if (chunkSentPrev > 0) {
+                    samplerOnBytes(-chunkSentPrev);
+                    chunkSentPrev = 0;
+                }
+            }
 
             xhr.upload.onprogress = (e) => {
                 if (!e.lengthComputable) return;
@@ -5402,22 +5441,35 @@ async function uploadChunked(file, destRel, opts = {}) {
 
             xhr.onload = () => {
                 activeXhrs.delete(idx);
-                // Credit any bytes not yet counted via onprogress
-                const remaining = blob.size - chunkSentPrev;
-                if (remaining > 0) samplerOnBytes(remaining);
-                renderUploadTray();
                 if (xhr.status >= 200 && xhr.status < 300) {
+                    // Credit any tail bytes that landed after the last
+                    // progress event but before onload fired — only
+                    // meaningful (and only correct) on an actual success;
+                    // this used to run unconditionally, crediting the whole
+                    // chunk as "sent" even when the server rejected it.
+                    const remaining = blob.size - chunkSentPrev;
+                    if (remaining > 0) samplerOnBytes(remaining);
+                    renderUploadTray();
                     resolve();
                 } else {
+                    rollBackCredit();
+                    renderUploadTray();
                     let msg = `Chunk ${idx} failed: HTTP ${xhr.status}`;
                     try { const j = JSON.parse(xhr.responseText); if (j.error) msg = j.error; } catch {}
                     reject(new Error(msg));
                 }
             };
 
-            xhr.onerror = () => { activeXhrs.delete(idx); reject(new Error(`Chunk ${idx} network error`)); };
+            xhr.onerror = () => {
+                activeXhrs.delete(idx);
+                rollBackCredit();
+                renderUploadTray();
+                reject(new Error(`Chunk ${idx} network error`));
+            };
             xhr.onabort = () => {
                 activeXhrs.delete(idx);
+                rollBackCredit();
+                renderUploadTray();
                 const e = new Error('Upload cancelled');
                 e.name  = 'AbortError';
                 reject(e);
@@ -5431,6 +5483,8 @@ async function uploadChunked(file, destRel, opts = {}) {
             xhr.timeout = 90_000;  // 90 s; chunk should never take longer
             xhr.ontimeout = () => {
                 activeXhrs.delete(idx);
+                rollBackCredit();
+                renderUploadTray();
                 reject(new Error(`Chunk ${idx} timed out`));
             };
             xhr.send(blob);
@@ -8111,7 +8165,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-c573ff88'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-535aa944'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

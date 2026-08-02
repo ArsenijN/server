@@ -1,4 +1,4 @@
-# server `v0.19.1.21`
+# server `v0.19.1.22`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -20,6 +20,8 @@ modals and others***
 - ***Reworked the trash bin deletion modals so they're more laconic***
 - ***Now copy function displays a loading toast, so large files will not 
 lock-up the user interactions with FluxDrop***
+- ***Now upload will divide files into smaller files if speed of the internet 
+is very slow or not ideal for uploads***
 
 ***Fixes:***
 - ***Acceptance modal displayed plain HTML due to lack of the proxy's alias for 
@@ -31,6 +33,7 @@ item is deleted***
 time it's displayed***
 - ***Mobile users was unable to upload because there's no button to do so 
 (check the left bottom corner)***
+- ***Fix uploads failing because of the very slow internet speeds***
 
 ***Backend fixes:***
 - ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 
@@ -49,6 +52,7 @@ but backend didn't knew what to do***
 - ***Fix file hash not reattaching after file move***
 - ***Fix the `gzip` compression being not fully utilized***
 - ***Fix error with the `copy` endpoint being non-existent***
+- ***Fix chunks being not implemented properly for the slower internet speeds***
 
 ***text***
 

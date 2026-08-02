@@ -5153,6 +5153,24 @@ function getAllInterruptedUploads() {
  * @param {string}  [opts.resumeAnonToken]- anon_device_token for share resumes
  * @returns {Promise<{url, sha256, size}>}
  */
+// Maps a measured upload speed (bytes/sec) to a sane initial concurrency.
+// Used both to divide the per-chunk-duration target by the bandwidth each
+// concurrent stream will actually get (see the chunk-size calculation in
+// uploadChunked) and to seed the real worker concurrency later — keeping
+// the two numbers consistent. A genuinely narrow connection needs to stay
+// at concurrency 1: splitting an already-thin pipe across several streams
+// doesn't add throughput, it just makes each individual chunk take longer
+// to finish than the timeout budget it was sized for.
+function _concurrencyForSpeed(bytesPerSec) {
+    if (!bytesPerSec || bytesPerSec <= 0) return 3; // no probe data — previous default
+    const KBps = bytesPerSec / 1024;
+    if (KBps < 100)   return 1;  // very slow — single stream, don't fragment the pipe
+    if (KBps < 500)   return 2;
+    if (KBps < 2000)  return 3;
+    if (KBps < 5000)  return 4;
+    return 6; // CONCURRENCY_MAX
+}
+
 async function uploadChunked(file, destRel, opts = {}) {
     const ownerType  = opts.ownerType  || 'user';
     const shareToken = opts.shareToken  || '';
@@ -5208,23 +5226,30 @@ async function uploadChunked(file, destRel, opts = {}) {
         let serverChunkSize = (cfg && cfg.chunk_size) ? cfg.chunk_size : 1 * 1024 * 1024;
 
         // Adaptive chunk size: aim for a chunk that takes roughly 20s to
-        // transfer at the connection's actually-measured speed — comfortably
-        // inside uploadChunk's 90s per-chunk timeout even with some margin
-        // for jitter, rather than always using the server's flat default
-        // regardless of whether the connection can realistically move that
-        // much data before timing out. Falls back to the server's default
-        // when the probe itself failed (probeSpeed === null) rather than
-        // guessing. The server clamps this independently too (see
-        // handle_upload_session_init's _MIN_CHUNK_SIZE / UPLOAD_CHUNK_SIZE*2
-        // bounds) — this client-side clamp just avoids sending something
-        // wildly out of range in the first place.
+        // transfer — comfortably inside uploadChunk's 90s per-chunk timeout
+        // even with margin for jitter — at the bandwidth each concurrent
+        // stream will actually get, not the full measured speed as if a
+        // single stream had it all to itself. Chunks upload multi-streamed
+        // (see the concurrency pool below), so on a slow connection with
+        // several streams running at once, each one only gets a fraction of
+        // the measured aggregate — sizing purely off the raw measured speed
+        // undersells how long an individual chunk will really take and can
+        // still time out even though the math "looked" safe.
+        // Falls back to the server's default when the probe itself failed
+        // (probeSpeed === null) rather than guessing. The server clamps
+        // this independently too (see handle_upload_session_init's
+        // _MIN_CHUNK_SIZE / UPLOAD_CHUNK_SIZE*2 bounds) — this client-side
+        // clamp just avoids sending something wildly out of range in the
+        // first place.
         const TARGET_CHUNK_SECONDS = 20;
-        const MIN_CHUNK_SIZE = 256 * 1024;                     // 256 KB floor
+        const MIN_CHUNK_SIZE = 32 * 1024;                      // 32 KB floor
         const maxChunkSize   = (cfg && cfg.max_chunk_size) ? cfg.max_chunk_size : serverChunkSize;
+        const expectedConcurrency = _concurrencyForSpeed(probeSpeed);
+        const perStreamSpeed = probeSpeed ? probeSpeed / expectedConcurrency : null;
         let preferredChunkSize = null;
-        if (probeSpeed) {
+        if (perStreamSpeed) {
             preferredChunkSize = Math.round(
-                Math.max(MIN_CHUNK_SIZE, Math.min(probeSpeed * TARGET_CHUNK_SECONDS, maxChunkSize))
+                Math.max(MIN_CHUNK_SIZE, Math.min(perStreamSpeed * TARGET_CHUNK_SECONDS, maxChunkSize))
             );
         }
         const effectiveChunkSize = preferredChunkSize || serverChunkSize;
@@ -5316,11 +5341,16 @@ async function uploadChunked(file, destRel, opts = {}) {
     const CONCURRENCY_MIN = 1;
     const CONCURRENCY_MAX = 6;
 
-    // Seed from probe: target ~50 MB in-flight / chunkSize.
-    // For 25 MB chunks → starts at 2. Falls back to 3 if no probe data.
-    let concurrency = (ul.measuredSpeed && ul.measuredSpeed > 0 && chunkSize > 0)
-        ? Math.max(CONCURRENCY_MIN, Math.min(CONCURRENCY_MAX, Math.round(50 * 1024 * 1024 / chunkSize)))
-        : 3;
+    // Seed from the measured probe speed via the same _concurrencyForSpeed
+    // tiering used for the chunk-size calculation above, so the two stay
+    // consistent. Previously this was seeded from chunkSize alone ("target
+    // ~50MB in-flight / chunkSize") — for a small chunk size correctly
+    // chosen for a slow connection, that formula computed the MAXIMUM
+    // concurrency, fragmenting an already-thin pipe across up to 6 streams
+    // and making each individual chunk take far longer than the timeout
+    // budget it was sized for, even though the raw chunk-size math looked
+    // safe for a single stream.
+    let concurrency = _concurrencyForSpeed(ul.measuredSpeed);
 
     let _activeWorkerCount = 0;
     let _workerLaunchFn    = null;
@@ -5606,15 +5636,27 @@ async function uploadChunked(file, destRel, opts = {}) {
         throw e;
     }
     if (ul.cancelled) {
+        // Tell the server to clean up the tmp chunks — actually waited on
+        // (bounded by a short timeout, since this is best-effort and
+        // shouldn't hang the UI if the server is slow/unreachable) so
+        // "Cancelled" only shows once the server has genuinely been told to
+        // stop, not the instant the local abort() call returns.
+        ul.status = 'cancelling';
+        renderUploadTray();
+        try {
+            await Promise.race([
+                fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/${uploadToken}/cancel`, {
+                    method: 'DELETE',
+                    headers: authHeaders(anonDeviceToken),
+                }),
+                new Promise(r => setTimeout(r, 5000)),
+            ]);
+        } catch (_) { /* best-effort — proceed regardless */ }
+
         ul.status = 'cancelled';
         removeInterruptedUpload(uploadToken);
         if (anonDeviceToken) removeAnonDeviceToken(uploadToken);
         renderUploadTray();
-        // Tell the server to immediately delete the tmp chunks
-        fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/${uploadToken}/cancel`, {
-            method: 'DELETE',
-            headers: authHeaders(anonDeviceToken),
-        }).catch(() => {}); // best-effort, ignore errors
         throw new Error('Upload cancelled');
     }
     if (uploadError) {
@@ -5963,6 +6005,8 @@ function renderUploadTray() {
             cancelBtn.textContent = '✕ Cancel';
             cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
             cancelBtn.addEventListener('click', () => {
+                ul.status = 'cancelling';
+                renderUploadTray();
                 ul.cancelled = true;
                 ul.paused = false;
                 if (ul.abortController) ul.abortController.abort();
@@ -5981,7 +6025,7 @@ function renderUploadTray() {
             row._actionsDiv = actionsDiv;
         }
 
-        const statusMap = { uploading: '⬆', verifying: '🔍', done: '✅', error: '⚠', paused: '⏸', cancelled: '🚫' };
+        const statusMap = { uploading: '⬆', verifying: '🔍', done: '✅', error: '⚠', paused: '⏸', cancelling: '⏳', cancelled: '🚫' };
         row.querySelector('.ul-name').textContent = (statusMap[ul.status] || '') + ' ' + ul.filename;
         row.querySelector('.ul-bytes').textContent = `${sent} / ${total}`;
         const bar = row.querySelector('.ul-bar');
@@ -5990,7 +6034,7 @@ function renderUploadTray() {
             ? ul.verifyPct
             : pct;
         bar.style.width = displayPct + '%';
-        bar.style.background = ul._retrying ? '#f59e0b' : ul.status === 'paused' ? '#f59e0b' : ul.status === 'error' || ul.status === 'cancelled' ? '#ef4444' : ul.status === 'verifying' ? '#a78bfa' : '#22c55e';
+        bar.style.background = ul._retrying ? '#f59e0b' : (ul.status === 'paused' || ul.status === 'cancelling') ? '#f59e0b' : ul.status === 'error' || ul.status === 'cancelled' ? '#ef4444' : ul.status === 'verifying' ? '#a78bfa' : '#22c55e';
         bar.style.animation  = ul._retrying ? 'fd-retry-pulse 1s ease-in-out infinite' : '';
 
         let statusText = ul.status;
@@ -6017,6 +6061,8 @@ function renderUploadTray() {
             }
         } else if (ul.status === 'paused') {
             statusText = '⏸ Paused — click Resume to continue';
+        } else if (ul.status === 'cancelling') {
+            statusText = '⏳ Cancelling…';
         } else if (ul.status === 'error') {
             statusText = '⚠ ' + (ul.error || 'failed');
         } else if (ul.status === 'cancelled') {

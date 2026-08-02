@@ -1769,7 +1769,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # SAME UPLOAD_CHUNK_SIZE*2 ceiling handle_upload_session_chunk already
         # enforces (see its 413 guard) — so that handler needs zero changes;
         # a per-session chunk_size can never exceed what it already allows.
-        _MIN_CHUNK_SIZE = 256 * 1024  # 256 KB floor — avoid pathologically tiny chunks
+        _MIN_CHUNK_SIZE = 32 * 1024  # 32 KB floor — matches the client's MIN_CHUNK_SIZE
         preferred_chunk_size = data.get('preferred_chunk_size')
         if preferred_chunk_size:
             try:

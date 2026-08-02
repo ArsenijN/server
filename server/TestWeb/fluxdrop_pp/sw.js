@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v-535aa944';  // replaced by build.sh — do not edit manually
+const CACHE_NAME  = 'fluxdrop-v-85449e24';  // replaced by build.sh — do not edit manually
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 
@@ -83,6 +83,9 @@ const PRECACHE_URLS = [
     '/fluxdrop_pp/tailwindcss.css',
     '/fluxdrop_pp/icon.svg',
     '/fluxdrop_pp/offline.html',
+    '/fluxdrop_pp/fd_dark.css',
+    '/fluxdrop_pp/fd_locale_bundle.js',
+    '/fluxdrop_pp/fd_addons.js',
     '/fluxdrop_pp/assets/all.min.css',
     '/fluxdrop_pp/assets/heic2any.min.js',
     '/fluxdrop_pp/assets/Inter.css',

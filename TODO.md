@@ -77,7 +77,7 @@ mentioned in the welcoming screen
 - [ ] Add animation after login window closes due to login event
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Canceling the upload doesn't wait for the request to finish and displays 
-the calcelled right away
+the cancelled right away
 - [ ] Upload needs additional improvements into the slow internet mode (if 
 speed probe takes 30s - divide file even into few kB chunks, because right now 
 it did ~330 kB, but because upload's chunks is multi-streamed - that doesn't 

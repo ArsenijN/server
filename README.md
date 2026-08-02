@@ -1,4 +1,4 @@
-# server `v0.19.1.22`
+# server `v0.19.1.23`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -22,6 +22,8 @@ modals and others***
 lock-up the user interactions with FluxDrop***
 - ***Now upload will divide files into smaller files if speed of the internet 
 is very slow or not ideal for uploads***
+- ***Cancel in uploads will actually wait for server to cancel, not 
+fire-and-forget as before***
 
 ***Fixes:***
 - ***Acceptance modal displayed plain HTML due to lack of the proxy's alias for 
@@ -34,6 +36,8 @@ time it's displayed***
 - ***Mobile users was unable to upload because there's no button to do so 
 (check the left bottom corner)***
 - ***Fix uploads failing because of the very slow internet speeds***
+- ***Fix math for the concurrency in uploading chunks***
+- ***Added additional files to the service worker to be precached***
 
 ***Backend fixes:***
 - ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 

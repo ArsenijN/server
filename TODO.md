@@ -8,6 +8,10 @@ user feedback or ideas for future development.
 ## Items that are pending for implementations:
 
 ### Important without category (critical before release)
+- [ ] Do NOT implement the breaking features into the patch versions (e.g. 
+V0.19.2 over V0.19.1), instead, add them or new items to the separate TODO's 
+list specifically for those breaking changes (that are allowed in the V0.20 
+over V0.19)
 
 ### UI - add new features
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
@@ -53,8 +57,6 @@ on i5 8350U)
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
-- [ ] Upload ends successfully even if the upload of one of the files fails 
-(for example because of the quota) (message that are displayed in notifications)
 - [ ] Uploads can't be paused and instead "cancels" is using the drag-n-drop
 - [ ] Server sends entire file layout and their sizes in `https://fluxdrop.me/ap
 i/v1/list/tmp` but client still fetches the individual files/folders like `https
@@ -76,14 +78,15 @@ mentioned in the welcoming screen
 - [ ] Opening the profile preview modal is very epilepsy-warning (mobile)
 - [ ] Add animation after login window closes due to login event
 - [ ] Add some animation to the main file browser from the landing page
-- [ ] Canceling the upload doesn't wait for the request to finish and displays 
-the cancelled right away
-- [ ] Upload needs additional improvements into the slow internet mode (if 
-speed probe takes 30s - divide file even into few kB chunks, because right now 
-it did ~330 kB, but because upload's chunks is multi-streamed - that doesn't 
-work well and may result in the timeout errors)
+- [ ] Check the upload concurrency behavior on weak connections
+- [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
+- [ ] Check if upload still ends successfully even if the upload of one of the 
+files fails (for example because of the quota) (message that are displayed in 
+notifications from browser from site) -- it is
+- [ ] File selector does not reset or reselect when file is renamed
+- [ ] Item selection didn't catch up if done quickly (to the `Shift` problem)
 
-### Server-side changes:
+### Server-side non-breaking changes:
 
 #### Critical:
 - [ ] Trash bin file preview inside folders
@@ -116,13 +119,50 @@ that is needed to process the 150k+ items for FluxDrop file manager
 - [ ] Add hash (maintenance) logs to the debug category for main log file (keep 
 the separate `maintenance.log` file work always, but not include the infos into 
 CDN's logs if debug isn't enabled)
-- [ ] Fix CSP for used domain other than `PUBLIC_DOMAIN` (e.g. accessing 
-FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to 
-as specified in `PUBLIC_DOMAIN`)
 
 #### Low:
 - [ ] Reduce amount of re-imports inside the code if this will add overall 
 overhead
+- [ ] Add checkers for external HTTP and HTTPS hosters for outage page
+- [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
+any type of file that's supported, thumbs can be included into the quota, or 
+excluded from quota)
+- [ ] Make special player with "video preview support", aka "slow internet 
+mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
+bandwidth and resolution)
+- [ ] **Family/Group accounts**
+  - [ ] Let two or more usernames share a common root directory with mutual
+    read/write privileges.
+  - [ ] Add settings to control whether group members may add/remove other
+    users, set quotas, etc.
+
+#### Lowest:
+- [ ] Make separate "testing" server where I would be able to test everything 
+before pushing to the real one
+- [ ] (at some unnecessary point) Divide snippets to dedicated HTML, JS and CSS
+- [ ] Discover ways to build own page via modules (zero-code; not necessary 
+since I can just remember CSS and HTML, and do that by hands)
+
+---
+
+### Server-side BREAKING changes:
+
+Under breaking changes are:
+- API changes
+- Function changes (e.g. function starts to output or request different inputs)
+- Features that will be replaced with new ones, dropping old ones
+- Overall incompatible code changes between versions
+
+Those features should be added as `y` increment in `Vx.y.z`. Full backend code 
+changes should be added as `x` increment in `Vx.y.z`. Other changes that can be 
+used without changes in API or external dependencies can be added as `z` 
+increment in `Vx.y.z`
+
+Overall thought: increment `y` if API responces or requests are changed to the 
+point where older listener code can't do anything with (e.g. renaming the 
+variables, tables, etc.)
+
+### Without category:
 - [ ] Add server ability to push the additional data before client will request 
 them (pre-caching; like folder structures, quota, file properties, download 
 tokens (pre-generate the download tokens for files to fasten up the ping 
@@ -130,35 +170,18 @@ issues (aka preview tokens), or resolve the issues that FluxDrop is very
 unstable in bad internet areas) or something else) -- merged into the rela... 
 No it's not since that entry issues the JSON multi-answer instead on only 
 related to fetch/question
-- [ ] Add checkers for external HTTP and HTTPS hosters for outage page
-- [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
-any type of file that's supported, thumbs can be included into the quota, or 
-excluded from quota)
-- [ ] Add partial content support for CatBox API and CDN itself for it's 
-static hoster -- doesn't CDN have that already?
-- [ ] Make special player with "video preview support", aka "slow internet 
-mode" (re-convert the uploaded videos to the FluxDrop with AV1 to reduce 
-bandwidth and resolution)
 - [ ] Reimplement the CDN path purpose, fix it's errors
-- [ ] **Family/Group accounts**
-  - [ ] Let two or more usernames share a common root directory with mutual
-    read/write privileges.
-  - [ ] Add settings to control whether group members may add/remove other
-    users, set quotas, etc.
 - [ ] **Misc future ideas**
   - [ ] Server-side filename sanitisation for illegal characters.
   - [ ] Explicit **move** and **copy** endpoints (avoid awkward rename paths).
-
-#### Lowest:
-- [ ] Make separate "testing" server where I would be able to test everything 
-before pushing to the real one
 - [ ] Migration to other host platform for HTTP and HTTPS efficiency and 
 optimizations (Python; go to gunicorn or something else) -- WIP, low priority
 - [ ] (future) Replace the server hardware (aka FluxDrop + home NAS with proper 
 storage media)
-- [ ] (at some unnecessary point) Divide snippets to dedicated HTML, JS and CSS
-- [ ] Discover ways to build own page via modules (zero-code; not necessary 
-since I can just remember CSS and HTML, and do that by hands)
+- [ ] Fix CSP for used domain other than `PUBLIC_DOMAIN` (e.g. accessing 
+FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to 
+as specified in `PUBLIC_DOMAIN`)
+
 
 ---
 
@@ -168,9 +191,11 @@ since I can just remember CSS and HTML, and do that by hands)
 made/applied
 - [ ] Dark mode auto switch -- doesn't work
 - [ ] HSTS redirect should work correctly
-- [ ] Add the visualization for retry cycles
-- [ ] Downloading the ZIP doesn't show the actual thing that happening behind 
-the scene (aka it just shows "Downloading via browser...")
+- [ ] Check the visualization for retry cycles
+- [ ] Check that downloading the ZIP show the actual thing that happening 
+behind the scene (because it showed just "Downloading via browser..." before)
+- [ ] Add partial content support for CatBox API and CDN itself for it's 
+static hoster -- doesn't CDN have that already?
 
 ---
 
@@ -234,6 +259,17 @@ caused by network switch (on client device)
 - [x] gzip compression indeed works and not have just the `gzip` tag used
 
 - [x] Proxy fail on copy of the large files (timeout)
+
+- [x] Canceling the upload doesn't wait for the request to finish and displays 
+the cancelled right away
+- [x] Upload needs additional improvements into the slow internet mode (if 
+speed probe takes 30s - divide file even into few kB chunks, because right now 
+it did ~330 kB, but because upload's chunks is multi-streamed - that doesn't 
+work well and may result in the timeout errors)
+
+- [x] Interrupted uploads modal have no animations and `Esc` to exit shortcut
+- [x] Moving's loading wheel modal doesn't have animations for appearing and 
+disappearing
 
 ---
 

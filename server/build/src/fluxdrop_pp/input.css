@@ -301,6 +301,13 @@
     animation: fd-modal-in .22s cubic-bezier(.22, 1, .36, 1);
 }
 
+/* Reusable entrance animation for dynamically-created modal panels (e.g. the
+   interrupted-uploads manager) that don't have a dedicated #id selector of
+   their own — same scale-in + drift-up as #fd-auth-card above. */
+.fd-modal-panel-in {
+    animation: fd-modal-in .22s cubic-bezier(.22, 1, .36, 1);
+}
+
 /* Landing page cards stagger */
 .fd-feature-card {
     animation: fd-fade-in-up .3s ease both;

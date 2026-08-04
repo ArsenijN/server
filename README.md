@@ -1,47 +1,49 @@
-# server `v0.19.1.23`
+# server `v0.19.1.24`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes: Slight touches to the user experience with the service*
+*Release notes: Soft touches to the user experience with the service*
 
-***Mainstream: more animations, backend changes, and overall usage 
+***Mainstream: more animations, backend changes, fixes, and overall usage 
 improvements***
 
-***This update improves overall user experience things that was missing 
-from the V0.19.1 release***
+***This update improves overall user experience with the things that was 
+missing and bugs that was there from the V0.19 release and it's patches, 
+including versions before V0.19***
 
 ***Additions:***
 - ***New animations: file selection, selector bar, ETA trays and others. Fixes: 
 profile menu, mini profile menu, share manager, trash overlay, media preview 
 modals and others***
-- ***i18n fixes for links manager***
+- ***More i18n added into links manager modal***
 - ***`Del` key now works as the shortcut to delete the current seleted items***
-- ***Reworked the trash bin deletion modals so they're more laconic***
-- ***Now copy function displays a loading toast, so large files will not 
+- ***Reworked the trash bin deletion modals to be more laconic***
+- ***Copy function now displays a loading toast, so large files will not 
 lock-up the user interactions with FluxDrop***
-- ***Now upload will divide files into smaller files if speed of the internet 
+- ***Upload will now divide files into smaller files if speed of the internet 
 is very slow or not ideal for uploads***
-- ***Cancel in uploads will actually wait for server to cancel, not 
+- ***Cancel in uploads actually waits for a server to cancel, not 
 fire-and-forget as before***
 
 ***Fixes:***
 - ***Acceptance modal displayed plain HTML due to lack of the proxy's alias for 
 policy files***
-- ***Trash retention message are now translatable***
+- ***Trash retention message are now translatable (i18n)***
 - ***File selector now properly resets after changing the directory and when 
-item is deleted***
-- ***Profile picture icon is not cached, resulting in need to reload it every 
+item is deleted***                                                                ############################ -- add "and moved" when code patch will be applied
+- ***Profile picture icon is not cached, resulting in excessive fetches every 
 time it's displayed***
 - ***Mobile users was unable to upload because there's no button to do so 
-(check the left bottom corner)***
-- ***Fix uploads failing because of the very slow internet speeds***
+(now it's in the left bottom corner)***
+- ***Fix uploads failing because of the very slow internet speeds (see 
+additions notes)***
 - ***Fix math for the concurrency in uploading chunks***
 - ***Added additional files to the service worker to be precached***
 
 ***Backend fixes:***
 - ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 
-Websocket connections without proper close by message***
+Websocket connections without proper close by Websocket's special message***
 - ***Fix HTTPS proxy connection drop after timeout***
 - ***Fix server memory exaustion because of not properly handled proxying***
 - ***Fix HTTP's hoster health check failing because of the forced HTTPS 
@@ -52,7 +54,7 @@ reload***
 assets when accessing from different domain (CORS/CSP or just one-domain ideal 
 dependency being broken)***
 - ***FluxDrop Web making stray `config` requests for net connectivity checks, 
-but backend didn't knew what to do***
+but backend didn't knew what to do with them***
 - ***Fix file hash not reattaching after file move***
 - ***Fix the `gzip` compression being not fully utilized***
 - ***Fix error with the `copy` endpoint being non-existent***
@@ -64,6 +66,7 @@ but backend didn't knew what to do***
 
 *Patch notes: **Changelog:***
 - ***TODO implementations***
+- ***Changed README to be ready for V0.19.2 release***
 
 ---
 

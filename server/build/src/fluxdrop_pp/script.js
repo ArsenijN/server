@@ -178,7 +178,7 @@ function navigateTo(path) {
     // refresh" once currentPath already matches the incoming path.
     if (!window._fdKeepSelectionOnNav) {
         _selectedPaths.clear();
-        _lastClickedIdx = -1;
+        _lastClickedPath = null;
     }
     currentPath = path;
     const urlPath = _APP_BASE + '/files' + (path === '/' ? '' : encodePath(path));
@@ -197,7 +197,7 @@ window.addEventListener('popstate', event => {
     const path = (event.state && event.state.fdPath) ? event.state.fdPath : '/';
     if (path !== currentPath && !window._fdKeepSelectionOnNav) {
         _selectedPaths.clear();
-        _lastClickedIdx = -1;
+        _lastClickedPath = null;
     }
     currentPath = path;
     loadDirectory(path);
@@ -246,9 +246,11 @@ function showSpinnerOverlay(message = 'Loading…', opts = {}) {
     overlay.style.cssText = [
         'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10400',
         'background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center',
-        'animation:fadeIn .15s ease',
+        'animation:fd-fade-in .15s ease',  // was 'fadeIn' — that keyframe doesn't exist anywhere
+                                            // in the stylesheet (only fd-fade-in does), so this
+                                            // was silently a no-op the whole time.
     ].join(';');
-    overlay.innerHTML = '<div style="background:#1e293b;border-radius:1rem;padding:2rem 2.5rem;display:flex;' +
+    overlay.innerHTML = '<div class="fd-modal-panel-in" style="background:#1e293b;border-radius:1rem;padding:2rem 2.5rem;display:flex;' +
         'flex-direction:column;align-items:center;gap:1rem;' +
         'box-shadow:0 16px 48px rgba(0,0,0,.5);min-width:180px;text-align:center">' +
         '<div style="width:44px;height:44px;border-radius:50%;border:4px solid #334155;' +
@@ -264,7 +266,10 @@ function showSpinnerOverlay(message = 'Loading…', opts = {}) {
     const shown = Date.now();
     return function dismiss() {
         const wait = Math.max(0, minMs - (Date.now() - shown));
-        const _rm = function() { const el = document.getElementById(id); if (el) el.remove(); };
+        // fdCloseOverlay plays the same fade-out + panel-scale-out exit
+        // every other overlay in the app uses, instead of an instant
+        // .remove() with no animation at all.
+        const _rm = function() { const el = document.getElementById(id); if (el) window.fdCloseOverlay(el); };
         if (wait <= 0) _rm(); else setTimeout(_rm, wait);
     };
 }
@@ -3741,7 +3746,7 @@ window.previewText = window.previewFile;
 // we no longer need to worry about quoting/escaping in the HTML.
 // ── Selection state ──────────────────────────────────────────────────────
 let _selectedPaths  = new Set();
-let _lastClickedIdx = -1; // used for Shift+click range selection
+let _lastClickedPath = null; // used for Shift+click range selection (by path, not index — robust to row reordering between clicks)
 // When true (toggled via the fd-sel-bar "keep selection" checkbox), navigating
 // into a different folder does NOT clear the current multi-selection — rows
 // matching a selected path re-show their checkmark when you return to that
@@ -3845,23 +3850,29 @@ function _updateSelBar() {
 // modifier key is held, so Shift/Ctrl never accidentally opens a file.
 function _doRowSelect(row, idx, e) {
     _removeContextMenu();
+    const infoPanel = document.getElementById('fd-info-panel');
+    if (infoPanel) window.fdCloseFloatingPanel(infoPanel);
     const rows = _getFileRows();
-    if (e.shiftKey && _lastClickedIdx >= 0) {
-        const lo = Math.min(_lastClickedIdx, idx);
-        const hi = Math.max(_lastClickedIdx, idx);
+    const anchorIdx = _lastClickedPath ? rows.findIndex(r => r.dataset.path === _lastClickedPath) : -1;
+    if (e.shiftKey && anchorIdx >= 0) {
+        const lo = Math.min(anchorIdx, idx);
+        const hi = Math.max(anchorIdx, idx);
         _selectedPaths.clear();
         rows.forEach((r, i) => {
             const sel = i >= lo && i <= hi;
             _updateRowSelVisual(r, sel);
             if (sel) _selectedPaths.add(r.dataset.path);
         });
+        // Deliberately NOT updating _lastClickedPath here — shift-click
+        // extends from the original anchor, not a moving one, matching
+        // standard file-manager convention.
     } else if (e.ctrlKey || e.metaKey) {
         _toggleSelect(row);
-        _lastClickedIdx = idx;
+        _lastClickedPath = row.dataset.path;
     } else {
         _clearSelection();
         _toggleSelect(row, true);
-        _lastClickedIdx = idx;
+        _lastClickedPath = row.dataset.path;
     }
     _updateSelBar();
 }
@@ -3917,7 +3928,7 @@ function attachRowListeners() {
             if (!_selectedPaths.has(row.dataset.path)) {
                 _clearSelection();
                 _toggleSelect(row, true);
-                _lastClickedIdx = idx;
+                _lastClickedPath = row.dataset.path;
                 _updateSelBar();
             }
             _showContextMenu(e.clientX, e.clientY, row);
@@ -4036,7 +4047,7 @@ function _applySelectionVisuals() {
 function _clearSelection() {
     _getFileRows().forEach(r => _updateRowSelVisual(r, false));
     _selectedPaths.clear();
-    _lastClickedIdx = -1;
+    _lastClickedPath = null;
 }
 
 // ── Context menu ─────────────────────────────────────────────────────────
@@ -7818,6 +7829,7 @@ function openInterruptedManager(onClose) {
 
     const overlay = document.createElement('div');
     overlay.id = 'interrupted-manager-panel';
+    overlay.className = 'modal-overlay';
     overlay.style.cssText = `
         position:fixed;top:0;left:0;width:100%;height:100%;
         background:rgba(0,0,0,0.55);display:flex;align-items:center;
@@ -7865,7 +7877,7 @@ function openInterruptedManager(onClose) {
             }).join('');
 
         return `
-        <div style="background:#0f172a;border-radius:14px;padding:1.5rem;
+        <div class="fd-modal-panel-in" style="background:#0f172a;border-radius:14px;padding:1.5rem;
                     width:95vw;max-width:600px;max-height:82vh;overflow-y:auto;
                     color:#e2e8f0;position:relative">
             <div style="display:flex;justify-content:space-between;align-items:center;
@@ -7957,15 +7969,24 @@ function openInterruptedManager(onClose) {
         });
     }
 
+    function closePanel() {
+        _detachModalKeys();
+        window.fdCloseOverlay(overlay);
+        if (onClose) onClose();
+    }
+
     function render(pending) {
         overlay.innerHTML = buildHTML(pending);
 
-        overlay.querySelector('#im-close').addEventListener('click', () => {
-            overlay.remove(); if (onClose) onClose();
-        });
+        overlay.querySelector('#im-close').addEventListener('click', closePanel);
         overlay.addEventListener('click', ev => {
-            if (ev.target === overlay) { overlay.remove(); if (onClose) onClose(); }
+            if (ev.target === overlay) closePanel();
         });
+        // Esc closes the panel — Enter deliberately left unbound (no single
+        // "confirm" action makes sense for this list of independent
+        // Resume/Discard buttons; binding it could accidentally trigger a
+        // buried default action from stray keyboard focus).
+        _attachModalKeys(null, closePanel);
 
         overlay.querySelector('#im-discard-all')?.addEventListener('click', () => {
             getAllInterruptedUploads().forEach(m => removeInterruptedUpload(m.uploadToken));

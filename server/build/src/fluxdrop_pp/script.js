@@ -1431,7 +1431,7 @@ function renderFileBrowserView() {
                     ⬆ Drop files or folders here to upload
                 </div>
 
-                <div id="file-list" class="mt-4" style="min-height:320px"></div>
+                <div id="file-list" class="mt-4" style="min-height:320px;user-select:none"></div>
 
             </div>
 
@@ -3950,9 +3950,23 @@ function _getFileRows() {
     return Array.from(document.querySelectorAll('#file-list .fd-file-row'));
 }
 
+// Cancels any pending deselect/indeterminate-clear cleanup scheduled on a
+// dot by _updateRowSelVisual or _setRowIndeterminate below. Both schedule a
+// finish() callback (via animationend + a timeout safety net) to run ~180ms
+// later; without cancelling the previous one before scheduling a new state
+// change, a stale callback from an earlier toggle could fire AFTER a fast
+// subsequent re-select and wrongly hide the dot again — the actual
+// selection (_selectedPaths) stays correct the whole time, but the visual
+// desyncs from it when toggles happen faster than the fade animation.
+function _cancelPendingDotCleanup(dot) {
+    if (dot._fdSelTimeout) { clearTimeout(dot._fdSelTimeout); dot._fdSelTimeout = null; }
+    if (dot._fdSelFinish) { dot.removeEventListener('animationend', dot._fdSelFinish); dot._fdSelFinish = null; }
+}
+
 function _updateRowSelVisual(row, selected) {
     const dot = row.querySelector('.fd-sel-dot');
     if (!dot) return;
+    _cancelPendingDotCleanup(dot);
     if (selected) {
         dot.style.display = 'inline-flex';
         dot.style.background = 'var(--fd-accent,#3b82f6)';
@@ -3974,9 +3988,12 @@ function _updateRowSelVisual(row, selected) {
             dot.style.background = 'transparent';
             dot.textContent = '';
             dot.classList.remove('fd-sel-dot-out');
+            dot._fdSelFinish = null;
+            dot._fdSelTimeout = null;
         };
+        dot._fdSelFinish = finish;
         dot.addEventListener('animationend', finish, { once: true });
-        setTimeout(finish, 180); // safety net if animationend doesn't fire
+        dot._fdSelTimeout = setTimeout(finish, 180); // safety net if animationend doesn't fire
     }
 }
 
@@ -3994,6 +4011,7 @@ function _toggleSelect(row, force) {
 function _setRowIndeterminate(row, on) {
     const dot = row.querySelector('.fd-sel-dot');
     if (!dot) return;
+    _cancelPendingDotCleanup(dot);
     if (on) {
         dot.style.display = 'inline-flex';
         dot.style.background = 'var(--fd-accent-dim,#93c5fd)';
@@ -4011,9 +4029,12 @@ function _setRowIndeterminate(row, on) {
             dot.style.background = 'transparent';
             dot.textContent = '';
             dot.classList.remove('fd-sel-dot-out');
+            dot._fdSelFinish = null;
+            dot._fdSelTimeout = null;
         };
+        dot._fdSelFinish = finish;
         dot.addEventListener('animationend', finish, { once: true });
-        setTimeout(finish, 180); // safety net if animationend doesn't fire
+        dot._fdSelTimeout = setTimeout(finish, 180); // safety net if animationend doesn't fire
     }
 }
 

@@ -1,4 +1,4 @@
-# server `v0.19.1.24`
+# server `v0.19.1.25`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -15,7 +15,7 @@ including versions before V0.19***
 ***Additions:***
 - ***New animations: file selection, selector bar, ETA trays and others. Fixes: 
 profile menu, mini profile menu, share manager, trash overlay, media preview 
-modals and others***
+modals and others. See: [TODO's finished entries](./TODO.md#done-items-that-are-pending-for-removal-as-finished)***
 - ***More i18n added into links manager modal***
 - ***`Del` key now works as the shortcut to delete the current seleted items***
 - ***Reworked the trash bin deletion modals to be more laconic***
@@ -31,7 +31,7 @@ fire-and-forget as before***
 policy files***
 - ***Trash retention message are now translatable (i18n)***
 - ***File selector now properly resets after changing the directory and when 
-item is deleted***                                                                ############################ -- add "and moved" when code patch will be applied
+item is deleted***                                                                ################### -- add ", renamed or moved" when code patch will be applied
 - ***Profile picture icon is not cached, resulting in excessive fetches every 
 time it's displayed***
 - ***Mobile users was unable to upload because there's no button to do so 
@@ -40,6 +40,8 @@ time it's displayed***
 additions notes)***
 - ***Fix math for the concurrency in uploading chunks***
 - ***Added additional files to the service worker to be precached***
+- ***Fix file selector didn't catching up fastly***
+- ***Fix dragging across rows deselects everything selected***
 
 ***Backend fixes:***
 - ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 
@@ -59,10 +61,15 @@ but backend didn't knew what to do with them***
 - ***Fix the `gzip` compression being not fully utilized***
 - ***Fix error with the `copy` endpoint being non-existent***
 - ***Fix chunks being not implemented properly for the slower internet speeds***
+- ***(Immich and proxying) Allow files bigger than 2GB to be uploaded via proxy 
+(see: `_HOST_PROXY_MAX_BODY_GB` inside `server_https.py`)***
 
-***text***
+***About Immich: right now I don't provide the ability for anyone (except 
+chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you 
+can use FluxDrop for your own purposes. Immich may start to be available at 
+some point later, but not now***
 
-***Regressions: none***
+***Regressions: `\[no check has being done\]`***
 
 *Patch notes: **Changelog:***
 - ***TODO implementations***

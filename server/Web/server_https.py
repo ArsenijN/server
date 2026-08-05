@@ -99,6 +99,31 @@ _HOST_PROXY: dict[str, dict] = {
     # },
 }
 
+# ── Max request body size for ANY host proxied above ────────────────────────
+# Applies to every entry in _HOST_PROXY uniformly (not configurable per-host
+# right now — bump this one constant if a future service needs something
+# different, or split it into a per-entry 'max_body' key in _HOST_PROXY
+# above, matching 'timeout''s pattern, if different services genuinely need
+# different caps).
+#
+# TO CHANGE THIS LIMIT IN THE FUTURE:
+#   1. Edit the number below (in GB for readability).
+#   2. This file only — server_http.py has no host-proxy mechanism at all
+#      (no _HOST_PROXY, no size cap, nothing) as of this writing. Traffic to
+#      a host in _HOST_PROXY over plain HTTP currently isn't proxied here —
+#      it falls through to this server's own static-file handler, which is
+#      almost certainly wrong for something like Immich. If that ever
+#      matters in practice (i.e. something actually hits gallery.
+#      arseniusgen.dev over http:// instead of https://), do_GET/do_POST/
+#      etc. in server_http.py need the same "check _get_host_proxy() first"
+#      treatment this file already has — see how do_GET here calls
+#      _proxy_to_host near the top of the function for the pattern to copy.
+#   3. No server restart trick needed beyond the normal one — this is read
+#      at request time like everything else in this file, not cached at
+#      startup.
+_HOST_PROXY_MAX_BODY_GB = 16
+_PROXY_MAX_BODY = _HOST_PROXY_MAX_BODY_GB * 1024 * 1024 * 1024
+
 def _get_host_proxy(headers) -> dict | None:
     """Return the active _HOST_PROXY entry for this request, or None."""
     host = headers.get('Host', '').split(':')[0].lower()
@@ -233,7 +258,6 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     })
 
     target = f"{target_base}{handler.path}"
-    _PROXY_MAX_BODY = 2 * 1024 * 1024 * 1024  # 2 GB — covers normal phone videos with margin
 
     body = None
     cl = handler.headers.get('Content-Length')

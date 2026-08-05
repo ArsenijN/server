@@ -84,7 +84,6 @@ mentioned in the welcoming screen
 files fails (for example because of the quota) (message that are displayed in 
 notifications from browser from site) -- it is
 - [ ] File selector does not reset or reselect when file is renamed
-- [ ] Item selection didn't catch up if done quickly (to the `Shift` problem)
 
 ### Server-side non-breaking changes:
 
@@ -200,7 +199,7 @@ static hoster -- doesn't CDN have that already?
 ---
 
 ## Done items that are pending for removal as finished:
-(end of release note there)
+*New lines means the patch version change (e.g. `Vx.y.z.0` to `Vx.y.z.1`)*
 
 - [x] Add file info modal
 
@@ -270,6 +269,12 @@ work well and may result in the timeout errors)
 - [x] Interrupted uploads modal have no animations and `Esc` to exit shortcut
 - [x] Moving's loading wheel modal doesn't have animations for appearing and 
 disappearing
+
+- [x] Item selection didn't catch up if done quickly (to the `Shift` problem)
+- [x] Drag across rows deselects everything
+- [x] Immich can't handle uploading files larger than 2GB (413 error - limited 
+size)
+(end of release note there)
 
 ---
 

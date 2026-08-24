@@ -84,6 +84,10 @@ mentioned in the welcoming screen
 files fails (for example because of the quota) (message that are displayed in 
 notifications from browser from site) -- it is
 - [ ] File selector does not reset or reselect when file is renamed
+- [ ] FluxDrop Web makes 2 connections to get the download token when viewing 
+the archive's table of contents
+- [ ] After upload FluxDrop Web fetches the same page (current working 
+directory) 2 times
 
 ### Server-side non-breaking changes:
 
@@ -274,12 +278,13 @@ disappearing
 - [x] Drag across rows deselects everything
 - [x] Immich can't handle uploading files larger than 2GB (413 error - limited 
 size)
+
 (end of release note there)
 
 ---
 
-*Note: **the "Done items that are pending for removal as finished" will purge 
-the entries inside it when the release version will be ready and released***
+*Note: **the entries inside "Done items that are pending for removal as 
+finished" will be purged after the release version will be ready and released***
 
 *Note: **additional notes is now moved to the [DEVNOTES.md](/DEVNOTES.md), 
 please reach to it to acknowledge those notes***

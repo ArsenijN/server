@@ -91,6 +91,11 @@ _HOST_PROXY: dict[str, dict] = {
         # whole download.
         'timeout': 900,
     },
+    # 'services.arseniusgen.dev': {
+    #     'target':  'http://127.0.0.1:8081',
+    #     'enabled': True,
+    #     'timeout': 900,
+    # },
     # Template for future services — copy, rename, set enabled=True:
     # 'service.arseniusgen.dev': {
     #     'target':  'http://127.0.0.1:PORT',

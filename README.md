@@ -1,4 +1,4 @@
-# server `v0.19.1.25`
+# server `v0.19.1.26`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -15,7 +15,8 @@ including versions before V0.19***
 ***Additions:***
 - ***New animations: file selection, selector bar, ETA trays and others. Fixes: 
 profile menu, mini profile menu, share manager, trash overlay, media preview 
-modals and others. See: [TODO's finished entries](./TODO.md#done-items-that-are-pending-for-removal-as-finished)***
+modals and others. See: [TODO's finished 
+entries](./TODO.md#done-items-that-are-pending-for-removal-as-finished)***
 - ***More i18n added into links manager modal***
 - ***`Del` key now works as the shortcut to delete the current seleted items***
 - ***Reworked the trash bin deletion modals to be more laconic***
@@ -69,7 +70,7 @@ chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you
 can use FluxDrop for your own purposes. Immich may start to be available at 
 some point later, but not now***
 
-***Regressions: `\[no check has being done\]`***
+***Regressions: `\[no checks has been made\]`***
 
 *Patch notes: **Changelog:***
 - ***TODO implementations***

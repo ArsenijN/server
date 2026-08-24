@@ -81,6 +81,7 @@ import math
 import sys
 import json
 import ssl
+from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 import threading
 import time
 import logging
@@ -93,7 +94,7 @@ import bcrypt
 import sqlite3
 from werkzeug.formparser import parse_form_data # For parsing multipart/form-data (cgi deprecated in Python 3.13+)
 from datetime import datetime, timedelta
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer, HTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
 import gzip as _gzip_mod
 from email.utils import formatdate as _formatdate
@@ -724,7 +725,19 @@ def _pending_dest_paths(user_id: int) -> set:
 # ==============================================================================
 # --- MAIN REQUEST HANDLER ---
 # ==============================================================================
-class _FastThreadingHTTPServer(ThreadingHTTPServer):
+class _FastThreadingHTTPServer(HTTPServer):
+    """HTTPServer backed by a fixed-size thread pool instead of ThreadingHTTPServer's
+    unbounded one-thread-per-connection model.
+
+    This server does the heaviest per-request work of the three FluxDrop
+    processes — buffering upload bodies, computing checksums, running copy
+    jobs — so it's the one most exposed to memory/thread exhaustion under a
+    burst of concurrent activity. Mirrors server_https.py's
+    _QuietPooledHTTPServer exactly (same reasoning: a bounded pool with a
+    work queue means connections wait under load instead of the process
+    spawning threads without limit or dropping connections outright — see
+    the comment above that class for the full tradeoff discussion).
+    """
     # 512 KB write buffer — reduces syscall count for large file transfers.
     # Raised from 256 KB: at 10 MB/s a 256 KB buffer flushes every ~25 ms;
     # at 512 KB every ~50 ms, which is still well within any keepalive window.
@@ -732,11 +745,47 @@ class _FastThreadingHTTPServer(ThreadingHTTPServer):
     # Keep-alive: allow the OS to reuse address immediately on restart
     allow_reuse_address = True
 
+    # Active worker threads. Kept lower than server_https.py's 100 — this
+    # process buffers full request/response bodies in memory for several
+    # operations (chunk uploads, checksum jobs), so each concurrent worker
+    # can hold significantly more RAM than a pure-proxy connection does.
+    # Tune based on actual available memory on the host.
+    _MAX_WORKERS = 40
+
+    _SILENT_ERRORS = (BrokenPipeError, ConnectionResetError, ssl.SSLError)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pool = _ThreadPoolExecutor(max_workers=self._MAX_WORKERS)
+
+    def handle_error(self, request, client_address):
+        """Silence harmless disconnect errors; log everything else normally."""
+        if sys.exc_info()[0] in self._SILENT_ERRORS:
+            return
+        super().handle_error(request, client_address)
+
+    def process_request(self, request, client_address):
+        """Hand the accepted socket to the thread pool (never drops it — it
+        queues if all workers are busy)."""
+        self._pool.submit(self._handle_in_pool, request, client_address)
+
+    def _handle_in_pool(self, request, client_address):
+        try:
+            self.finish_request(request, client_address)
+        except Exception:
+            self.handle_error(request, client_address)
+        finally:
+            self.shutdown_request(request)
+
     def server_bind(self):
         # 4 MB TCP send buffer: gives the kernel room to pipeline chunks
         # without blocking the Python write loop waiting for ACKs.
         self.socket.setsockopt(_socket.SOL_SOCKET, _socket.SO_SNDBUF, 4 * 1024 * 1024)
         super().server_bind()
+
+    def server_close(self):
+        self._pool.shutdown(wait=False)
+        super().server_close()
 
 
 class AuthHandler(SimpleHTTPRequestHandler):
@@ -1953,7 +2002,20 @@ class AuthHandler(SimpleHTTPRequestHandler):
         try:
             self.connection.settimeout(120)   # 2-minute hard deadline per chunk
             data = self.rfile.read(content_length)
-            self.connection.settimeout(None)
+            # Restore the handler's normal idle-connection timeout (see class
+            # attribute `timeout = 45` above) rather than clearing it to None.
+            # BUGFIX: this used to reset to None (unbounded) after a
+            # successful read — for the rest of this connection's life (any
+            # further keep-alive requests reusing the same TCP connection),
+            # a silently-dead peer (phone sleep, NAT mapping expiry, network
+            # change) would then block recv() forever instead of being
+            # detected and closed, leaking a pool worker permanently. Same
+            # underlying risk as the WebSocket tunnel bug fixed elsewhere,
+            # just reached via a different code path — and since it only
+            # affects one worker at a time rather than growing unbounded, it
+            # was easy to miss: the pool just slowly starves over time as
+            # more connections get stuck this way, rather than failing loudly.
+            self.connection.settimeout(self.timeout)
         except (TimeoutError, OSError) as e:
             logging.warning(f'Chunk {chunk_index} read timeout/error: {e}')
             return self._send_response(408, json.dumps({'error': 'Chunk read timed out. Please retry.'}))
@@ -2257,6 +2319,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
     def _handle_beacon_register(self):
         """POST /beacon/register  — register a new device, return both tokens."""
         length = int(self.headers.get('Content-Length', 0))
+        if length > MAX_JSON_BODY:
+            return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
         body   = self.rfile.read(length) if length else b''
         try:
             data = json.loads(body) if body else {}
@@ -2289,6 +2353,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not token:
             return self._send_response(401, json.dumps({'error': 'Missing token'}), 'application/json')
         length = int(self.headers.get('Content-Length', 0))
+        if length > MAX_JSON_BODY:
+            return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
         body   = self.rfile.read(length) if length else b''
         try:
             data = json.loads(body) if body else {}
@@ -2856,6 +2922,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             try:
                 from io import BytesIO as _BytesIO
                 cl = int(self.headers.get('Content-Length', 0))
+                if cl > MAX_JSON_BODY:
+                    return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
                 raw_body = self.rfile.read(cl)
                 environ = {
                     'REQUEST_METHOD': 'POST',
@@ -3007,6 +3075,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(401, json.dumps({'error': 'Authentication required.'}))
             try:
                 length = int(self.headers.get('Content-Length', 0))
+                if length > MAX_JSON_BODY:
+                    return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
                 data = json.loads(self.rfile.read(length))
             except Exception:
                 return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
@@ -3068,6 +3138,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             target_id = int(_admin_user.group(1))
             try:
                 length = int(self.headers.get('Content-Length', 0))
+                if length > MAX_JSON_BODY:
+                    return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
                 data = json.loads(self.rfile.read(length))
             except Exception:
                 return self._send_response(400, json.dumps({'error': 'Invalid JSON'}))
@@ -3478,6 +3550,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(401, json.dumps({"error": "Unauthorized"}))
         try:
             length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_JSON_BODY:
+                return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
             body = self.rfile.read(length) if length > 0 else b"{}"
             data = json.loads(body)
         except Exception:
@@ -3527,6 +3601,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(401, json.dumps({"error": "Unauthorized"}))
         try:
             length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_JSON_BODY:
+                return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
             body = self.rfile.read(length) if length > 0 else b"{}"
             data = json.loads(body)
         except Exception:
@@ -4318,6 +4394,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
         try:
             length = int(self.headers.get('Content-Length', 0))
+            if length > MAX_JSON_BODY:
+                return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
             data   = json.loads(self.rfile.read(length) if length else b'{}')
         except Exception:
             return self._send_response(400, json.dumps({'error': 'Invalid JSON'}))
@@ -5225,6 +5303,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         try:
             length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_JSON_BODY:
+                return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
             body = self.rfile.read(length) if length > 0 else b"{}"
             data = json.loads(body)
         except Exception:
@@ -5271,6 +5351,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         try:
             length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_JSON_BODY:
+                return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
             body = self.rfile.read(length) if length > 0 else b"{}"
             data = json.loads(body)
         except Exception:
@@ -5757,6 +5839,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             # Expect JSON body with 'paths': [list of paths relative to user's root]
             try:
                 length = int(self.headers.get('Content-Length', 0))
+                if length > MAX_JSON_BODY:
+                    return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
                 body = self.rfile.read(length)
                 try:
                     data = json.loads(body) if body else {}
@@ -5827,6 +5911,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if command == 'rename':
             try:
                 length = int(self.headers.get('Content-Length', 0))
+                if length > MAX_JSON_BODY:
+                    return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
                 body = self.rfile.read(length)
                 data = json.loads(body) if body else {}
                 old = data.get('old')
@@ -5910,6 +5996,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if command == 'copy':
             try:
                 length = int(self.headers.get('Content-Length', 0))
+                if length > MAX_JSON_BODY:
+                    return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
                 body = self.rfile.read(length)
                 data = json.loads(body) if body else {}
                 src = data.get('src')
@@ -6051,6 +6139,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             # Create a directory under the authenticated user's base path.
             try:
                 length = int(self.headers.get('Content-Length', 0))
+                if length > MAX_JSON_BODY:
+                    return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
                 body = self.rfile.read(length)
                 try:
                     data = json.loads(body) if body else {}

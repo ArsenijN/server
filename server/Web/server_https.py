@@ -91,11 +91,6 @@ _HOST_PROXY: dict[str, dict] = {
         # whole download.
         'timeout': 900,
     },
-    # 'services.arseniusgen.dev': {
-    #     'target':  'http://127.0.0.1:8081',
-    #     'enabled': True,
-    #     'timeout': 900,
-    # },
     # Template for future services — copy, rename, set enabled=True:
     # 'service.arseniusgen.dev': {
     #     'target':  'http://127.0.0.1:PORT',
@@ -504,10 +499,8 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
     # Forward the real client IP so CDN logs/blacklist work correctly
     req.add_header('X-Forwarded-For', handler.client_address[0])
 
-    # Stream the response in chunks — never buffer the entire body.
-    # This is critical for large file downloads (10-30 GB) where .read()
-    # would try to hold the whole file in the server's RAM.
     _PROXY_BUF = 256 * 1024   # 256 KiB read buffer — small enough for low-RAM i3
+    _headers_sent = False  # once True, we can no longer fall back to an error response
     try:
         # ── Proxy timeout — must be generous for long-running CDN operations ─────
         # socket timeout applies to every individual send()/recv() call, NOT the
@@ -546,15 +539,41 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
             handler._proxying = True
             handler.end_headers()
             handler._proxying = False
-            # Stream body chunk by chunk directly to the client socket
-            while True:
-                chunk = resp.read(_PROXY_BUF)
-                if not chunk:
-                    break
-                try:
-                    handler.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    break   # client disconnected mid-download — normal for seeks/cancels
+            _headers_sent = True
+            # Stream body chunk by chunk directly to the client socket — never
+            # buffer the entire body. This is critical for large file
+            # downloads (10-30 GB) where .read() would try to hold the whole
+            # file in the server's RAM.
+            #
+            # BUGFIX: resp.read() (reading from the CDN backend) and
+            # handler.wfile.write() (writing to the client) used to share one
+            # try/except that only caught the client-write side. If resp.read()
+            # itself raised mid-stream (a stall past _proxy_timeout, the CDN
+            # process restarting, etc.) — AFTER send_response()/end_headers()
+            # had already gone out — the exception fell through to the outer
+            # handler below, which called send_response(502) a SECOND time.
+            # That second status line landed inside what the client thought
+            # was still body bytes, corrupting whatever download was mid-flight
+            # (this is the exact bug _proxy_to_host already had fixed — see
+            # its own copy of this comment — but the fix was never mirrored
+            # here, so any request going through THIS proxy function, i.e.
+            # FluxDrop's own API/downloads rather than the Immich host proxy,
+            # was still exposed to it).
+            try:
+                while True:
+                    chunk = resp.read(_PROXY_BUF)
+                    if not chunk:
+                        break
+                    try:
+                        handler.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        break   # client disconnected mid-download — normal for seeks/cancels
+            except (TimeoutError, OSError, _urllib_err.URLError) as e:
+                # Same double-response hazard as above: headers are already
+                # out, so don't try to send an error response — just log and
+                # drop the connection.
+                logging.info('CDN proxy stream to %s cut short: %r', handler.path, e)
+                handler.close_connection = True
     except _urllib_err.HTTPError as e:
         # Forward the CDN's error response with its original headers intact.
         # Do NOT hardcode Content-Type or Content-Encoding — the CDN may have
@@ -582,15 +601,22 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
     except (BrokenPipeError, ConnectionResetError):
         pass   # client disconnected before or during headers
     except Exception as exc:
-        msg = f'{{"error":"proxy error: {exc}"}}'.encode()
-        try:
-            handler.send_response(502)
-            handler.send_header('Content-Type', 'application/json')
-            handler.send_header('Content-Length', str(len(msg)))
-            handler.end_headers()
-            handler.wfile.write(msg)
-        except Exception:
-            pass
+        if _headers_sent:
+            # A 200 (or whatever status) and headers already went to the
+            # client — sending a fresh send_response() here is what corrupts
+            # the stream. Log it and let the connection close instead.
+            logging.info('CDN proxy error after headers sent for %s: %r', handler.path, exc)
+            handler.close_connection = True
+        else:
+            msg = f'{{"error":"proxy error: {exc}"}}'.encode()
+            try:
+                handler.send_response(502)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Content-Length', str(len(msg)))
+                handler.end_headers()
+                handler.wfile.write(msg)
+            except Exception:
+                pass
 
 
 # --- CAPTCHA Storage ---

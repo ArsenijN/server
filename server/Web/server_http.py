@@ -88,6 +88,7 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
             except Exception:
                 pass
     req.add_header('X-Forwarded-For', handler.client_address[0])
+    _headers_sent = False  # once True, we can no longer fall back to an error response
     try:
         with _urllib_req.urlopen(req, timeout=60) as resp:
             handler.send_response(resp.status)
@@ -102,15 +103,29 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
             handler._proxying = True
             handler.end_headers()
             handler._proxying = False
+            _headers_sent = True
             # Stream chunk by chunk — never buffer the full body in RAM.
-            while True:
-                chunk = resp.read(_PROXY_BUF)
-                if not chunk:
-                    break
-                try:
-                    handler.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    break
+            #
+            # BUGFIX: resp.read() (reading from the CDN backend) and
+            # handler.wfile.write() (writing to the client) used to share one
+            # try/except that only caught the client-write side. If resp.read()
+            # raised mid-stream AFTER headers had already gone out, the
+            # exception fell through to the outer handler, which sent a
+            # second send_response(502) — landing inside what the client
+            # thought was still body bytes and corrupting the transfer.
+            # Mirrors the identical fix in server_https.py's _proxy_to_cdn.
+            try:
+                while True:
+                    chunk = resp.read(_PROXY_BUF)
+                    if not chunk:
+                        break
+                    try:
+                        handler.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        break
+            except (TimeoutError, OSError, _urllib_err.URLError) as e:
+                logging.info('CDN proxy stream to %s cut short: %r', handler.path, e)
+                handler.close_connection = True
     except _urllib_err.HTTPError as e:
         try:
             raw = e.read() or b''
@@ -131,16 +146,22 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
             handler.wfile.write(raw)
         except Exception:
             pass
+    except (BrokenPipeError, ConnectionResetError):
+        pass   # client disconnected before or during headers
     except Exception as exc:
-        msg = f'{{"error":"proxy error: {exc}"}}'.encode()
-        try:
-            handler.send_response(502)
-            handler.send_header('Content-Type', 'application/json')
-            handler.send_header('Content-Length', str(len(msg)))
-            handler.end_headers()
-            handler.wfile.write(msg)
-        except Exception:
-            pass
+        if _headers_sent:
+            logging.info('CDN proxy error after headers sent for %s: %r', handler.path, exc)
+            handler.close_connection = True
+        else:
+            msg = f'{{"error":"proxy error: {exc}"}}'.encode()
+            try:
+                handler.send_response(502)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Content-Length', str(len(msg)))
+                handler.end_headers()
+                handler.wfile.write(msg)
+            except Exception:
+                pass
 
 def _cache_control_for_path(path: str) -> str:
     """Return the appropriate Cache-Control value for a static file path."""

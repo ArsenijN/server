@@ -54,6 +54,26 @@
     sel_bar_keep_label:         'Keep selection',
     sel_bar_keep_tooltip:       'Keep your selection when you open a different folder. Selected files show a checkmark and folders containing a selected item show a dash when you come back to them.',
     trash_retention_reduced_notice: 'Due to server capacity demand, new items are kept for {days} days. Retention will return to 30 days once space is freed.',
+    // Download/upload tray buttons
+    dl_resume:                  'Resume',
+    dl_dismiss:                 'Dismiss',
+    // Move/Copy/Rename modal
+    mv_move_here:               'Move here',
+    mv_moving:                  'Moving…',
+    mv_copy_here:               'Copy here',
+    mv_copying:                 'Copying…',
+    mv_rename_btn:              'Rename',
+    mv_renaming:                'Renaming…',
+    mv_invalid_name_title:      'Invalid name',
+    mv_invalid_name_body:       'Name cannot be empty or contain slashes.',
+    mv_no_destination_title:    'No destination',
+    mv_no_destination_body:     'Please select a destination folder.',
+    mv_same_location_title:     'Same location',
+    mv_same_location_body:      'The destination is the same as the source.',
+    mv_rename_failed_title:     'Rename failed',
+    mv_move_failed_title:       'Move failed',
+    mv_copy_failed_title:       'Copy failed',
+    trash_browse_failed:        'Browse failed',
   };
   const EXTRA_UK = {
     // Trash bin
@@ -78,6 +98,26 @@
     sel_bar_keep_label:         'Зберігати вибір',
     sel_bar_keep_tooltip:       'Зберігати вибір під час переходу до іншої папки. Вибрані файли показують позначку, а папки, що містять вибраний елемент, показують риску, коли ви повертаєтесь до них.',
     trash_retention_reduced_notice: 'Через високе навантаження на сервер нові елементи зберігаються {days} днів. Термін зберігання повернеться до 30 днів після звільнення місця.',
+    // Download/upload tray buttons
+    dl_resume:                  'Відновити',
+    dl_dismiss:                 'Прибрати',
+    // Move/Copy/Rename modal
+    mv_move_here:               'Перемістити сюди',
+    mv_moving:                  'Переміщення…',
+    mv_copy_here:               'Копіювати сюди',
+    mv_copying:                 'Копіювання…',
+    mv_rename_btn:              'Перейменувати',
+    mv_renaming:                'Перейменування…',
+    mv_invalid_name_title:      'Некоректна назва',
+    mv_invalid_name_body:       'Назва не може бути порожньою або містити символ "/".',
+    mv_no_destination_title:    'Не вказано призначення',
+    mv_no_destination_body:     'Будь ласка, оберіть папку призначення.',
+    mv_same_location_title:     'Те саме розташування',
+    mv_same_location_body:      'Місце призначення збігається з поточним розташуванням.',
+    mv_rename_failed_title:     'Не вдалося перейменувати',
+    mv_move_failed_title:       'Не вдалося перемістити',
+    mv_copy_failed_title:       'Не вдалося скопіювати',
+    trash_browse_failed:        'Не вдалося переглянути',
   };
 
   const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };

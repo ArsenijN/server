@@ -30,7 +30,7 @@ options
 - [ ] Fix some modals being server-side generated instead of frontend's work
 
 ### UX - fixes for existing features or new overall experience enhancements
-- [ ] Status page doesn't updates fully (e.g. uptime)
+- [ ] Status page doesn't updates fully automatically (e.g. uptime)
 - [ ] Make file info modal able to work as "turn on and stay until closed": 
 toggle in settings to change this behavior; works as file info modal that 
 doesn't close when user clicks outside of it
@@ -101,7 +101,8 @@ hash after canceling the ZIP download, or do it only if server is unused or via
 #### High:
 - [ ] Status page doesn't load the amount of files on server on first load 
 because of backend stalement
-- [ ] Ability to download the shared folders without JS (fallback option)
+- [ ] Ability to download the shared folders without JS (fallback option for 
+ZIP downloads)
 - [ ] Update the helpers functionality
 - [ ] Document the new proxy method that is currently used with my Immich 
 instance

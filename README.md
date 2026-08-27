@@ -1,4 +1,4 @@
-# server `v0.19.1.28`
+# server `v0.19.1.29`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -75,6 +75,7 @@ some point later, but not now***
 *Patch notes: **Changelog:***
 - ***TODO implementations***
 - ***Changed README to be ready for V0.19.2 release***
+- ***i18n improvements #1***
 
 ---
 

@@ -1,4 +1,4 @@
-        // ======================================================================
+// ======================================================================
         // --- DEBUG ---
         // ======================================================================
 // Current version of script.js is: fluxdrop-@@CACHE_VER@@
@@ -2963,25 +2963,25 @@ function renderDownloadTray() {
             const actionsDiv = row.querySelector('.dl-actions');
 
             const cancelBtn = document.createElement('button');
-            cancelBtn.textContent = 'Cancel';
+            cancelBtn.textContent = t('cancel');
             cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;' +
                 'padding:2px 8px;cursor:pointer;font-size:11px';
             cancelBtn.addEventListener('click', () => cancelDownload(path));
 
             const resumeBtn = document.createElement('button');
-            resumeBtn.textContent = 'Resume';
+            resumeBtn.textContent = t('dl_resume');
             resumeBtn.style.cssText = 'background:#3b82f6;color:#fff;border:none;border-radius:5px;' +
                 'padding:2px 8px;cursor:pointer;font-size:11px';
             resumeBtn.addEventListener('click', () => resumeDownload(encodeURIComponent(path)));
 
             const abortBtn = document.createElement('button');
-            abortBtn.textContent = 'Cancel';
+            abortBtn.textContent = t('cancel');
             abortBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;' +
                 'padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
             abortBtn.addEventListener('click', () => cancelDownload(path));
 
             const dismissBtn = document.createElement('button');
-            dismissBtn.textContent = 'Dismiss';
+            dismissBtn.textContent = t('dl_dismiss');
             dismissBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;' +
                 'padding:2px 8px;cursor:pointer;font-size:11px';
             dismissBtn.addEventListener('click', () => {
@@ -4724,9 +4724,9 @@ async function _refreshTrashView() {
             // Toggle: if tree already open, close it.
             const existing = row.nextElementSibling;
             if (existing && existing.classList.contains('trash-tree-panel')) {
-                existing.remove(); btn.textContent = 'Browse'; return;
+                existing.remove(); btn.textContent = t('browse'); return;
             }
-            btn.textContent = 'Loading…'; btn.disabled = true;
+            btn.textContent = t('loading'); btn.disabled = true;
             try {
                 // Re-use the existing archive_tree or list API.
                 // Simplest: ask the server to list the trash_path as if it were
@@ -4743,10 +4743,10 @@ async function _refreshTrashView() {
                 // //     server-side listing endpoint (<code>/api/v1/trash/${btn.dataset.id}/list</code>).
                 // //     Restore the folder first to browse its contents.</em>`;
                 // row.insertAdjacentElement('afterend', panel);
-                btn.textContent = 'Close'; btn.disabled = false;
+                btn.textContent = t('close'); btn.disabled = false;
             } catch (err) {
-                btn.textContent = 'Browse'; btn.disabled = false;
-                alert('Browse failed: ' + err.message);
+                btn.textContent = t('browse'); btn.disabled = false;
+                alert(t('trash_browse_failed') + ': ' + err.message);
             }
         });
     });
@@ -4861,9 +4861,9 @@ async function openMoveDialog(srcPath) {
         $('mv-tab-move').style.display   = (tab === 'move' || tab === 'copy') ? '' : 'none';
         $('mv-tab-rename').style.display = (tab === 'rename') ? '' : 'none';
         const confirmBtn = $('mv-confirm-btn');
-        if (tab === 'move')   { confirmBtn.textContent = 'Move here';    confirmBtn.style.background = '#3b82f6'; }
-        if (tab === 'copy')   { confirmBtn.textContent = 'Copy here';    confirmBtn.style.background = '#0ea5e9'; }
-        if (tab === 'rename') { confirmBtn.textContent = 'Rename';       confirmBtn.style.background = '#8b5cf6'; }
+        if (tab === 'move')   { confirmBtn.textContent = t('mv_move_here');  confirmBtn.style.background = '#3b82f6'; }
+        if (tab === 'copy')   { confirmBtn.textContent = t('mv_copy_here');  confirmBtn.style.background = '#0ea5e9'; }
+        if (tab === 'rename') { confirmBtn.textContent = t('mv_rename_btn'); confirmBtn.style.background = '#8b5cf6'; }
     }
 
     function updateDestLabel() {
@@ -5002,34 +5002,34 @@ async function openMoveDialog(srcPath) {
         if (activeTab === 'rename') {
             const newName = $('mv-name-input').value.trim();
             if (!newName || newName.includes('/')) {
-                showMessage('Invalid name', 'Name cannot be empty or contain slashes.'); return;
+                showMessage(t('mv_invalid_name_title'), t('mv_invalid_name_body')); return;
             }
             const newPath = srcDir === '/' ? '/' + newName : srcDir + '/' + newName;
-            confirmBtn.disabled = true; confirmBtn.textContent = 'Renaming…';
-            const _rnDismiss = showSpinnerOverlay('Renaming…', { minMs: 1000 });
+            confirmBtn.disabled = true; confirmBtn.textContent = t('mv_renaming');
+            const _rnDismiss = showSpinnerOverlay(t('mv_renaming'), { minMs: 1000 });
             try {
                 await withMinDelay(apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath }), 1000);
                 _rnDismiss(); overlay.remove(); loadDirectory(currentPath);
             } catch (err) {
-                _rnDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = 'Rename';
-                if (err.message !== 'SESSION_EXPIRED') showMessage('Rename failed', err.message);
+                _rnDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = t('mv_rename_btn');
+                if (err.message !== 'SESSION_EXPIRED') showMessage(t('mv_rename_failed_title'), err.message);
             }
             return;
         }
 
         // Move or Copy
-        if (!destFolder) { showMessage('No destination', 'Please select a destination folder.'); return; }
+        if (!destFolder) { showMessage(t('mv_no_destination_title'), t('mv_no_destination_body')); return; }
         const newPath = (destFolder.endsWith('/') ? destFolder : destFolder + '/') + srcName;
         if (activeTab === 'move') {
-            if (newPath === srcPath) { showMessage('Same location', 'The destination is the same as the source.'); return; }
-            confirmBtn.disabled = true; confirmBtn.textContent = 'Moving…';
-            const _mvDismiss = showSpinnerOverlay('Moving…', { minMs: 1000 });
+            if (newPath === srcPath) { showMessage(t('mv_same_location_title'), t('mv_same_location_body')); return; }
+            confirmBtn.disabled = true; confirmBtn.textContent = t('mv_moving');
+            const _mvDismiss = showSpinnerOverlay(t('mv_moving'), { minMs: 1000 });
             try {
                 await withMinDelay(apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath }), 1000);
                 _mvDismiss(); overlay.remove(); loadDirectory(currentPath);
             } catch (err) {
-                _mvDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = 'Move here';
-                if (err.message !== 'SESSION_EXPIRED') showMessage('Move failed', err.message);
+                _mvDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = t('mv_move_here');
+                if (err.message !== 'SESSION_EXPIRED') showMessage(t('mv_move_failed_title'), err.message);
             }
         } else {
             // Copy — runs as an async background job server-side now (large
@@ -5038,16 +5038,16 @@ async function openMoveDialog(srcPath) {
             // does fast validation and returns a job id immediately, so the
             // modal closes right away and a sticky progress toast tracks the
             // actual transfer via polling instead of staying open/blocked.
-            if (newPath === srcPath) { showMessage('Same location', 'The destination is the same as the source.'); return; }
-            confirmBtn.disabled = true; confirmBtn.textContent = 'Copying…';
+            if (newPath === srcPath) { showMessage(t('mv_same_location_title'), t('mv_same_location_body')); return; }
+            confirmBtn.disabled = true; confirmBtn.textContent = t('mv_copying');
             try {
                 const res = await apiCall('/api/v1/copy', 'POST', { src: srcPath, dest: newPath });
                 overlay.remove();
                 const fname = srcPath.split('/').filter(Boolean).pop() || srcPath;
                 _startCopyJobTracking(res.job_id, fname);
             } catch (err) {
-                confirmBtn.disabled = false; confirmBtn.textContent = 'Copy here';
-                if (err.message !== 'SESSION_EXPIRED') showMessage('Copy failed', err.message);
+                confirmBtn.disabled = false; confirmBtn.textContent = t('mv_copy_here');
+                if (err.message !== 'SESSION_EXPIRED') showMessage(t('mv_copy_failed_title'), err.message);
             }
         }
     });
@@ -5994,7 +5994,7 @@ function renderUploadTray() {
             const actionsDiv = row.querySelector('.ul-actions');
 
             const dismissBtn = document.createElement('button');
-            dismissBtn.textContent = 'Dismiss';
+            dismissBtn.textContent = t('dl_dismiss');
             dismissBtn.style.cssText = 'background:#64748b;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
             dismissBtn.addEventListener('click', () => { activeUploads.delete(id); renderUploadTray(); });
 

@@ -75,7 +75,7 @@ some point later, but not now***
 *Patch notes: **Changelog:***
 - ***TODO implementations***
 - ***Changed README to be ready for V0.19.2 release***
-- ***i18n improvements #1***
+- ***i18n improvements #2 (broken)***
 
 ---
 

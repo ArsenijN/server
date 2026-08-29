@@ -1966,7 +1966,7 @@ async function loadDirectory(path) {
         const data = await apiCall(endpoint, 'GET', null, true);
         const entries = data.entries || [];
         if (entries.length === 0) {
-            fileList.innerHTML = `<p class="text-sm text-gray-600" style="padding:1rem">(empty)</p>`;
+            fileList.innerHTML = `<p class="text-sm text-gray-600" style="padding:1rem">${t('empty_folder')}</p>`;
             return;
         }
         const sorted = sortEntries(entries);
@@ -3759,10 +3759,10 @@ window._fdKeepSelectionOnNav = false;
 // Must match the visible bar's markup so reserved height is pixel-identical.
 // Used in both renderFileBrowserView (initial render) and _updateSelBar (clear).
 const _SEL_BAR_GHOST = `
-    <span style="opacity:0;pointer-events:none;flex-shrink:0">0 selected</span>
-    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ Download</button>
-    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 Trash</button>
-    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ Clear</button>`;
+    <span style="opacity:0;pointer-events:none;flex-shrink:0">${t('sel_bar_count', { n: 0 })}</span>
+    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ ${t('download')}</button>
+    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 ${t('trash')}</button>
+    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ ${t('sel_bar_clear')}</button>`;
 
 // ── Shared bulk-trash flow ───────────────────────────────────────────────────
 // Used by the sel-bar "Trash" button, the context-menu "trash-multi" action,
@@ -3773,9 +3773,8 @@ async function _trashSelectedPaths(paths) {
     if (!paths.length) return;
     const n = paths.length;
     const ok = await showConfirmModal({
-        title: `Delete ${n} item${n !== 1 ? 's' : ''}?`,
-        message: `You'll be able to retrieve ${n !== 1 ? 'them' : 'it'} from the Trash bin for the next `
-                 + `${_lastKnownRetentionDays} day${_lastKnownRetentionDays !== 1 ? 's' : ''}.`,
+        title: t('sel_bar_delete_title', { n }),
+        message: t('sel_bar_delete_msg', { n, days: _lastKnownRetentionDays }),
     });
     if (!ok) return;
     _clearSelection(); _updateSelBar();
@@ -3806,7 +3805,7 @@ function _updateSelBar() {
     bar.classList.add('fd-sel-bar-visible');
     const showKeepToggle = window.matchMedia('(pointer: fine)').matches;
     bar.innerHTML = `
-        <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${n} selected</span>
+        <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${t('sel_bar_count', { n })}</span>
         ${showKeepToggle ? `
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--fd-muted,#64748b);
                        cursor:pointer;flex-shrink:0;user-select:none" title="${t('sel_bar_keep_tooltip')}">
@@ -3814,9 +3813,9 @@ function _updateSelBar() {
                    style="width:13px;height:13px">
             📌 ${t('sel_bar_keep_label')}
         </label>` : ''}
-        <button data-fdsel="download" class="btn" style="padding:3px 10px;font-size:12px">⬇ Download</button>
-        <button data-fdsel="trash"    class="btn" style="padding:3px 10px;font-size:12px;background:#ef4444">🗑 Trash</button>
-        <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto">✕ Clear</button>
+        <button data-fdsel="download" class="btn" style="padding:3px 10px;font-size:12px">⬇ ${t('download')}</button>
+        <button data-fdsel="trash"    class="btn" style="padding:3px 10px;font-size:12px;background:#ef4444">🗑 ${t('trash')}</button>
+        <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto">✕ ${t('sel_bar_clear')}</button>
     `;
 
     if (showKeepToggle) {
@@ -4123,24 +4122,24 @@ function _showContextMenu(x, y, row) {
         const nFiles  = selRows.length - nDirs;
 
         let dlLabel;
-        if (nDirs === 0)       dlLabel = `Download ${nFiles} file${nFiles !== 1 ? 's' : ''}`;
-        else if (nFiles === 0) dlLabel = `Download ${nDirs} folder${nDirs !== 1 ? 's' : ''} as ZIP`;
-        else                   dlLabel = `Download ${nFiles} file${nFiles !== 1 ? 's' : ''} + ${nDirs} ZIP${nDirs !== 1 ? 's' : ''}`;
+        if (nDirs === 0)       dlLabel = t('ctx_download_files', { n: nFiles });
+        else if (nFiles === 0) dlLabel = t('ctx_download_folders_zip', { n: nDirs });
+        else                   dlLabel = t('ctx_download_mixed', { nf: nFiles, nd: nDirs });
 
         menu.innerHTML = [
             ITEM('⬇', dlLabel,                          'download-multi'),
             SEP,
-            ITEM('🗑', `Move ${selCount} items to Trash`, 'trash-multi', true),
+            ITEM('🗑', t('ctx_trash_multi', { n: selCount }), 'trash-multi', true),
         ].join('');
     } else {
         menu.innerHTML = [
-            isDir ? ITEM('📂', 'Open',         'open')    : ITEM('👁', 'Preview',  'preview'),
-            isDir ? ITEM('⬇',  'Download ZIP', 'zip')     : ITEM('⬇', 'Download', 'download'),
-            ITEM('🔗', 'Share',                            'share'),
-            ITEM('✂',  'Move / Rename',                   'move'),
-            ITEM('ℹ',  'Info',                             'info'),
+            isDir ? ITEM('📂', t('ctx_open'),         'open')    : ITEM('👁', t('ctx_preview'),  'preview'),
+            isDir ? ITEM('⬇',  t('ctx_download_zip'), 'zip')     : ITEM('⬇', t('ctx_download'), 'download'),
+            ITEM('🔗', t('ctx_share'),                            'share'),
+            ITEM('✂',  t('ctx_move_rename'),                     'move'),
+            ITEM('ℹ',  t('ctx_info'),                             'info'),
             SEP,
-            ITEM('🗑',  'Move to Trash',                   'trash', true),
+            ITEM('🗑',  t('ctx_trash'),                           'trash', true),
         ].join('');
     }
 
@@ -4716,38 +4715,14 @@ async function _refreshTrashView() {
         });
     });
 
-    // Browse button — expand an inline file tree for trashed folders.
+    // Browse button — folder-browsing from trash isn't implemented server-side
+    // yet (no endpoint to list a trashed folder's contents in place), so this
+    // just tells the user to restore first instead of pretending to toggle
+    // open/closed. Previously this faked a "Close" state with no matching
+    // panel, so it could never revert back to "Browse".
     body.querySelectorAll('.trash-browse-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const trashPath = btn.dataset.trashPath;
-            const row = btn.closest('.trash-row');
-            // Toggle: if tree already open, close it.
-            const existing = row.nextElementSibling;
-            if (existing && existing.classList.contains('trash-tree-panel')) {
-                existing.remove(); btn.textContent = t('browse'); return;
-            }
-            btn.textContent = t('loading'); btn.disabled = true;
-            try {
-                // Re-use the existing archive_tree or list API.
-                // Simplest: ask the server to list the trash_path as if it were
-                // a normal directory — requires a server-side endpoint that can
-                // read from the trash dir.  Until that's available we fall back
-                // to showing a "not yet supported" message.
-                // const panel = document.createElement('div');
-                // panel.className = 'trash-tree-panel';
-                // panel.style.cssText = 'background:#f8fafc;border-bottom:1px solid #e2e8f0;' +
-                //     'padding:10px 20px 10px 44px;font-size:12px;color:#475569';
-                // // TODO: replace with real API call once server exposes
-                // //       GET /api/v1/trash/<id>/list or similar.
-                // // panel.innerHTML = `<em style="color:#94a3b8">📂 Folder browsing from trash requires a
-                // //     server-side listing endpoint (<code>/api/v1/trash/${btn.dataset.id}/list</code>).
-                // //     Restore the folder first to browse its contents.</em>`;
-                // row.insertAdjacentElement('afterend', panel);
-                btn.textContent = t('close'); btn.disabled = false;
-            } catch (err) {
-                btn.textContent = t('browse'); btn.disabled = false;
-                alert(t('trash_browse_failed') + ': ' + err.message);
-            }
+        btn.addEventListener('click', () => {
+            alert(t('trash_browse_unavailable'));
         });
     });
 }

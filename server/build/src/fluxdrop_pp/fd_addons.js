@@ -74,6 +74,29 @@
     mv_move_failed_title:       'Move failed',
     mv_copy_failed_title:       'Copy failed',
     trash_browse_failed:        'Browse failed',
+    trash_browse_unavailable:   'Folder browsing from Trash isn\'t available yet — restore the folder first to browse its contents.',
+    // Selection bar
+    download:                   'Download',
+    trash:                      'Trash',
+    sel_bar_clear:               'Clear',
+    sel_bar_count:               '{n} selected',
+    sel_bar_delete_title:        'Delete {n} item(s)?',
+    sel_bar_delete_msg:          'You\'ll be able to retrieve it from the Trash bin for the next {days} day(s).',
+    empty_folder:                '(empty)',
+    // Context menu
+    ctx_open:                    'Open',
+    ctx_preview:                 'Preview',
+    ctx_download_zip:            'Download ZIP',
+    ctx_download:                'Download',
+    ctx_share:                   'Share',
+    ctx_move_rename:             'Move / Rename',
+    ctx_info:                    'Info',
+    ctx_trash:                   'Move to Trash',
+    ctx_download_files:          'Download {n} file(s)',
+    ctx_download_folders_zip:    'Download {n} folder(s) as ZIP',
+    ctx_download_mixed:          'Download {nf} file(s) + {nd} ZIP(s)',
+    ctx_trash_multi:             'Move {n} items to Trash',
+    go_up:                       'Go up',
   };
   const EXTRA_UK = {
     // Trash bin
@@ -118,6 +141,29 @@
     mv_move_failed_title:       'Не вдалося перемістити',
     mv_copy_failed_title:       'Не вдалося скопіювати',
     trash_browse_failed:        'Не вдалося переглянути',
+    trash_browse_unavailable:   'Перегляд вмісту папки в кошику поки що недоступний — спершу відновіть папку, щоб переглянути її вміст.',
+    // Selection bar
+    download:                   'Завантажити',
+    trash:                      'У кошик',
+    sel_bar_clear:               'Очистити',
+    sel_bar_count:               'Вибрано: {n}',
+    sel_bar_delete_title:        'Видалити елементів: {n}?',
+    sel_bar_delete_msg:          'Ви зможете відновити це з кошика протягом {days} дн.',
+    empty_folder:                '(порожньо)',
+    // Context menu
+    ctx_open:                    'Відкрити',
+    ctx_preview:                 'Перегляд',
+    ctx_download_zip:            'Завантажити ZIP',
+    ctx_download:                'Завантажити',
+    ctx_share:                   'Поділитися',
+    ctx_move_rename:             'Перемістити / Перейменувати',
+    ctx_info:                    'Інформація',
+    ctx_trash:                   'У кошик',
+    ctx_download_files:          'Завантажити файлів: {n}',
+    ctx_download_folders_zip:    'Завантажити папок як ZIP: {n}',
+    ctx_download_mixed:          'Завантажити файлів: {nf} + ZIP: {nd}',
+    ctx_trash_multi:             'У кошик елементів: {n}',
+    go_up:                       'Вгору',
   };
 
   const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };
@@ -593,9 +639,9 @@
               /
             </div>
           </div>
-          <button id="fd-sa-up" title="Go up" style="background:rgba(255,255,255,.2);
+          <button id="fd-sa-up" title="${t('go_up')}" style="background:rgba(255,255,255,.2);
               border:none;color:white;border-radius:8px;padding:5px 10px;cursor:pointer;
-              font-size:13px;display:none">↑ Up</button>
+              font-size:13px;display:none">↑ ${t('go_up')}</button>
           <button id="fd-sa-close" style="background:rgba(255,255,255,.2);border:none;
               color:white;border-radius:50%;width:30px;height:30px;font-size:16px;
               cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>

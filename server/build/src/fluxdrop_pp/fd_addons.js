@@ -73,8 +73,6 @@
     mv_rename_failed_title:     'Rename failed',
     mv_move_failed_title:       'Move failed',
     mv_copy_failed_title:       'Copy failed',
-    trash_browse_failed:        'Browse failed',
-    trash_browse_unavailable:   'Folder browsing from Trash isn\'t available yet — restore the folder first to browse its contents.',
     // Selection bar
     download:                   'Download',
     trash:                      'Trash',
@@ -140,8 +138,6 @@
     mv_rename_failed_title:     'Не вдалося перейменувати',
     mv_move_failed_title:       'Не вдалося перемістити',
     mv_copy_failed_title:       'Не вдалося скопіювати',
-    trash_browse_failed:        'Не вдалося переглянути',
-    trash_browse_unavailable:   'Перегляд вмісту папки в кошику поки що недоступний — спершу відновіть папку, щоб переглянути її вміст.',
     // Selection bar
     download:                   'Завантажити',
     trash:                      'У кошик',
@@ -865,7 +861,7 @@
 
     const existing = row.nextElementSibling;
     if (existing && existing.classList.contains('trash-tree-panel')) {
-      existing.remove(); btn.textContent = t('browse'); return;
+      existing.remove(); btn.textContent = t('trash_browse'); return;
     }
 
     const id    = +btn.dataset.id;

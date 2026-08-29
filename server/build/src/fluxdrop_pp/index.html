@@ -17,6 +17,11 @@
     <meta property="og:url" content="https://arseniusgen.uk.to/fluxdrop_pp/">
 
     <link rel="icon" type="image/svg" sizes="32x32" href="icon.svg">
+    <!-- Preload the header logo so it starts fetching alongside CSS/JS instead
+         of only once the parser reaches the <img> tag in <body> — otherwise
+         "FluxDrop" (a text node, paints instantly) visibly appears before the
+         icon does. -->
+    <link rel="preload" as="image" href="icon.svg">
 
     <!--
       Apply dark theme BEFORE any CSS or JS loads so the background is never
@@ -57,7 +62,17 @@
     </header>
 
     <main id="app-root" class="w-full max-w-5xl">
-        <!-- App content is rendered here by JS -->
+        <!-- App content is rendered here by JS. This placeholder is shown
+             until script.js finishes its first render, so the page never
+             sits blank while scripts/CSS are still loading. -->
+        <div id="fd-boot-loading" style="display:flex;flex-direction:column;align-items:center;
+             justify-content:center;padding:4rem 1rem;color:#64748b;gap:0.75rem">
+            <div style="width:34px;height:34px;border-radius:50%;
+                 border:3px solid #dbeafe;border-top-color:#3b82f6;
+                 animation:fd-boot-spin .8s linear infinite"></div>
+            <span style="font-size:0.9rem">Loading FluxDrop…</span>
+        </div>
+        <style>@keyframes fd-boot-spin{to{transform:rotate(360deg)}}</style>
     </main>
 
     <!-- Message Modal -->
@@ -80,12 +95,40 @@
             </div>
         </div>
     </div>
-    <script src="/fluxdrop_pp/script.js"></script>
+    <!-- Script load-failure banner. Unlike the CSS fallback below (a pure-CSS
+         "rule exists once loaded" trick), a <script> tag failing to load
+         can't be detected in CSS — it needs an onerror handler per tag. -->
+    <div id="fd-script-error" class="hidden"
+         style="position:fixed;top:0;left:0;width:100%;
+                padding:1.25rem 1.5rem;background:#fee2e2;color:#991b1b;
+                font-family:sans-serif;font-size:14px;line-height:1.6;
+                z-index:99999;border-bottom:2px solid #fca5a5;
+                box-shadow:0 2px 8px rgba(0,0,0,.1)">
+        <strong>⚠ FluxDrop failed to load (<span id="fd-script-error-name"></span>).</strong>
+        Check your internet connection and try reloading. If this persists,
+        open the browser console (F12) for the exact network error.
+        <button onclick="location.reload()"
+                style="margin-left:1rem;padding:3px 10px;border:1px solid #b91c1c;
+                       border-radius:6px;background:white;cursor:pointer;font-size:13px">
+            Reload
+        </button>
+    </div>
+    <script>
+      window._fdScriptError = function (name) {
+        var el = document.getElementById('fd-script-error');
+        var nameEl = document.getElementById('fd-script-error-name');
+        if (nameEl) nameEl.textContent = name;
+        if (el) el.classList.remove('hidden');
+        var boot = document.getElementById('fd-boot-loading');
+        if (boot) boot.style.display = 'none';
+      };
+    </script>
+    <script src="/fluxdrop_pp/script.js" onerror="window._fdScriptError('script.js')"></script>
     <!-- fd_locale_bundle.js MUST be before fd_addons.js so t() is synchronous.
          Regenerate after editing locale files:
            python3 build_locale_bundle.py locale/ fd_locale_bundle.js -->
-    <script src="/fluxdrop_pp/fd_locale_bundle.js"></script>
-    <script src="/fluxdrop_pp/fd_addons.js"></script>
+    <script src="/fluxdrop_pp/fd_locale_bundle.js" onerror="window._fdScriptError('fd_locale_bundle.js')"></script>
+    <script src="/fluxdrop_pp/fd_addons.js" onerror="window._fdScriptError('fd_addons.js')"></script>
 
     <!--
         Pure-CSS style-load fallback.

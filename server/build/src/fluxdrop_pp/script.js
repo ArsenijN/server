@@ -3758,11 +3758,18 @@ window._fdKeepSelectionOnNav = false;
 // Ghost HTML for the selection bar when nothing is selected.
 // Must match the visible bar's markup so reserved height is pixel-identical.
 // Used in both renderFileBrowserView (initial render) and _updateSelBar (clear).
-const _SEL_BAR_GHOST = `
+// NOTE: this must stay a function, not a top-level const — script.js loads
+// before fd_locale_bundle.js/fd_addons.js (see index.html script order), so
+// window.t() doesn't exist yet while this file is being parsed. A top-level
+// `const ... = \`${t(...)}\`` throws ReferenceError: t is not defined at
+// load time. Calling it lazily, after everything's loaded, is safe.
+function _selBarGhost() {
+    return `
     <span style="opacity:0;pointer-events:none;flex-shrink:0">${t('sel_bar_count', { n: 0 })}</span>
     <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ ${t('download')}</button>
     <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 ${t('trash')}</button>
     <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ ${t('sel_bar_clear')}</button>`;
+}
 
 // ── Shared bulk-trash flow ───────────────────────────────────────────────────
 // Used by the sel-bar "Trash" button, the context-menu "trash-multi" action,
@@ -3797,7 +3804,7 @@ function _updateSelBar() {
 
     if (n === 0) {
         bar.classList.remove('fd-sel-bar-visible');
-        bar.innerHTML = _SEL_BAR_GHOST;   // restore ghost — keeps height stable
+        bar.innerHTML = _selBarGhost();   // restore ghost — keeps height stable
         bar.onclick = null;
         return;
     }
@@ -4715,16 +4722,12 @@ async function _refreshTrashView() {
         });
     });
 
-    // Browse button — folder-browsing from trash isn't implemented server-side
-    // yet (no endpoint to list a trashed folder's contents in place), so this
-    // just tells the user to restore first instead of pretending to toggle
-    // open/closed. Previously this faked a "Close" state with no matching
-    // panel, so it could never revert back to "Browse".
-    body.querySelectorAll('.trash-browse-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            alert(t('trash_browse_unavailable'));
-        });
-    });
+    // NOTE: no .trash-browse-btn handler here on purpose. The real,
+    // working implementation lives in fd_addons.js ("6. TRASH FOLDER
+    // BROWSE" — document-level, capturing-phase listener that calls
+    // GET /api/v1/trash/<id>/list). This file used to have a second,
+    // dead handler bound to the same buttons, which raced against the
+    // real one and caused the button to get stuck on "Close" — removed.
 }
 
 

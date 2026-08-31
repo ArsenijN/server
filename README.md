@@ -1,4 +1,4 @@
-# server `v0.19.1.32`
+# server `v0.19.1.33`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -13,11 +13,15 @@ missing and bugs that was there from the V0.19 release and it's patches,
 including versions before V0.19***
 
 ***Additions:***
-- ***New animations: file selection, selector bar, ETA trays and others. Fixes: 
+- ***New "File info" modal — per-item details (name, path, type, size, modified 
+time, uploader, CRC-32) opened from the context menu or the ℹ action***
+- ***New animations: file selection, selector bar, ETA trays, Markdown viewer 
+close, Interrupted Uploads modal (with `Esc` to close) and others. Fixes: 
 profile menu, mini profile menu, share manager, trash overlay, media preview 
-modals and others. See: [TODO's finished 
-entries](./TODO.md#done-items-that-are-pending-for-removal-as-finished)***
-- ***More i18n added into links manager modal***
+modals, and the "Moving/Renaming" spinner overlay (its entrance animation 
+pointed at a keyframe that didn't exist, so it never played). See: [TODO's 
+finished entries](./TODO.md#done-items-that-are-pending-for-removal-as-finished)***
+- ***More i18n: links manager modal and the file actions modal***
 - ***`Del` key now works as the shortcut to delete the current seleted items***
 - ***Reworked the trash bin deletion modals to be more laconic***
 - ***Copy function now displays a loading toast, so large files will not 
@@ -31,10 +35,13 @@ fire-and-forget as before***
 - ***Acceptance modal displayed plain HTML due to lack of the proxy's alias for 
 policy files***
 - ***Trash retention message are now translatable (i18n)***
-- ***File selector now properly resets after changing the directory and when 
-item is deleted***                                                                ################### -- add ", renamed or moved" when code patch will be applied
+- ***File selector now properly resets after changing the directory and when an 
+item is deleted, renamed or moved***
 - ***Profile picture icon is not cached, resulting in excessive fetches every 
 time it's displayed***
+- ***Profile avatar could load the wrong (placeholder / id 0) image on a 
+first-ever login on a new machine — the numeric user id is now backfilled on 
+every authenticated app load***
 - ***Mobile users was unable to upload because there's no button to do so 
 (now it's in the left bottom corner)***
 - ***Fix uploads failing because of the very slow internet speeds (see 
@@ -48,8 +55,9 @@ additions notes)***
 - ***Added per-host path-prefix forwarding***
 
 ***Backend fixes:***
-- ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 
-Websocket connections without proper close by Websocket's special message***
+- ***Fix HTTPS server leaking memory — and eventually crashing after a 
+prolonged internet outage — because of staled WebSocket connections that were 
+never closed with a proper close frame***
 - ***Fix HTTPS proxy connection drop after timeout***
 - ***Fix server memory exaustion because of not properly handled proxying***
 - ***Fix HTTP's hoster health check failing because of the forced HTTPS 
@@ -62,8 +70,12 @@ dependency being broken)***
 - ***FluxDrop Web making stray `config` requests for net connectivity checks, 
 but backend didn't knew what to do with them***
 - ***Fix file hash not reattaching after file move***
-- ***Fix the `gzip` compression being not fully utilized***
+- ***`gzip` response compression is now actually applied (not just advertised 
+via the header) and newly covers large JSON API responses and `.md` documents***
 - ***Fix error with the `copy` endpoint being non-existent***
+- ***Large file/folder Copy is now a background job — the request returns a job 
+id immediately and a progress toast polls it, instead of holding the connection 
+open until it trips the reverse proxy's timeout on multi-GB copies***
 - ***Fix chunks being not implemented properly for the slower internet speeds***
 - ***(Immich and proxying) Allow files bigger than 2GB to be uploaded via proxy 
 (see: `_HOST_PROXY_MAX_BODY_GB` inside `server_https.py`)***

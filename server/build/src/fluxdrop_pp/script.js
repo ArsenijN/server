@@ -4077,6 +4077,20 @@ function _clearSelection() {
     _lastClickedPath = null;
 }
 
+// Drop a path — and, if it was a folder, everything nested under it — from the
+// persisted selection. Used after a move/rename: the old path no longer exists
+// so its checkmark can never re-render, but the entry would otherwise linger
+// forever (wrong sel-bar count, stale ancestor dash, phantom pre-selected row
+// if the same name is recreated). Mirrors the single-path scrub deleteItem()
+// does after trashing. Caller is responsible for the follow-up _updateSelBar().
+function _dropSelectedUnder(path) {
+    const prefix = path.endsWith('/') ? path : path + '/';
+    for (const p of [..._selectedPaths]) {
+        if (p === path || p.startsWith(prefix)) _selectedPaths.delete(p);
+    }
+    if (_lastClickedPath === path || _lastClickedPath?.startsWith(prefix)) _lastClickedPath = null;
+}
+
 // ── Context menu ─────────────────────────────────────────────────────────
 function _removeContextMenu() {
     document.getElementById('fd-ctx-menu')?.remove();
@@ -4987,7 +5001,9 @@ async function openMoveDialog(srcPath) {
             const _rnDismiss = showSpinnerOverlay(t('mv_renaming'), { minMs: 1000 });
             try {
                 await withMinDelay(apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath }), 1000);
-                _rnDismiss(); overlay.remove(); loadDirectory(currentPath);
+                _rnDismiss(); overlay.remove();
+                _dropSelectedUnder(srcPath); _updateSelBar();
+                loadDirectory(currentPath);
             } catch (err) {
                 _rnDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = t('mv_rename_btn');
                 if (err.message !== 'SESSION_EXPIRED') showMessage(t('mv_rename_failed_title'), err.message);
@@ -5004,7 +5020,9 @@ async function openMoveDialog(srcPath) {
             const _mvDismiss = showSpinnerOverlay(t('mv_moving'), { minMs: 1000 });
             try {
                 await withMinDelay(apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath }), 1000);
-                _mvDismiss(); overlay.remove(); loadDirectory(currentPath);
+                _mvDismiss(); overlay.remove();
+                _dropSelectedUnder(srcPath); _updateSelBar();
+                loadDirectory(currentPath);
             } catch (err) {
                 _mvDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = t('mv_move_here');
                 if (err.message !== 'SESSION_EXPIRED') showMessage(t('mv_move_failed_title'), err.message);

@@ -677,9 +677,9 @@ footer a:hover { text-decoration: underline; }
   <div class="header-right">
     <div class="overall-status {overall_class}">
       <div class="pulse"></div>
-      {overall_text}
+      <span class="overall-text">{overall_text}</span>
     </div>
-    <div class="timestamp">Updated {now_str} · auto-refresh 30s</div>
+    <div class="timestamp">Updated <span id="status-ts">{now_str}</span> · auto-refresh 30s</div>
     <div id="net-live-badge" class="net-live-badge ok" title="Live internet probe (8.8.8.8 + 1.1.1.1)">
       <span id="net-live-dot" style="width:7px;height:7px;border-radius:50%;background:#06b6d4;box-shadow:0 0 5px #06b6d4;flex-shrink:0"></span>
       <span id="net-live-text">NET ···</span>
@@ -702,7 +702,7 @@ footer a:hover { text-decoration: underline; }
 
       <div class="card">
         <div class="card-label">Server Uptime</div>
-        <div class="card-value blue">{srv_uptime_h}<span style="font-size:14px;font-family:var(--mono);font-weight:400;color:var(--muted)">h</span></div>
+        <div class="card-value blue" id="srv-uptime" style="font-size:22px">{srv_uptime_h}h</div>
         <div class="card-sub">since {srv_start_str}</div>
       </div>
 
@@ -818,8 +818,8 @@ footer a:hover { text-decoration: underline; }
             <div class="card-label" style="margin-bottom:12px">Memory</div>
             <div class="cpu-row">
               <div class="cpu-label">RAM used</div>
-              <div class="cpu-track"><div class="cpu-fill" style="width:{mem_pct}%;background:linear-gradient(90deg,#8b5cf6,#c084fc)"></div></div>
-              <div class="cpu-pct">{mem_pct}%</div>
+              <div class="cpu-track"><div class="cpu-fill" id="mem-bar" style="width:{mem_pct}%;background:linear-gradient(90deg,#8b5cf6,#c084fc)"></div></div>
+              <div class="cpu-pct" id="mem-pct">{mem_pct}%</div>
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:6px">{mem_used} / {mem_total} — {mem_avail} free</div>
             <div style="margin-top:16px">
@@ -874,7 +874,7 @@ footer a:hover { text-decoration: underline; }
     <div class="uptime-section">
       <div class="uptime-header">
         <div class="uptime-title">FluxDrop CDN</div>
-        <div class="uptime-pct">{uptime_pct}% uptime</div>
+        <div class="uptime-pct"><span id="uptime-pct">{uptime_pct}%</span> uptime</div>
       </div>
       <div class="uptime-history" id="uptime-history">
         <div class="uptime-bars" id="uptime-bars">

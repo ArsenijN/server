@@ -50,14 +50,14 @@ on i5 8350U)
 - [ ] Add `.docx`, `.pptx`, `.odt`, `.odf`, `.ods`, and other for previews
 - [ ] Add `.dng` and other raw image formats support for previews
 - [ ] Fix i18n in:
-  - [ ] Actions modal
+  - [x] Actions modal
   - [ ] Error-related pages -- untested
 - [ ] Add more animations to:
   - [ ] File action modal closing
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
-- [ ] Uploads can't be paused and instead "cancels" is using the drag-n-drop
+- [ ] Uploads can't be paused and instead "cancels" if using the drag-n-drop
 - [ ] Server sends entire file layout and their sizes in `https://fluxdrop.me/ap
 i/v1/list/tmp` but client still fetches the individual files/folders like `https
 ://fluxdrop.me/api/v1/foldersize/tmp/sub` (contents of the `` is `{"path": "/tmp
@@ -72,7 +72,10 @@ me": "2026-05-30T20:16:51"}]}`) -- problem is that **this** requests **does not
 output the folder size**, meaning that there **is** still meaning for the curren
 t setup
 - [ ] File selector does not reset when file is moved
-- [ ] Hide file selector for the mobile veversionversionrsion of the FluxDrop
+- [ ] Hide file selector for the mobile version of the FluxDrop
+- [ ] "📌 Зберігати вибір" are starts to be visible when there's more than one 
+item inside folder, but doesn't stop being visible... Wait, why it wasn't there 
+first time? It should be!
 - [ ] Hold-to-manage feature on mobile is nifty - maybe should been also 
 mentioned in the welcoming screen
 - [ ] Opening the profile preview modal is very epilepsy-warning (mobile)
@@ -80,9 +83,10 @@ mentioned in the welcoming screen
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
-- [ ] Check if upload still ends successfully even if the upload of one of the 
-files fails (for example because of the quota) (message that are displayed in 
-notifications from browser from site) -- it is
+- [ ] Check if upload still ends successfully (message that is sent via 
+browser) even if the upload of one of the files fails (for example because of 
+the quota) -- it is, and also smaller files are correctly uploaded that fits 
+the quota
 - [ ] File selector does not reset or reselect when file is renamed
 - [ ] FluxDrop Web makes 2 connections to get the download token when viewing 
 the archive's table of contents
@@ -96,7 +100,8 @@ directory) 2 times
 - [ ] Maybe cancel the file hashing or avoid the ~~async~~ multithreaded file 
 hash after canceling the ZIP download, or do it only if server is unused or via 
 `nice`
-- [ ] Do not make speed probe for small files (e.g. less than 25 MB)
+- [ ] Do not make speed probe for small files (e.g. less than 25 MB) -- no if 
+internet is bad
 
 #### High:
 - [ ] Status page doesn't load the amount of files on server on first load 

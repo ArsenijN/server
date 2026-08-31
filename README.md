@@ -1,4 +1,4 @@
-# server `v0.19.1.31`
+# server `v0.19.1.32`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -44,6 +44,9 @@ additions notes)***
 - ***Fix file selector didn't catching up fastly***
 - ***Fix dragging across rows deselects everything selected***
 
+***Backend additions:***
+- ***Added per-host path-prefix forwarding***
+
 ***Backend fixes:***
 - ***Fix "memory leak" for the HTTPS that was caused by finite amount of staled 
 Websocket connections without proper close by Websocket's special message***
@@ -76,6 +79,8 @@ some point later, but not now***
 - ***TODO implementations***
 - ***Changed README to be ready for V0.19.2 release***
 - ***i18n improvements #3***
+- ***Added important proxying to the server that must be made at some point 
+eventually***
 
 ---
 

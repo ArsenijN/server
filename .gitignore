@@ -116,3 +116,9 @@ server/files/
 # server/Web/secrets_samples/
 #   Safe placeholder files — sample configs and empty credential templates.
 #   Committed so a fresh clone shows what each secrets file should look like.
+
+/server/TestWeb/tilesna_practyka
+/server/Web/tilesna_api.py
+/server/services/tilesna_api.service
+# This is temporary site for a friend, hosted on my server until we'll get a 
+# proper hardware+software

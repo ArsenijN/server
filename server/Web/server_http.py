@@ -163,6 +163,63 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
             except Exception:
                 pass
 
+# ── Per-host path-prefix reverse proxy ("multi-forward") ──────────────────
+# MUST stay in sync with server_https.py's _PATH_PROXY (same shape, same
+# semantics).  On this plain-HTTP side we do NOT proxy these paths — they are
+# 308-redirected to HTTPS on the SAME host (the same policy already applied to
+# '/api/' via _HTTPS_REDIRECT_PREFIXES), and the real forwarding to the
+# backend happens on the TLS side.  See server_https.py for the full field
+# documentation.
+_TILESNA_API_PORT = int(os.getenv('TILESNA_API_PORT', '8765'))
+_PATH_PROXY: dict[str, list[dict]] = {
+    'tilesna-practyka.com': [
+        {
+            'prefix':  '/api/',
+            'target':  f'http://127.0.0.1:{_TILESNA_API_PORT}',
+            'enabled': True,
+            'timeout': 30,
+        },
+    ],
+}
+
+def _get_path_proxy(headers, path: str) -> dict | None:
+    """Return the matching _PATH_PROXY rule for this (Host, path), or None.
+
+    Host matched case-insensitively, optional leading 'www.' ignored; longest
+    matching 'prefix' wins.  Mirrors server_https.py's implementation.
+    """
+    host = headers.get('Host', '').split(':')[0].lower()
+    rules = _PATH_PROXY.get(host)
+    if rules is None and host.startswith('www.'):
+        rules = _PATH_PROXY.get(host[4:])
+    if not rules:
+        return None
+    clean = path.split('?')[0]
+    best = None
+    for rule in rules:
+        if not rule.get('enabled', True):
+            continue
+        pfx = rule['prefix']
+        if clean == pfx.rstrip('/') or clean.startswith(pfx):
+            if best is None or len(pfx) > len(best['prefix']):
+                best = rule
+    return best
+
+def _path_proxy_https_redirect(handler) -> bool:
+    """If this (Host, path) matches _PATH_PROXY, 308-redirect to HTTPS on the
+    SAME host and return True.  These paths are only ever proxied to their
+    backend over TLS — never over plaintext (mirrors the '/api/' policy)."""
+    if not _get_path_proxy(handler.headers, handler.path):
+        return False
+    host = handler.headers.get('Host', '').split(':')[0].lower()
+    _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
+    handler.send_response(308)
+    handler.send_header('Location', f'https://{host}{_port_suffix}{handler.path}')
+    handler.send_header('Content-Length', '0')
+    handler.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+    handler.end_headers()
+    return True
+
 def _cache_control_for_path(path: str) -> str:
     """Return the appropriate Cache-Control value for a static file path."""
     _ext  = _psp.splitext(path.split('?')[0])[1].lower()
@@ -320,6 +377,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                                  'max-age=300; includeSubDomains')
                 self.end_headers()
                 return
+
+        # Per-host path-prefix proxy ("multi-forward"): 308-redirect matches to
+        # HTTPS on the same host; the actual backend forwarding lives in
+        # server_https.py.  Must run before the _HTTPS_REDIRECT_PREFIXES check
+        # below, which would otherwise send '/api/' to _PUBLIC_DOMAIN (wrong host).
+        if _path_proxy_https_redirect(self):
+            return
 
         # --- Redirect auth/API to HTTPS — never proxy credentials in plaintext ---
         # /auth/ and /api/ carry session tokens and passwords; sending them over
@@ -490,6 +554,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # redirect and no proxy. For an API path like
         # /api/v1/upload_session/config (the client's connectivity probe) that
         # meant a guaranteed 404 from this server's own static-file handler.
+        if _path_proxy_https_redirect(self):
+            return
         _clean = requested_path.split('?')[0]
         _host_bare = self.headers.get('Host', '').split(':')[0].lower()
         if _host_bare in _ROOT_HTTPS_DOMAINS:
@@ -601,6 +667,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(403, "Access Denied")
                 return
         _p = self.path.split('?')[0]
+        if _path_proxy_https_redirect(self):
+            return
         # Root-domain upgrade: fluxdrop.me non-CDN POST → HTTPS
         _host_bare = self.headers.get('Host', '').split(':')[0].lower()
         if _host_bare in _ROOT_HTTPS_DOMAINS:
@@ -649,6 +717,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         _p = self.path.split('?')[0]
+        if _path_proxy_https_redirect(self):
+            return
         _host_bare = self.headers.get('Host', '').split(':')[0].lower()
         if _host_bare in _ROOT_HTTPS_DOMAINS:
             if not any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
@@ -673,6 +743,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_PUT(self):
         _p = self.path.split('?')[0]
+        if _path_proxy_https_redirect(self):
+            return
         _host_bare = self.headers.get('Host', '').split(':')[0].lower()
         if _host_bare in _ROOT_HTTPS_DOMAINS:
             if not any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
@@ -697,6 +769,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_PATCH(self):
         _p = self.path.split('?')[0]
+        if _path_proxy_https_redirect(self):
+            return
         _host_bare = self.headers.get('Host', '').split(':')[0].lower()
         if _host_bare in _ROOT_HTTPS_DOMAINS:
             if not any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):

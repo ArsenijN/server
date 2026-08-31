@@ -410,6 +410,90 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
             except Exception:
                 pass
 
+# ── Per-host path-prefix reverse proxy ("multi-forward") ──────────────────
+# Like _HOST_PROXY, but keyed on (bare hostname, URL path prefix) instead of
+# the whole host.  Lets one domain hand a slice of its URL space to a
+# backend on a different port than the CDN loopback (CDN_INTERNAL_PORT).
+#
+# Matched BEFORE _CDN_PROXY_PREFIXES, so a prefix listed here wins even when
+# it overlaps a CDN prefix (e.g. '/api/').  Only requests whose Host header
+# bare-matches a key are diverted — every other domain hitting the same
+# prefix still reaches the CDN untouched.  A leading 'www.' on the Host is
+# ignored, so one entry covers both the apex and the www host.
+#
+# Each host maps to a list of rules; the LONGEST matching 'prefix' wins, so
+# order within the list does not matter.  Per rule:
+#   'prefix':       '/api/'                 — path prefix; matches when
+#                                             path == prefix.rstrip('/') or
+#                                             path.startswith(prefix)
+#   'target':       'http://127.0.0.1:8765' — backend origin, no trailing '/'
+#   'enabled':      True | False            — flip False to disable in place
+#   'timeout':      int                     — per-rule proxy timeout, seconds
+#   'strip_prefix': '/foo'                  — optional; removed from the path
+#                                             before forwarding (default: none)
+#
+# server_http.py mirrors this table but only 308-redirects matches to HTTPS
+# (same policy it already applies to '/api/'); the real proxying happens
+# here on the TLS side.
+_TILESNA_API_PORT = int(os.getenv('TILESNA_API_PORT', '8765'))
+_PATH_PROXY: dict[str, list[dict]] = {
+    # tilesna-practyka.com — the booking / reviews SPA is served at / on this
+    # domain (see _ROOT_DOMAIN_SUBPATH) and calls /api/* same-origin.  Send
+    # that /api/* to tilesna_api.py instead of FluxDrop's CDN.  tilesna_api.py
+    # routes on the literal '/api/...' path, so no strip_prefix is needed.
+    'tilesna-practyka.com': [
+        {
+            'prefix':  '/api/',
+            'target':  f'http://127.0.0.1:{_TILESNA_API_PORT}',
+            'enabled': True,
+            'timeout': 30,
+        },
+    ],
+    # Template for future services — copy, set a real host key, enabled=True:
+    # 'service.example.com': [
+    #     {'prefix': '/api/', 'target': 'http://127.0.0.1:PORT',
+    #      'enabled': False, 'timeout': 30},
+    # ],
+}
+
+def _get_path_proxy(headers, path: str) -> dict | None:
+    """Return the matching _PATH_PROXY rule for this (Host, path), or None.
+
+    The Host is matched case-insensitively with an optional leading 'www.'
+    ignored.  Among a host's rules the longest matching 'prefix' wins.
+    """
+    host = headers.get('Host', '').split(':')[0].lower()
+    rules = _PATH_PROXY.get(host)
+    if rules is None and host.startswith('www.'):
+        rules = _PATH_PROXY.get(host[4:])
+    if not rules:
+        return None
+    clean = path.split('?')[0]
+    best = None
+    for rule in rules:
+        if not rule.get('enabled', True):
+            continue
+        pfx = rule['prefix']
+        if clean == pfx.rstrip('/') or clean.startswith(pfx):
+            if best is None or len(pfx) > len(best['prefix']):
+                best = rule
+    return best
+
+def _try_path_proxy(handler, method: str) -> bool:
+    """Forward the request to a per-host path-prefixed backend if one matches.
+
+    Returns True when the request was handled (caller must return), False when
+    no rule matched and normal routing should continue.
+    """
+    rule = _get_path_proxy(handler.headers, handler.path)
+    if not rule:
+        return False
+    strip = rule.get('strip_prefix') or ''
+    if strip and handler.path.startswith(strip):
+        handler.path = handler.path[len(strip):] or '/'
+    _proxy_to_host(handler, method, rule['target'], rule.get('timeout', 30))
+    return True
+
 # ── Root-domain path rewriting ────────────────────────────────────────────
 # Maps a bare hostname to the URL subpath where the FluxDrop SPA is installed.
 # When a request arrives on one of these domains the path is rewritten
@@ -420,6 +504,8 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
 _ROOT_DOMAIN_SUBPATH: dict[str, str] = {
     'fluxdrop.me':     '/fluxdrop_pp',
     'www.fluxdrop.me': '/fluxdrop_pp',
+    'tilesna-practyka.com': '/tilesna_practyka',
+    'www.tilesna-practyka.com': '/tilesna_practyka',
     # arseniusgen.dev intentionally excluded — behaves like arseniusgen.uk.to
     # (user navigates to /fluxdrop_pp/ explicitly on that domain).
 }
@@ -830,6 +916,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if _hp:
             return _proxy_to_host(self, 'GET', _hp['target'], _hp.get('timeout', 60))
 
+        # ── Per-host path-prefix proxy ("multi-forward") ─────────────────────
+        # Must run before the _CDN_PROXY_PREFIXES check below so an overlapping
+        # prefix (e.g. '/api/' on tilesna-practyka.com) reaches its own backend
+        # instead of the CDN, and before the root-domain rewrite so the path is
+        # not turned into an SPA navigation URL.
+        if _try_path_proxy(self, 'GET'):
+            return
+
         client_ip = self.client_address[0]
         requested_path = self.path
         # Only log non-trivial paths to avoid lock contention under scanner floods
@@ -1046,6 +1140,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if _hp:
             return _proxy_to_host(self, 'HEAD', _hp['target'], _hp.get('timeout', 60))
 
+        # Per-host path-prefix proxy — see do_GET for rationale.
+        if _try_path_proxy(self, 'HEAD'):
+            return
+
         # --- Proxy CDN-owned paths to server_cdn.py internally (mirrors do_GET) ---
         # This check was missing here specifically — do_GET/do_POST/do_DELETE/
         # do_PUT/do_PATCH/do_OPTIONS all have it. Without it, every HEAD request
@@ -1155,7 +1253,11 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _hp = _get_host_proxy(self.headers)
         if _hp:
             return _proxy_to_host(self, 'POST', _hp['target'], _hp.get('timeout', 60))
-        
+
+        # Per-host path-prefix proxy — see do_GET for rationale.
+        if _try_path_proxy(self, 'POST'):
+            return
+
         client_ip = self.client_address[0]
         print(f"POST request from: {client_ip} -> {self.path}")
 
@@ -1263,6 +1365,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _hp = _get_host_proxy(self.headers)
         if _hp:
             return _proxy_to_host(self, 'DELETE', _hp['target'], _hp.get('timeout', 60))
+        if _try_path_proxy(self, 'DELETE'):
+            return
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'DELETE')
@@ -1274,6 +1378,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _hp = _get_host_proxy(self.headers)
         if _hp:
             return _proxy_to_host(self, 'PUT', _hp['target'], _hp.get('timeout', 60))
+        if _try_path_proxy(self, 'PUT'):
+            return
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'PUT')
@@ -1285,6 +1391,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _hp = _get_host_proxy(self.headers)
         if _hp:
             return _proxy_to_host(self, 'PATCH', _hp['target'], _hp.get('timeout', 60))
+        if _try_path_proxy(self, 'PATCH'):
+            return
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'PATCH')
@@ -1297,6 +1405,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _hp = _get_host_proxy(self.headers)
         if _hp:
             return _proxy_to_host(self, 'OPTIONS', _hp['target'], _hp.get('timeout', 60))
+        if _try_path_proxy(self, 'OPTIONS'):
+            return
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'OPTIONS')

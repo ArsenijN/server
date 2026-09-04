@@ -651,8 +651,8 @@
       </div>`;
 
     document.body.appendChild(overlay);
-    overlay.addEventListener('click', e => { if (e.target===overlay) overlay.remove(); });
-    overlay.querySelector('#fd-sa-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target===overlay) window.fdCloseOverlay(overlay); });
+    overlay.querySelector('#fd-sa-close').addEventListener('click', () => window.fdCloseOverlay(overlay));
 
     let _path    = '/';
     let _history = [];
@@ -1071,7 +1071,7 @@
       this.checked ? FDdebug.enable() : FDdebug.disable();
     });
     block.querySelector('#fd-sa-btn').addEventListener('click', () => {
-      overlay.remove(); openSpaceAnalyzer();
+      window.fdCloseOverlay(overlay); openSpaceAnalyzer();
     });
   }
 

@@ -5,80 +5,21 @@ Just backend code of my server, nothing else, anyone can use it
 
 *Release notes: Soft touches to the user experience with the service*
 
-***Mainstream: more animations, backend changes, fixes, and overall usage 
-improvements***
+***Mainstream: ***
 
-***This update improves overall user experience with the things that was 
-missing and bugs that was there from the V0.19 release and it's patches, 
-including versions before V0.19***
+***This update ...***
 
 ***Additions:***
-- ***New "File info" modal — per-item details (name, path, type, size, modified 
-time, uploader, CRC-32) opened from the context menu or the ℹ action***
-- ***New animations: file selection, selector bar, ETA trays, Markdown viewer 
-close, Interrupted Uploads modal (with `Esc` to close) and others. Fixes: 
-profile menu, mini profile menu, share manager, trash overlay, media preview 
-modals, and the "Moving/Renaming" spinner overlay (its entrance animation 
-pointed at a keyframe that didn't exist, so it never played). See: [TODO's 
-finished entries](./TODO.md#done-items-that-are-pending-for-removal-as-finished)***
-- ***More i18n: links manager modal and the file actions modal***
-- ***`Del` key now works as the shortcut to delete the current seleted items***
-- ***Reworked the trash bin deletion modals to be more laconic***
-- ***Copy function now displays a loading toast, so large files will not 
-lock-up the user interactions with FluxDrop***
-- ***Upload will now divide files into smaller files if speed of the internet 
-is very slow or not ideal for uploads***
-- ***Cancel in uploads actually waits for a server to cancel, not 
-fire-and-forget as before***
+- ***New ...***
 
 ***Fixes:***
-- ***Acceptance modal displayed plain HTML due to lack of the proxy's alias for 
-policy files***
-- ***Trash retention message are now translatable (i18n)***
-- ***File selector now properly resets after changing the directory and when an 
-item is deleted, renamed or moved***
-- ***Profile picture icon is not cached, resulting in excessive fetches every 
-time it's displayed***
-- ***Profile avatar could load the wrong (placeholder / id 0) image on a 
-first-ever login on a new machine — the numeric user id is now backfilled on 
-every authenticated app load***
-- ***Mobile users was unable to upload because there's no button to do so 
-(now it's in the left bottom corner)***
-- ***Fix uploads failing because of the very slow internet speeds (see 
-additions notes)***
-- ***Fix math for the concurrency in uploading chunks***
-- ***Added additional files to the service worker to be precached***
-- ***Fix file selector didn't catching up fastly***
-- ***Fix dragging across rows deselects everything selected***
+- ***note***
 
 ***Backend additions:***
-- ***Added per-host path-prefix forwarding***
+- ***Added***
 
 ***Backend fixes:***
-- ***Fix HTTPS server leaking memory — and eventually crashing after a 
-prolonged internet outage — because of staled WebSocket connections that were 
-never closed with a proper close frame***
-- ***Fix HTTPS proxy connection drop after timeout***
-- ***Fix server memory exaustion because of not properly handled proxying***
-- ***Fix HTTP's hoster health check failing because of the forced HTTPS 
-requests from the `shared.py`***
-- ***Fix HTTP didn't have the `healthz` endpoint and causing repeated hoster 
-reload***
-- ***Fix dependency of hardcoded domain, resulting in failing to load lazy JS 
-assets when accessing from different domain (CORS/CSP or just one-domain ideal 
-dependency being broken)***
-- ***FluxDrop Web making stray `config` requests for net connectivity checks, 
-but backend didn't knew what to do with them***
-- ***Fix file hash not reattaching after file move***
-- ***`gzip` response compression is now actually applied (not just advertised 
-via the header) and newly covers large JSON API responses and `.md` documents***
-- ***Fix error with the `copy` endpoint being non-existent***
-- ***Large file/folder Copy is now a background job — the request returns a job 
-id immediately and a progress toast polls it, instead of holding the connection 
-open until it trips the reverse proxy's timeout on multi-GB copies***
-- ***Fix chunks being not implemented properly for the slower internet speeds***
-- ***(Immich and proxying) Allow files bigger than 2GB to be uploaded via proxy 
-(see: `_HOST_PROXY_MAX_BODY_GB` inside `server_https.py`)***
+- ***Fix ...***
 
 ***About Immich: right now I don't provide the ability for anyone (except 
 chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you 
@@ -100,9 +41,9 @@ The future code updates would cover important code logic/safety issues
 first, then ToDo entries, then user feedback/issue tracker list on GitHub
 
 
-Main service is accessible at: https://arseniusgen.uk.to
+Main service is accessible at: https://arseniusgen.uk.to, https://arseniusgen.dev
 
-FluxDrop is accessible at: https://arseniusgen.uk.to/fluxdrop_pp/
+FluxDrop is accessible at: https://fluxdrop.me
 
 Wiki page for `server`: https://github.com/ArsenijN/server/wiki
 

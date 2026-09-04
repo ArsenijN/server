@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-94dbf215
+// Current version of script.js is: fluxdrop-v-a82b274e
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-94dbf215'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-a82b274e'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -4856,13 +4856,41 @@ async function openMoveDialog(srcPath) {
     // ── Helpers ────────────────────────────────────────────────────────────
     const $ = id => overlay.querySelector('#' + id);
 
+    // Smoothly animate the dialog panel's height when its content changes size
+    // (e.g. switching between the tall Move tree and the short Rename form).
+    const _mvPanel = overlay.querySelector('.modal-content');
+    function _mvAnimateHeight(mutate) {
+        if (!_mvPanel) { mutate(); return; }
+        const startH = _mvPanel.getBoundingClientRect().height;
+        mutate();
+        const endH = _mvPanel.getBoundingClientRect().height;
+        if (Math.abs(startH - endH) < 2) return;
+        const prevOverflow = _mvPanel.style.overflow; // panel ships with overflow:hidden — preserve it
+        _mvPanel.style.overflow = 'hidden';
+        _mvPanel.style.height = startH + 'px';
+        void _mvPanel.offsetHeight; // force reflow so the start height sticks
+        _mvPanel.style.transition = 'height .22s cubic-bezier(.4,0,.2,1)';
+        _mvPanel.style.height = endH + 'px';
+        const cleanup = e => {
+            if (e && e.type === 'transitionend' && e.propertyName !== 'height') return;
+            _mvPanel.style.transition = '';
+            _mvPanel.style.height = '';
+            _mvPanel.style.overflow = prevOverflow;
+            _mvPanel.removeEventListener('transitionend', cleanup);
+        };
+        _mvPanel.addEventListener('transitionend', cleanup);
+        setTimeout(cleanup, 300); // safety net if transitionend doesn't fire
+    }
+
     function setTab(tab) {
         activeTab = tab;
         overlay.querySelectorAll('.mv-tab').forEach(b => {
             b.classList.toggle('mv-active', b.dataset.tab === tab);
         });
-        $('mv-tab-move').style.display   = (tab === 'move' || tab === 'copy') ? '' : 'none';
-        $('mv-tab-rename').style.display = (tab === 'rename') ? '' : 'none';
+        _mvAnimateHeight(() => {
+            $('mv-tab-move').style.display   = (tab === 'move' || tab === 'copy') ? '' : 'none';
+            $('mv-tab-rename').style.display = (tab === 'rename') ? '' : 'none';
+        });
         const confirmBtn = $('mv-confirm-btn');
         if (tab === 'move')   { confirmBtn.textContent = t('mv_move_here');  confirmBtn.style.background = '#3b82f6'; }
         if (tab === 'copy')   { confirmBtn.textContent = t('mv_copy_here');  confirmBtn.style.background = '#0ea5e9'; }
@@ -5060,7 +5088,7 @@ async function openMoveDialog(srcPath) {
     });
 
     // ── Close / cancel ─────────────────────────────────────────────────────
-    const _mvClose = () => { overlay.remove(); _detachModalKeys(); };
+    const _mvClose = () => { window.fdCloseOverlay(overlay); _detachModalKeys(); };
     $('mv-cancel-btn').addEventListener('click', _mvClose);
     $('mv-close').addEventListener('click', _mvClose);
 
@@ -5081,7 +5109,7 @@ async function openMoveDialog(srcPath) {
     $('mv-name-input').addEventListener('keydown', e => {
         if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); $('mv-confirm-btn').click(); }
     });
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) _mvClose(); });
 
     // ── Initial render ─────────────────────────────────────────────────────
     updateDestLabel();
@@ -6668,7 +6696,7 @@ function openProfileMenu() {
     // Quota bar → open space analyzer directly
     document.getElementById('pm-quota-bar').style.cursor = 'pointer';
     document.getElementById('pm-quota-bar').title = 'Click to open Space Analyzer';
-    document.getElementById('pm-quota-bar').addEventListener('click', () => { overlay.remove(); openSpaceAnalyzer(); });
+    document.getElementById('pm-quota-bar').addEventListener('click', () => { window.fdCloseOverlay(overlay); openSpaceAnalyzer(); });
     document.getElementById('pm-shares').addEventListener('click', () => { overlay.remove(); openShareManager(); });
     document.getElementById('pm-beacon').addEventListener('click', () => {
         overlay.remove();
@@ -6887,7 +6915,7 @@ async function openProfilePanel() {
         const _qCard = overlay.querySelector('#pp-quota-card');
         _qCard.style.cursor = 'pointer';
         _qCard.title = 'Open Space Analyzer';
-        _qCard.addEventListener('click', () => { overlay.remove(); openSpaceAnalyzer(); });
+        _qCard.addEventListener('click', () => { window.fdCloseOverlay(overlay); openSpaceAnalyzer(); });
 
         // Fill in editable fields
         overlay.querySelector('#pp-nickname').value = me.nickname || '';
@@ -7102,8 +7130,8 @@ async function openAdminPanel() {
         </div>`;
     document.body.appendChild(overlay);
 
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-    document.getElementById('ap-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
+    document.getElementById('ap-close').addEventListener('click', () => window.fdCloseOverlay(overlay));
 
     await _apLoadUsers();
 }
@@ -7279,9 +7307,9 @@ function _apOpenEditModal(userId, users) {
         </div>`;
     document.body.appendChild(modal);
 
-    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-    modal.querySelector('#ap-edit-close').addEventListener('click', () => modal.remove());
-    modal.querySelector('#ape-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) window.fdCloseOverlay(modal); });
+    modal.querySelector('#ap-edit-close').addEventListener('click', () => window.fdCloseOverlay(modal));
+    modal.querySelector('#ape-cancel').addEventListener('click', () => window.fdCloseOverlay(modal));
 
     modal.querySelector('#ape-save').addEventListener('click', async () => {
         if (!modal.isConnected) return;
@@ -7303,7 +7331,7 @@ function _apOpenEditModal(userId, users) {
                 is_admin:       modal.querySelector('#ape-is-admin').checked ? 1 : 0,
                 quota_override: modal.querySelector('#ape-quota-override').checked ? 1 : 0,
             });
-            modal.remove();
+            window.fdCloseOverlay(modal);
             await _apLoadUsers();
         } catch (err) {
             if (!modal.isConnected) return;
@@ -7337,28 +7365,28 @@ async function openShareDialog(path, isDir) {
     overlay.id = 'share-dialog-overlay';
     overlay.innerHTML = `
         <div class="modal-content" style="max-width:500px">
-            <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">🔗 Share "${name}"</h3>
-            <p style="font-size:13px;color:#64748b;margin-bottom:16px">${isDir ? 'Folder' : 'File'}: <code style="background:#f1f5f9;padding:1px 5px;border-radius:4px">${path}</code></p>
+            <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">${t('share_dlg_title', { name })}</h3>
+            <p style="font-size:13px;color:#64748b;margin-bottom:16px">${isDir ? t('share_dlg_kind_folder') : t('share_dlg_kind_file')}: <code style="background:#f1f5f9;padding:1px 5px;border-radius:4px">${path}</code></p>
 
             <div style="display:grid;gap:10px;margin-bottom:18px">
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
                     <input type="checkbox" id="sh-require-account" style="width:16px;height:16px">
-                    <span style="font-size:14px"><strong>Require FluxDrop account</strong> to access</span>
+                    <span style="font-size:14px">${t('share_dlg_require_account')}</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
                     <input type="checkbox" id="sh-stats" checked style="width:16px;height:16px">
-                    <span style="font-size:14px"><strong>Track access stats</strong> (who/when accessed)</span>
+                    <span style="font-size:14px">${t('share_dlg_track_stats')}</span>
                 </label>
 
                 <div style="display:flex;align-items:center;gap:10px">
-                    <span style="font-size:14px;font-weight:600;white-space:nowrap">⏰ Expires:</span>
+                    <span style="font-size:14px;font-weight:600;white-space:nowrap">${t('share_dlg_expires_label')}</span>
                     <select id="sh-expiry-preset" style="flex:1;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:white">
-                        <option value="">Never (permanent)</option>
-                        <option value="1">1 day</option>
-                        <option value="7">7 days</option>
-                        <option value="30">30 days</option>
-                        <option value="90">90 days</option>
-                        <option value="custom">Custom date…</option>
+                        <option value="">${t('share_dlg_exp_never')}</option>
+                        <option value="1">${t('share_dlg_exp_1d')}</option>
+                        <option value="7">${t('share_dlg_exp_7d')}</option>
+                        <option value="30">${t('share_dlg_exp_30d')}</option>
+                        <option value="90">${t('share_dlg_exp_90d')}</option>
+                        <option value="custom">${t('share_dlg_exp_custom')}</option>
                     </select>
                     <input type="date" id="sh-expiry-custom"
                         style="display:none;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px"
@@ -7368,36 +7396,36 @@ async function openShareDialog(path, isDir) {
                 <hr style="border:none;border-top:1px solid #e2e8f0;margin:2px 0">
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
                     <input type="checkbox" id="sh-allow-preview" style="width:16px;height:16px">
-                    <span style="font-size:14px"><strong>Allow file preview</strong> — visitors can preview files without downloading</span>
+                    <span style="font-size:14px">${t('share_dlg_allow_preview')}</span>
                 </label>
                 ${!isDir ? `<label style="display:flex;align-items:center;gap:10px;cursor:pointer">
                     <input type="checkbox" id="sh-cdn-embed" style="width:16px;height:16px">
-                    <span style="font-size:14px"><strong>Allow CDN embedding</strong> — link acts as a direct media URL (for Discord, websites, etc.)</span>
+                    <span style="font-size:14px">${t('share_dlg_allow_cdn')}</span>
                 </label>` : ''}
 
                 ${isDir ? `
                 <hr style="border:none;border-top:1px solid #e2e8f0;margin:2px 0">
                 <label style="display:flex;align-items:center;gap:10px">
-                    <span style="font-size:14px;font-weight:600;white-space:nowrap">📤 Who can upload:</span>
+                    <span style="font-size:14px;font-weight:600;white-space:nowrap">${t('share_dlg_upload_who')}</span>
                     <select id="sh-upload-policy" style="flex:1;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:white">
-                        <option value="none">Nobody (read-only)</option>
-                        <option value="anon">Anyone</option>
-                        <option value="auth">FluxDrop users only</option>
+                        <option value="none">${t('share_dlg_upload_none')}</option>
+                        <option value="anon">${t('share_dlg_upload_anon')}</option>
+                        <option value="auth">${t('share_dlg_upload_auth')}</option>
                     </select>
                 </label>` : ''}
             </div>
 
             <div id="sh-result" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-bottom:14px">
-                <div style="font-size:12px;color:#166534;margin-bottom:6px;font-weight:600">Share link created:</div>
+                <div style="font-size:12px;color:#166534;margin-bottom:6px;font-weight:600">${t('share_dlg_link_created')}</div>
                 <div style="display:flex;gap:6px">
                     <input id="sh-link-box" type="text" readonly style="flex:1;font-size:12px;padding:6px;border:1px solid #ccc;border-radius:6px;background:white;color:#1e293b">
-                    <button id="sh-copy-btn" style="background:#16a34a;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Copy</button>
+                    <button id="sh-copy-btn" style="background:#16a34a;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">${t('share_dlg_copy')}</button>
                 </div>
             </div>
 
             <div style="display:flex;gap:8px;justify-content:flex-end">
-                <button id="sh-cancel-btn" class="btn" style="background:#e2e8f0;color:#1e293b">Cancel</button>
-                <button id="sh-create-btn" class="btn" style="background:#8b5cf6">Create Share Link</button>
+                <button id="sh-cancel-btn" class="btn" style="background:#e2e8f0;color:#1e293b">${t('cancel')}</button>
+                <button id="sh-create-btn" class="btn" style="background:#8b5cf6">${t('share_dlg_create')}</button>
             </div>
         </div>`;
     document.body.appendChild(overlay);
@@ -7429,13 +7457,14 @@ async function openShareDialog(path, isDir) {
     const shLinkBox   = overlay.querySelector('#sh-link-box');
     const shCopyBtn   = overlay.querySelector('#sh-copy-btn');
 
-    shCancelBtn.addEventListener('click', () => overlay.remove());
+    shCancelBtn.addEventListener('click', () => window.fdCloseOverlay(overlay));
+    overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
 
     let _shareCreated = false;
 
     shCreateBtn.addEventListener('click', async () => {
         // Fix the duplication of the shared links at specific sequences
-        if (_shareCreated) { overlay.remove(); return; }
+        if (_shareCreated) { window.fdCloseOverlay(overlay); return; }
 
         // Guard: if overlay was removed (e.g. Cancel clicked) before the
         // async chain settles, bail out silently.
@@ -7444,7 +7473,7 @@ async function openShareDialog(path, isDir) {
         shCreateBtn.disabled = true;
         shCreateBtn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px">' +
             '<svg style="animation:spin 0.8s linear infinite;width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>' +
-            'Creating…</span>';
+            t('share_dlg_creating') + '</span>';
         if (!document.getElementById('fd-spin-style')) {
             const st = document.createElement('style');
             st.id = 'fd-spin-style';
@@ -7476,15 +7505,15 @@ async function openShareDialog(path, isDir) {
 
             function doCopy() {
                 navigator.clipboard.writeText(shareUrl).then(() => {
-                    shCopyBtn.textContent = '✓ Copied!';
+                    shCopyBtn.textContent = t('share_dlg_copied');
                     shCopyBtn.style.background = '#15803d';
-                    setTimeout(() => { shCopyBtn.textContent = 'Copy'; shCopyBtn.style.background = '#16a34a'; }, 2000);
+                    setTimeout(() => { shCopyBtn.textContent = t('share_dlg_copy'); shCopyBtn.style.background = '#16a34a'; }, 2000);
                 }).catch(() => { shLinkBox.select(); });
             }
             shCopyBtn.addEventListener('click', doCopy);
             doCopy();
 
-            shCreateBtn.textContent = 'Done ✓';
+            shCreateBtn.textContent = t('share_dlg_done');
             shCreateBtn.style.background = '#16a34a';
             shCreateBtn.disabled = false;
             _shareCreated = true;
@@ -7492,8 +7521,8 @@ async function openShareDialog(path, isDir) {
         } catch (err) {
             if (!overlay.isConnected) return; // session expired, DOM gone — stay silent
             shCreateBtn.disabled = false;
-            shCreateBtn.textContent = 'Create Share Link';
-            if (err.message !== 'SESSION_EXPIRED') showMessage('Share failed', err.message);
+            shCreateBtn.textContent = t('share_dlg_create');
+            if (err.message !== 'SESSION_EXPIRED') showMessage(t('share_dlg_failed'), err.message);
         }
     });
 }
@@ -8163,19 +8192,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!document.getElementById('preview-modal').classList.contains('hidden')) {
             closePreview();
         } else if (document.getElementById('mv-dialog-overlay')) {
-            document.getElementById('mv-dialog-overlay').remove();
+            window.fdCloseOverlay(document.getElementById('mv-dialog-overlay'));
         } else if (document.getElementById('share-dialog-overlay')) {
-            document.getElementById('share-dialog-overlay').remove();
+            window.fdCloseOverlay(document.getElementById('share-dialog-overlay'));
         } else if (document.getElementById('ap-edit-overlay')) {
-            document.getElementById('ap-edit-overlay').remove();
+            window.fdCloseOverlay(document.getElementById('ap-edit-overlay'));
         } else if (document.getElementById('admin-panel-overlay')) {
-            document.getElementById('admin-panel-overlay').remove();
+            window.fdCloseOverlay(document.getElementById('admin-panel-overlay'));
         } else if (document.getElementById('profile-panel-overlay')) {
-            document.getElementById('profile-panel-overlay').remove();
+            window.fdCloseOverlay(document.getElementById('profile-panel-overlay'));
         } else if (document.getElementById('share-manager-overlay')) {
-            document.getElementById('share-manager-overlay').remove();
+            window.fdCloseOverlay(document.getElementById('share-manager-overlay'));
         } else if (document.getElementById('profile-menu-modal')) {
-            document.getElementById('profile-menu-modal').remove();
+            window.fdCloseOverlay(document.getElementById('profile-menu-modal'));
         } else {
             hideModal('message-modal');
         }
@@ -8258,7 +8287,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-94dbf215'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-a82b274e'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

@@ -136,7 +136,7 @@ from core.shares import _get_share, _get_shares_for_user, _create_share, _update
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
     _trash_purge_expired, _user_trash_root
 from core.net_monitor import _get_net_history_by_day, _net_state_lock, _net_monitor_state, _get_net_outages, _net_monitor_worker, _reconcile_open_outages
-from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot
+from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get
 from core.quota import _compute_dynamic_quota, _quota_updater_thread
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
@@ -1461,6 +1461,33 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except Exception:
             db_ok = False
 
+        # DB stats (user/session/share counts) — the initial /status page render
+        # (_build_status_page) has always computed these, but this polling
+        # endpoint never returned them even though the client's refreshStatus()
+        # was already written to expect them (by element id). Result: 30s after
+        # page load, the correctly-rendered initial numbers got overwritten with
+        # the literal text "undefined" — worse than just not updating.
+        user_count = active_sessions = active_shares = total_share_views = 0
+        try:
+            with _db_connect() as conn:
+                user_count        = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+                active_sessions   = conn.execute(
+                    "SELECT COUNT(*) FROM sessions WHERE expires_at > CURRENT_TIMESTAMP"
+                ).fetchone()[0]
+                active_shares     = conn.execute(
+                    "SELECT COUNT(*) FROM shared_links WHERE (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)"
+                ).fetchone()[0]
+                total_share_views = conn.execute(
+                    "SELECT COALESCE(SUM(access_count),0) FROM shared_links"
+                ).fetchone()[0]
+        except Exception:
+            pass
+
+        # File counts — same background cache _build_status_page() reads, so
+        # this is O(1) and never blocks the request even on a cold cache.
+        fluxdrop_files, _fluxdrop_size = _dir_cache_get(os.path.join(SERVE_ROOT, 'FluxDrop'))
+        catbox_files,   _catbox_size   = _dir_cache_get(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR))
+
         # CPU load
         loads = [0.0, 0.0, 0.0]
         try:
@@ -1499,6 +1526,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
             'cpu_load_5': loads[1],
             'cpu_load_15': loads[2],
             'srv_uptime_secs': srv_uptime_secs,
+            'user_count': user_count,
+            'active_sessions': active_sessions,
+            'active_shares': active_shares,
+            'total_share_views': total_share_views,
+            'fluxdrop_files': fluxdrop_files,
+            'catbox_files': catbox_files,
             'history': history,
             'incidents': _get_recent_incidents(10),
             'board': _get_message_board(5),

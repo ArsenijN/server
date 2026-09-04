@@ -28,6 +28,9 @@
       <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow:hidden">
         <button onclick="startShareZip('{current_zip_url}')"
            style="flex-shrink:0;background:#0ea5e9;color:white;border:none;padding:5px 12px;border-radius:7px;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer">⬇ ZIP</button>
+        <a href="{current_zip_direct_url}" download
+           title="Direct download — works without JavaScript, but no progress bar and can't resume if interrupted"
+           style="flex-shrink:0;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:4px 11px;border-radius:7px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;text-decoration:none">⬇ ZIP (no JS)</a>
         <span id="current-folder-size" style="font-size:12px;color:#94a3b8;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
               onclick="loadShareFolderSize(this, '{current_size_url}')">📦 Load folder size</span>
       </div>

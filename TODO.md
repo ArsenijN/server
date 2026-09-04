@@ -109,8 +109,6 @@ internet is bad
 to amount of server-side files being saved by users
 
 #### High:
-- [ ] Ability to download the shared folders without JS (fallback option for 
-ZIP downloads)
 - [ ] Update the helpers functionality
 - [ ] Document the new proxy method that is currently used with my Immich 
 instance
@@ -236,6 +234,9 @@ static hoster -- doesn't CDN have that already?
 - [x] Status page doesn't updates fully automatically (e.g. uptime)
 - [x] Status page doesn't load the amount of files on server on first load 
 because of backend stalement
+
+- [x] Ability to download the shared folders without JS (fallback option for 
+ZIP downloads)
 
 ---
 

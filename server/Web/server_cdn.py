@@ -3905,11 +3905,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(200, json.dumps({'size': total}))
 
             # ?zip=1 — stream the shared folder as a ZIP archive
+            # ?zip=1&direct=1 — same, but synchronous/single-request (no JS
+            # polling needed) — a plain <a href> triggers a real download.
             if qs.get('zip', ['0'])[0] == '1':
                 # Re-use the authenticated ZIP handler but temporarily satisfy its
                 # auth check by delegating directly to _handle_zip_fs which takes
                 # an already-resolved filesystem path.
-                return self._handle_zip_share(target_fs, os.path.basename(target_fs.rstrip('/')) or 'download')
+                direct = qs.get('direct', ['0'])[0] == '1'
+                return self._handle_zip_share(target_fs, os.path.basename(target_fs.rstrip('/')) or 'download', direct=direct)
 
             return self._send_response(200, self._render_share_page(share, token, target_fs, base_fs, sub_path or ""), "text/html")
 
@@ -4221,9 +4224,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if share["require_account"] else ''
         )
 
-        # Current-folder ZIP and size URLs (for the page header download button)
-        current_zip_url  = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?zip=1")
-        current_size_url = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?foldersize=1")
+        # Current-folder ZIP and size URLs (for the page header download button).
+        # current_zip_direct_url is a plain <a href> — works with JS disabled,
+        # since it streams the ZIP synchronously in one request instead of the
+        # async job-poll-stream flow startShareZip() drives via JS.
+        current_zip_url        = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?zip=1")
+        current_zip_direct_url = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?zip=1&direct=1")
+        current_size_url       = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?foldersize=1")
 
         return _render_snippet('share_folder_page.html',
             PUBLIC_DOMAIN=PUBLIC_DOMAIN,
@@ -4236,6 +4243,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             entries_html=entries_html,
             upload_section=upload_section,
             current_zip_url=current_zip_url,
+            current_zip_direct_url=current_zip_direct_url,
             current_size_url=current_size_url,
         )
 
@@ -4256,11 +4264,20 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     # --- FluxDrop API Handlers ---
 
-    def _handle_zip_share(self, base_fs: str, folder_name: str):
-        """Build a ZIP session for base_fs (already validated by caller) and
-        return the JSON metadata so the client can stream/resume via zip_stream."""
+    def _handle_zip_share(self, base_fs: str, folder_name: str, direct: bool = False):
+        """ZIP download for a public share (base_fs already validated by caller).
+
+        direct=False (default): kicks off the async job-based flow (zip_meta ->
+        zip_status polling -> zip_stream) the share page's JS uses for a progress
+        UI and resumable downloads.
+        direct=True: streams the ZIP synchronously in this single request via
+        _handle_zip's share_override path, so a plain <a href> works with no JS
+        at all — no progress UI, no resume, but nothing to poll either.
+        """
         self._zip_share_override = base_fs
         try:
+            if direct:
+                return self._handle_zip('/__share_override__')
             return self._handle_zip_meta('/__share_override__')
         finally:
             self._zip_share_override = None
@@ -4714,7 +4731,18 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # ── Pre-walk ─────────────────────────────────────────────────────────────
         files_info = []   # (abs_path, arcname, arcname_bytes, file_size, dos_time, dos_date)
         missing_files = []  # arcnames that were found in os.walk but unreadable at stat time
-        for dirpath, _dirs, filenames in os.walk(base_fs):
+
+        def _on_walk_error(exc: OSError) -> None:
+            # Without onerror, os.walk() silently drops any subdirectory it can't
+            # list (permission denied, deleted mid-walk) with zero record — see
+            # the matching fix in _zip_build_job for the async path.
+            try:
+                rel = os.path.relpath(exc.filename, base_fs).replace(os.sep, '/')
+            except (TypeError, ValueError):
+                rel = exc.filename or '?'
+            missing_files.append(rel + '/ (folder unreadable — skipped)')
+
+        for dirpath, _dirs, filenames in os.walk(base_fs, onerror=_on_walk_error):
             for fname in sorted(filenames):
                 if fname in ('.placeholder', '.create_marker'):
                     continue

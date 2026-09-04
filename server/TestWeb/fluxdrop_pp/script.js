@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-d534ea0e
+// Current version of script.js is: fluxdrop-v-736cf66e
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-d534ea0e'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-736cf66e'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -1201,7 +1201,14 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
         </div>`;
         bodyEl.scrollTop = 0;
         try {
-            const resp = await fetch(_policyUrl(type, loadLang, loadVer), { cache: 'no-cache' });
+            // On a slow/stalled connection this fetch previously had no timeout
+            // at all — the shimmer skeleton could sit there indefinitely with
+            // no fallback ever appearing. Bound it so the user always lands on
+            // an actionable state (retry or agree-anyway) within a few seconds.
+            const resp = await fetch(_policyUrl(type, loadLang, loadVer), {
+                cache: 'no-cache',
+                signal: AbortSignal.timeout(15000),
+            });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const text = await resp.text();
             try {
@@ -1216,9 +1223,18 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
                 hint.textContent = '';
             }
         } catch (err) {
+            const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
+            const reason = isTimeout
+                ? 'The document is taking too long to load — your connection may be slow or unstable.'
+                : `Could not load the document: ${err.message}`;
             bodyEl.innerHTML = `
-                <p style="color:#dc2626">Could not load the document: ${err.message}</p>
-                <p>You can still agree by clicking the button below, or try reloading the page.</p>`;
+                <p style="color:#dc2626">${escapeHtml(reason)}</p>
+                <p>
+                    <button id="pam-retry-btn" class="btn" style="background:#3b82f6;margin-right:8px">Retry</button>
+                    You can also agree by clicking the button below, or try reloading the page.
+                </p>`;
+            const retryBtn = bodyEl.querySelector('#pam-retry-btn');
+            if (retryBtn) retryBtn.addEventListener('click', () => loadDoc(loadLang));
             _enableAgree();
             hint.textContent = '';
         }
@@ -3483,9 +3499,14 @@ function _renderArchiveTree(bodyEl, entries, archiveName) {
         return;
     }
 
-    // Build a tree structure from flat paths
+    // Build a tree structure from flat paths.
+    // children uses Object.create(null) rather than {} — archive entry names
+    // are attacker/uploader controlled, and a folder literally named
+    // "__proto__" would otherwise hit Object.prototype's accessor instead of
+    // creating a real property, silently dropping that folder (and anything
+    // nested under it) from the rendered tree instead of listing it.
     function buildTree(entries) {
-        const root = { children: {}, files: [] };
+        const root = { children: Object.create(null), files: [] };
         for (const e of entries) {
             const parts = e.name.replace(/\\/g, '/').replace(/\/$/, '').split('/');
             if (e.isDir || parts.length > 1) {
@@ -3493,7 +3514,7 @@ function _renderArchiveTree(bodyEl, entries, archiveName) {
                 let node = root;
                 const dirParts = e.isDir ? parts : parts.slice(0, -1);
                 for (const part of dirParts) {
-                    if (!node.children[part]) node.children[part] = { children: {}, files: [] };
+                    if (!node.children[part]) node.children[part] = { children: Object.create(null), files: [] };
                     node = node.children[part];
                 }
                 if (!e.isDir) node.files.push({ name: parts[parts.length - 1], size: e.size });
@@ -4107,13 +4128,13 @@ function _removeContextMenu() {
     document.getElementById('fd-ctx-menu')?.remove();
 }
 
-// Animated dismiss, for user-initiated closes (click outside / scroll) only.
-// _removeContextMenu() itself must stay instant: _showContextMenu() calls it
-// right before creating a brand-new menu with the same id, and _doRowSelect/
-// the menu-item click handler call it right before an action fires — in all
-// of those cases the screen is about to change anyway, so an exit animation
-// would just add latency (and, for the "new menu right after" case, risk a
-// duplicate #fd-ctx-menu existing mid-animation).
+// Animated dismiss, for every user-initiated close (click outside/inside the
+// menu, an item action, or scroll). _removeContextMenu() itself must stay
+// instant only where a brand-new menu is about to take the same #fd-ctx-menu
+// id right away: _showContextMenu()'s own guard, and _doRowSelect() (a hot
+// path — row selection fires far more often than the menu is actually open,
+// so it can't afford a fade there). Everywhere the menu is genuinely being
+// dismissed, use this instead so it doesn't just vanish.
 function _dismissContextMenu() {
     const menu = document.getElementById('fd-ctx-menu');
     if (menu) window.fdCloseFloatingPanel(menu);
@@ -4191,7 +4212,7 @@ function _showContextMenu(x, y, row) {
         btn.addEventListener('mouseenter', () => btn.style.background = 'var(--fd-surface3,#f1f5f9)');
         btn.addEventListener('mouseleave', () => btn.style.background = 'none');
         btn.addEventListener('click', () => {
-            _removeContextMenu();
+            _dismissContextMenu();
             const p  = row.dataset.path;
             const id = row.dataset.isDir === '1';
             switch (btn.dataset.action) {
@@ -8288,7 +8309,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-d534ea0e'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-736cf66e'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

@@ -131,7 +131,7 @@ async function startShareZip(metaUrl) {
     // If the server returned the old synchronous shape (no job_id), handle it
     // gracefully so old server versions still work.
     if (initData.url) {
-      _triggerZipDownload(initData);
+      await _triggerZipDownload(initData);
       return;
     }
 
@@ -159,7 +159,7 @@ async function startShareZip(metaUrl) {
       }
     }
 
-    _triggerZipDownload(meta);
+    await _triggerZipDownload(meta);
 
   } catch(e) {
     alert('ZIP failed: ' + e.message);
@@ -168,19 +168,49 @@ async function startShareZip(metaUrl) {
   }
 }
 
+// Shows which files (if any) couldn't be read and were left out of the
+// archive, and lets the visitor cancel \u2014 before the download starts, not
+// after. This used to only console.warn() (invisible to a real visitor) and
+// fire a bare alert() *after* a.click() had already kicked the download off,
+// by which point there was nothing left to decide. Mirrors the missing-files
+// confirmation the main FluxDrop app already shows for its own (authenticated)
+// folder-ZIP download.
 function _triggerZipDownload(meta) {
-  if (meta.missing && meta.missing.length > 0) {
-    console.warn('ZIP: ' + meta.missing.length + ' file(s) skipped:', meta.missing);
-  }
-  const a = document.createElement('a');
-  a.href     = meta.url;
-  a.download = meta.filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  if (meta.missing && meta.missing.length > 0) {
-    alert('\u26a0 ' + meta.missing.length + ' file(s) could not be read and were skipped from the archive.');
-  }
+  return new Promise(resolve => {
+    const proceed = () => {
+      const a = document.createElement('a');
+      a.href     = meta.url;
+      a.download = meta.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      resolve();
+    };
+
+    if (!meta.missing || meta.missing.length === 0) {
+      proceed();
+      return;
+    }
+
+    const list = meta.missing.map(f =>
+      `<li style="font-family:ui-monospace,monospace;font-size:12px">${_escHtml(f)}</li>`
+    ).join('');
+    const mo = document.createElement('div');
+    mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem';
+    mo.innerHTML = `
+      <div style="background:white;border-radius:12px;padding:20px;width:100%;max-width:440px;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+        <h3 style="font-size:16px;font-weight:700;margin:0 0 8px;color:#1e293b">\u26a0 ${meta.missing.length} file(s) will be skipped</h3>
+        <p style="font-size:13px;color:#64748b;margin:0 0 10px">These files could not be read and will be absent from the ZIP:</p>
+        <ul style="max-height:200px;overflow-y:auto;padding-left:18px;margin:0 0 16px">${list}</ul>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="sp-zip-missing-cancel" style="background:#e2e8f0;color:#1e293b;border:none;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
+          <button id="sp-zip-missing-ok" style="background:#0ea5e9;color:white;border:none;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Download anyway</button>
+        </div>
+      </div>`;
+    document.body.appendChild(mo);
+    mo.querySelector('#sp-zip-missing-ok').addEventListener('click', () => { mo.remove(); proceed(); });
+    mo.querySelector('#sp-zip-missing-cancel').addEventListener('click', () => { mo.remove(); resolve(); });
+  });
 }
 
 async function loadShareFolderSize(el, url) {

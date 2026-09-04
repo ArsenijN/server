@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "uk",
     "label": "Українська",
-    "version": "1.4.3"
+    "version": "1.4.4"
   },
   "login": "Увійти",
   "register": "Реєстрація",
@@ -352,5 +352,8 @@
   "share_dlg_create": "Створити посилання",
   "share_dlg_creating": "Створення…",
   "share_dlg_done": "Готово ✓",
-  "share_dlg_failed": "Не вдалося поділитися"
+  "share_dlg_failed": "Не вдалося поділитися",
+  "theme_auto": "Авто (системна)",
+  "theme_light": "Світла",
+  "theme_dark": "Темна"
 }

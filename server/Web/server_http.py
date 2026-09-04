@@ -8,6 +8,7 @@ import sys
 from config import SERVE_DIRECTORY, LOG_FILE_HTTP, BLACKLIST_FILE
 from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
 from config import HTTPS_PORT as _HTTPS_PORT
+from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 import datetime
@@ -216,7 +217,7 @@ def _path_proxy_https_redirect(handler) -> bool:
     handler.send_response(308)
     handler.send_header('Location', f'https://{host}{_port_suffix}{handler.path}')
     handler.send_header('Content-Length', '0')
-    handler.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+    handler.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
     handler.end_headers()
     return True
 
@@ -373,8 +374,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Location',
                                  f'https://{_host_bare}{_port_suffix}{requested_path}')
                 self.send_header('Content-Length', '0')
-                self.send_header('Strict-Transport-Security',
-                                 'max-age=300; includeSubDomains')
+                self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
                 self.end_headers()
                 return
 
@@ -398,7 +398,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Location', _location)
             self.send_header('Content-Length', '0')
             # HSTS nudge so the browser remembers to use HTTPS next time
-            self.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+            self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
             self.end_headers()
             return
 
@@ -565,7 +565,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_response(308)
                 self.send_header('Location', f'https://{_host_bare}{_port_suffix}{requested_path}')
                 self.send_header('Content-Length', '0')
-                self.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+                self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
                 self.end_headers()
                 return
         if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _HTTPS_REDIRECT_PREFIXES):
@@ -573,7 +573,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(308)
             self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{requested_path}')
             self.send_header('Content-Length', '0')
-            self.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+            self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
             self.end_headers()
             return
         if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _CDN_PROXY_PREFIXES):
@@ -684,7 +684,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(308)
             self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
             self.send_header('Content-Length', '0')
-            self.send_header('Strict-Transport-Security', 'max-age=300; includeSubDomains')
+            self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
             self.end_headers()
             return
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):

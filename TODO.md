@@ -201,16 +201,6 @@ as specified in `PUBLIC_DOMAIN`)
 ---
 
 ## Items that needs additional checks or implementations:
-- [ ] Missing ZIP's files may be never displayed on client
-- [ ] Check the acceptance modal loader on slow internet when new terms will be 
-made/applied
-- [ ] Dark mode auto switch -- doesn't work
-- [ ] HSTS redirect should work correctly
-- [ ] Check the visualization for retry cycles
-- [ ] Check that downloading the ZIP show the actual thing that happening 
-behind the scene (because it showed just "Downloading via browser..." before)
-- [ ] Add partial content support for CatBox API and CDN itself for it's 
-static hoster -- doesn't CDN have that already?
 
 ---
 
@@ -234,6 +224,17 @@ static hoster -- doesn't CDN have that already?
 - [x] "📌 Зберігати вибір" are starts to be visible when there's more than one 
 item inside folder, but doesn't stop being visible... Wait, why it wasn't there 
 first time? It should be!
+
+- [x] Missing ZIP's files may be never displayed on client
+- [x] Check the acceptance modal loader on slow internet when new terms will be 
+made/applied
+- [x] Dark mode auto switch -- doesn't work
+- [x] HSTS redirect should work correctly
+- [x] Check the visualization for retry cycles
+- [x] Check that downloading the ZIP show the actual thing that happening 
+behind the scene (because it showed just "Downloading via browser..." before)
+- [x] Add partial content support for CatBox API and CDN itself for it's 
+static hoster -- doesn't CDN have that already?
 
 ---
 

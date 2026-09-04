@@ -74,6 +74,15 @@ except OSError as e:
 # Public-facing domain (can be overridden via env)
 PUBLIC_DOMAIN = os.getenv('PUBLIC_DOMAIN', 'arseniusgen.uk.to')
 
+# HSTS max-age, in seconds. Single source of truth — this same value used to be
+# hardcoded as the literal string 'max-age=300; includeSubDomains' independently
+# in ~6 places across server_http.py and server_cdn.py, which meant changing it
+# meant remembering to touch every one of them. 300s (5 min) is intentionally
+# short for now (staged rollout); bump via env or here once confirmed stable,
+# and every call site picks it up automatically.
+HSTS_MAX_AGE = int(os.getenv('HSTS_MAX_AGE', '300'))
+HSTS_HEADER_VALUE = f'max-age={HSTS_MAX_AGE}; includeSubDomains'
+
 # SMTP credentials should come from env vars in production
 SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT', os.getenv('SMTP_PORT', '587')))

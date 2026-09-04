@@ -111,6 +111,7 @@ import urllib.parse as _up
 from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
+from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
 
 # Plain-HTTP loopback port used by server_https proxy to avoid double-TLS.
 # Bound to 127.0.0.1 only — never reachable from outside the machine.
@@ -508,7 +509,24 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
         # Pre-walk
         raw_files = []
         missing   = []
-        for dirpath, _dirs, filenames in os.walk(base_fs):
+
+        def _on_walk_error(exc: OSError) -> None:
+            # os.walk() silently skips any directory it can't list (permission
+            # denied, or the folder got deleted out from under the scan by a
+            # concurrent operation — this job can run for a while on large
+            # folders) unless given an onerror callback. Without one, every
+            # file inside that subtree would vanish from the ZIP with no
+            # record anywhere — not even in `missing` — which is a strictly
+            # worse and silent version of the per-file skip case below.
+            # Record the directory itself so it surfaces through the same
+            # missing-files list/modal the client already shows.
+            try:
+                rel = os.path.relpath(exc.filename, base_fs).replace(os.sep, '/')
+            except (TypeError, ValueError):
+                rel = exc.filename or '?'
+            missing.append(rel + '/ (folder unreadable — skipped)')
+
+        for dirpath, _dirs, filenames in os.walk(base_fs, onerror=_on_walk_error):
             for fname in sorted(filenames):
                 if fname in ('.placeholder', '.create_marker'):
                     continue
@@ -1252,8 +1270,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         self.send_header('X-Frame-Options', 'SAMEORIGIN')
         self.send_header('X-Content-Type-Options', 'nosniff')
         if isinstance(self.server.socket, ssl.SSLSocket):
-            self.send_header('Strict-Transport-Security',
-                            'max-age=300; includeSubDomains')
+            self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
         # P7: Content-Security-Policy
         # 'unsafe-inline' is needed because the share snippet pages use inline <script>/<style>.
         # Remove it once those are moved to external files.
@@ -2464,6 +2481,73 @@ class AuthHandler(SimpleHTTPRequestHandler):
             conn.commit()
         return self._send_response(200, json.dumps({'read_token': new_rt}), 'application/json')
 
+    def _serve_file_range(self, fs_path: str, range_header: str):
+        """Serve a single byte-range slice of a static file as 206 Partial
+        Content. Caller must have already confirmed fs_path is a regular
+        file and that self.end_headers is patched for this response (CORS /
+        Accept-Ranges / security headers).
+
+        Only a single 'bytes=start-end' range is supported — same as
+        _handle_trash_stream()'s Range handling elsewhere in this file: an
+        unparsable Range header is treated as "whole file" rather than
+        rejected, and out-of-bounds start/end are clamped into range rather
+        than erroring, except for a start at/past EOF which is genuinely
+        unsatisfiable (416). No multipart ranges, no If-Range validation —
+        deliberately kept to the same scope as the existing convention.
+        """
+        try:
+            file_size = os.path.getsize(fs_path)
+        except OSError:
+            return self.send_error(404, "File not found")
+
+        if file_size == 0:
+            # An empty file has no satisfiable byte range; the normal 200
+            # path already returns a correct (empty) body for it.
+            return super().do_GET()
+
+        m = re.match(r'bytes=(\d+)-(\d*)', range_header)
+        if m:
+            start = int(m.group(1))
+            end   = int(m.group(2)) if m.group(2) else file_size - 1
+        else:
+            start, end = 0, file_size - 1
+
+        if start >= file_size:
+            self.send_response(416)
+            self.send_header('Content-Range', f'bytes */{file_size}')
+            self.end_headers()
+            return
+
+        start  = max(0, min(start, file_size - 1))
+        end    = max(start, min(end, file_size - 1))
+        length = end - start + 1
+
+        mime_type, _ = self.guess_type(fs_path)
+        mime_type = mime_type or 'application/octet-stream'
+
+        self.send_response(206)
+        self.send_header('Content-Type',   mime_type)
+        self.send_header('Content-Range',  f'bytes {start}-{end}/{file_size}')
+        self.send_header('Content-Length', str(length))
+        self.end_headers()
+
+        if self.command == 'HEAD':
+            return
+
+        bufsize = 4 * 1024 * 1024   # 4 MiB read buffer, matches _handle_trash_stream()
+        try:
+            with open(fs_path, 'rb') as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = f.read(min(bufsize, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def do_GET(self):
         """Routes GET requests to the appropriate handler or serves static files."""
         # Just in case: add the function
@@ -2770,6 +2854,21 @@ class AuthHandler(SimpleHTTPRequestHandler):
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
         try:
+            # Accept-Ranges: bytes has been advertised above all along, but
+            # nothing actually honored a Range request on this catch-all —
+            # it fell straight through to SimpleHTTPRequestHandler.do_GET(),
+            # and the stdlib has never implemented Range/206 parsing, so a
+            # Range request just got the full file back with a 200 anyway.
+            # That breaks video/audio seeking and resumable downloads for
+            # every static asset served through here, CatBox uploads
+            # included. Mirror the single-range, clamped-not-rejected
+            # convention _handle_trash_stream() already uses elsewhere in
+            # this file, rather than inventing a second one.
+            range_header = self.headers.get('Range')
+            if range_header:
+                fs_path = self.translate_path(self.path)
+                if os.path.isfile(fs_path):
+                    return self._serve_file_range(fs_path, range_header)
             return super().do_GET()
         finally:
             self.end_headers = old_end_headers

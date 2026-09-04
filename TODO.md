@@ -51,21 +51,12 @@ on i5 8350U)
 - [ ] Add `.dng` and other raw image formats support for previews
 - [ ] Fix i18n in:
   - [ ] Error-related pages -- untested
-  - [ ] `share-dialog-overlay`'s buttons (Copy, Copied!, Done, Creating)
-  - [x] Admin panel
 - [ ] Add or fix animations in:
   - [ ] File info modal closing (`fd-info-panel`)
   - [ ] File action modal closing (`fd-ctx-menu`)
-  - [ ] `mv-dialog-overlay` when changing it's size
-  - [ ] `mv-dialog-overlay` closing
-  - [ ] Profile panel (`profile-panel-overlay`) when opens the storage analyzer 
-  window
-  - [ ] Storage analyzer (`fd-sa-overlay`) when closing
-  - [ ] `ap-edit-overlay` when closing
   - [ ] `ap-body`'s spinning wheel is still spinning in background (not visible 
   but Animations debugger sees it)
-  - [ ] `share-dialog-overlay` closing
-  - [ ] `fd-auth-modal` closing
+  - [ ] `fd-auth-modal` closing - when logged in*
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
@@ -85,9 +76,6 @@ output the folder size**, meaning that there **is** still meaning for the curren
 t setup
 - [ ] File selector does not reset when file is moved
 - [ ] Hide file selector for the mobile version of the FluxDrop
-- [ ] "📌 Зберігати вибір" are starts to be visible when there's more than one 
-item inside folder, but doesn't stop being visible... Wait, why it wasn't there 
-first time? It should be!
 - [ ] Hold-to-manage feature on mobile is nifty - maybe should been also 
 mentioned in the welcoming screen
 - [ ] Opening the profile preview modal is very epilepsy-warning (mobile)
@@ -230,8 +218,22 @@ static hoster -- doesn't CDN have that already?
 *New lines between chunks of finished items means the patch version change 
 (e.g. `Vx.y.z.0` to `Vx.y.z.1`)*
 
-
 (end of release note there)
+
+- [ ] Fix i18n in:
+  - [x] `share-dialog-overlay`'s buttons (Copy, Copied!, Done, Creating)
+  - [x] Admin panel
+- [ ] Add or fix animations in:
+  - [x] `mv-dialog-overlay` when changing it's size
+  - [x] `mv-dialog-overlay` closing
+  - [x] Profile panel (`profile-panel-overlay`) when opens the storage analyzer 
+  window
+  - [x] Storage analyzer (`fd-sa-overlay`) when closing
+  - [x] `ap-edit-overlay` when closing
+  - [x] `share-dialog-overlay` closing
+- [x] "📌 Зберігати вибір" are starts to be visible when there's more than one 
+item inside folder, but doesn't stop being visible... Wait, why it wasn't there 
+first time? It should be!
 
 ---
 

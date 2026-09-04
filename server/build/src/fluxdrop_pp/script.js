@@ -1345,7 +1345,7 @@ function _showAuthModal(initialMode) {
     });
 
     // Close on backdrop click
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
 
     // Form submissions
     overlay.querySelector('#fd-login-form').addEventListener('submit', handleLogin);
@@ -6290,7 +6290,8 @@ async function handleLogin(e) {
         localStorage.setItem('fluxdrop_is_admin', data.is_admin ? '1' : '0');
         localStorage.setItem('fluxdrop_username', currentUsername);
         if (data.id) localStorage.setItem('fluxdrop_user_id', String(data.id));
-        document.getElementById('fd-auth-modal')?.remove();
+        const _authModal = document.getElementById('fd-auth-modal');
+        if (_authModal) window.fdCloseOverlay(_authModal);
         delete appRoot.dataset.fdLanding;
         const _welcomeKey = `fluxdrop_welcomed_${currentUsername}`;
         if (!localStorage.getItem(_welcomeKey)) {

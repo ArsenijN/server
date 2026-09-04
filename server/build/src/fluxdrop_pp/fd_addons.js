@@ -1111,13 +1111,24 @@
  * "Logout" inside the profile menu) intentionally still call overlay.remove()
  * directly — the screen changes right away in those cases, so an exit
  * animation on the overlay itself would just add latency.
+ *
+ * IMPORTANT — set the exit animation via inline style, not a CSS class:
+ * some overlays/panels declare their entrance animation with a selector that
+ * outranks a plain exit class in the cascade (an ID selector like
+ * #fd-auth-modal/#fd-auth-card, or an inline style like #fd-info-panel's).
+ * classList.add('fd-overlay-closing') on those elements silently loses to
+ * the still-applied entrance rule — no visual transition plays, the element
+ * just sits there until the setTimeout fallback removes it. Writing directly
+ * to .style.animation always wins (inline beats any selector short of
+ * !important), so it's the only approach that's correct for every caller.
  */
 window.fdCloseOverlay = function (overlay, ms) {
     if (!overlay || overlay.dataset.fdClosing) return;
     overlay.dataset.fdClosing = '1';
-    overlay.classList.add('fd-overlay-closing');
+    overlay.style.animation     = 'fd-overlay-fade-out .16s ease forwards';
+    overlay.style.pointerEvents = 'none';
     const panel = overlay.firstElementChild;
-    if (panel) panel.classList.add('fd-panel-closing');
+    if (panel) panel.style.animation = 'fd-panel-scale-out .16s cubic-bezier(.4,0,.2,1) forwards';
     let done = false;
     const finish = () => {
         if (done) return;
@@ -1153,10 +1164,17 @@ window.fdCollapseTray = function (tray, ms) {
 // For standalone floating panels that aren't a backdrop+content pair (e.g.
 // #fd-info-panel, which is itself the positioned card with no overlay behind
 // it) — fades/slides the panel itself out, then removes it.
+//
+// Set via inline style, not a class — see the note above fdCloseOverlay().
+// #fd-info-panel's own entrance is an inline style (style.cssText at
+// creation) and #fd-ctx-menu's is the .fd-ctx-menu-in class, which is
+// declared later in input.css than .fd-float-panel-closing and so used to
+// win the cascade outright; classList.add() never actually overrode either.
 window.fdCloseFloatingPanel = function (panel, ms) {
     if (!panel || panel.dataset.fdClosing) return;
     panel.dataset.fdClosing = '1';
-    panel.classList.add('fd-float-panel-closing');
+    panel.style.animation     = 'fd-float-panel-out .16s ease forwards';
+    panel.style.pointerEvents = 'none';
     let done = false;
     const finish = () => {
         if (done) return;

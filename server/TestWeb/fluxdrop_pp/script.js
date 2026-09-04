@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-195117fb
+// Current version of script.js is: fluxdrop-v-d534ea0e
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-195117fb'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-d534ea0e'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -1345,7 +1345,7 @@ function _showAuthModal(initialMode) {
     });
 
     // Close on backdrop click
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
 
     // Form submissions
     overlay.querySelector('#fd-login-form').addEventListener('submit', handleLogin);
@@ -6290,7 +6290,8 @@ async function handleLogin(e) {
         localStorage.setItem('fluxdrop_is_admin', data.is_admin ? '1' : '0');
         localStorage.setItem('fluxdrop_username', currentUsername);
         if (data.id) localStorage.setItem('fluxdrop_user_id', String(data.id));
-        document.getElementById('fd-auth-modal')?.remove();
+        const _authModal = document.getElementById('fd-auth-modal');
+        if (_authModal) window.fdCloseOverlay(_authModal);
         delete appRoot.dataset.fdLanding;
         const _welcomeKey = `fluxdrop_welcomed_${currentUsername}`;
         if (!localStorage.getItem(_welcomeKey)) {
@@ -8287,7 +8288,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-195117fb'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-d534ea0e'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

@@ -3971,7 +3971,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 mtime = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
                 pad = indent * 20
                 if os.path.isdir(entry_fs):
-                    zip_url  = _turl(entry_url_base + "?zip=1")
+                    zip_url        = _turl(entry_url_base + "?zip=1")
+                    zip_direct_url = _turl(entry_url_base + "?zip=1&direct=1")
                     size_url = _turl(entry_url_base + "?foldersize=1")
                     rows += f"""<tr class="entry-row">
                         <td style="padding:8px 12px 8px {12+pad}px">
@@ -3981,9 +3982,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             <span style="font-size:11px;color:#cbd5e1;cursor:pointer" onclick="loadShareFolderSize(this,{repr(size_url)})">— (load)</span>
                         </td>
                         <td style="padding:8px 12px;color:#94a3b8">{mtime}</td>
-                        <td style="padding:8px 12px">
+                        <td style="padding:8px 12px;white-space:nowrap">
                             <button onclick="startShareZip({repr(zip_url)})"
                                style="background:#0ea5e9;color:white;border:none;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer">⬇ ZIP</button>
+                            <a href="{zip_direct_url}" download class="nojs-zip"
+                               title="Direct download — works without JavaScript, but no progress bar and can't resume if interrupted"
+                               style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:2px 9px;border-radius:5px;font-size:11px;font-weight:600;text-decoration:none;margin-left:4px">⬇ no JS</a>
                         </td>
                     </tr>"""
                     # If we're viewing this directory or a parent of it, expand its children

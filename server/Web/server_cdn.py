@@ -136,7 +136,7 @@ from core.shares import _get_share, _get_shares_for_user, _create_share, _update
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
     _trash_purge_expired, _user_trash_root
 from core.net_monitor import _get_net_history_by_day, _net_state_lock, _net_monitor_state, _get_net_outages, _net_monitor_worker, _reconcile_open_outages
-from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get
+from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get, _dir_cache_get_ex
 from core.quota import _compute_dynamic_quota, _quota_updater_thread
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
@@ -5687,11 +5687,26 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     p = os.path.join(root_dir, name)
                     st = os.stat(p)
                     rel = prefix + '/' + os.path.relpath(p, root_dir).replace(os.sep, '/')
+                    is_dir = os.path.isdir(p)
+                    if is_dir:
+                        # Cached recursive size — avoids the frontend needing a
+                        # separate ?foldersize request per visible folder. null
+                        # means the cache is cold for this folder (never listed
+                        # before); the frontend falls back to its old per-row
+                        # fetch just for those, and the cache self-warms in the
+                        # background for next time.
+                        dir_count, dir_size, dir_warm = _dir_cache_get_ex(p)
+                        size_val = dir_size if dir_warm else None
+                        file_count_val = dir_count if dir_warm else None
+                    else:
+                        size_val = st.st_size
+                        file_count_val = None
                     entries.append({
                         "name": name,
                         "path": rel,
-                        "is_dir": os.path.isdir(p),
-                        "size": 0 if os.path.isdir(p) else st.st_size,
+                        "is_dir": is_dir,
+                        "size": size_val,
+                        "file_count": file_count_val,
                         "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(timespec='seconds')
                     })
                 current_rel = prefix + '/' + os.path.relpath(root_dir, root_dir).replace(os.sep, '/').strip('./')
@@ -5754,10 +5769,20 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             continue                                # skip partial upload file
                         st  = os.stat(p)
                         rel = '/' + os.path.relpath(p, user_dir).replace(os.sep, '/')
+                        is_dir = os.path.isdir(p)
+                        if is_dir:
+                            # See the /cdn branch above for why size can be null.
+                            dir_count, dir_size, dir_warm = _dir_cache_get_ex(p)
+                            size_val = dir_size if dir_warm else None
+                            file_count_val = dir_count if dir_warm else None
+                        else:
+                            size_val = st.st_size
+                            file_count_val = None
                         entries.append({
                             "name": name, "path": rel,
-                            "is_dir": os.path.isdir(p),
-                            "size": 0 if os.path.isdir(p) else st.st_size,
+                            "is_dir": is_dir,
+                            "size": size_val,
+                            "file_count": file_count_val,
                             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(timespec='seconds')
                         })
                     payload = {

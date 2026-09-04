@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-736cf66e
+// Current version of script.js is: fluxdrop-v-79498a4e
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-736cf66e'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-79498a4e'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -2063,9 +2063,16 @@ function renderEntryRow(e) {
     const path    = e.path;
     const safePA  = escapeHtmlAttr(path);
 
-    // Folders show '…' initially; size loaded lazily via loadFolderSize()
+    // The list endpoint now embeds each folder's cached size directly (no
+    // more one fetch per visible folder) — but the cache can still be cold
+    // for a folder nobody's opened before, in which case e.size is null and
+    // we fall back to the old lazy per-row fetch via loadFolderSize().
+    const folderWarm = e.is_dir && e.size != null;
+    const folderTitle = folderWarm && e.file_count != null
+        ? ` title="${e.file_count} file${e.file_count !== 1 ? 's' : ''}"` : '';
     const sizeStr = e.is_dir
-        ? `<span class="folder-size-cell" data-path="${safePA}" style="color:#94a3b8">…</span>`
+        ? `<span class="folder-size-cell" data-path="${safePA}" ${folderWarm ? 'data-warm="1"' : ''}${folderTitle}
+               style="color:#94a3b8">${folderWarm ? formatBytes(e.size) : '…'}</span>`
         : formatBytes(e.size);
 
     const TD_NAME = 'style="padding:9px 8px;vertical-align:middle;overflow:hidden;max-width:0"';
@@ -3978,8 +3985,9 @@ function attachRowListeners() {
         if (!e.target.closest('.fd-file-row')) { _clearSelection(); _updateSelBar(); }
     });
 
-    // Lazy folder sizes
-    fileList.querySelectorAll('.folder-size-cell').forEach((cell, idx) => {
+    // Lazy folder sizes — only for cells the list response couldn't already
+    // fill in (cache was cold for that folder); warm ones need no request.
+    fileList.querySelectorAll('.folder-size-cell:not([data-warm])').forEach((cell, idx) => {
         setTimeout(() => loadFolderSize(cell), idx * 80);
     });
 }
@@ -8309,7 +8317,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-736cf66e'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-79498a4e'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

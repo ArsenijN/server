@@ -54,11 +54,15 @@ def _count_dir_walk(path: str) -> tuple[int, int]:
     return count, size
 
 
-def _dir_cache_get(path: str) -> tuple[int, int]:
-    """Return cached (count, size) for *path*, scheduling a rescan if stale.
+def _dir_cache_get_ex(path: str) -> tuple[int, int, bool]:
+    """Like _dir_cache_get, but also reports whether *path* has ever been
+    scanned before (the third element). A never-seen path returns (0, 0,
+    False) — callers that need to tell "genuinely empty" apart from "not
+    scanned yet" (e.g. the file-listing endpoint, where both would otherwise
+    look identical) should check that flag instead of trusting a bare 0.
 
-    Never blocks — returns the last known values (or 0, 0 on cold start) and
-    signals the background thread to refresh if the data is out of date.
+    Never blocks — returns the last known values and signals the background
+    thread to refresh if the data is out of date or missing.
     """
     now = time.monotonic()
     with _dir_cache_lock:
@@ -67,7 +71,7 @@ def _dir_cache_get(path: str) -> tuple[int, int]:
             # Cold start — nothing cached yet; queue an immediate scan.
             _dir_cache_dirty.add(path)
             _dir_cache_event.set()
-            return 0, 0
+            return 0, 0, False
 
         # Fast mtime check: if the directory's own mtime changed, queue rescan.
         try:
@@ -83,7 +87,17 @@ def _dir_cache_get(path: str) -> tuple[int, int]:
             _dir_cache_dirty.add(path)
             _dir_cache_event.set()
 
-        return entry['count'], entry['size']
+        return entry['count'], entry['size'], True
+
+
+def _dir_cache_get(path: str) -> tuple[int, int]:
+    """Return cached (count, size) for *path*, scheduling a rescan if stale.
+
+    Never blocks — returns the last known values (or 0, 0 on cold start) and
+    signals the background thread to refresh if the data is out of date.
+    """
+    count, size, _warm = _dir_cache_get_ex(path)
+    return count, size
 
 
 def _dir_cache_worker():

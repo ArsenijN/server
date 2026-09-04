@@ -469,9 +469,10 @@
         // Restore all patched inline styles so light mode is fully clean
         _restoreAll();
       }
-      // Update any open settings checkboxes
-      document.querySelectorAll('#fd-dark-chk').forEach(chk => {
-        chk.checked = (FDtheme.current === 'dark');
+      // Update any open settings selector to reflect the stored mode (not
+      // just the resolved light/dark boolean — 'auto' has its own option).
+      document.querySelectorAll('#fd-theme-sel').forEach(sel => {
+        sel.value = mode;
       });
     },
   };
@@ -1017,11 +1018,14 @@
   'use strict';
 
   function _build() {
-    const isDark  = FDtheme.current === 'dark';
+    const curMode = FDtheme.mode; // 'auto' | 'light' | 'dark' — the stored preference, not the resolved boolean
     const debugOn = FDdebug.enabled;
     const curLang = FDi18n.lang;
     const opts    = FDi18n.langs.map(c =>
       `<option value="${c}"${c===curLang?' selected':''}>${FDi18n.label(c)}</option>`
+    ).join('');
+    const themeOpts = ['auto', 'light', 'dark'].map(m =>
+      `<option value="${m}"${m===curMode?' selected':''}>${t('theme_' + m)}</option>`
     ).join('');
 
     const el = document.createElement('div');
@@ -1032,9 +1036,14 @@
            text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">
         ${t('profile_info_appearance')}
       </div>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">
-        <input type="checkbox" id="fd-dark-chk" ${isDark?'checked':''} style="width:16px;height:16px">
-        <span style="font-size:13px;font-weight:600">🌙 ${t('dark_mode')}</span>
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:10px">
+        🌙 ${t('dark_mode')}
+        <select id="fd-theme-sel" style="display:block;width:100%;margin-top:4px;
+            padding:7px 10px;border:1px solid var(--fd-border,#e2e8f0);border-radius:8px;
+            font-size:14px;font-family:Inter,sans-serif;
+            background:var(--fd-input-bg,#fff);color:var(--fd-text,#1e293b)">
+          ${themeOpts}
+        </select>
       </label>
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:10px">
         🌍 ${t('language')}
@@ -1058,8 +1067,8 @@
   }
 
   function _attach(block, overlay) {
-    block.querySelector('#fd-dark-chk').addEventListener('change', function() {
-      FDtheme.setMode(this.checked ? 'dark' : 'light');
+    block.querySelector('#fd-theme-sel').addEventListener('change', function() {
+      FDtheme.setMode(this.value);
     });
     block.querySelector('#fd-lang-sel').addEventListener('change', async function() {
       await FDi18n.setLang(this.value);

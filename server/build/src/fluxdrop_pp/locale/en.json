@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "en",
     "label": "English",
-    "version": "1.4.3"
+    "version": "1.4.4"
   },
   "login": "Login",
   "register": "Register",
@@ -352,5 +352,8 @@
   "share_dlg_create": "Create Share Link",
   "share_dlg_creating": "Creating…",
   "share_dlg_done": "Done ✓",
-  "share_dlg_failed": "Share failed"
+  "share_dlg_failed": "Share failed",
+  "theme_auto": "Auto (system)",
+  "theme_light": "Light",
+  "theme_dark": "Dark"
 }

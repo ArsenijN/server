@@ -7080,8 +7080,8 @@ async function openAdminPanel() {
             <div style="background:linear-gradient(135deg,#1e293b,#334155);padding:18px 24px;
                         display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
                 <div>
-                    <div style="color:white;font-weight:700;font-size:18px">⚙️ Admin Panel</div>
-                    <div style="color:rgba(255,255,255,.55);font-size:12px;margin-top:2px">FluxDrop user management</div>
+                    <div style="color:white;font-weight:700;font-size:18px">${t('menu_account_info_admin_panel')}</div>
+                    <div style="color:rgba(255,255,255,.55);font-size:12px;margin-top:2px">${t('admin_panel_info')}</div>
                 </div>
                 <button id="ap-close" style="background:rgba(255,255,255,.15);border:none;border-radius:50%;
                     width:32px;height:32px;color:white;font-size:18px;cursor:pointer;
@@ -7095,9 +7095,7 @@ async function openAdminPanel() {
                         <span style="display:inline-block;width:22px;height:22px;border:3px solid #e2e8f0;
                                      border-top-color:#3b82f6;border-radius:50%;
                                      animation:fd-spin 0.8s linear infinite;flex-shrink:0"></span>
-                        ${t('admin_panel_loading') !== 'admin_panel_loading'
-                            ? t('admin_panel_loading')
-                            : 'Loading users… (this may take a few minutes if the server has a lot of files)'}
+                        ${t('admin_panel_loading')}
                     </div>
                 </div>
             </div>
@@ -7122,13 +7120,13 @@ async function _apLoadUsers() {
         const totalUsage = users.reduce((s, u) => s + (u.usage_bytes || 0), 0);
         const adminCount = users.filter(u => u.is_admin).length;
         if (statsBar) statsBar.innerHTML = [
-            `<span style="font-size:13px;color:#475569"><strong style="color:#1e293b">${users.length}</strong> users</span>`,
-            `<span style="font-size:13px;color:#475569"><strong style="color:#1e293b">${adminCount}</strong> admin(s)</span>`,
-            `<span style="font-size:13px;color:#475569">Total used: <strong style="color:#1e293b">${_apFmtBytes(totalUsage)}</strong></span>`,
+            `<span style="font-size:13px;color:#475569"><strong style="color:#1e293b">${users.length}</strong> ${t('admin_panel_user_count')}</span>`,
+            `<span style="font-size:13px;color:#475569"><strong style="color:#1e293b">${adminCount}</strong> ${t('admin_panel_admin_count')}</span>`,
+            `<span style="font-size:13px;color:#475569">${t('admin_panel_used')} <strong style="color:#1e293b">${_apFmtBytes(totalUsage)}</strong></span>`,
         ].join('<span style="color:#cbd5e1;margin:0 4px">|</span>');
 
         if (users.length === 0) {
-            body.innerHTML = '<p style="color:#64748b;font-size:14px;padding:20px 0">No users found.</p>';
+            body.innerHTML = `<p style="color:#64748b;font-size:14px;padding:20px 0">${t('admin_panel_no_users')}</p>`;
             return;
         }
 
@@ -7153,8 +7151,8 @@ async function _apLoadUsers() {
         body.innerHTML = `
             <div class="ap-row" style="font-size:12px;font-weight:700;color:#94a3b8;
                 border-bottom:2px solid #e2e8f0;border-radius:0;padding-bottom:6px">
-                <span>User</span><span>Usage</span><span>Quota</span>
-                <span style="text-align:right">Actions</span>
+                <span>${t('admin_col_user')}</span><span>${t('admin_col_usage')}</span><span>${t('admin_col_quota')}</span>
+                <span style="text-align:right">${t('fluxdrop_file_manager_actions')}</span>
             </div>` + users.map(u => _apRenderRow(u)).join('');
 
         body.querySelectorAll('.ap-edit-btn').forEach(btn => {
@@ -7167,7 +7165,7 @@ async function _apLoadUsers() {
     } catch (err) {
         const b = document.getElementById('ap-body');
         if (err.message !== 'SESSION_EXPIRED' && b) {
-            b.innerHTML = `<p style="color:#ef4444;font-size:14px;padding:20px 0">Failed to load: ${escapeHtml(err.message)}</p>`;
+            b.innerHTML = `<p style="color:#ef4444;font-size:14px;padding:20px 0">${t('admin_panel_load_failed', { err: escapeHtml(err.message) })}</p>`;
         }
     }
 }
@@ -7183,12 +7181,12 @@ function _apRenderRow(u) {
     const pct = u.quota_bytes > 0 ? Math.min(100, (u.usage_bytes / u.quota_bytes) * 100) : 0;
     const barColor = pct >= 95 ? '#ef4444' : pct >= 75 ? '#f59e0b' : '#22c55e';
     const adminBadge = u.is_admin
-        ? `<span class="ap-badge" style="background:#fef3c7;color:#92400e">admin</span> ` : '';
+        ? `<span class="ap-badge" style="background:#fef3c7;color:#92400e">${t('profile_info_admin_badge')}</span> ` : '';
     return `<div class="ap-row">
         <div>
             <div style="font-size:14px;font-weight:600;color:#1e293b">${adminBadge}${escapeHtml(u.username)}</div>
             <div style="font-size:11px;color:#94a3b8;margin-top:1px">${escapeHtml(u.nickname||'')} · ${escapeHtml(u.email||'')}</div>
-            <div style="font-size:11px;color:#cbd5e1;margin-top:1px">ID ${u.id} · joined ${(u.created_at||'').slice(0,10)}</div>
+            <div style="font-size:11px;color:#cbd5e1;margin-top:1px">${t('admin_row_id_joined', { id: u.id, date: (u.created_at||'').slice(0,10) })}</div>
         </div>
         <div>
             <div style="font-size:12px;color:#475569;margin-bottom:3px">${_apFmtBytes(u.usage_bytes||0)}</div>
@@ -7198,14 +7196,14 @@ function _apRenderRow(u) {
         <div>
             <div style="font-size:12px;color:#475569">${_apFmtBytes(u.quota_bytes||0)}</div>
             ${u.quota_override
-                ? '<div style="font-size:10px;color:#6366f1;margin-top:1px">📌 pinned</div>'
-                : '<div style="font-size:10px;color:#94a3b8;margin-top:1px">dynamic</div>'}
+                ? `<div style="font-size:10px;color:#6366f1;margin-top:1px">${t('admin_panel_pinned_badge')}</div>`
+                : `<div style="font-size:10px;color:#94a3b8;margin-top:1px">${t('admin_panel_dynamic_quota')}</div>`}
         </div>
         <div style="display:flex;gap:5px;justify-content:flex-end">
             <button class="ap-btn ap-edit-btn" data-id="${u.id}"
-                style="background:#3b82f6;color:white">Edit</button>
+                style="background:#3b82f6;color:white">${t('admin_panel_edit_button')}</button>
             <button class="ap-btn ap-del-btn" data-id="${u.id}" data-name="${escapeHtmlAttr(u.username)}"
-                style="background:#ef4444;color:white">Del</button>
+                style="background:#ef4444;color:white">${t('admin_panel_delete_button')}</button>
         </div>
     </div>`;
 }
@@ -7226,7 +7224,7 @@ function _apOpenEditModal(userId, users) {
                     overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.35)">
             <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:16px 20px;
                         display:flex;align-items:center;justify-content:space-between">
-                <div style="color:white;font-weight:700;font-size:16px">Edit: ${escapeHtml(u.username)}</div>
+                <div style="color:white;font-weight:700;font-size:16px">${t('admin_edit_title', { name: escapeHtml(u.username) })}</div>
                 <button id="ap-edit-close" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;
                     width:28px;height:28px;color:white;font-size:16px;cursor:pointer;
                     display:flex;align-items:center;justify-content:center">✕</button>
@@ -7238,20 +7236,20 @@ function _apOpenEditModal(userId, users) {
                                border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
                                box-sizing:border-box;font-family:Inter,sans-serif">
                 </label>
-                <label style="font-size:13px;font-weight:600;color:#374151">Nickname (display)
+                <label style="font-size:13px;font-weight:600;color:#374151">${t('admin_edit_nickname')}
                     <input id="ape-nickname" type="text" value="${escapeHtmlAttr(u.nickname||'')}"
                         style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                                border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
                                box-sizing:border-box;font-family:Inter,sans-serif">
                 </label>
-                <label style="font-size:13px;font-weight:600;color:#374151">Email
+                <label style="font-size:13px;font-weight:600;color:#374151">${t('email')}
                     <input id="ape-email" type="email" value="${escapeHtmlAttr(u.email||'')}"
                         style="display:block;width:100%;margin-top:4px;padding:7px 10px;
                                border:1px solid #e2e8f0;border-radius:8px;font-size:14px;
                                box-sizing:border-box;font-family:Inter,sans-serif">
                 </label>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                    <label style="font-size:13px;font-weight:600;color:#374151">Quota (GB)
+                    <label style="font-size:13px;font-weight:600;color:#374151">${t('admin_edit_quota_gb')}
                         <input id="ape-quota" type="number" min="1" step="1"
                             value="${Math.round((u.quota_bytes||0)/(1024**3))}"
                             style="display:block;width:100%;margin-top:4px;padding:7px 10px;
@@ -7259,13 +7257,13 @@ function _apOpenEditModal(userId, users) {
                                    box-sizing:border-box;font-family:Inter,sans-serif">
                     </label>
                     <label style="font-size:13px;font-weight:600;color:#374151;display:flex;flex-direction:column">
-                        <span>Flags</span>
+                        <span>${t('admin_edit_flags')}</span>
                         <span style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
                             <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
-                                <input type="checkbox" id="ape-is-admin" ${u.is_admin?'checked':''}> Admin
+                                <input type="checkbox" id="ape-is-admin" ${u.is_admin?'checked':''}> ${t('admin_edit_flag_admin')}
                             </label>
                             <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
-                                <input type="checkbox" id="ape-quota-override" ${u.quota_override?'checked':''}> Pin quota
+                                <input type="checkbox" id="ape-quota-override" ${u.quota_override?'checked':''}> ${t('admin_edit_flag_pin_quota')}
                             </label>
                         </span>
                     </label>
@@ -7275,8 +7273,8 @@ function _apOpenEditModal(userId, users) {
             </div>
             <div style="padding:12px 20px 18px;display:flex;gap:8px;justify-content:flex-end;
                         border-top:1px solid #f1f5f9">
-                <button id="ape-cancel" class="btn" style="background:#e2e8f0;color:#1e293b">Cancel</button>
-                <button id="ape-save" class="btn" style="background:#3b82f6;min-width:80px">Save</button>
+                <button id="ape-cancel" class="btn" style="background:#e2e8f0;color:#1e293b">${t('cancel')}</button>
+                <button id="ape-save" class="btn" style="background:#3b82f6;min-width:80px">${t('admin_edit_save')}</button>
             </div>
         </div>`;
     document.body.appendChild(modal);
@@ -7291,11 +7289,11 @@ function _apOpenEditModal(userId, users) {
         const errEl   = modal.querySelector('#ape-error');
         const quotaGb = parseFloat(modal.querySelector('#ape-quota').value);
         if (isNaN(quotaGb) || quotaGb < 1) {
-            errEl.textContent = 'Quota must be at least 1 GB.';
+            errEl.textContent = t('admin_edit_quota_min_err');
             errEl.style.display = 'block'; return;
         }
         errEl.style.display = 'none';
-        saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+        saveBtn.disabled = true; saveBtn.textContent = t('admin_edit_saving');
         try {
             await apiCall(`/api/v1/admin/users/${userId}`, 'PATCH', {
                 username:       modal.querySelector('#ape-username').value.trim(),
@@ -7309,7 +7307,7 @@ function _apOpenEditModal(userId, users) {
             await _apLoadUsers();
         } catch (err) {
             if (!modal.isConnected) return;
-            saveBtn.disabled = false; saveBtn.textContent = 'Save';
+            saveBtn.disabled = false; saveBtn.textContent = t('admin_edit_save');
             if (err.message !== 'SESSION_EXPIRED') {
                 errEl.textContent = err.message;
                 errEl.style.display = 'block';
@@ -7319,12 +7317,12 @@ function _apOpenEditModal(userId, users) {
 }
 
 async function _apDeleteUser(userId, username) {
-    if (!confirm(`Delete user "${username}"?\n\nAccount and sessions will be removed. Files on disk are kept.`)) return;
+    if (!confirm(t('admin_delete_confirm', { name: username }))) return;
     try {
         await apiCall(`/api/v1/admin/users/${userId}`, 'DELETE');
         await _apLoadUsers();
     } catch (err) {
-        if (err.message !== 'SESSION_EXPIRED') showMessage('Delete failed', err.message);
+        if (err.message !== 'SESSION_EXPIRED') showMessage(t('admin_delete_failed'), err.message);
     }
 }
 

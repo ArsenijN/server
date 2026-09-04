@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "uk",
     "label": "Українська",
-    "version": "1.4.1"
+    "version": "1.4.2"
   },
   "login": "Увійти",
   "register": "Реєстрація",
@@ -313,5 +313,19 @@
   "policy_saving": "Збереження…",
   "continue_with_google": "Продовжити з Google",
   "google_coming_soon": "незабаром",
-  "auth_or": "або"
+  "auth_or": "або",
+  "admin_panel_no_users": "Користувачів не знайдено.",
+  "admin_panel_load_failed": "Не вдалося завантажити: {err}",
+  "admin_row_id_joined": "ID {id} · приєднався {date}",
+  "admin_edit_title": "Редагування: {name}",
+  "admin_edit_nickname": "Псевдонім (відображення)",
+  "admin_edit_quota_gb": "Квота (ГБ)",
+  "admin_edit_flags": "Прапорці",
+  "admin_edit_flag_admin": "Адміністратор",
+  "admin_edit_flag_pin_quota": "Закріпити квоту",
+  "admin_edit_save": "Зберегти",
+  "admin_edit_saving": "Збереження…",
+  "admin_edit_quota_min_err": "Квота має бути не менше 1 ГБ.",
+  "admin_delete_confirm": "Видалити користувача «{name}»?\n\nАкаунт і сесії буде видалено. Файли на диску зберігаються.",
+  "admin_delete_failed": "Не вдалося видалити"
 }

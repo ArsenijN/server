@@ -50,10 +50,22 @@ on i5 8350U)
 - [ ] Add `.docx`, `.pptx`, `.odt`, `.odf`, `.ods`, and other for previews
 - [ ] Add `.dng` and other raw image formats support for previews
 - [ ] Fix i18n in:
-  - [x] Actions modal
   - [ ] Error-related pages -- untested
-- [ ] Add more animations to:
-  - [ ] File action modal closing
+  - [ ] `share-dialog-overlay`'s buttons (Copy, Copied!, Done, Creating)
+  - [x] Admin panel
+- [ ] Add or fix animations in:
+  - [ ] File info modal closing (`fd-info-panel`)
+  - [ ] File action modal closing (`fd-ctx-menu`)
+  - [ ] `mv-dialog-overlay` when changing it's size
+  - [ ] `mv-dialog-overlay` closing
+  - [ ] Profile panel (`profile-panel-overlay`) when opens the storage analyzer 
+  window
+  - [ ] Storage analyzer (`fd-sa-overlay`) when closing
+  - [ ] `ap-edit-overlay` when closing
+  - [ ] `ap-body`'s spinning wheel is still spinning in background (not visible 
+  but Animations debugger sees it)
+  - [ ] `share-dialog-overlay` closing
+  - [ ] `fd-auth-modal` closing
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
@@ -92,6 +104,10 @@ the quota
 the archive's table of contents
 - [ ] After upload FluxDrop Web fetches the same page (current working 
 directory) 2 times
+- [ ] File selector does not close when clicked on `<body>`, `app-root` 
+(backgrounds of items), 
+- [ ] File selector have empty space where it sits, but ideally to remove that 
+empty space and make an animation of appearing (expanding the space for it)
 
 ### Server-side non-breaking changes:
 
@@ -102,6 +118,8 @@ hash after canceling the ZIP download, or do it only if server is unused or via
 `nice`
 - [ ] Do not make speed probe for small files (e.g. less than 25 MB) -- no if 
 internet is bad
+- [ ] Proxy fails on admin panel request due to long server responce time due 
+to amount of server-side files being saved by users
 
 #### High:
 - [ ] Status page doesn't load the amount of files on server on first load 
@@ -209,81 +227,9 @@ static hoster -- doesn't CDN have that already?
 ---
 
 ## Done items that are pending for removal as finished:
-*New lines means the patch version change (e.g. `Vx.y.z.0` to `Vx.y.z.1`)*
+*New lines between chunks of finished items means the patch version change 
+(e.g. `Vx.y.z.0` to `Vx.y.z.1`)*
 
-- [x] Add file info modal
-
-- [x] Add more animations to:
-  - [x] Closing the profile menu
-  - [x] File selection (checkmark appearance and disappearance)
-  - [x] `fd-sel-bar` animations of appearance and disappearance
-  - [x] `profile-panel-overlay` closing
-  - [x] `share-manager-overlay` closing
-  - [x] `trash-overlay` closing
-  - [x] Markdown modal closing
-- [x] Markdown parser does not understand:
-  - [x] `***` following with the new lines inside the text and then `***` again 
-  -- still does not understand
-- [ ] Fix i18n in:
-  - [x] Shared links remainings
-    - [x] "CDN Embed..." not fixed
-    - [x] operation type (e.g. `download`, `view`, `embed`, etc.)
-    - [x] Expired [date]
-    - [x] "📊 Stats: [folder name]"
-
-- [x] Add more animations to: File download and upload modals (ETA modal): When 
-closed or opened by itself
-- [x] Fix i18n in: Translate the `⚠ Due to server capacity demand, new items 
-are kept for 7 days. Retention will return to 30 days once space is freed.` 
-(not i18n, rather l10n issue with missing key -- no, it's i18n)
-
-- [x] CDN server's HTTPS port crashes if internet is not available for long
-time -- it's Websocket problem, should be fixed soon
-
-- [x] Acceptance modal (opens via the footer buttons) displays plain HTML with 
-Markdown formatting applied
-- [x] File selector does not unselect after item deletion
-- [x] Add `Del` key as hotkey to delete selected item(s)
-
-- [x] Profile icon is not cached and reloads every time from the ground
-- [x] Add caching for:
-  - [x] Profile picture
-
-- [x] Profile picture not loading on new machines
-- [x] Dedicated buttons for upload is not showing on mobile devices (but shows 
-on desktop and desktop's mobile option)
-- [x] Rework the trash bin messages (drop the browser-native, rework the 
-current trash deletion notifier, etc.)
-- [x] No dedicated upload button for mobile and desktop
-
-- [x] Sometimes FluxDrop makes config connections, resulting in 404 -- they are 
-caused by network switch (on client device)
-
-- [x] Add responce compession (gzip?) for:
-  - [x] JSON responces that are large
-  - [x] `.md` files
-- [x] Hash are not moved/re-attached to a file after move
-
-- [x] Error when making attempt to copy the files
-- [x] gzip compression indeed works and not have just the `gzip` tag used
-
-- [x] Proxy fail on copy of the large files (timeout)
-
-- [x] Canceling the upload doesn't wait for the request to finish and displays 
-the cancelled right away
-- [x] Upload needs additional improvements into the slow internet mode (if 
-speed probe takes 30s - divide file even into few kB chunks, because right now 
-it did ~330 kB, but because upload's chunks is multi-streamed - that doesn't 
-work well and may result in the timeout errors)
-
-- [x] Interrupted uploads modal have no animations and `Esc` to exit shortcut
-- [x] Moving's loading wheel modal doesn't have animations for appearing and 
-disappearing
-
-- [x] Item selection didn't catch up if done quickly (to the `Shift` problem)
-- [x] Drag across rows deselects everything
-- [x] Immich can't handle uploading files larger than 2GB (413 error - limited 
-size)
 
 (end of release note there)
 

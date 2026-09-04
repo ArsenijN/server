@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "en",
     "label": "English",
-    "version": "1.4.1"
+    "version": "1.4.2"
   },
   "login": "Login",
   "register": "Register",
@@ -313,5 +313,19 @@
   "policy_saving": "Saving…",
   "continue_with_google": "Continue with Google",
   "google_coming_soon": "coming soon",
-  "auth_or": "or"
+  "auth_or": "or",
+  "admin_panel_no_users": "No users found.",
+  "admin_panel_load_failed": "Failed to load: {err}",
+  "admin_row_id_joined": "ID {id} · joined {date}",
+  "admin_edit_title": "Edit: {name}",
+  "admin_edit_nickname": "Nickname (display)",
+  "admin_edit_quota_gb": "Quota (GB)",
+  "admin_edit_flags": "Flags",
+  "admin_edit_flag_admin": "Admin",
+  "admin_edit_flag_pin_quota": "Pin quota",
+  "admin_edit_save": "Save",
+  "admin_edit_saving": "Saving…",
+  "admin_edit_quota_min_err": "Quota must be at least 1 GB.",
+  "admin_delete_confirm": "Delete user \"{name}\"?\n\nAccount and sessions will be removed. Files on disk are kept.",
+  "admin_delete_failed": "Delete failed"
 }

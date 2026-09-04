@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-31ddd908
+// Current version of script.js is: fluxdrop-v-81e60758
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-31ddd908'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-81e60758'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -933,7 +933,7 @@ async function showPolicyModal(type) {
                 <button id="pm-close" style="background:none;border:none;font-size:1.4rem;
                         cursor:pointer;color:#64748b;line-height:1">✕</button>
             </div>
-            <div id="pm-body" class="fd-md-body" style="padding:1.5rem;overflow-y:auto;flex:1;
+            <div id="pm-body" class="fd-md-body" data-fd-notranslate style="padding:1.5rem;overflow-y:auto;flex:1;
                                      font-size:.93rem;line-height:1.7;color:#1e293b">
                 <div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>
             </div>
@@ -1105,7 +1105,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
                     </p>
                 </div>
             </div>
-            <div id="pam-body" class="fd-md-body" style="padding:1.5rem;overflow-y:auto;flex:1;
+            <div id="pam-body" class="fd-md-body" data-fd-notranslate style="padding:1.5rem;overflow-y:auto;flex:1;
                                       font-size:.92rem;line-height:1.7;color:#1e293b">
                 <div id="pam-skeleton" style="padding:.5rem 0">
                     ${Array.from({length: 18}, (_, i) => {
@@ -3255,6 +3255,10 @@ function _renderMarkdown(bodyEl, rawText) {
     bodyEl.innerHTML = '';
     const container = document.createElement('div');
     container.className = 'md-preview';
+    // Rendered document body — a user's own file (or a legal doc, which has its
+    // own per-language versions). The i18n layer must never machine-swap phrases
+    // in here just because they happen to match a UI string. See _translateSubtree.
+    container.setAttribute('data-fd-notranslate', '');
     container.style.cssText = 'color:#e2e8f0;font-size:15px;line-height:1.75;padding:1.25rem 1.5rem;overflow-y:auto;max-height:70vh';
     container.innerHTML = _mdParseAndSanitize(rawText);
 
@@ -3810,7 +3814,14 @@ function _updateSelBar() {
     }
 
     bar.classList.add('fd-sel-bar-visible');
-    const showKeepToggle = window.matchMedia('(pointer: fine)').matches;
+    // "Keep selection while browsing" is a mouse-ergonomic feature — show the
+    // toggle whenever a fine pointer OR hover is available, matching the
+    // belt-and-suspenders check used for the upload UI (see
+    // _initUploadWrapVisibility). Gating on (pointer: fine) alone made the
+    // chip miss the first selection on touch-capable laptops, where that
+    // query only flips to true once a mouse has actually been used.
+    const showKeepToggle = window.matchMedia('(pointer: fine)').matches
+                        || window.matchMedia('(hover: hover)').matches;
     bar.innerHTML = `
         <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${t('sel_bar_count', { n })}</span>
         ${showKeepToggle ? `
@@ -4075,6 +4086,20 @@ function _clearSelection() {
     _getFileRows().forEach(r => _updateRowSelVisual(r, false));
     _selectedPaths.clear();
     _lastClickedPath = null;
+}
+
+// Drop a path — and, if it was a folder, everything nested under it — from the
+// persisted selection. Used after a move/rename: the old path no longer exists
+// so its checkmark can never re-render, but the entry would otherwise linger
+// forever (wrong sel-bar count, stale ancestor dash, phantom pre-selected row
+// if the same name is recreated). Mirrors the single-path scrub deleteItem()
+// does after trashing. Caller is responsible for the follow-up _updateSelBar().
+function _dropSelectedUnder(path) {
+    const prefix = path.endsWith('/') ? path : path + '/';
+    for (const p of [..._selectedPaths]) {
+        if (p === path || p.startsWith(prefix)) _selectedPaths.delete(p);
+    }
+    if (_lastClickedPath === path || _lastClickedPath?.startsWith(prefix)) _lastClickedPath = null;
 }
 
 // ── Context menu ─────────────────────────────────────────────────────────
@@ -4987,7 +5012,9 @@ async function openMoveDialog(srcPath) {
             const _rnDismiss = showSpinnerOverlay(t('mv_renaming'), { minMs: 1000 });
             try {
                 await withMinDelay(apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath }), 1000);
-                _rnDismiss(); overlay.remove(); loadDirectory(currentPath);
+                _rnDismiss(); overlay.remove();
+                _dropSelectedUnder(srcPath); _updateSelBar();
+                loadDirectory(currentPath);
             } catch (err) {
                 _rnDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = t('mv_rename_btn');
                 if (err.message !== 'SESSION_EXPIRED') showMessage(t('mv_rename_failed_title'), err.message);
@@ -5004,7 +5031,9 @@ async function openMoveDialog(srcPath) {
             const _mvDismiss = showSpinnerOverlay(t('mv_moving'), { minMs: 1000 });
             try {
                 await withMinDelay(apiCall('/api/v1/rename', 'POST', { old: srcPath, new: newPath }), 1000);
-                _mvDismiss(); overlay.remove(); loadDirectory(currentPath);
+                _mvDismiss(); overlay.remove();
+                _dropSelectedUnder(srcPath); _updateSelBar();
+                loadDirectory(currentPath);
             } catch (err) {
                 _mvDismiss(); confirmBtn.disabled = false; confirmBtn.textContent = t('mv_move_here');
                 if (err.message !== 'SESSION_EXPIRED') showMessage(t('mv_move_failed_title'), err.message);
@@ -8231,7 +8260,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-31ddd908'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-81e60758'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

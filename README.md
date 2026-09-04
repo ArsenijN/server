@@ -1,4 +1,4 @@
-# server `v0.19.1.33`
+# server `v0.20.0`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -88,11 +88,8 @@ some point later, but not now***
 ***Regressions: `\[no checks has been made\]`***
 
 *Patch notes: **Changelog:***
-- ***TODO implementations***
-- ***Changed README to be ready for V0.19.2 release***
-- ***i18n improvements #3***
-- ***Added important proxying to the server that must be made at some point 
-eventually***
+- ***Changed README to be ready for V0.20.0 release***
+- ***Builded the new frontend and pushed to server***
 
 ---
 

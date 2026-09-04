@@ -933,7 +933,7 @@ async function showPolicyModal(type) {
                 <button id="pm-close" style="background:none;border:none;font-size:1.4rem;
                         cursor:pointer;color:#64748b;line-height:1">✕</button>
             </div>
-            <div id="pm-body" class="fd-md-body" style="padding:1.5rem;overflow-y:auto;flex:1;
+            <div id="pm-body" class="fd-md-body" data-fd-notranslate style="padding:1.5rem;overflow-y:auto;flex:1;
                                      font-size:.93rem;line-height:1.7;color:#1e293b">
                 <div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>
             </div>
@@ -1105,7 +1105,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
                     </p>
                 </div>
             </div>
-            <div id="pam-body" class="fd-md-body" style="padding:1.5rem;overflow-y:auto;flex:1;
+            <div id="pam-body" class="fd-md-body" data-fd-notranslate style="padding:1.5rem;overflow-y:auto;flex:1;
                                       font-size:.92rem;line-height:1.7;color:#1e293b">
                 <div id="pam-skeleton" style="padding:.5rem 0">
                     ${Array.from({length: 18}, (_, i) => {
@@ -3255,6 +3255,10 @@ function _renderMarkdown(bodyEl, rawText) {
     bodyEl.innerHTML = '';
     const container = document.createElement('div');
     container.className = 'md-preview';
+    // Rendered document body — a user's own file (or a legal doc, which has its
+    // own per-language versions). The i18n layer must never machine-swap phrases
+    // in here just because they happen to match a UI string. See _translateSubtree.
+    container.setAttribute('data-fd-notranslate', '');
     container.style.cssText = 'color:#e2e8f0;font-size:15px;line-height:1.75;padding:1.25rem 1.5rem;overflow-y:auto;max-height:70vh';
     container.innerHTML = _mdParseAndSanitize(rawText);
 
@@ -3810,7 +3814,14 @@ function _updateSelBar() {
     }
 
     bar.classList.add('fd-sel-bar-visible');
-    const showKeepToggle = window.matchMedia('(pointer: fine)').matches;
+    // "Keep selection while browsing" is a mouse-ergonomic feature — show the
+    // toggle whenever a fine pointer OR hover is available, matching the
+    // belt-and-suspenders check used for the upload UI (see
+    // _initUploadWrapVisibility). Gating on (pointer: fine) alone made the
+    // chip miss the first selection on touch-capable laptops, where that
+    // query only flips to true once a mouse has actually been used.
+    const showKeepToggle = window.matchMedia('(pointer: fine)').matches
+                        || window.matchMedia('(hover: hover)').matches;
     bar.innerHTML = `
         <span style="color:var(--fd-accent,#3b82f6);font-weight:600;flex-shrink:0">${t('sel_bar_count', { n })}</span>
         ${showKeepToggle ? `

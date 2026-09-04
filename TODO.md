@@ -30,7 +30,6 @@ options
 - [ ] Fix some modals being server-side generated instead of frontend's work
 
 ### UX - fixes for existing features or new overall experience enhancements
-- [ ] Status page doesn't updates fully automatically (e.g. uptime)
 - [ ] Make file info modal able to work as "turn on and stay until closed": 
 toggle in settings to change this behavior; works as file info modal that 
 doesn't close when user clicks outside of it
@@ -110,8 +109,6 @@ internet is bad
 to amount of server-side files being saved by users
 
 #### High:
-- [ ] Status page doesn't load the amount of files on server on first load 
-because of backend stalement
 - [ ] Ability to download the shared folders without JS (fallback option for 
 ZIP downloads)
 - [ ] Update the helpers functionality
@@ -235,6 +232,10 @@ made/applied
 behind the scene (because it showed just "Downloading via browser..." before)
 - [x] Add partial content support for CatBox API and CDN itself for it's 
 static hoster -- doesn't CDN have that already?
+
+- [x] Status page doesn't updates fully automatically (e.g. uptime)
+- [x] Status page doesn't load the amount of files on server on first load 
+because of backend stalement
 
 ---
 

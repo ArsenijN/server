@@ -1766,7 +1766,11 @@ function renderFileBrowserView() {
                     }
                     window.removeEventListener('beforeunload', windowLock);
                     _notifyUploadDone(items.length);
-                    loadDirectory(currentPath);
+                    // No extra loadDirectory() here — the loop's own per-item
+                    // refresh (above) already covers the last completed item;
+                    // this used to unconditionally re-fetch the same listing a
+                    // second time right after it (matches drainQueue's pattern,
+                    // which never had this duplicate).
                 }
                 drainDrop(first);
             }
@@ -3729,8 +3733,10 @@ window.previewFile = async function(path) {
                 // directory / tar headers, never the compressed file data.
                 // This is O(entry-count) rather than O(file-size).
                 try {
-                    const tokenResp = await apiCall('/api/v1/download_token', 'POST', { path }, true);
-                    const dlToken   = tokenResp.download_token;
+                    // tokenData was already minted at the top of previewFile() for
+                    // every category (used there to build dlUrl) — reuse it instead
+                    // of minting a second, redundant token just for this branch.
+                    const dlToken = tokenData.download_token;
 
                     const encodedPath = path.split('/').map(encodeURIComponent).join('/');
                     const treeUrl = `${API_BASE_URL}/api/v1/archive_tree${encodedPath}?dl_token=${encodeURIComponent(dlToken)}`;
@@ -3980,10 +3986,19 @@ function attachRowListeners() {
         });
     });
 
-    // Clear selection when clicking empty table area
-    fileList.addEventListener('click', e => {
-        if (!e.target.closest('.fd-file-row')) { _clearSelection(); _updateSelBar(); }
-    });
+    // Clear selection on any click outside the file list entirely — empty
+    // <body> margins, #app-root's own background outside #file-list, not
+    // just the empty space inside #file-list itself (the old scope). Bound
+    // once on document.body rather than re-added on every directory render
+    // like the rest of this function, since body persists for the whole
+    // session and re-binding here would leak one listener per navigation.
+    if (!document.body._fdSelClearBound) {
+        document.body._fdSelClearBound = true;
+        document.body.addEventListener('click', e => {
+            if (e.target.closest('.fd-file-row, #fd-sel-bar, #fd-ctx-menu, .modal-overlay, .fd-profile-overlay')) return;
+            if (_selectedPaths.size > 0) { _clearSelection(); _updateSelBar(); }
+        });
+    }
 
     // Lazy folder sizes — only for cells the list response couldn't already
     // fill in (cache was cold for that folder); warm ones need no request.

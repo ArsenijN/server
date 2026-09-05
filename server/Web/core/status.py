@@ -7,50 +7,147 @@ from config import SERVE_ROOT, DB_FILE, CATBOX_UPLOAD_DIR, HTTP_PORT, HTTPS_PORT
 from core.snippets import _render_snippet
 
 # ── Directory-count background cache ─────────────────────────────────────────
-# Walking 165k+ files on every /status request takes 2-15 s on this hardware.
-# Instead, a daemon thread re-scans both watched directories in the background
-# and stores the results here.  _build_status_page() reads the cache — O(1).
+# Walking 165k+ files on every /status request (or every folder shown in the
+# file manager) takes 2-15 s on this hardware if done as one flat os.walk().
+# Instead, every directory that gets looked at — not just the two /status
+# roots — gets its own cache entry, and a rescan only recomputes the branches
+# that actually need it: unchanged subdirectories are reused as an O(1)
+# lookup of their own cached total instead of being re-summed file by file.
+# _build_status_page() and the file-listing endpoint both read the cache —
+# O(1) from the request thread; all scanning happens in the background.
 #
-# Invalidation strategy (two-layer):
-#   1. mtime check — os.stat(dir).st_mtime changes when a file is directly
-#      created/deleted inside that directory level.  For deep trees this only
-#      catches top-level changes, so it is used as a fast "definitely changed"
-#      signal, not as a "definitely unchanged" guarantee.
-#   2. TTL — unconditional refresh every DIR_CACHE_TTL seconds (default 300 s).
-#      This ensures counts can never be more than 5 minutes stale even for
-#      changes deep inside nested subdirectories.
+# Invalidation strategy (three-layer, applied independently at every level):
+#   1. mtime check — os.stat(dir).st_mtime changes the instant something is
+#      directly created/deleted/renamed inside that exact directory. This
+#      catches the common case (upload, delete, move, rename, mkdir)
+#      immediately, at whichever depth it happens.
+#   2. Upward propagation — a directory's mtime only reflects changes made
+#      *directly* inside it, never inside a subdirectory (that's plain POSIX
+#      semantics), so a change 3 levels down would otherwise never be visible
+#      to a cached rollup total 2 levels up. The moment (1) detects a real
+#      mtime change at some path, every cached ancestor of that path (parent,
+#      grandparent, ...) is force-marked dirty too, so the next time *any* of
+#      them is read they recompute instead of trusting a stale rollup — an
+#      O(depth) walk, not O(subtree). A rescan of a directory itself re-uses
+#      cached totals for whichever subdirectories are still fresh, recursing
+#      only into the ones that aren't, so the actual work is proportional to
+#      how much of the subtree changed, not its size.
+#   3. TTL — unconditional refresh every DIR_CACHE_TTL seconds (default 6 h).
+#      (1)+(2) catch every add/delete/rename/move at any depth; the one thing
+#      they can't see is a file overwritten in place under the same name (no
+#      directory entry is added or removed, so no directory's mtime moves
+#      anywhere in the tree) — TTL is purely the safety net for that one
+#      edge case, so it can be long: a cache entry is otherwise correct
+#      indefinitely.
 #
-# On first request the cache is empty; _dir_cache_get() returns (0, 0) and
-# immediately kicks off a scan in the background thread.  The next request
-# (seconds later) will see real numbers.
+# On first request a path has no entry; _dir_cache_get() returns (0, 0) and
+# immediately queues a scan in the background thread. The next request
+# (seconds later) sees real numbers, and from then on stays correct via
+# (1)+(2), with (3) only as a distant fallback — not the primary invalidation
+# path.
 # ─────────────────────────────────────────────────────────────────────────────
 
-DIR_CACHE_TTL      = int(os.getenv('DIR_CACHE_TTL', '300'))   # seconds between forced refresh
+DIR_CACHE_TTL      = int(os.getenv('DIR_CACHE_TTL', str(6 * 3600)))  # seconds between forced refresh — safety net only, see (3) above
 DIR_CACHE_INTERVAL = int(os.getenv('DIR_CACHE_INTERVAL', '60'))  # background thread poll interval
 
 # Cache state: path → { count, size, scanned_at, last_mtime }
 _dir_cache: dict[str, dict] = {}
 _dir_cache_lock   = threading.Lock()
 _dir_cache_dirty: set[str] = set()   # paths queued for rescan
+_dir_cache_forced: set[str] = set()  # paths whose cached total must not be trusted even though their OWN mtime/TTL look fine (an ancestor invalidated by a descendant's change — see layer 2 above)
 _dir_cache_event  = threading.Event()  # wakes the background thread immediately
 
 
-def _count_dir_walk(path: str) -> tuple[int, int]:
-    """Walk *path* and return (file_count, total_bytes).  May be slow — only
-    called from the background thread, never from a request handler.
+def _dir_cache_invalidate_ancestors(path: str) -> None:
+    """A directory's own mtime changing is only visible to that directory —
+    parents never see it (POSIX doesn't propagate mtimes upward). Force every
+    cached ancestor of *path* to redo its rollup next time it's read, instead
+    of trusting a total that's now missing this change. O(path depth).
     """
+    with _dir_cache_lock:
+        p = path
+        while True:
+            parent = os.path.dirname(p)
+            if not parent or parent == p:
+                break
+            if parent in _dir_cache:
+                _dir_cache_forced.add(parent)
+                _dir_cache_dirty.add(parent)
+            p = parent
+    _dir_cache_event.set()
+
+
+def _dir_cache_needs_rescan(path: str, entry: dict) -> bool:
+    """True if the cached *entry* for *path* can no longer be trusted as-is:
+    forced dirty by a descendant's change, its own mtime moved, or its TTL
+    lapsed. On a real (non-TTL) mtime change, also propagates invalidation
+    to every cached ancestor — see _dir_cache_invalidate_ancestors.
+    """
+    with _dir_cache_lock:
+        forced = path in _dir_cache_forced
+    if forced:
+        return True
+
+    try:
+        cur_mtime = os.stat(path).st_mtime
+    except OSError:
+        return True
+
+    if cur_mtime != entry['last_mtime']:
+        _dir_cache_invalidate_ancestors(path)
+        return True
+
+    return (time.monotonic() - entry['scanned_at']) >= DIR_CACHE_TTL
+
+
+def _dir_cache_refresh(path: str) -> tuple[int, int]:
+    """Background-thread-only: return a trustworthy (count, size) for *path*,
+    reusing as much of the existing cache as possible.
+
+    If *path*'s own entry is still trustworthy (see _dir_cache_needs_rescan),
+    it's returned untouched — O(1). Otherwise this does a *shallow* scan of
+    *path*'s direct entries: files are stat()'d directly, and each
+    subdirectory is resolved via a recursive call to this same function —
+    which itself reuses that subdirectory's cache if it's still trustworthy,
+    or only then walks further down. Net effect: a rescan's cost is
+    proportional to how much of the subtree actually changed, not its size.
+    """
+    with _dir_cache_lock:
+        entry = _dir_cache.get(path)
+    if entry is not None and not _dir_cache_needs_rescan(path, entry):
+        with _dir_cache_lock:
+            _dir_cache_dirty.discard(path)
+        return entry['count'], entry['size']
+
     count = size = 0
     try:
-        for root, _, files in os.walk(path):
-            for fn in files:
-                fp = os.path.join(root, fn)
+        with os.scandir(path) as it:
+            for de in it:
                 try:
-                    size += os.path.getsize(fp)
-                    count += 1
+                    if de.is_dir(follow_symlinks=False):
+                        sub_count, sub_size = _dir_cache_refresh(de.path)
+                        count += sub_count
+                        size  += sub_size
+                    else:
+                        size += de.stat().st_size
+                        count += 1
                 except OSError:
                     pass
     except OSError:
         pass
+
+    try:
+        mtime = os.stat(path).st_mtime
+    except OSError:
+        mtime = 0.0
+    with _dir_cache_lock:
+        _dir_cache[path] = {
+            'count': count, 'size': size,
+            'scanned_at': time.monotonic(),
+            'last_mtime': mtime,
+        }
+        _dir_cache_dirty.discard(path)
+        _dir_cache_forced.discard(path)
     return count, size
 
 
@@ -62,32 +159,24 @@ def _dir_cache_get_ex(path: str) -> tuple[int, int, bool]:
     look identical) should check that flag instead of trusting a bare 0.
 
     Never blocks — returns the last known values and signals the background
-    thread to refresh if the data is out of date or missing.
+    thread to refresh if the data is out of date, missing, or was force-
+    invalidated by a change detected somewhere beneath it.
     """
-    now = time.monotonic()
     with _dir_cache_lock:
         entry = _dir_cache.get(path)
-        if entry is None:
-            # Cold start — nothing cached yet; queue an immediate scan.
+    if entry is None:
+        # Cold start — nothing cached yet; queue an immediate scan.
+        with _dir_cache_lock:
             _dir_cache_dirty.add(path)
-            _dir_cache_event.set()
-            return 0, 0, False
+        _dir_cache_event.set()
+        return 0, 0, False
 
-        # Fast mtime check: if the directory's own mtime changed, queue rescan.
-        try:
-            cur_mtime = os.stat(path).st_mtime
-        except OSError:
-            cur_mtime = entry['last_mtime']
-
-        age = now - entry['scanned_at']
-        stale_ttl   = age >= DIR_CACHE_TTL
-        stale_mtime = cur_mtime != entry['last_mtime']
-
-        if (stale_ttl or stale_mtime) and path not in _dir_cache_dirty:
+    if _dir_cache_needs_rescan(path, entry):
+        with _dir_cache_lock:
             _dir_cache_dirty.add(path)
-            _dir_cache_event.set()
+        _dir_cache_event.set()
 
-        return entry['count'], entry['size'], True
+    return entry['count'], entry['size'], True
 
 
 def _dir_cache_get(path: str) -> tuple[int, int]:
@@ -112,19 +201,8 @@ def _dir_cache_worker():
         for path in paths:
             try:
                 t0 = time.monotonic()
-                count, size = _count_dir_walk(path)
+                count, size = _dir_cache_refresh(path)
                 elapsed = time.monotonic() - t0
-                try:
-                    mtime = os.stat(path).st_mtime
-                except OSError:
-                    mtime = 0.0
-                with _dir_cache_lock:
-                    _dir_cache[path] = {
-                        'count': count, 'size': size,
-                        'scanned_at': time.monotonic(),
-                        'last_mtime': mtime,
-                    }
-                    _dir_cache_dirty.discard(path)
                 logging.info(
                     f'DirCache: scanned {path!r} → {count} files, '
                     f'{size // (1024**2)} MB in {elapsed:.1f}s'

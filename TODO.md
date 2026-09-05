@@ -18,7 +18,6 @@ over V0.19)
 - [ ] Make proper header and footer for the main FluxDrop UI
 - [ ] Add "landing page" for CatBox API to use it from the browser, and also
 - [ ] Add "CatBox API usage" page for CatBox API
-- [ ] Markdown modal are open for i18n strings translations, but it should not
 - [ ] File preview modal may blink with light when it doesn't keep up when file 
 loads/decodes 
 - [ ] Make file explorer use fixed by size main modal and overflow buffer 
@@ -27,7 +26,6 @@ inside it to...
   some part of the UI)
 - [ ] Rework the `btn-toolbar-toggle` to become as mini modal (aka menu) with 
 options
-- [ ] Fix some modals being server-side generated instead of frontend's work
 
 ### UX - fixes for existing features or new overall experience enhancements
 - [ ] Make file info modal able to work as "turn on and stay until closed": 
@@ -51,34 +49,18 @@ on i5 8350U)
 - [ ] Fix i18n in:
   - [ ] Error-related pages -- untested
 - [ ] Add or fix animations in:
-  - [ ] File info modal closing (`fd-info-panel`)
-  - [ ] File action modal closing (`fd-ctx-menu`)
   - [ ] `ap-body`'s spinning wheel is still spinning in background (not visible 
   but Animations debugger sees it)
-  - [ ] `fd-auth-modal` closing - when logged in*
+  - [ ] File copy when task is executed (button pressed)
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
 - [ ] Uploads can't be paused and instead "cancels" if using the drag-n-drop
-- [ ] Server sends entire file layout and their sizes in `https://fluxdrop.me/ap
-i/v1/list/tmp` but client still fetches the individual files/folders like `https
-://fluxdrop.me/api/v1/foldersize/tmp/sub` (contents of the `` is `{"path": "/tmp
-", "entries": [{"name": "U.mp4", "path": "/tmp/U.mp4", "is_dir": false, "size": 
-506758298, "mtime": "2026-05-30T20:14:22"}, {"name": "sub", "path": "/tmp/sub", 
-"is_dir": true, "size": 0, "mtime": "2026-07-28T20:41:42"}, {"name": "\u041d\u04
-3e\u0432\u0438\u0439 \u0422\u0435\u043a\u0441\u0442\u043e\u0432\u0438\u0439 \u04
-34\u043e\u043a\u0443\u043c\u0435\u043d\u0442.txt", "path": "/tmp/\u041d\u043e\u0
-432\u0438\u0439 \u0422\u0435\u043a\u0441\u0442\u043e\u0432\u0438\u0439 \u0434\u0
-43e\u043a\u0443\u043c\u0435\u043d\u0442.txt", "is_dir": false, "size": 158, "mti
-me": "2026-05-30T20:16:51"}]}`) -- problem is that **this** requests **does not 
-output the folder size**, meaning that there **is** still meaning for the curren
-t setup
-- [ ] File selector does not reset when file is moved
 - [ ] Hide file selector for the mobile version of the FluxDrop
 - [ ] Hold-to-manage feature on mobile is nifty - maybe should been also 
-mentioned in the welcoming screen
-- [ ] Opening the profile preview modal is very epilepsy-warning (mobile)
-- [ ] Add animation after login window closes due to login event
+mentioned in the welcoming screen?
+- [ ] Opening the profile preview modal (`profile-menu-modal`) is very 
+epilepsy-warning due to background appearing dark instantly (mobile)
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
@@ -86,13 +68,12 @@ mentioned in the welcoming screen
 browser) even if the upload of one of the files fails (for example because of 
 the quota) -- it is, and also smaller files are correctly uploaded that fits 
 the quota
-- [ ] File selector does not reset or reselect when file is renamed
-- [ ] FluxDrop Web makes 2 connections to get the download token when viewing 
-the archive's table of contents
-- [ ] After upload FluxDrop Web fetches the same page (current working 
-directory) 2 times
-- [ ] File selector does not close when clicked on `<body>`, `app-root` 
-(backgrounds of items), 
+- [ ] (Needs check) FluxDrop Web makes 2 connections to get the download token 
+when viewing the archive's table of contents
+- [ ] (Needs check) After upload FluxDrop Web fetches the same page (current 
+working directory) 2 times
+- [ ] (Needs check) File selector does not close when clicked on `<body>`, 
+`app-root` (backgrounds of items), 
 - [ ] File selector have empty space where it sits, but ideally to remove that 
 empty space and make an animation of appearing (expanding the space for it)
 
@@ -104,7 +85,8 @@ empty space and make an animation of appearing (expanding the space for it)
 hash after canceling the ZIP download, or do it only if server is unused or via 
 `nice`
 - [ ] Do not make speed probe for small files (e.g. less than 25 MB) -- no if 
-internet is bad
+internet is bad -- if so - needs changes in how the chunks are calculated, 
+maybe do a dynamic chunk size based on an speed of upload
 - [ ] Proxy fails on admin panel request due to long server responce time due 
 to amount of server-side files being saved by users
 
@@ -173,13 +155,6 @@ point where older listener code can't do anything with (e.g. renaming the
 variables, tables, etc.)
 
 ### Without category:
-- [ ] Add server ability to push the additional data before client will request 
-them (pre-caching; like folder structures, quota, file properties, download 
-tokens (pre-generate the download tokens for files to fasten up the ping 
-issues (aka preview tokens), or resolve the issues that FluxDrop is very 
-unstable in bad internet areas) or something else) -- merged into the rela... 
-No it's not since that entry issues the JSON multi-answer instead on only 
-related to fetch/question
 - [ ] Reimplement the CDN path purpose, fix it's errors
 - [ ] **Misc future ideas**
   - [ ] Server-side filename sanitisation for illegal characters.
@@ -237,6 +212,38 @@ because of backend stalement
 
 - [x] Ability to download the shared folders without JS (fallback option for 
 ZIP downloads)
+
+- [x] Fix some modals being server-side generated instead of frontend's work
+
+- [x] Add server ability to push the additional data before client will request 
+them (pre-caching; like folder structures, quota, file properties, download 
+tokens (pre-generate the download tokens for files to fasten up the ping 
+issues (aka preview tokens), or resolve the issues that FluxDrop is very 
+unstable in bad internet areas) or something else) -- merged into the rela... 
+No it's not since that entry issues the JSON multi-answer instead on only 
+related to fetch/question
+- [x] Server sends entire file layout and their sizes in `https://fluxdrop.me/ap
+i/v1/list/tmp` but client still fetches the individual files/folders like `https
+://fluxdrop.me/api/v1/foldersize/tmp/sub` (contents of the `` is `{"path": "/tmp
+", "entries": [{"name": "U.mp4", "path": "/tmp/U.mp4", "is_dir": false, "size": 
+506758298, "mtime": "2026-05-30T20:14:22"}, {"name": "sub", "path": "/tmp/sub", 
+"is_dir": true, "size": 0, "mtime": "2026-07-28T20:41:42"}, {"name": "\u041d\u04
+3e\u0432\u0438\u0439 \u0422\u0435\u043a\u0441\u0442\u043e\u0432\u0438\u0439 \u04
+34\u043e\u043a\u0443\u043c\u0435\u043d\u0442.txt", "path": "/tmp/\u041d\u043e\u0
+432\u0438\u0439 \u0422\u0435\u043a\u0441\u0442\u043e\u0432\u0438\u0439 \u0434\u0
+43e\u043a\u0443\u043c\u0435\u043d\u0442.txt", "is_dir": false, "size": 158, "mti
+me": "2026-05-30T20:16:51"}]}`) -- problem is that **this** requests **does not 
+output the folder size**, meaning that there **is** still meaning for the curren
+t setup
+- [x] Markdown modal are open for i18n strings translations, but it should not
+- [ ] Add or fix animations in:
+  - [x] File info modal closing (`fd-info-panel`)
+  - [x] File action modal closing (`fd-ctx-menu`)
+  - [x] `fd-auth-modal` closing - when logged in*
+
+- [x] File selector does not reset when file is moved
+- [x] Add animation after login window closes due to login event
+- [x] File selector does not reset or reselect when file is renamed
 
 ---
 

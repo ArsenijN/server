@@ -147,6 +147,10 @@ let currentPath = '/';
 // standard 30-day period until we learn otherwise.
 let _lastKnownRetentionDays = 30;
 let _lastUploadBatchCount = 0;  // P10: tracks file count in the current upload batch
+// When a multi-file upload queue hits a paused item, draining stops and the
+// continuation is parked here; the tray's Resume/Cancel handlers call it to
+// pick the queue back up. null when no queue is waiting on a pause.
+let _pausedQueueDrain = null;
 // Set right before programmatically opening the file picker from the mobile
 // upload FAB (see _initMobileUploadFab). There's no visible upload form on
 // touch-only devices to press "Upload" on, so the resulting file selection
@@ -805,6 +809,7 @@ function renderLandingView() {
                     ['⚡', t('home_card_lable4'), t('home_card_desc4')],
                     ['🗑', t('home_card_lable5'), t('home_card_desc5')],
                     ['🔒', t('home_card_lable6'), t('home_card_desc6')],
+                    ['👆', t('home_card_lable7_hold'), t('home_card_desc7_hold')],
                 ].map(([icon, title, desc]) => `
                     <div class="card" style="padding:1.5rem">
                         <div style="font-size:2rem;margin-bottom:.5rem">${icon}</div>
@@ -1750,20 +1755,7 @@ function renderFileBrowserView() {
                 };
                 refreshQ();
                 _lastUploadBatchCount += items.length;
-                async function drainDrop(item) {
-                    while (item) {
-                        try {
-                            await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
-                            loadDirectory(currentPath);
-                        } catch (err) {
-                            if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
-                                showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
-                                window.removeEventListener('beforeunload', windowLock);
-                            }
-                        }
-                        if (window._uploadQueue?.length > 0) { item = window._uploadQueue.shift(); refreshQ(); }
-                        else { item = null; }
-                    }
+                function _finishDrop() {
                     window.removeEventListener('beforeunload', windowLock);
                     _notifyUploadDone(items.length);
                     // No extra loadDirectory() here — the loop's own per-item
@@ -1771,6 +1763,34 @@ function renderFileBrowserView() {
                     // this used to unconditionally re-fetch the same listing a
                     // second time right after it (matches drainQueue's pattern,
                     // which never had this duplicate).
+                }
+                async function drainDrop(item) {
+                    while (item) {
+                        try {
+                            await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
+                            loadDirectory(currentPath);
+                        } catch (err) {
+                            if (err.name === 'PauseSignal') {
+                                // Queue waits here — the next file doesn't start
+                                // until the user resumes or cancels the paused
+                                // one (tray handlers call _pausedQueueDrain).
+                                _pausedQueueDrain = () => {
+                                    _pausedQueueDrain = null;
+                                    let next = null;
+                                    if (window._uploadQueue?.length > 0) { next = window._uploadQueue.shift(); refreshQ(); }
+                                    if (next) drainDrop(next); else _finishDrop();
+                                };
+                                return;
+                            }
+                            if (err.message !== 'Upload cancelled') {
+                                showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
+                                window.removeEventListener('beforeunload', windowLock);
+                            }
+                        }
+                        if (window._uploadQueue?.length > 0) { item = window._uploadQueue.shift(); refreshQ(); }
+                        else { item = null; }
+                    }
+                    _finishDrop();
                 }
                 drainDrop(first);
             }
@@ -5938,6 +5958,11 @@ async function handleUploadForm(e) {
         setTimeout(_hideUploadSpinner, 400);
         _lastUploadBatchCount += items.length;   // P10: count this batch
         // Start first immediately, then drain queue sequentially
+        function _finishQueue() {
+            _notifyUploadDone(_lastUploadBatchCount);   // P10
+            _lastUploadBatchCount = 0;                  // P10: reset for next batch
+            window.removeEventListener('beforeunload', windowLock);
+        }
         async function drainQueue(startItem) {
             let item = startItem;
             while (item) {
@@ -5945,7 +5970,18 @@ async function handleUploadForm(e) {
                     await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
                     loadDirectory(currentPath);
                 } catch (err) {
-                    if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
+                    if (err.name === 'PauseSignal') {
+                        // Queue waits here until the paused item is resumed or
+                        // cancelled (tray handlers call _pausedQueueDrain).
+                        _pausedQueueDrain = () => {
+                            _pausedQueueDrain = null;
+                            let next = null;
+                            if (window._uploadQueue && window._uploadQueue.length > 0) { next = window._uploadQueue.shift(); refreshQ(); }
+                            if (next) drainQueue(next); else _finishQueue();
+                        };
+                        return;
+                    }
+                    if (err.message !== 'Upload cancelled') {
                         showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
                         window.removeEventListener('beforeunload', windowLock);
                     }
@@ -5956,9 +5992,7 @@ async function handleUploadForm(e) {
                     refreshQ();
                 } else {
                     item = null;
-                    _notifyUploadDone(_lastUploadBatchCount);   // P10
-                    _lastUploadBatchCount = 0;                  // P10: reset for next batch
-                    window.removeEventListener('beforeunload', windowLock);
+                    _finishQueue();
                 }
             }
         }
@@ -6106,9 +6140,14 @@ function renderUploadTray() {
                     reuseId:          id,
                 }).then(() => {
                     loadDirectory(currentPath);
+                    // This item finished — if a multi-file queue was parked
+                    // waiting on it, let the rest of the queue drain now.
+                    if (_pausedQueueDrain) _pausedQueueDrain();
                 }).catch(err => {
-                    if (err.name === 'PauseSignal' || err.message === 'Upload cancelled') return;
+                    if (err.name === 'PauseSignal') return;   // paused again — queue stays parked
+                    if (err.message === 'Upload cancelled') { if (_pausedQueueDrain) _pausedQueueDrain(); return; }
                     showMessage('Upload failed', err.message);
+                    if (_pausedQueueDrain) _pausedQueueDrain();
                 });
             });
 
@@ -6116,11 +6155,16 @@ function renderUploadTray() {
             cancelBtn.textContent = '✕ Cancel';
             cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
             cancelBtn.addEventListener('click', () => {
+                const wasPaused = ul.paused;
                 ul.status = 'cancelling';
                 renderUploadTray();
                 ul.cancelled = true;
                 ul.paused = false;
                 if (ul.abortController) ul.abortController.abort();
+                // If this item was paused, its uploadChunked() promise already
+                // settled (PauseSignal) — nothing will fire _pausedQueueDrain
+                // for us, so release any parked queue here.
+                if (wasPaused && _pausedQueueDrain) _pausedQueueDrain();
             });
 
             // Pre-attach all buttons; visibility is toggled via display — never detached

@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "en",
     "label": "English",
-    "version": "1.4.4"
+    "version": "1.4.5"
   },
   "login": "Login",
   "register": "Register",
@@ -234,6 +234,8 @@
   "home_card_desc5": "Deleted files land in a recoverable trash bin and are held for 30 days before permanent removal.",
   "home_card_lable6": "Your data, your server",
   "home_card_desc6": "Nothing leaves your infrastructure. No analytics, no ads, no third-party data sharing.",
+  "home_card_lable7_hold": "Hold to manage",
+  "home_card_desc7_hold": "On mobile, press and hold any file or folder to open its actions — select, share, rename, move, or delete.",
   "home_card_lable_desc": "How it works",
   "home_card_lable7": "Create an account",
   "home_card_desc7": "Register with a username and email.",

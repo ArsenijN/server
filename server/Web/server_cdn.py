@@ -6809,8 +6809,11 @@ def _require_admin(handler_method):
         return handler_method(self, user_id, *args, **kwargs)
     return wrapper
 
-def _get_user_disk_usage(user_id: int) -> int:
-    """Return total bytes used by a user (excluding .trash — trash is free quota)."""
+def _get_user_disk_usage_live(user_id: int) -> int:
+    """Total bytes used by a user (excluding .trash — trash is free quota),
+    computed by a fresh filesystem walk. Slow for large trees — prefer
+    _get_user_disk_usage(), which serves this from the incremental dir cache
+    and only falls back here on a cold cache."""
     user_dir   = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
     trash_root = os.path.realpath(_user_trash_root(user_id))
     total = 0
@@ -6828,6 +6831,33 @@ def _get_user_disk_usage(user_id: int) -> int:
     except OSError:
         pass
     return total
+
+
+def _get_user_disk_usage(user_id: int) -> int:
+    """Total bytes used by a user, excluding .trash (trash is free quota).
+
+    Served from the incremental directory cache (core.status._dir_cache):
+    cached whole-tree size minus the separately-cached .trash subtree size,
+    both O(1) reads that self-refresh in the background on any change. Only
+    when the cache is cold for this user (e.g. right after a restart, before
+    the background scan has reached them) does it fall back to a live walk,
+    so a quota check is never wrong at rest — just occasionally slow once.
+    /api/v1/admin/users calls this once per user in a loop; the live walk
+    there was what pushed that endpoint past the reverse-proxy timeout as
+    stored file counts grew.
+    """
+    user_dir   = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+    trash_dir  = _user_trash_root(user_id)
+
+    _tot_cnt, total, warm = _dir_cache_get_ex(user_dir)
+    if not warm:
+        return _get_user_disk_usage_live(user_id)
+
+    # Subtract the trash subtree (it has its own cache entry — _dir_cache_refresh
+    # visits every subdirectory independently). If trash is itself cold, treat
+    # it as 0 for now; it self-corrects on the next call once scanned.
+    _tr_cnt, trash_bytes, _tr_warm = _dir_cache_get_ex(os.path.normpath(trash_dir))
+    return max(0, total - trash_bytes)
 
 if __name__ == '__main__':
     # --- Pre-flight Checks & Setup ---

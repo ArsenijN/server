@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-79498a4e
+// Current version of script.js is: fluxdrop-v-b1d4d761
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-79498a4e'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-b1d4d761'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -147,6 +147,10 @@ let currentPath = '/';
 // standard 30-day period until we learn otherwise.
 let _lastKnownRetentionDays = 30;
 let _lastUploadBatchCount = 0;  // P10: tracks file count in the current upload batch
+// When a multi-file upload queue hits a paused item, draining stops and the
+// continuation is parked here; the tray's Resume/Cancel handlers call it to
+// pick the queue back up. null when no queue is waiting on a pause.
+let _pausedQueueDrain = null;
 // Set right before programmatically opening the file picker from the mobile
 // upload FAB (see _initMobileUploadFab). There's no visible upload form on
 // touch-only devices to press "Upload" on, so the resulting file selection
@@ -805,6 +809,7 @@ function renderLandingView() {
                     ['⚡', t('home_card_lable4'), t('home_card_desc4')],
                     ['🗑', t('home_card_lable5'), t('home_card_desc5')],
                     ['🔒', t('home_card_lable6'), t('home_card_desc6')],
+                    ['👆', t('home_card_lable7_hold'), t('home_card_desc7_hold')],
                 ].map(([icon, title, desc]) => `
                     <div class="card" style="padding:1.5rem">
                         <div style="font-size:2rem;margin-bottom:.5rem">${icon}</div>
@@ -1750,13 +1755,34 @@ function renderFileBrowserView() {
                 };
                 refreshQ();
                 _lastUploadBatchCount += items.length;
+                function _finishDrop() {
+                    window.removeEventListener('beforeunload', windowLock);
+                    _notifyUploadDone(items.length);
+                    // No extra loadDirectory() here — the loop's own per-item
+                    // refresh (above) already covers the last completed item;
+                    // this used to unconditionally re-fetch the same listing a
+                    // second time right after it (matches drainQueue's pattern,
+                    // which never had this duplicate).
+                }
                 async function drainDrop(item) {
                     while (item) {
                         try {
                             await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
                             loadDirectory(currentPath);
                         } catch (err) {
-                            if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
+                            if (err.name === 'PauseSignal') {
+                                // Queue waits here — the next file doesn't start
+                                // until the user resumes or cancels the paused
+                                // one (tray handlers call _pausedQueueDrain).
+                                _pausedQueueDrain = () => {
+                                    _pausedQueueDrain = null;
+                                    let next = null;
+                                    if (window._uploadQueue?.length > 0) { next = window._uploadQueue.shift(); refreshQ(); }
+                                    if (next) drainDrop(next); else _finishDrop();
+                                };
+                                return;
+                            }
+                            if (err.message !== 'Upload cancelled') {
                                 showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
                                 window.removeEventListener('beforeunload', windowLock);
                             }
@@ -1764,9 +1790,7 @@ function renderFileBrowserView() {
                         if (window._uploadQueue?.length > 0) { item = window._uploadQueue.shift(); refreshQ(); }
                         else { item = null; }
                     }
-                    window.removeEventListener('beforeunload', windowLock);
-                    _notifyUploadDone(items.length);
-                    loadDirectory(currentPath);
+                    _finishDrop();
                 }
                 drainDrop(first);
             }
@@ -3729,8 +3753,10 @@ window.previewFile = async function(path) {
                 // directory / tar headers, never the compressed file data.
                 // This is O(entry-count) rather than O(file-size).
                 try {
-                    const tokenResp = await apiCall('/api/v1/download_token', 'POST', { path }, true);
-                    const dlToken   = tokenResp.download_token;
+                    // tokenData was already minted at the top of previewFile() for
+                    // every category (used there to build dlUrl) — reuse it instead
+                    // of minting a second, redundant token just for this branch.
+                    const dlToken = tokenData.download_token;
 
                     const encodedPath = path.split('/').map(encodeURIComponent).join('/');
                     const treeUrl = `${API_BASE_URL}/api/v1/archive_tree${encodedPath}?dl_token=${encodeURIComponent(dlToken)}`;
@@ -3980,10 +4006,19 @@ function attachRowListeners() {
         });
     });
 
-    // Clear selection when clicking empty table area
-    fileList.addEventListener('click', e => {
-        if (!e.target.closest('.fd-file-row')) { _clearSelection(); _updateSelBar(); }
-    });
+    // Clear selection on any click outside the file list entirely — empty
+    // <body> margins, #app-root's own background outside #file-list, not
+    // just the empty space inside #file-list itself (the old scope). Bound
+    // once on document.body rather than re-added on every directory render
+    // like the rest of this function, since body persists for the whole
+    // session and re-binding here would leak one listener per navigation.
+    if (!document.body._fdSelClearBound) {
+        document.body._fdSelClearBound = true;
+        document.body.addEventListener('click', e => {
+            if (e.target.closest('.fd-file-row, #fd-sel-bar, #fd-ctx-menu, .modal-overlay, .fd-profile-overlay')) return;
+            if (_selectedPaths.size > 0) { _clearSelection(); _updateSelBar(); }
+        });
+    }
 
     // Lazy folder sizes — only for cells the list response couldn't already
     // fill in (cache was cold for that folder); warm ones need no request.
@@ -5923,6 +5958,11 @@ async function handleUploadForm(e) {
         setTimeout(_hideUploadSpinner, 400);
         _lastUploadBatchCount += items.length;   // P10: count this batch
         // Start first immediately, then drain queue sequentially
+        function _finishQueue() {
+            _notifyUploadDone(_lastUploadBatchCount);   // P10
+            _lastUploadBatchCount = 0;                  // P10: reset for next batch
+            window.removeEventListener('beforeunload', windowLock);
+        }
         async function drainQueue(startItem) {
             let item = startItem;
             while (item) {
@@ -5930,7 +5970,18 @@ async function handleUploadForm(e) {
                     await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
                     loadDirectory(currentPath);
                 } catch (err) {
-                    if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
+                    if (err.name === 'PauseSignal') {
+                        // Queue waits here until the paused item is resumed or
+                        // cancelled (tray handlers call _pausedQueueDrain).
+                        _pausedQueueDrain = () => {
+                            _pausedQueueDrain = null;
+                            let next = null;
+                            if (window._uploadQueue && window._uploadQueue.length > 0) { next = window._uploadQueue.shift(); refreshQ(); }
+                            if (next) drainQueue(next); else _finishQueue();
+                        };
+                        return;
+                    }
+                    if (err.message !== 'Upload cancelled') {
                         showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
                         window.removeEventListener('beforeunload', windowLock);
                     }
@@ -5941,9 +5992,7 @@ async function handleUploadForm(e) {
                     refreshQ();
                 } else {
                     item = null;
-                    _notifyUploadDone(_lastUploadBatchCount);   // P10
-                    _lastUploadBatchCount = 0;                  // P10: reset for next batch
-                    window.removeEventListener('beforeunload', windowLock);
+                    _finishQueue();
                 }
             }
         }
@@ -6091,9 +6140,14 @@ function renderUploadTray() {
                     reuseId:          id,
                 }).then(() => {
                     loadDirectory(currentPath);
+                    // This item finished — if a multi-file queue was parked
+                    // waiting on it, let the rest of the queue drain now.
+                    if (_pausedQueueDrain) _pausedQueueDrain();
                 }).catch(err => {
-                    if (err.name === 'PauseSignal' || err.message === 'Upload cancelled') return;
+                    if (err.name === 'PauseSignal') return;   // paused again — queue stays parked
+                    if (err.message === 'Upload cancelled') { if (_pausedQueueDrain) _pausedQueueDrain(); return; }
                     showMessage('Upload failed', err.message);
+                    if (_pausedQueueDrain) _pausedQueueDrain();
                 });
             });
 
@@ -6101,11 +6155,16 @@ function renderUploadTray() {
             cancelBtn.textContent = '✕ Cancel';
             cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
             cancelBtn.addEventListener('click', () => {
+                const wasPaused = ul.paused;
                 ul.status = 'cancelling';
                 renderUploadTray();
                 ul.cancelled = true;
                 ul.paused = false;
                 if (ul.abortController) ul.abortController.abort();
+                // If this item was paused, its uploadChunked() promise already
+                // settled (PauseSignal) — nothing will fire _pausedQueueDrain
+                // for us, so release any parked queue here.
+                if (wasPaused && _pausedQueueDrain) _pausedQueueDrain();
             });
 
             // Pre-attach all buttons; visibility is toggled via display — never detached
@@ -8317,7 +8376,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-79498a4e'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-b1d4d761'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

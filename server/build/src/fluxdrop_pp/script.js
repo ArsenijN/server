@@ -1063,6 +1063,12 @@ async function checkAndShowPolicies(onAllAccepted) {
 
     if (queue.length === 0) { onAllAccepted(); return; }
 
+    // We're about to block on a full-screen policy modal instead of rendering
+    // the app. Every other path clears #app-root (and with it the boot spinner)
+    // via appRoot.innerHTML — this one doesn't until the user accepts, so the
+    // fd-boot-spin animation would otherwise run forever behind the modal.
+    document.getElementById('fd-boot-loading')?.remove();
+
     async function showNext() {
         if (queue.length === 0) { onAllAccepted(); return; }
         const { type, version } = queue.shift();

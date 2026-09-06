@@ -30,7 +30,9 @@ options
 ### UX - fixes for existing features or new overall experience enhancements
 - [ ] Make file info modal able to work as "turn on and stay until closed": 
 toggle in settings to change this behavior; works as file info modal that 
-doesn't close when user clicks outside of it
+doesn't close when user clicks outside of it -- a toggle to enable that 
+feature so I can click on items to then see it's infos without need to use 
+right click menu
 - [ ] Add multiple files streaming (archive and stream to the server; one 
 stream - a lot of files) feature to site UI from `batch_tar_upload.py`
 - [ ] Make file upload multithreaded (2+ files processing simultaneously on 
@@ -55,27 +57,14 @@ on i5 8350U)
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
-- [ ] Uploads can't be paused and instead "cancels" if using the drag-n-drop
 - [ ] Hide file selector for the mobile version of the FluxDrop
-- [ ] Hold-to-manage feature on mobile is nifty - maybe should been also 
-mentioned in the welcoming screen?
-- [ ] Opening the profile preview modal (`profile-menu-modal`) is very 
-epilepsy-warning due to background appearing dark instantly (mobile)
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
 - [ ] Check if upload still ends successfully (message that is sent via 
 browser) even if the upload of one of the files fails (for example because of 
 the quota) -- it is, and also smaller files are correctly uploaded that fits 
-the quota
-- [ ] (Needs check) FluxDrop Web makes 2 connections to get the download token 
-when viewing the archive's table of contents
-- [ ] (Needs check) After upload FluxDrop Web fetches the same page (current 
-working directory) 2 times
-- [ ] (Needs check) File selector does not close when clicked on `<body>`, 
-`app-root` (backgrounds of items), 
-- [ ] File selector have empty space where it sits, but ideally to remove that 
-empty space and make an animation of appearing (expanding the space for it)
+the quota -- I mean the notification from browser from site
 
 ### Server-side non-breaking changes:
 
@@ -87,8 +76,6 @@ hash after canceling the ZIP download, or do it only if server is unused or via
 - [ ] Do not make speed probe for small files (e.g. less than 25 MB) -- no if 
 internet is bad -- if so - needs changes in how the chunks are calculated, 
 maybe do a dynamic chunk size based on an speed of upload
-- [ ] Proxy fails on admin panel request due to long server responce time due 
-to amount of server-side files being saved by users
 
 #### High:
 - [ ] Update the helpers functionality
@@ -113,7 +100,7 @@ the separate `maintenance.log` file work always, but not include the infos into
 CDN's logs if debug isn't enabled)
 
 #### Low:
-- [ ] Reduce amount of re-imports inside the code if this will add overall 
+- [ ] Reduce amount of re-imports inside the code if it's adding overall 
 overhead
 - [ ] Add checkers for external HTTP and HTTPS hosters for outage page
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
@@ -166,6 +153,7 @@ storage media)
 - [ ] Fix CSP for used domain other than `PUBLIC_DOMAIN` (e.g. accessing 
 FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to 
 as specified in `PUBLIC_DOMAIN`)
+- [ ] Add code map
 
 
 ---
@@ -244,6 +232,22 @@ t setup
 - [x] File selector does not reset when file is moved
 - [x] Add animation after login window closes due to login event
 - [x] File selector does not reset or reselect when file is renamed
+
+- [x] Uploads can't be paused and instead "cancels" if using the drag-n-drop
+- [x] Hold-to-manage feature on mobile is nifty - maybe should been also 
+mentioned in the welcoming screen?
+- [x] Opening the profile preview modal (`profile-menu-modal`) is very 
+epilepsy-warning due to background appearing dark instantly (mobile)
+- [x] (Needs check) FluxDrop Web makes 2 connections to get the download token 
+when viewing the archive's table of contents
+- [x] (Needs check) After upload FluxDrop Web fetches the same page (current 
+working directory) 2 times
+- [x] (Needs check) File selector does not close when clicked on `<body>`, 
+`app-root` (backgrounds of items), 
+- [x] File selector have empty space where it sits, but ideally to remove that 
+empty space and make an animation of appearing (expanding the space for it)
+- [x] Proxy fails on admin panel request due to long server responce time due 
+to amount of server-side files being saved by users
 
 ---
 

@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-b1d4d761
+// Current version of script.js is: fluxdrop-v-65af1a3b
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-b1d4d761'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-65af1a3b'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -1062,6 +1062,12 @@ async function checkAndShowPolicies(onAllAccepted) {
     if (status.needs_pp)  queue.push({ type: 'pp',  version: status.current_pp  });
 
     if (queue.length === 0) { onAllAccepted(); return; }
+
+    // We're about to block on a full-screen policy modal instead of rendering
+    // the app. Every other path clears #app-root (and with it the boot spinner)
+    // via appRoot.innerHTML — this one doesn't until the user accepts, so the
+    // fd-boot-spin animation would otherwise run forever behind the modal.
+    document.getElementById('fd-boot-loading')?.remove();
 
     async function showNext() {
         if (queue.length === 0) { onAllAccepted(); return; }
@@ -8376,7 +8382,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-b1d4d761'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-65af1a3b'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

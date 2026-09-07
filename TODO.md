@@ -61,7 +61,7 @@ on i5 8350U)
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
-- [ ] Check if upload still ends successfully (message that is sent via 
+- [x] Check if upload still ends successfully (message that is sent via 
 browser) even if the upload of one of the files fails (for example because of 
 the quota) -- it is, and also smaller files are correctly uploaded that fits 
 the quota -- I mean the notification from browser from site
@@ -92,15 +92,15 @@ current `maintenance window`
     was unrecoverable
 
 #### Medium:
-- [ ] Make caching or optimize the quota size counting for reducing the time 
+- [x] Make caching or optimize the quota size counting for reducing the time 
 that is needed to process the 150k+ items for FluxDrop file manager
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
-- [ ] Add hash (maintenance) logs to the debug category for main log file (keep 
+- [x] Add hash (maintenance) logs to the debug category for main log file (keep 
 the separate `maintenance.log` file work always, but not include the infos into 
 CDN's logs if debug isn't enabled)
 
 #### Low:
-- [ ] Reduce amount of re-imports inside the code if it's adding overall 
+- [x] Reduce amount of re-imports inside the code if it's adding overall 
 overhead
 - [ ] Add checkers for external HTTP and HTTPS hosters for outage page
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 

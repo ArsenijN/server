@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "en",
     "label": "English",
-    "version": "1.4.7"
+    "version": "1.4.8"
   },
   "login": "Login",
   "register": "Register",
@@ -413,5 +413,22 @@
   "ctx_download_folders_zip": "Download {n} folder(s) as ZIP",
   "ctx_download_mixed": "Download {nf} file(s) + {nd} ZIP(s)",
   "ctx_trash_multi": "Move {n} items to Trash",
-  "go_up": "Go up"
+  "go_up": "Go up",
+  "yes": "Yes",
+  "no": "No",
+  "create": "Create",
+  "create_folder_title": "Create Folder",
+  "folder_name_label": "Folder name",
+  "folder_created_toast": "Folder \"{name}\" created",
+  "create_folder_failed": "Create folder failed",
+  "trash_browse": "Browse",
+  "trash_preview": "Preview",
+  "trash_restore": "Restore",
+  "trash_delete": "Delete",
+  "trash_perm_delete_title": "Permanently delete \"{name}\"?",
+  "trash_perm_delete_body": "This cannot be undone.",
+  "trash_delete_failed": "Delete failed",
+  "trash_moved_toast": "{n} item(s) moved to Trash",
+  "archive_empty": "Archive is empty.",
+  "queue_empty": "Queue is empty."
 }

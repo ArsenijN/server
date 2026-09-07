@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-87a47700
+// Current version of script.js is: fluxdrop-v-604d7592
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-87a47700'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-604d7592'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -470,7 +470,7 @@ function showToast(message, opts = {}) {
 // Returns a Promise<string|null> — the trimmed input value, or null if the
 // user cancelled (Escape, backdrop click, or the Cancel button).
 function showPromptModal({ title, label = '', placeholder = '', defaultValue = '',
-                            confirmLabel = 'OK', cancelLabel = 'Cancel' } = {}) {
+                            confirmLabel = t('ok'), cancelLabel = t('cancel') } = {}) {
     return new Promise(resolve => {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
@@ -518,7 +518,7 @@ function showPromptModal({ title, label = '', placeholder = '', defaultValue = '
 }
 
 // Returns a Promise<boolean> — true if confirmed, false if cancelled/dismissed.
-function showConfirmModal({ title, message = '', confirmLabel = 'Yes', cancelLabel = 'No', danger = true } = {}) {
+function showConfirmModal({ title, message = '', confirmLabel = t('yes'), cancelLabel = t('no'), danger = true } = {}) {
     return new Promise(resolve => {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
@@ -3547,7 +3547,7 @@ window.closePreview = function() {
 // entries: array of { name, size, isDir }  (normalised by each format handler)
 function _renderArchiveTree(bodyEl, entries, archiveName) {
     if (!entries.length) {
-        bodyEl.innerHTML = '<div style="padding:2rem;text-align:center;color:#94a3b8">Archive is empty.</div>';
+        bodyEl.innerHTML = `<div style="padding:2rem;text-align:center;color:#94a3b8">${t('archive_empty')}</div>`;
         return;
     }
 
@@ -3872,7 +3872,14 @@ async function _trashSelectedPaths(paths) {
         else if (r) lastDays = r;
     }
     const moved = paths.length - failed;
-    if (moved > 0) _showTrashBatchNotice(moved, lastDays);
+    if (moved > 0) {
+        // One-time verbose "how Trash works" modal, then always a lightweight
+        // toast so every delete gets visible feedback (the modal self-silences
+        // after the first time).
+        _showTrashBatchNotice(moved, lastDays);
+        showToast(t('trash_moved_toast', { n: moved }));
+    }
+    if (failed > 0) showToast(t('trash_delete_failed') + ` (${failed})`, { type: 'error' });
     loadDirectory(currentPath);
 }
 
@@ -4794,7 +4801,7 @@ async function _refreshTrashView() {
                 <div style="font-size:11px;color:#94a3b8;margin-top:2px">
                     ${escapeHtml(item.original_path)} &nbsp;·&nbsp;
                     ${fmtBytes(item.size_bytes)} &nbsp;·&nbsp;
-                    Deleted ${fmtDate(item.deleted_at)}
+                    ${t('trash_deleted_label')} ${fmtDate(item.deleted_at)}
                 </div>
             </div>
             <div style="flex-shrink:0;font-size:11px;text-align:right;min-width:70px">
@@ -4805,22 +4812,22 @@ async function _refreshTrashView() {
                     ? `<button class="trash-preview-btn" data-id="${item.id}" data-name="${escapeHtmlAttr(item.name)}"
                            style="background:#6366f1;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
-                           ${t('trash_preview') !== 'trash_preview' ? t('trash_preview') : 'Preview'}
+                           ${t('trash_preview')}
                        </button>`
                     : `<button class="trash-browse-btn" data-trash-path="${escapeHtmlAttr(item.trash_path)}" data-id="${item.id}"
                            style="background:#6366f1;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
-                           ${t('trash_browse') !== 'trash_browse' ? t('trash_browse') : 'Browse'}
+                           ${t('trash_browse')}
                        </button>`}
                 <button class="trash-restore-btn" data-id="${item.id}"
                     style="background:#22c55e;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600">
-                    ${t('trash_restore') !== 'trash_restore' ? t('trash_restore') : 'Restore'}
+                    ${t('trash_restore')}
                 </button>
-                <button class="trash-del-btn" data-id="${item.id}"
+                <button class="trash-del-btn" data-id="${item.id}" data-name="${escapeHtmlAttr(item.name)}"
                     style="background:#ef4444;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px">
-                    ${t('trash_delete') !== 'trash_delete' ? t('trash_delete') : 'Delete'}
+                    ${t('trash_delete')}
                 </button>
             </div>
         </div>`).join('');
@@ -4842,18 +4849,17 @@ async function _refreshTrashView() {
     body.querySelectorAll('.trash-del-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const id = +btn.dataset.id;
-            const row = body.querySelector(`.trash-row[data-id="${id}"]`);
-            const name = row?.querySelector('div > div')?.textContent?.trim() || 'this item';
+            const name = btn.dataset.name || '';
             const ok = await showConfirmModal({
-                title: `Permanently delete "${name}"?`,
-                message: 'This cannot be undone.',
+                title: t('trash_perm_delete_title', { name }),
+                message: t('trash_perm_delete_body'),
             });
             if (!ok) return;
             try {
                 await apiCall(`/api/v1/trash/${id}`, 'DELETE');
                 await _refreshTrashView();
             } catch (err) {
-                alert('Delete failed: ' + err.message);
+                showToast(t('trash_delete_failed') + ': ' + err.message, { type: 'error' });
             }
         });
     });
@@ -5250,16 +5256,16 @@ async function openMoveDialog(srcPath) {
 
 async function promptCreateFolder() {
     const name = await showPromptModal({
-        title: 'Create Folder',
-        label: 'Folder name',
+        title: t('create_folder_title'),
+        label: t('folder_name_label'),
         defaultValue: 'NewFolder',
-        confirmLabel: 'Create',
+        confirmLabel: t('create'),
     });
     if (!name) return;
     try {
         let targetPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
         await apiCall('/api/v1/mkdir', 'POST', { path: targetPath }, true);
-        showToast(`Folder "${name}" created`);
+        showToast(t('folder_created_toast', { name }));
         loadDirectory(currentPath);
     } catch (err) {
         try {
@@ -5268,10 +5274,10 @@ async function promptCreateFolder() {
             let endpointPath = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
             const endpoint = '/api/v1/upload/' + encodePath(endpointPath);
             await uploadFormData(endpoint, fd);
-            showToast(`Folder "${name}" created`);
+            showToast(t('folder_created_toast', { name }));
             loadDirectory(currentPath);
         } catch (err2) {
-            showMessage('Create folder failed', err.message || String(err2));
+            showMessage(t('create_folder_failed'), err.message || String(err2));
         }
     }
 }
@@ -7491,7 +7497,13 @@ function _apOpenEditModal(userId, users) {
 }
 
 async function _apDeleteUser(userId, username) {
-    if (!confirm(t('admin_delete_confirm', { name: username }))) return;
+    const full = t('admin_delete_confirm', { name: username });
+    const [titleLine, ...rest] = full.split('\n\n');
+    const ok = await showConfirmModal({
+        title: titleLine,
+        message: rest.join('\n\n'),
+    });
+    if (!ok) return;
     try {
         await apiCall(`/api/v1/admin/users/${userId}`, 'DELETE');
         await _apLoadUsers();
@@ -7949,7 +7961,7 @@ function openUploadQueuePanel(onClose) {
     function buildHTML() {
         const q = window._uploadQueue || [];
         const rows = q.length === 0
-            ? `<p style="color:#94a3b8;text-align:center;padding:1.5rem 0">Queue is empty.</p>`
+            ? `<p style="color:#94a3b8;text-align:center;padding:1.5rem 0">${t('queue_empty')}</p>`
             : q.map((item, i) => `
                 <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #334155"
                      data-qi="${i}">
@@ -8433,7 +8445,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-87a47700'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-604d7592'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

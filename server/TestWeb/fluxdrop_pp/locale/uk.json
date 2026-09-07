@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "uk",
     "label": "Українська",
-    "version": "1.4.7"
+    "version": "1.4.8"
   },
   "login": "Увійти",
   "register": "Реєстрація",
@@ -413,5 +413,22 @@
   "ctx_download_folders_zip": "Завантажити папок як ZIP: {n}",
   "ctx_download_mixed": "Завантажити файлів: {nf} + ZIP: {nd}",
   "ctx_trash_multi": "У кошик елементів: {n}",
-  "go_up": "Вгору"
+  "go_up": "Вгору",
+  "yes": "Так",
+  "no": "Ні",
+  "create": "Створити",
+  "create_folder_title": "Створити теку",
+  "folder_name_label": "Назва теки",
+  "folder_created_toast": "Теку «{name}» створено",
+  "create_folder_failed": "Не вдалося створити теку",
+  "trash_browse": "Переглянути",
+  "trash_preview": "Перегляд",
+  "trash_restore": "Відновити",
+  "trash_delete": "Видалити",
+  "trash_perm_delete_title": "Видалити «{name}» назавжди?",
+  "trash_perm_delete_body": "Цю дію не можна скасувати.",
+  "trash_delete_failed": "Не вдалося видалити",
+  "trash_moved_toast": "Переміщено до кошика: {n}",
+  "archive_empty": "Архів порожній.",
+  "queue_empty": "Черга порожня."
 }

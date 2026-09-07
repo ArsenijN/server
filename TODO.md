@@ -138,13 +138,12 @@ storage media)
 FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to 
 as specified in `PUBLIC_DOMAIN`)
 - [ ] Add code map
-- [ ] Prettify the emails that comes to people
 - [ ] Use separate email for FluxDrop
 - [ ] Add proper account disable and deletion, compliances to GDPR (incl. 
 "Download everything as a ZIP")
 - [ ] Add a way to track IPs, auths, etc. - aka special admin page for specific 
 usages, for example the abuse
-- [ ] Fix emails missing the icon for FluxDrop
+- [ ] Make emails have local the same as user
 
 
 ---
@@ -257,7 +256,8 @@ CDN's logs if debug isn't enabled)
 - [x] Reduce amount of re-imports inside the code if it's adding overall 
 overhead
 
-
+- [x] Prettify the emails that comes to people
+- [x] Fix emails missing the icon for FluxDrop
 
 ---
 

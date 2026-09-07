@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "en",
     "label": "English",
-    "version": "1.4.5"
+    "version": "1.4.6"
   },
   "login": "Login",
   "register": "Register",
@@ -60,6 +60,7 @@
   "dark_mode": "Dark mode",
   "language": "Language",
   "debug_console": "Network debug console",
+  "pin_info_panel": "Click items to inspect (keep info panel open)",
   "space_analyzer": "Space Analyzer",
   "analyze_space": "Analyze Space",
   "transfer_tray": "Transfer tray",

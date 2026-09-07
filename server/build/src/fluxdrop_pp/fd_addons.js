@@ -1058,6 +1058,10 @@
         <input type="checkbox" id="fd-debug-chk" ${debugOn?'checked':''} style="width:16px;height:16px">
         <span style="font-size:13px;font-weight:600">🔌 ${t('debug_console')}</span>
       </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">
+        <input type="checkbox" id="fd-pin-info-chk" ${localStorage.getItem('fd_pin_info_panel')==='1'?'checked':''} style="width:16px;height:16px">
+        <span style="font-size:13px;font-weight:600">🔎 ${t('pin_info_panel')}</span>
+      </label>
       <button id="fd-sa-btn" style="width:100%;padding:8px 14px;border-radius:8px;
           border:1px solid #3b82f6;background:none;color:#3b82f6;font-size:13px;
           font-weight:600;cursor:pointer;font-family:inherit;transition:background .15s">
@@ -1078,6 +1082,9 @@
     });
     block.querySelector('#fd-debug-chk').addEventListener('change', function() {
       this.checked ? FDdebug.enable() : FDdebug.disable();
+    });
+    block.querySelector('#fd-pin-info-chk').addEventListener('change', function() {
+      try { localStorage.setItem('fd_pin_info_panel', this.checked ? '1' : ''); } catch (_) {}
     });
     block.querySelector('#fd-sa-btn').addEventListener('click', () => {
       window.fdCloseOverlay(overlay); openSpaceAnalyzer();

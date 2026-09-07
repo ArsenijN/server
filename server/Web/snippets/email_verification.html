@@ -1,18 +1,39 @@
-<html><body style="font-family:sans-serif;color:#1e293b;max-width:480px;margin:0 auto;padding:24px">
-<div style="margin-bottom:20px">
-  {icon_img}<span style="font-size:24px;font-weight:700;color:#3b82f6;vertical-align:middle">FluxDrop</span>
+<html><body style="margin:0;padding:0;background:#f1f5f9">
+<div style="background:#f1f5f9;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b">
+  <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
+
+    <div style="padding:22px 32px;border-bottom:1px solid #f1f5f9">
+      {icon_img}<span style="font-size:22px;font-weight:700;color:#3b82f6;vertical-align:middle">FluxDrop</span>
+    </div>
+
+    <div style="padding:28px 32px">
+      <p style="margin:0 0 12px">Hello <strong>{username}</strong>,</p>
+      <p style="margin:0 0 4px">Thanks for signing up. Confirm your email address to activate your account:</p>
+
+      <p style="text-align:center;margin:26px 0">
+        <a href="{verification_link}"
+           style="display:inline-block;background:#3b82f6;color:#ffffff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
+           Verify my account
+        </a>
+      </p>
+
+      <p style="color:#64748b;font-size:13px;margin:0 0 4px">Or paste this link into your browser:</p>
+      <p style="margin:0 0 20px;word-break:break-all">
+        <a href="{verification_link}" style="color:#3b82f6;font-size:13px">{verification_link}</a>
+      </p>
+
+      <div style="border-top:1px solid #f1f5f9;margin:0 0 16px"></div>
+
+      <p style="color:#64748b;font-size:13px;margin:0">
+        This link expires in <strong>1 hour</strong>. If you didn't create a FluxDrop account,
+        you can safely ignore this email &mdash; nothing will happen.
+      </p>
+    </div>
+
+    <div style="padding:18px 32px;background:#f8fafc;border-top:1px solid #f1f5f9">
+      <p style="color:#94a3b8;font-size:12px;margin:0">FluxDrop &middot; Your files. Your server. Your rules.</p>
+    </div>
+
+  </div>
 </div>
-<p>Hello <strong>{username}</strong>,</p>
-<p>Thank you for registering. Please click the button below to verify your email address:</p>
-<p style="margin:24px 0">
-    <a href="{verification_link}"
-       style="background:#3b82f6;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">
-       Verify my account
-    </a>
-</p>
-<p style="color:#64748b;font-size:13px">Or copy this link into your browser:<br>
-   <a href="{verification_link}" style="color:#3b82f6">{verification_link}</a></p>
-<p style="color:#64748b;font-size:13px">This link expires in 1 hour.<br>
-   If you did not register, you can safely ignore this email.</p>
-<p>Thanks,<br>The FluxDrop Team</p>
 </body></html>

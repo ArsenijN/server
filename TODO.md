@@ -28,11 +28,6 @@ inside it to...
 options
 
 ### UX - fixes for existing features or new overall experience enhancements
-- [ ] Make file info modal able to work as "turn on and stay until closed": 
-toggle in settings to change this behavior; works as file info modal that 
-doesn't close when user clicks outside of it -- a toggle to enable that 
-feature so I can click on items to then see it's infos without need to use 
-right click menu
 - [ ] Add multiple files streaming (archive and stream to the server; one 
 stream - a lot of files) feature to site UI from `batch_tar_upload.py`
 - [ ] Make file upload multithreaded (2+ files processing simultaneously on 
@@ -61,10 +56,6 @@ on i5 8350U)
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
-- [x] Check if upload still ends successfully (message that is sent via 
-browser) even if the upload of one of the files fails (for example because of 
-the quota) -- it is, and also smaller files are correctly uploaded that fits 
-the quota -- I mean the notification from browser from site
 
 ### Server-side non-breaking changes:
 
@@ -92,16 +83,9 @@ current `maintenance window`
     was unrecoverable
 
 #### Medium:
-- [x] Make caching or optimize the quota size counting for reducing the time 
-that is needed to process the 150k+ items for FluxDrop file manager
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
-- [x] Add hash (maintenance) logs to the debug category for main log file (keep 
-the separate `maintenance.log` file work always, but not include the infos into 
-CDN's logs if debug isn't enabled)
 
 #### Low:
-- [x] Reduce amount of re-imports inside the code if it's adding overall 
-overhead
 - [ ] Add checkers for external HTTP and HTTPS hosters for outage page
 - [ ] Add "enhanced" previews (bg activity that makes thumbs via FFmpeg for 
 any type of file that's supported, thumbs can be included into the quota, or 
@@ -154,6 +138,12 @@ storage media)
 FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to 
 as specified in `PUBLIC_DOMAIN`)
 - [ ] Add code map
+- [ ] Prettify the emails that comes to people
+- [ ] Use separate email for FluxDrop
+- [ ] Add proper account disable and deletion, compliances to GDPR (incl. 
+"Download everything as a ZIP")
+- [ ] Add a way to track IPs, auths, etc. - aka special admin page for specific 
+usages, for example the abuse
 
 
 ---
@@ -248,6 +238,25 @@ working directory) 2 times
 empty space and make an animation of appearing (expanding the space for it)
 - [x] Proxy fails on admin panel request due to long server responce time due 
 to amount of server-side files being saved by users
+
+- [x] Make file info modal able to work as "turn on and stay until closed": 
+toggle in settings to change this behavior; works as file info modal that 
+doesn't close when user clicks outside of it -- a toggle to enable that 
+feature so I can click on items to then see it's infos without need to use 
+right click menu
+- [x] Check if upload still ends successfully (message that is sent via 
+browser) even if the upload of one of the files fails (for example because of 
+the quota) -- it is, and also smaller files are correctly uploaded that fits 
+the quota -- I mean the notification from browser from site
+- [x] Make caching or optimize the quota size counting for reducing the time 
+that is needed to process the 150k+ items for FluxDrop file manager
+- [x] Add hash (maintenance) logs to the debug category for main log file (keep 
+the separate `maintenance.log` file work always, but not include the infos into 
+CDN's logs if debug isn't enabled)
+- [x] Reduce amount of re-imports inside the code if it's adding overall 
+overhead
+
+
 
 ---
 

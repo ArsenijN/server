@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-604d7592
+// Current version of script.js is: fluxdrop-v-ab9bd934
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-604d7592'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-ab9bd934'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -6412,9 +6412,16 @@ async function handleRegister(e) {
     const email = document.getElementById('reg-email').value;
     const password = document.getElementById('reg-password').value;
 
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const _origLabel = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span class="fd-btn-spin" aria-hidden="true"></span>${t('registering')}`;
+    }
+
     try {
-        const data = await apiCall('/auth/register', 'POST', { username, nickname, email, password }, false);
-        showMessage('Registration Success', data.message);
+        await apiCall('/auth/register', 'POST', { username, nickname, email, password }, false);
+        showMessage(t('register_success_title'), t('register_success_body'));
         // Switch to the login tab in the existing modal (or open fresh login)
         const _existingModal = document.getElementById('fd-auth-modal');
         if (_existingModal) {
@@ -6423,7 +6430,12 @@ async function handleRegister(e) {
             renderApp('login');
         }
     } catch (error) {
-        showMessage('Registration Failed', error.message);
+        showMessage(t('register_failed_title'), error.message);
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = _origLabel;
+        }
     }
 }
 
@@ -8445,7 +8457,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-604d7592'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-ab9bd934'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

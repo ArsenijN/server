@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "uk",
     "label": "Українська",
-    "version": "1.4.8"
+    "version": "1.4.9"
   },
   "login": "Увійти",
   "register": "Реєстрація",
@@ -430,5 +430,9 @@
   "trash_delete_failed": "Не вдалося видалити",
   "trash_moved_toast": "Переміщено до кошика: {n}",
   "archive_empty": "Архів порожній.",
-  "queue_empty": "Черга порожня."
+  "queue_empty": "Черга порожня.",
+  "registering": "Створюємо акаунт…",
+  "register_success_title": "Реєстрація успішна",
+  "register_success_body": "Акаунт створено. Перевірте пошту — там лист із посиланням для підтвердження.",
+  "register_failed_title": "Помилка реєстрації"
 }

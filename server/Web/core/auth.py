@@ -105,7 +105,11 @@ def send_verification_email(email, token, username):
     # Wrap HTML in multipart/alternative (text fallback + HTML)
     alt = MIMEMultipart('alternative')
     alt.attach(MIMEText(
-        f"Hello {username},\n\nVerify your FluxDrop account: {verification_link}\n\nThis link expires in 1 hour.",
+        f"Hello {username},\n\n"
+        f"Thanks for signing up. Confirm your email address to activate your account:\n"
+        f"{verification_link}\n\n"
+        f"This link expires in 1 hour. If you didn't create a FluxDrop account, you can ignore this email.\n\n"
+        f"FluxDrop - Your files. Your server. Your rules.",
         'plain'
     ))
     alt.attach(MIMEText(html_body, 'html'))

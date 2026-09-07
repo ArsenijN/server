@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "en",
     "label": "English",
-    "version": "1.4.8"
+    "version": "1.4.9"
   },
   "login": "Login",
   "register": "Register",
@@ -430,5 +430,9 @@
   "trash_delete_failed": "Delete failed",
   "trash_moved_toast": "{n} item(s) moved to Trash",
   "archive_empty": "Archive is empty.",
-  "queue_empty": "Queue is empty."
+  "queue_empty": "Queue is empty.",
+  "registering": "Creating your account…",
+  "register_success_title": "Registration Success",
+  "register_success_body": "Your account has been created. Check your email for a verification link to activate it.",
+  "register_failed_title": "Registration Failed"
 }

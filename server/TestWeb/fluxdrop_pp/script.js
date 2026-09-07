@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-65af1a3b
+// Current version of script.js is: fluxdrop-v-87a47700
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-65af1a3b'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-87a47700'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -689,11 +689,23 @@ function _requestNotificationPermission() {
     }
 }
 
-function _notifyUploadDone(fileCount) {
+function _notifyUploadDone(okCount, failCount = 0) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     if (document.hasFocus()) return; // user is watching — no need for OS notification
-    new Notification('FluxDrop — Upload complete', {
-        body: `${fileCount} file${fileCount !== 1 ? 's' : ''} uploaded successfully.`,
+    const n = x => `${x} file${x !== 1 ? 's' : ''}`;
+    let title, body;
+    if (failCount > 0 && okCount === 0) {
+        title = 'FluxDrop — Upload failed';
+        body  = `${n(failCount)} could not be uploaded.`;
+    } else if (failCount > 0) {
+        title = 'FluxDrop — Upload finished with errors';
+        body  = `${n(okCount)} uploaded, ${failCount} failed.`;
+    } else {
+        title = 'FluxDrop — Upload complete';
+        body  = `${n(okCount)} uploaded successfully.`;
+    }
+    new Notification(title, {
+        body,
         icon: '/icon.svg',
         tag: 'fluxdrop-upload-done',  // replaces previous notification if still showing
     });
@@ -1761,9 +1773,10 @@ function renderFileBrowserView() {
                 };
                 refreshQ();
                 _lastUploadBatchCount += items.length;
+                let _dropOk = 0, _dropFail = 0;
                 function _finishDrop() {
                     window.removeEventListener('beforeunload', windowLock);
-                    _notifyUploadDone(items.length);
+                    _notifyUploadDone(_dropOk, _dropFail);
                     // No extra loadDirectory() here — the loop's own per-item
                     // refresh (above) already covers the last completed item;
                     // this used to unconditionally re-fetch the same listing a
@@ -1774,6 +1787,7 @@ function renderFileBrowserView() {
                     while (item) {
                         try {
                             await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
+                            _dropOk++;
                             loadDirectory(currentPath);
                         } catch (err) {
                             if (err.name === 'PauseSignal') {
@@ -1789,6 +1803,7 @@ function renderFileBrowserView() {
                                 return;
                             }
                             if (err.message !== 'Upload cancelled') {
+                                _dropFail++;
                                 showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
                                 window.removeEventListener('beforeunload', windowLock);
                             }
@@ -4302,7 +4317,12 @@ function _showContextMenu(x, y, row) {
 }
 
 // ── File info panel ──────────────────────────────────────────────────────
+// Torn down and re-armed each time _showFileInfo runs; a no-op when the panel
+// isn't in "inspector" (pinned) mode.
+let _fdInfoInspectorCleanup = () => {};
+
 function _showFileInfo(row) {
+    _fdInfoInspectorCleanup();
     document.getElementById('fd-info-panel')?.remove();
 
     const name    = row.dataset.name    || '—';
@@ -4372,16 +4392,44 @@ function _showFileInfo(row) {
             </button></div>` : '');
 
     document.body.appendChild(panel);
-    document.getElementById('fd-info-close').addEventListener('click', () => window.fdCloseFloatingPanel(panel));
+
+    let pinned = false;
+    try { pinned = localStorage.getItem('fd_pin_info_panel') === '1'; } catch (_) {}
+
+    document.getElementById('fd-info-close').addEventListener('click', () => {
+        _fdInfoInspectorCleanup();
+        window.fdCloseFloatingPanel(panel);
+    });
 
     // Download button
     const dlBtn = document.getElementById('fd-info-dl');
-    if (dlBtn) dlBtn.addEventListener('click', () => { panel.remove(); downloadFile(path); });
+    if (dlBtn) dlBtn.addEventListener('click', () => { _fdInfoInspectorCleanup(); panel.remove(); downloadFile(path); });
 
     if (!isDir) _initChecksumSection(path, panel);
 
-    const closer = e => { if (!panel.contains(e.target)) { window.fdCloseFloatingPanel(panel); document.removeEventListener('click', closer, true); } };
-    setTimeout(() => document.addEventListener('click', closer, true), 10);
+    if (pinned) {
+        // Inspector mode (Settings → "Click items to inspect"): the panel stays
+        // open on outside clicks, and clicking another row retargets the panel
+        // to that item instead of opening/previewing it. ✕ closes it. Right-
+        // click still opens the normal actions menu, and ⋮ is left alone.
+        const inspect = e => {
+            if (panel.contains(e.target)) return;
+            if (e.target.closest && e.target.closest('.fd-more-btn')) return;
+            const r = e.target.closest && e.target.closest('.fd-file-row');
+            if (!r) return;                       // empty space — leave the panel as-is
+            e.preventDefault();
+            e.stopPropagation();
+            _showFileInfo(r);                     // rebuilds the panel + re-arms this listener
+        };
+        setTimeout(() => document.addEventListener('click', inspect, true), 10);
+        _fdInfoInspectorCleanup = () => {
+            document.removeEventListener('click', inspect, true);
+            _fdInfoInspectorCleanup = () => {};
+        };
+    } else {
+        const closer = e => { if (!panel.contains(e.target)) { window.fdCloseFloatingPanel(panel); document.removeEventListener('click', closer, true); } };
+        setTimeout(() => document.addEventListener('click', closer, true), 10);
+    }
 }
 
 // ── File info — checksum section (CRC-32 + SHA-256) ──────────────────────────
@@ -5964,8 +6012,9 @@ async function handleUploadForm(e) {
         setTimeout(_hideUploadSpinner, 400);
         _lastUploadBatchCount += items.length;   // P10: count this batch
         // Start first immediately, then drain queue sequentially
+        let _qOk = 0, _qFail = 0;
         function _finishQueue() {
-            _notifyUploadDone(_lastUploadBatchCount);   // P10
+            _notifyUploadDone(_qOk, _qFail);            // P10
             _lastUploadBatchCount = 0;                  // P10: reset for next batch
             window.removeEventListener('beforeunload', windowLock);
         }
@@ -5974,6 +6023,7 @@ async function handleUploadForm(e) {
             while (item) {
                 try {
                     await uploadChunked(item.file, item.destRel, { ownerType: item.ownerType });
+                    _qOk++;
                     loadDirectory(currentPath);
                 } catch (err) {
                     if (err.name === 'PauseSignal') {
@@ -5988,6 +6038,7 @@ async function handleUploadForm(e) {
                         return;
                     }
                     if (err.message !== 'Upload cancelled') {
+                        _qFail++;
                         showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
                         window.removeEventListener('beforeunload', windowLock);
                     }
@@ -8382,7 +8433,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-65af1a3b'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-87a47700'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

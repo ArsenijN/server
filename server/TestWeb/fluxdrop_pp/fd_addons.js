@@ -15,161 +15,6 @@
  *   10. Overlay closing animations  (window.fdCloseOverlay)
  */
 
-// ── i18n key injection ────────────────────────────────────────────────────
-// Add any keys missing from fd_locale_bundle.js here so t() never returns
-// a bare key in supported languages.  Keys already present in the bundle
-// take precedence (the bundle is loaded before this file).
-//
-// This function purpose is to serve as a runtime fallback for keys that were 
-// added to the JSON locales after the last build_locale_bundle.py run. Once 
-// python3 build_locale_bundle.py locale/ fd_locale_bundle.js is run after 
-// updating the JSON files, all those keys are in the bundle and t() finds them 
-// from there directly. The EXTRA_* objects become dead code, so once the 
-// bundle are rebuilt, and verified t('fmt_today_at') etc. return correctly, 
-// both EXTRA_EN and EXTRA_UK blocks can be deleted from fd_addons.js entirely. 
-// The JSON files are the canonical source; fd_addons.js was just the staging 
-// area.
-;(function () {
-  const EXTRA_EN = {
-    // Trash bin
-    trash_1_item:           '1 item',
-    trash_n_items:          '{n} items',
-    trash_days_expiring:    'Expiring soon',
-    trash_days_1:           '1 day left',
-    trash_days_n:           '{n} days left',
-    trash_deleted_label:    'Deleted',
-    // Shared UI
-    close:                  '✕',
-    // Share manager
-    shares_expired_label:       'Expired',
-    shares_expiry_remove_title: 'Remove expiry (make permanent)',
-    shares_cdn_embed_title:     '🌐 CDN Embed URL (direct media link):',
-    shares_cdn_embed_tooltip:   'Use this URL directly in <code>&lt;img src="…"&gt;</code>, <code>&lt;video src="…"&gt;</code>, Discord embeds, or anywhere a direct media link is accepted. No authentication required.',
-    shares_copy_button:         'Copy',
-    shares_stats_title:         '📊 Stats: {name}',
-    share_action_view:          'View',
-    share_action_download:      'Download',
-    share_action_embed:         'Embed',
-    share_action_preview:       'Preview',
-    sel_bar_keep_label:         'Keep selection',
-    sel_bar_keep_tooltip:       'Keep your selection when you open a different folder. Selected files show a checkmark and folders containing a selected item show a dash when you come back to them.',
-    trash_retention_reduced_notice: 'Due to server capacity demand, new items are kept for {days} days. Retention will return to 30 days once space is freed.',
-    // Download/upload tray buttons
-    dl_resume:                  'Resume',
-    dl_dismiss:                 'Dismiss',
-    // Move/Copy/Rename modal
-    mv_move_here:               'Move here',
-    mv_moving:                  'Moving…',
-    mv_copy_here:               'Copy here',
-    mv_copying:                 'Copying…',
-    mv_rename_btn:              'Rename',
-    mv_renaming:                'Renaming…',
-    mv_invalid_name_title:      'Invalid name',
-    mv_invalid_name_body:       'Name cannot be empty or contain slashes.',
-    mv_no_destination_title:    'No destination',
-    mv_no_destination_body:     'Please select a destination folder.',
-    mv_same_location_title:     'Same location',
-    mv_same_location_body:      'The destination is the same as the source.',
-    mv_rename_failed_title:     'Rename failed',
-    mv_move_failed_title:       'Move failed',
-    mv_copy_failed_title:       'Copy failed',
-    // Selection bar
-    download:                   'Download',
-    trash:                      'Trash',
-    sel_bar_clear:               'Clear',
-    sel_bar_count:               '{n} selected',
-    sel_bar_delete_title:        'Delete {n} item(s)?',
-    sel_bar_delete_msg:          'You\'ll be able to retrieve it from the Trash bin for the next {days} day(s).',
-    empty_folder:                '(empty)',
-    // Context menu
-    ctx_open:                    'Open',
-    ctx_preview:                 'Preview',
-    ctx_download_zip:            'Download ZIP',
-    ctx_download:                'Download',
-    ctx_share:                   'Share',
-    ctx_move_rename:             'Move / Rename',
-    ctx_info:                    'Info',
-    ctx_trash:                   'Move to Trash',
-    ctx_download_files:          'Download {n} file(s)',
-    ctx_download_folders_zip:    'Download {n} folder(s) as ZIP',
-    ctx_download_mixed:          'Download {nf} file(s) + {nd} ZIP(s)',
-    ctx_trash_multi:             'Move {n} items to Trash',
-    go_up:                       'Go up',
-  };
-  const EXTRA_UK = {
-    // Trash bin
-    trash_1_item:           '1 елемент',
-    trash_n_items:          '{n} елементи',
-    trash_days_expiring:    'Скоро видалиться',
-    trash_days_1:           'Залишився 1 день',
-    trash_days_n:           'Залишилось {n} днів',
-    trash_deleted_label:    'Видалено',
-    close:                  '✕',
-    // Share manager
-    shares_expired_label:       'Закінчився',
-    shares_expiry_remove_title: 'Прибрати термін дії (зробити безстроковим)',
-    shares_cdn_embed_title:     '🌐 CDN URL для вставки (пряме посилання на медіа):',
-    shares_cdn_embed_tooltip:   'Використовуйте це посилання напряму в <code>&lt;img src="…"&gt;</code>, <code>&lt;video src="…"&gt;</code>, вставках Discord, або будь-де, де приймається пряме посилання на медіафайл. Автентифікація не потрібна.',
-    shares_copy_button:         'Копіювати',
-    shares_stats_title:         '📊 Статистика: {name}',
-    share_action_view:          'Перегляд',
-    share_action_download:      'Завантаження',
-    share_action_embed:         'Вставка',
-    share_action_preview:       'Попередній перегляд',
-    sel_bar_keep_label:         'Зберігати вибір',
-    sel_bar_keep_tooltip:       'Зберігати вибір під час переходу до іншої папки. Вибрані файли показують позначку, а папки, що містять вибраний елемент, показують риску, коли ви повертаєтесь до них.',
-    trash_retention_reduced_notice: 'Через високе навантаження на сервер нові елементи зберігаються {days} днів. Термін зберігання повернеться до 30 днів після звільнення місця.',
-    // Download/upload tray buttons
-    dl_resume:                  'Відновити',
-    dl_dismiss:                 'Прибрати',
-    // Move/Copy/Rename modal
-    mv_move_here:               'Перемістити сюди',
-    mv_moving:                  'Переміщення…',
-    mv_copy_here:               'Копіювати сюди',
-    mv_copying:                 'Копіювання…',
-    mv_rename_btn:              'Перейменувати',
-    mv_renaming:                'Перейменування…',
-    mv_invalid_name_title:      'Некоректна назва',
-    mv_invalid_name_body:       'Назва не може бути порожньою або містити символ "/".',
-    mv_no_destination_title:    'Не вказано призначення',
-    mv_no_destination_body:     'Будь ласка, оберіть папку призначення.',
-    mv_same_location_title:     'Те саме розташування',
-    mv_same_location_body:      'Місце призначення збігається з поточним розташуванням.',
-    mv_rename_failed_title:     'Не вдалося перейменувати',
-    mv_move_failed_title:       'Не вдалося перемістити',
-    mv_copy_failed_title:       'Не вдалося скопіювати',
-    // Selection bar
-    download:                   'Завантажити',
-    trash:                      'У кошик',
-    sel_bar_clear:               'Очистити',
-    sel_bar_count:               'Вибрано: {n}',
-    sel_bar_delete_title:        'Видалити елементів: {n}?',
-    sel_bar_delete_msg:          'Ви зможете відновити це з кошика протягом {days} дн.',
-    empty_folder:                '(порожньо)',
-    // Context menu
-    ctx_open:                    'Відкрити',
-    ctx_preview:                 'Перегляд',
-    ctx_download_zip:            'Завантажити ZIP',
-    ctx_download:                'Завантажити',
-    ctx_share:                   'Поділитися',
-    ctx_move_rename:             'Перемістити / Перейменувати',
-    ctx_info:                    'Інформація',
-    ctx_trash:                   'У кошик',
-    ctx_download_files:          'Завантажити файлів: {n}',
-    ctx_download_folders_zip:    'Завантажити папок як ZIP: {n}',
-    ctx_download_mixed:          'Завантажити файлів: {nf} + ZIP: {nd}',
-    ctx_trash_multi:             'У кошик елементів: {n}',
-    go_up:                       'Вгору',
-  };
-
-  const EXTRAS = { en: EXTRA_EN, uk: EXTRA_UK };
-  // Ensure the bundle object exists (graceful when fd_locale_bundle.js is absent)
-  window._FD_LOCALES = window._FD_LOCALES || {};
-  Object.entries(EXTRAS).forEach(([lang, keys]) => {
-    window._FD_LOCALES[lang] = Object.assign({}, keys, window._FD_LOCALES[lang] || {});
-  });
-})();
-
 /* ═══════════════════════════════════════════════════════════════════════════
  * 1. i18n SYSTEM
  * ═══════════════════════════════════════════════════════════════════════════
@@ -1058,6 +903,10 @@
         <input type="checkbox" id="fd-debug-chk" ${debugOn?'checked':''} style="width:16px;height:16px">
         <span style="font-size:13px;font-weight:600">🔌 ${t('debug_console')}</span>
       </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">
+        <input type="checkbox" id="fd-pin-info-chk" ${localStorage.getItem('fd_pin_info_panel')==='1'?'checked':''} style="width:16px;height:16px">
+        <span style="font-size:13px;font-weight:600">🔎 ${t('pin_info_panel')}</span>
+      </label>
       <button id="fd-sa-btn" style="width:100%;padding:8px 14px;border-radius:8px;
           border:1px solid #3b82f6;background:none;color:#3b82f6;font-size:13px;
           font-weight:600;cursor:pointer;font-family:inherit;transition:background .15s">
@@ -1078,6 +927,9 @@
     });
     block.querySelector('#fd-debug-chk').addEventListener('change', function() {
       this.checked ? FDdebug.enable() : FDdebug.disable();
+    });
+    block.querySelector('#fd-pin-info-chk').addEventListener('change', function() {
+      try { localStorage.setItem('fd_pin_info_panel', this.checked ? '1' : ''); } catch (_) {}
     });
     block.querySelector('#fd-sa-btn').addEventListener('click', () => {
       window.fdCloseOverlay(overlay); openSpaceAnalyzer();

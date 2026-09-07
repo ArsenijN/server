@@ -212,6 +212,19 @@ def _cleanup_partial_copy(dest_path):
     except Exception:
         logging.exception("Failed to clean up partial copy destination: %r", dest_path)
 
+
+def _is_within(root: str, candidate: str) -> bool:
+    """True iff *candidate* resolves to *root* itself or something beneath it.
+
+    A plain ``realpath(candidate).startswith(realpath(root))`` is wrong: with
+    integer user ids, root ``.../FluxDrop/2`` is a string prefix of
+    ``.../FluxDrop/20``, so ``dest_rel='../20/x'`` slips through. Anchoring the
+    comparison on ``root + os.sep`` (and allowing exact equality) closes that.
+    """
+    root_r = os.path.realpath(root)
+    cand_r = os.path.realpath(candidate)
+    return cand_r == root_r or cand_r.startswith(root_r + os.sep)
+
 # ==============================================================================
 # --- CONFIGURATION ---
 # ==============================================================================
@@ -935,7 +948,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # Resolve destination
         user_root = os.path.normpath(os.path.join(SERVE_ROOT, "FluxDrop", str(user_id)))
         dest_fs   = os.path.normpath(os.path.join(user_root, dest_rel)) if dest_rel else user_root
-        if not os.path.realpath(dest_fs).startswith(os.path.realpath(user_root)):
+        if not _is_within(user_root, dest_fs):
             return self._send_response(400, json.dumps({"error": "Invalid dest_path."}))
         os.makedirs(dest_fs, exist_ok=True)
 
@@ -988,7 +1001,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     continue
 
                 dest_file = os.path.normpath(os.path.join(dest_fs, safe_name))
-                if not os.path.realpath(dest_file).startswith(os.path.realpath(dest_fs)):
+                if not _is_within(dest_fs, dest_file):
                     _emit({"type": "error", "name": name, "msg": "outside dest_path"})
                     errors += 1
                     tf.members = []
@@ -1887,7 +1900,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(401, json.dumps({'error': 'Unauthorized: registered users only.'}))
             base_fs = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
             dest_path = os.path.normpath(os.path.join(base_fs, dest_rel.lstrip('/')))
-            if not os.path.realpath(dest_path).startswith(os.path.realpath(base_fs)):
+            if not _is_within(base_fs, dest_path):
                 return self._send_response(400, json.dumps({'error': 'Invalid dest_path.'}))
             owner_ref = str(user_id)
 
@@ -1916,11 +1929,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
             owner_id_s = share['owner_id']
             base_path_str = share['path']
             if base_path_str.startswith('/cdn'):
+                owner_root = os.path.normpath(CDN_UPLOAD_DIR)
                 base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, base_path_str[len('/cdn'):].lstrip('/')))
             else:
-                base_fs = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(owner_id_s), base_path_str.lstrip('/')))
+                owner_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(owner_id_s)))
+                base_fs = os.path.normpath(os.path.join(owner_root, base_path_str.lstrip('/')))
             dest_path = os.path.normpath(os.path.join(base_fs, dest_rel.lstrip('/')))
-            if not os.path.realpath(dest_path).startswith(os.path.realpath(base_fs)):
+            # base_fs comes from a stored share row; dest_path from the caller.
+            # Both must stay inside the share owner's own storage root.
+            if not _is_within(owner_root, base_fs) or not _is_within(base_fs, dest_path):
                 return self._send_response(400, json.dumps({'error': 'Invalid dest_path.'}))
             owner_ref = share_token
             # Always mint a device token for share uploads; the client stores it locally.
@@ -2738,7 +2755,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Length', str(len(_av_data)))
             self.send_header('Cache-Control', 'max-age=86400')
             self._send_cors_headers()
-            super(AuthHandler, self).end_headers()
+            AuthHandler.end_headers(self)   # security-header override, not the base class
             self.wfile.write(_av_data)
             return
 
@@ -2865,7 +2882,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.send_header('Cache-Control', 'no-store')
                 self.send_header('Accept-Ranges', 'bytes')
                 self._send_cors_headers()
-                super(AuthHandler, self).end_headers()
+                AuthHandler.end_headers(self)   # keep X-Frame-Options / nosniff / HSTS / CSP
             old_end_headers = self.end_headers
             self.end_headers = patched_end_headers_nocache
             try:
@@ -2877,7 +2894,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         def patched_end_headers():
             self.send_header('Accept-Ranges', 'bytes')
             self._send_cors_headers()
-            super(AuthHandler, self).end_headers()
+            AuthHandler.end_headers(self)   # keep X-Frame-Options / nosniff / HSTS / CSP
 
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
@@ -3696,11 +3713,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         user_root = os.path.realpath(os.path.join(SERVE_ROOT, "FluxDrop", str(user_id)))
         if path.startswith("/cdn"):
             fs_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, path[len("/cdn"):].lstrip("/")))
-            if not os.path.realpath(fs_path).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+            if not _is_within(CDN_UPLOAD_DIR, fs_path):
                 return self._send_response(403, json.dumps({"error": "Forbidden"}))
         else:
             fs_path = os.path.normpath(os.path.join(user_root, path.lstrip("/")))
-            if not os.path.realpath(fs_path).startswith(user_root):
+            if not _is_within(user_root, fs_path):
                 return self._send_response(403, json.dumps({"error": "Forbidden"}))
         if not os.path.exists(fs_path):
             return self._send_response(404, json.dumps({"error": "Path not found."}))
@@ -3789,6 +3806,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
             owner_root = os.path.realpath(os.path.join(SERVE_ROOT, "FluxDrop", str(owner_id)))
             base_fs = os.path.normpath(os.path.join(owner_root, base_path_str.lstrip("/")))
 
+        # base_path_str is a stored share row — a row written before path
+        # containment was enforced could still point outside the owner's root.
+        if not _is_within(owner_root, base_fs):
+            return self._send_response(403, json.dumps({"error": "Forbidden: shared path outside owner area."}))
+
         # Handle sub-path navigation within a shared folder
         # Decode percent-encoding so filenames with spaces/non-ASCII resolve on disk.
         if sub_path:
@@ -3799,7 +3821,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             target_fs = base_fs
 
         # Security: stay within the shared base
-        if not os.path.realpath(target_fs).startswith(os.path.realpath(base_fs)):
+        if not _is_within(base_fs, target_fs):
             return self._send_response(403, json.dumps({"error": "Forbidden: path outside shared area."}))
 
         # --- CDN embed / inline serving ---
@@ -4483,7 +4505,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         )
 
         # Security: scan_root must be inside user_root
-        if not os.path.realpath(scan_root).startswith(os.path.realpath(user_root)):
+        if not _is_within(user_root, scan_root):
             return self._send_response(403, json.dumps({'error': 'Forbidden'}))
         if not os.path.isdir(scan_root):
             return self._send_response(404, json.dumps({'error': 'Path not found'}))
@@ -4698,11 +4720,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if relative_path.startswith('/cdn'):
                 cdn_rel = relative_path[len('/cdn'):]
                 base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
-                if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+                if not _is_within(CDN_UPLOAD_DIR, base_fs):
                     return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
             else:
                 base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
-                if not os.path.realpath(base_fs).startswith(user_root):
+                if not _is_within(user_root, base_fs):
                     return self._send_response(403, json.dumps({'error': 'Forbidden'}))
 
         if not os.path.isdir(base_fs):
@@ -4970,11 +4992,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if relative_path.startswith('/cdn'):
                 cdn_rel = relative_path[len('/cdn'):]
                 base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
-                if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+                if not _is_within(CDN_UPLOAD_DIR, base_fs):
                     return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
             else:
                 base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
-                if not os.path.realpath(base_fs).startswith(user_root):
+                if not _is_within(user_root, base_fs):
                     return self._send_response(403, json.dumps({'error': 'Forbidden'}))
 
         if not os.path.isdir(base_fs):
@@ -5254,11 +5276,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if relative_path.startswith('/cdn'):
             cdn_rel = relative_path[len('/cdn'):]
             base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
-            if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+            if not _is_within(CDN_UPLOAD_DIR, base_fs):
                 return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
         else:
             base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
-            if not os.path.realpath(base_fs).startswith(user_root):
+            if not _is_within(user_root, base_fs):
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
 
         if not os.path.isdir(base_fs):
@@ -5304,11 +5326,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if relative_path.startswith('/cdn'):
             cdn_rel  = relative_path[len('/cdn'):]
             base_fs  = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
-            if not os.path.realpath(base_fs).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+            if not _is_within(CDN_UPLOAD_DIR, base_fs):
                 return self._send_response(400, json.dumps({'error': 'Invalid path.'}))
         else:
             base_fs = os.path.normpath(os.path.join(user_root, relative_path.lstrip('/')))
-            if not os.path.realpath(base_fs).startswith(user_root):
+            if not _is_within(user_root, base_fs):
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
 
         if not os.path.isfile(base_fs):
@@ -5392,7 +5414,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         raw_subpath = unquote(parsed_qs.get("subpath", [""])[0]).strip("/")
         dest_dir = os.path.normpath(os.path.join(base_dir, raw_subpath)) if raw_subpath else base_dir
 
-        if not os.path.realpath(dest_dir).startswith(os.path.realpath(base_dir)):
+        if not _is_within(base_dir, dest_dir):
             return self._send_response(403, json.dumps({"error": "Forbidden: path outside shared area."}))
         if not os.path.isdir(dest_dir):
             return self._send_response(404, json.dumps({"error": "Target subfolder not found on disk."}))
@@ -5412,7 +5434,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
             safe_name = os.path.basename(file_item.filename)
             save_path = os.path.normpath(os.path.join(dest_dir, safe_name))
-            if not os.path.realpath(save_path).startswith(os.path.realpath(dest_dir)):
+            if not _is_within(dest_dir, save_path):
                 return self._send_response(400, json.dumps({"error": "Invalid filename."}))
 
             with open(save_path, "wb") as f:
@@ -5471,7 +5493,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             base_dir = os.path.normpath(os.path.join(SERVE_ROOT, "FluxDrop", str(owner_id), base_path_str.lstrip("/")))
 
         new_dir = os.path.normpath(os.path.join(base_dir, raw_subpath))
-        if not os.path.realpath(new_dir).startswith(os.path.realpath(base_dir)):
+        if not _is_within(base_dir, new_dir):
             return self._send_response(403, json.dumps({"error": "Forbidden: path outside shared area."}))
 
         try:
@@ -5553,7 +5575,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             allowed_root = user_fluxdrop_root
             canonical_path = relative_path  # already user-relative
 
-        if not os.path.realpath(fs_path).startswith(allowed_root):
+        if not _is_within(allowed_root, fs_path):
             return self._send_response(403, json.dumps({"error": "Forbidden: path outside your accessible area."}))
 
         # Use the canonical path as the token key so download validation matches
@@ -5632,7 +5654,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             cdn_rel = relative_path[len('/cdn'):]
             base_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
             # Security: forbid escaping the CDN directory
-            if not os.path.realpath(base_path).startswith(os.path.realpath(CDN_UPLOAD_DIR)):
+            if not _is_within(CDN_UPLOAD_DIR, base_path):
                 return self._send_response(400, json.dumps({"error": "Invalid path."}))
         else:
             # Normal per-user FluxDrop paths
@@ -5649,7 +5671,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 base_path = os.path.normpath(os.path.join(user_base_path_for(user_id), relative_path.lstrip('/')))
 
         # For non-CDN requests ensure path stays under the user's FluxDrop tree.
-        if not relative_path.startswith('/cdn') and not os.path.realpath(base_path).startswith(os.path.realpath(os.path.join(SERVE_ROOT, 'FluxDrop'))):
+        if not relative_path.startswith('/cdn') and not _is_within(os.path.join(SERVE_ROOT, 'FluxDrop'), base_path):
             return self._send_response(400, json.dumps({"error": "Invalid path."}))
 
         # Ensure the user's FluxDrop directory exists (create on first use) to avoid 404 after login
@@ -5937,7 +5959,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             target_fs_path = os.path.normpath(os.path.join(base_fs, relative_path.lstrip('/')))
 
         # Ensure we don't escape serve root (skip check for CDN paths)
-        if not relative_path.startswith('/cdn') and not os.path.realpath(target_fs_path).startswith(os.path.realpath(os.path.join(SERVE_ROOT, 'FluxDrop'))):
+        if not relative_path.startswith('/cdn') and not _is_within(os.path.join(SERVE_ROOT, 'FluxDrop'), target_fs_path):
             return self._send_response(400, json.dumps({"error": "Invalid path."}))
 
         # Ensure user base exists
@@ -5980,7 +6002,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         save_dir = os.path.dirname(target_fs_path)
                     os.makedirs(save_dir, exist_ok=True)
                     save_path = os.path.normpath(os.path.join(save_dir, filename))
-                if not os.path.realpath(save_path).startswith(os.path.realpath(base_fs)):
+                if not _is_within(base_fs, save_path):
                     return self._send_response(400, json.dumps({"error": "Invalid save path."}))
                 # werkzeug FileStorage exposes the uploaded stream as .stream
                 with open(save_path, 'wb') as f:
@@ -6042,7 +6064,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 for p in paths:
                     p_clean = strip_prefix(p)
                     target = os.path.normpath(os.path.join(base_fs, p_clean.lstrip('/')))
-                    if not os.path.realpath(target).startswith(os.path.realpath(base_fs)):
+                    if not _is_within(base_fs, target):
                         errors.append(p)
                         continue
                     try:
@@ -6106,7 +6128,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 new = strip_prefix(new)
                 old_path = os.path.normpath(os.path.join(base_fs, old.lstrip('/')))
                 new_path = os.path.normpath(os.path.join(base_fs, new.lstrip('/')))
-                if not os.path.realpath(old_path).startswith(os.path.realpath(base_fs)) or not os.path.realpath(new_path).startswith(os.path.realpath(base_fs)):
+                if not _is_within(base_fs, old_path) or not _is_within(base_fs, new_path):
                     return self._send_response(400, json.dumps({"error": "Invalid path."}))
                 # Make sure source exists and we don't attempt a no-op rename.
                 if not os.path.exists(old_path):
@@ -6190,7 +6212,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 dest = strip_prefix(dest)
                 src_path = os.path.normpath(os.path.join(base_fs, src.lstrip('/')))
                 dest_path = os.path.normpath(os.path.join(base_fs, dest.lstrip('/')))
-                if not os.path.realpath(src_path).startswith(os.path.realpath(base_fs)) or not os.path.realpath(dest_path).startswith(os.path.realpath(base_fs)):
+                if not _is_within(base_fs, src_path) or not _is_within(base_fs, dest_path):
                     return self._send_response(400, json.dumps({"error": "Invalid path."}))
 
                 if not os.path.exists(src_path):
@@ -6340,7 +6362,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 else:
                     target_dir = os.path.normpath(os.path.join(base_fs, path.lstrip('/')))
 
-                if not os.path.realpath(target_dir).startswith(os.path.realpath(base_fs)):
+                if not _is_within(base_fs, target_dir):
                     return self._send_response(400, json.dumps({"error": "Invalid path."}))
 
                 os.makedirs(target_dir, exist_ok=True)
@@ -6427,7 +6449,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             new_filename = f"{random_name}{file_ext}"
 
             save_path = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR, new_filename))
-            if not os.path.realpath(save_path).startswith(os.path.realpath(SERVE_ROOT)):
+            if not _is_within(SERVE_ROOT, save_path):
                 return self._send_response(400, "Bad Request: Invalid path.", "text/plain")
 
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -6504,7 +6526,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 new_filename = f"{random_name}{file_ext}"
 
                 save_path = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR, new_filename))
-                if not os.path.realpath(save_path).startswith(os.path.realpath(SERVE_ROOT)):
+                if not _is_within(SERVE_ROOT, save_path):
                     return self._send_response(400, "Bad Request: Invalid path.", "text/plain")
 
                 with open(save_path, 'wb') as f:
@@ -6530,7 +6552,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         for filename in files:
             file_path = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR, filename))
-            if not os.path.realpath(file_path).startswith(os.path.realpath(SERVE_ROOT)) or not os.path.isfile(file_path):
+            if not _is_within(SERVE_ROOT, file_path) or not os.path.isfile(file_path):
                 logging.warning(f"CatBox delete failed: File '{filename}' not found.")
                 error_list.append(filename)
                 continue
@@ -6803,7 +6825,7 @@ def _get_user_disk_usage_live(user_id: int) -> int:
     try:
         for dirpath, dirs, filenames in os.walk(user_dir):
             # Skip .trash subtree so trash bytes don't count against quota
-            if os.path.realpath(dirpath).startswith(trash_root):
+            if _is_within(trash_root, dirpath):
                 dirs[:] = []  # prune walk
                 continue
             for f in filenames:

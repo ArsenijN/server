@@ -89,8 +89,13 @@ def _trash_restore(user_id: int, item_id: int) -> str:
         if not row:
             raise RuntimeError('Trash item not found.')
         orig, tpath, is_dir = row
-        user_root = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
-        dest = os.path.join(user_root, orig.lstrip('/'))
+        user_root = os.path.realpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+        dest = os.path.realpath(os.path.join(user_root, orig.lstrip('/')))
+        # original_path is stored data, but a row written before path containment
+        # was enforced (or a tampered DB) must not let a restore escape the user's
+        # own tree via '..' segments.
+        if dest != user_root and not dest.startswith(user_root + os.sep):
+            raise RuntimeError('Refusing to restore outside your storage area.')
         if os.path.exists(dest):
             raise RuntimeError(f'Cannot restore: {orig!r} already exists. Rename the existing file first.')
         os.makedirs(os.path.dirname(dest), exist_ok=True)

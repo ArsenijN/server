@@ -10,8 +10,8 @@
 
 | # | Issue | Severity | Status |
 |---|-------|----------|--------|
-| **B16** | Cross-user path traversal — `realpath().startswith(root)` with no trailing separator lets user *N* reach any user whose id **starts with** `str(N)` (`1`→`10‑19`, `2`→`20‑29`, …). Read **and** write. | 🔴 Critical | ⛔ New — fix first |
-| **C3** *(reopened)* | `do_GET` static-file, `/policies/*.md`, and avatar closures call `super(AuthHandler,self).end_headers()` — bypassing the security-header override. Same bug v6 marked fixed; regressed for `do_GET`. | 🟠 High | ⛔ Regressed |
+| **B16** | Cross-user path traversal — `realpath().startswith(root)` with no trailing separator lets user *N* reach any user whose id **starts with** `str(N)` (`1`→`10‑19`, `2`→`20‑29`, …). Read **and** write. | 🔴 Critical | ✅ Fixed — `_is_within()` helper applied to all 33 guard sites in `server_cdn.py` + `core/trash.py:_trash_restore` |
+| **C3** *(reopened)* | `do_GET` static-file, `/policies/*.md`, and avatar closures call `super(AuthHandler,self).end_headers()` — bypassing the security-header override. Same bug v6 marked fixed; regressed for `do_GET`. | 🟠 High | ✅ Fixed — all 3 closures now call `AuthHandler.end_headers(self)` |
 | **B13** | Authenticated SSRF via upload-notification webhooks (no host/IP allow-list, redirects followed, `file://` reachable) + arbitrary outbound email (`target` unvalidated). | 🟠 High | ⛔ New |
 | **B15** | Per-IP rate-limit & IP blacklist ineffective behind the reverse proxy — CDN reads `self.client_address` (always `127.0.0.1`) instead of the `X-Forwarded-For` the proxies set. | 🟠 High | ⛔ New |
 | **B14** | Naive `datetime.now()` written to `expires_at`, compared against SQLite `CURRENT_TIMESTAMP` (UTC). Grants extra lifetime at UTC+; **breaks registration/login entirely west of UTC**. | 🟡 Medium | ⛔ New |
@@ -28,15 +28,15 @@ Minor / low: notification email body has literal `\n` (`core/notifications.py:84
 
 ## 🔴 B16 — Cross-user path traversal via prefix `startswith` check
 
-**Where (all the same bug):**
+**Where:** the buggy `realpath().startswith(realpath(root))` idiom appears **33 times** across `server_cdn.py` — upload save, batch-tar, mkdir, rename, move, copy, delete, download, folder-size, create-share, share-page browse, CRC scan, avatar/checksum paths — plus `core/trash.py:_trash_restore` (which had **no** containment check at all). Representative sites:
 
-| File:line | Endpoint |
+| File:line (pre-fix) | Endpoint |
 |---|---|
 | `server_cdn.py:938` | `POST /api/v1/batch_tar_upload` — `dest_fs` |
-| `server_cdn.py:1890` | chunked upload `init` (`owner_type=user`) — `dest_path` |
-| `server_cdn.py:1923` | chunked upload `init` (`owner_type=share`) — `dest_path` |
+| `server_cdn.py:1890/1923` | chunked upload `init` (`owner_type` = user / share) — `dest_path` |
 | `server_cdn.py:3703` | `POST /api/v1/share` (create share) — `fs_path` |
 | `server_cdn.py:3802` | `_render_share_page` — `target_fs` |
+| `server_cdn.py:5417/5496/6005/6067/6131/6215/6365` | mkdir / upload-save / rename / move / copy handlers — `base_fs`-relative |
 | `server_cdn.py:4486` | CRC/checksum scan root |
 | `core/trash.py:93` | `_trash_restore` — `dest` (no realpath check at all) |
 
@@ -192,8 +192,8 @@ All are compared against `CURRENT_TIMESTAMP` (`sessions`, `pending_verifications
 
 | Priority | Item | Effort |
 |---|---|---|
-| 🔴 1 | **B16** — add `_is_within()` helper; replace all bare `startswith(root)` checks; fix `_trash_restore` | ~1 helper + ~8 call sites |
-| 🟠 2 | **C3** — `AuthHandler.end_headers(self)` in the 3 remaining closures | 3 lines |
+| ~~🔴 1~~ | ~~**B16**~~ — ✅ done: `_is_within()` in `server_cdn.py`, applied to 33 sites; `_trash_restore` now containment-checks `dest` | — |
+| ~~🟠 2~~ | ~~**C3**~~ — ✅ done: 3 closures call `AuthHandler.end_headers(self)` | — |
 | 🟠 3 | **B13** — private opener (no `file://`), private-IP block, redirect re-check; validate/restrict email target | Medium |
 | 🟠 4 | **B15** — `_client_ip()` helper trusting XFF only from loopback; route all rate-limit/blacklist through it | Small–medium |
 | 🟡 5 | **B14** — UTC at the 3 expiry-write sites | 3 lines |

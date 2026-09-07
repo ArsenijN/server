@@ -1,4 +1,4 @@
-import bcrypt, secrets, hashlib, time, logging, smtplib, os
+import bcrypt, secrets, hashlib, time, logging, smtplib, os, re
 import base64 as _base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -64,25 +64,34 @@ def send_verification_email(email, token, username):
     # Compose the message once, regardless of send outcome.
     subject = "Verify your FluxDrop Account"
 
-    # Try to load icon.svg and convert it to a transparent PNG for embedding.
-    # Gmail blocks SVG entirely; only raster formats work.
-    # We use wand to rasterise at high resolution then crop to content so the
-    # transparent background is preserved (no white box on mobile).
+    # Gmail blocks SVG entirely; only raster formats work. icon.svg is an
+    # Inkscape wrapper around a single embedded data:image/png;base64 raster,
+    # so extract that PNG directly rather than rendering the SVG (ImageMagick
+    # fails to resolve the embedded data URI as a file path).
     icon_path = os.path.join(SERVE_DIRECTORY, 'fluxdrop_pp', 'icon.svg')
     icon_cid = 'fluxdrop_icon'
-    icon_data = None  # will hold transparent PNG bytes if conversion succeeds
+    icon_data = None  # will hold PNG bytes if extraction succeeds
     try:
-        from wand.image import Image as WandImage
-        from wand.color import Color
-        with WandImage(filename=icon_path, resolution=192) as img:
-            img.background_color = Color('transparent')
-            img.alpha_channel = 'set'
-            img.format = 'png'
-            img.trim()           # remove any whitespace border
-            img.resize(64, 64)   # small — same height as the title text
-            icon_data = img.make_blob()
+        with open(icon_path, 'r', encoding='utf-8', errors='ignore') as _f:
+            _svg = _f.read()
+        _m = re.search(r'data:image/png;base64,\s*([A-Za-z0-9+/=\s]+)', _svg)
+        if _m:
+            icon_data = _base64.b64decode(re.sub(r'\s+', '', _m.group(1)))
     except Exception as _e:
-        logging.warning(f"Could not rasterise icon.svg to PNG for email: {_e}")
+        logging.warning(f"Could not load email icon from icon.svg: {_e}")
+
+    # Shrink the full-size raster so the email stays lightweight (optional).
+    if icon_data:
+        try:
+            from PIL import Image as _PILImage
+            from io import BytesIO as _BytesIO
+            _im = _PILImage.open(_BytesIO(icon_data))
+            _im.thumbnail((128, 128))
+            _buf = _BytesIO()
+            _im.save(_buf, format='PNG')
+            icon_data = _buf.getvalue()
+        except Exception:
+            pass  # attach full-size; the client scales it via width/height
 
     if icon_data:
         # Inline next to title, same height — mirrors the site header

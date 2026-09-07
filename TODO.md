@@ -144,6 +144,7 @@ as specified in `PUBLIC_DOMAIN`)
 "Download everything as a ZIP")
 - [ ] Add a way to track IPs, auths, etc. - aka special admin page for specific 
 usages, for example the abuse
+- [ ] Fix emails missing the icon for FluxDrop
 
 
 ---

@@ -1,4 +1,4 @@
-# server `v0.20.0.24`
+# server `v0.20.0.25`
 Just backend code of my server, nothing else, anyone can use it
 
 ---

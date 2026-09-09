@@ -1283,14 +1283,16 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if isinstance(self.server.socket, ssl.SSLSocket):
             self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
         # P7: Content-Security-Policy
-        # 'unsafe-inline' is needed because the share snippet pages use inline <script>/<style>.
-        # Remove it once those are moved to external files.
+        # All fonts/scripts/styles are now first-party (snippet pages load
+        # /fluxdrop_pp/assets/*). 'unsafe-inline' is still required because the
+        # snippet pages carry inline <script>/<style> blocks — drop it once those
+        # are externalised too (audit B9).
         self.send_header(
             'Content-Security-Policy',
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src https://fonts.gstatic.com; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "font-src 'self'; "
             "img-src 'self' data:; "
             "connect-src 'self';"
         )

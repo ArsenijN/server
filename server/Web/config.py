@@ -105,6 +105,19 @@ HTTP_PORT = int(os.getenv('HTTP_PORT', '63512'))
 HTTPS_PORT = int(os.getenv('HTTPS_PORT', '64800'))
 CDN_INTERNAL_PORT = int(os.getenv('CDN_INTERNAL_PORT', '64799'))  # loopback-only, no TLS
 
+# Canonical external base URL — the origin the public actually reaches the server
+# on. Every user-facing absolute URL (verification email, share links, upload
+# response URLs) is built from this. Behind a reverse proxy that terminates TLS
+# on 443 (fluxdrop.me) this is just "https://<domain>" with no port; when the
+# CDN's own HTTPS port is exposed to browsers directly it includes that port.
+#   - PUBLIC_BASE_URL   — set this directly for full control (e.g. https://fluxdrop.me)
+#   - PUBLIC_HTTPS_PORT — or just override the port; 443 → no suffix
+PUBLIC_HTTPS_PORT = int(os.getenv('PUBLIC_HTTPS_PORT', str(HTTPS_PORT)))
+_pub_port_suffix  = '' if PUBLIC_HTTPS_PORT in (443, 0) else f':{PUBLIC_HTTPS_PORT}'
+PUBLIC_BASE_URL   = os.getenv(
+    'PUBLIC_BASE_URL', f'https://{PUBLIC_DOMAIN}{_pub_port_suffix}'
+).rstrip('/')
+
 # Default server root for CDN: use the larger media volume rather than the server's SSD (in most cases).
 CATBOX_UPLOAD_DIR = os.getenv('CATBOX_UPLOAD_DIR', 'CB_uploads')
 

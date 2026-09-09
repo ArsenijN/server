@@ -6,7 +6,7 @@ from core.db import _db_connect
 from core.rate_limit import _rate_limit
 from config import SMTP_SERVER, SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD
 from core.snippets import _render_snippet
-from config import PUBLIC_DOMAIN, HTTPS_PORT, SERVE_DIRECTORY
+from config import PUBLIC_DOMAIN, HTTPS_PORT, SERVE_DIRECTORY, PUBLIC_BASE_URL
 from email.mime.image import MIMEImage
 from datetime import datetime, timedelta
 
@@ -53,7 +53,7 @@ def send_verification_email(email, token, username):
     3. **Error** – only if an unexpected exception occurs *outside* the
        SMTP block (such as formatting the message) will we return ``False``.
     """
-    verification_link = f"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/auth/verify?token={token}"
+    verification_link = f"{PUBLIC_BASE_URL}/auth/verify?token={token}"
 
     # If essential SMTP configuration is missing, simulate and log.
     if not SMTP_SERVER or not SMTP_SENDER_EMAIL or not SMTP_SENDER_PASSWORD:

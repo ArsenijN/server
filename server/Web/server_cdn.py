@@ -112,6 +112,7 @@ from shared import CustomLogger, current_blacklist, blacklist_lock, load_blackli
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
 from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
+from config import PUBLIC_BASE_URL
 
 # Plain-HTTP loopback port used by server_https proxy to avoid double-TLS.
 # Bound to 127.0.0.1 only — never reachable from outside the machine.
@@ -2137,16 +2138,16 @@ class AuthHandler(SimpleHTTPRequestHandler):
         owner_type = session['owner_type']
         if owner_type == 'catbox':
             rel = os.path.relpath(dest_path, SERVE_ROOT).replace(os.sep, '/')
-            file_url = f'https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/{rel}'
+            file_url = f'{PUBLIC_BASE_URL}/{rel}'
         elif owner_type == 'share':
             share = _get_share(session['owner_ref'])
             owner_id_s = share['owner_id'] if share else 'unknown'
             rel = os.path.relpath(dest_path, os.path.join(SERVE_ROOT, 'FluxDrop', str(owner_id_s))).replace(os.sep, '/')
-            file_url = f'https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/FluxDrop/{owner_id_s}/{rel}'
+            file_url = f'{PUBLIC_BASE_URL}/FluxDrop/{owner_id_s}/{rel}'
         else:
             owner_ref = session['owner_ref']
             rel = os.path.relpath(dest_path, os.path.join(SERVE_ROOT, 'FluxDrop', owner_ref)).replace(os.sep, '/')
-            file_url = f'https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/FluxDrop/{owner_ref}/{rel}'
+            file_url = f'{PUBLIC_BASE_URL}/FluxDrop/{owner_ref}/{rel}'
 
         size = os.path.getsize(dest_path)
         # Re-use the SHA-256 already computed during assembly — no second file read.
@@ -4267,7 +4268,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         )
 
     def _render_share_login_page(self, token):
-        cdn_origin = f"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}"
+        cdn_origin = PUBLIC_BASE_URL
         share_path = f"/share/{token}"
         return _render_snippet('share_login_page.html',
             PUBLIC_DOMAIN=PUBLIC_DOMAIN,
@@ -6022,9 +6023,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 if relative_path.startswith('/cdn'):
                     # compute the path beneath CDN_UPLOAD_DIR and prefix
                     cdn_rel = os.path.relpath(save_path, CDN_UPLOAD_DIR).replace(os.sep, '/')
-                    file_url = f"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/cdn/{cdn_rel}"
+                    file_url = f"{PUBLIC_BASE_URL}/cdn/{cdn_rel}"
                 else:
-                    file_url = f"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/FluxDrop/{user_id}/{os.path.relpath(save_path, base_fs).replace(os.sep, '/')}"
+                    file_url = f"{PUBLIC_BASE_URL}/FluxDrop/{user_id}/{os.path.relpath(save_path, base_fs).replace(os.sep, '/')}"
                 return self._send_response(200, json.dumps({"message": "Upload successful", "url": file_url}))
             except Exception as e:
                 logging.exception("FluxDrop upload failed")
@@ -6481,7 +6482,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     if bytes_written % (100 * 1024 * 1024) == 0:
                         logging.info(f"CatBox upload progress: {bytes_written // (1024*1024)} MB")
 
-            file_url = f"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/{CATBOX_UPLOAD_DIR}/{new_filename}"
+            file_url = f"{PUBLIC_BASE_URL}/{CATBOX_UPLOAD_DIR}/{new_filename}"
             logging.info(
                 f"CatBox user '{auth_user_display}' uploaded '{file_item.filename}' "
                 f"({bytes_written} bytes) to '{save_path}'"
@@ -6533,7 +6534,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
 
-            file_url = f"https://{PUBLIC_DOMAIN}:{HTTPS_PORT}/{CATBOX_UPLOAD_DIR}/{new_filename}"
+            file_url = f"{PUBLIC_BASE_URL}/{CATBOX_UPLOAD_DIR}/{new_filename}"
             logging.info(f"CatBox user '{auth_user_display}' uploaded URL '{url_to_upload}' to '{save_path}'")
             self._send_response(200, file_url, "text/plain")
 

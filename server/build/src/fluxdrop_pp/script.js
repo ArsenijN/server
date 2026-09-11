@@ -7707,11 +7707,11 @@ async function openShareManager() {
     overlay.innerHTML = `
         <div class="modal-content" style="max-width:640px;width:95vw;max-height:80vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
             <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e2e8f0;flex-shrink:0">
-                <h3 style="font-size:18px;font-weight:700">🔗 Shared Links</h3>
+                <h3 style="font-size:18px;font-weight:700">${t('shares_manager_title')}</h3>
                 <button id="sm-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">✕</button>
             </div>
             <div id="sm-body" style="overflow-y:auto;padding:16px 20px;flex:1">
-                <p style="color:#64748b;font-size:14px">Loading…</p>
+                <p style="color:#64748b;font-size:14px">${t('loading')}</p>
             </div>
         </div>`;
     document.body.appendChild(overlay);
@@ -7750,18 +7750,23 @@ async function loadShareManager() {
         const data = await apiCall('/api/v1/shares', 'GET');
         const shares = data.shares || [];
         if (shares.length === 0) {
-            body.innerHTML = '<p style="color:#64748b;font-size:14px">No shared links yet. Use the Share button on any file or folder.</p>';
+            body.innerHTML = `<p style="color:#64748b;font-size:14px">${t('shares_manager_empty')}</p>`;
             return;
         }
         body.innerHTML = shares.map(s => renderShareRow(s)).join('');
         _initTooltipFlip()
         body.querySelectorAll('.sm-delete-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
-                if (!confirm('Delete this share link? Recipients will no longer be able to access it.')) return;
+                const ok = await showConfirmModal({
+                    title: t('shares_revoke_confirm_title'),
+                    message: t('shares_revoke_confirm_body'),
+                    danger: true,
+                });
+                if (!ok) return;
                 try {
                     await apiCall(`/api/v1/shares/${btn.dataset.token}`, 'DELETE');
                     await loadShareManager();
-                } catch(e) { showMessage('Error', e.message); }
+                } catch(e) { showMessage(t('shares_revoke_failed'), e.message); }
             });
         });
         body.querySelectorAll('.sm-toggle').forEach(cb => {
@@ -7770,14 +7775,14 @@ async function loadShareManager() {
                 const field = cb.dataset.field;
                 try {
                     await apiCall(`/api/v1/shares/${token}`, 'PATCH', { [field]: cb.checked });
-                } catch(e) { showMessage('Update failed', e.message); cb.checked = !cb.checked; }
+                } catch(e) { showMessage(t('shares_update_failed'), e.message); cb.checked = !cb.checked; }
             });
         });
         body.querySelectorAll('.sm-copy-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 navigator.clipboard.writeText(btn.dataset.url).then(() => {
                     const orig = btn.textContent;
-                    btn.textContent = 'Copied!'; btn.style.background = '#16a34a';
+                    btn.textContent = t('share_dlg_copied'); btn.style.background = '#16a34a';
                     setTimeout(() => { btn.textContent = orig; btn.style.background = '#3b82f6'; }, 1500);
                 });
             });

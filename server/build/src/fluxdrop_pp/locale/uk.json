@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "uk",
     "label": "Українська",
-    "version": "1.4.9"
+    "version": "1.5.0"
   },
   "login": "Увійти",
   "register": "Реєстрація",
@@ -434,5 +434,11 @@
   "registering": "Створюємо акаунт…",
   "register_success_title": "Реєстрація успішна",
   "register_success_body": "Акаунт створено. Перевірте пошту — там лист із посиланням для підтвердження.",
-  "register_failed_title": "Помилка реєстрації"
+  "register_failed_title": "Помилка реєстрації",
+  "shares_manager_title": "🔗 Посилання спільного доступу",
+  "shares_manager_empty": "Спільних посилань поки немає. Використайте кнопку «Поділитися» на файлі чи папці.",
+  "shares_revoke_confirm_title": "Видалити це посилання?",
+  "shares_revoke_confirm_body": "Отримувачі більше не зможуть ним скористатися.",
+  "shares_revoke_failed": "Не вдалося видалити посилання",
+  "shares_update_failed": "Не вдалося оновити"
 }

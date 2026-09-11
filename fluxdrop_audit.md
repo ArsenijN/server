@@ -12,17 +12,19 @@
 |---|-------|----------|--------|
 | **B16** | Cross-user path traversal — `realpath().startswith(root)` with no trailing separator lets user *N* reach any user whose id **starts with** `str(N)` (`1`→`10‑19`, `2`→`20‑29`, …). Read **and** write. | 🔴 Critical | ✅ Fixed — `_is_within()` helper applied to all 33 guard sites in `server_cdn.py` + `core/trash.py:_trash_restore` |
 | **C3** *(reopened)* | `do_GET` static-file, `/policies/*.md`, and avatar closures call `super(AuthHandler,self).end_headers()` — bypassing the security-header override. Same bug v6 marked fixed; regressed for `do_GET`. | 🟠 High | ✅ Fixed — all 3 closures now call `AuthHandler.end_headers(self)` |
-| **B13** | Authenticated SSRF via upload-notification webhooks (no host/IP allow-list, redirects followed, `file://` reachable) + arbitrary outbound email (`target` unvalidated). | 🟠 High | ⛔ New |
-| **B15** | Per-IP rate-limit & IP blacklist ineffective behind the reverse proxy — CDN reads `self.client_address` (always `127.0.0.1`) instead of the `X-Forwarded-For` the proxies set. | 🟠 High | ⛔ New |
-| **B14** | Naive `datetime.now()` written to `expires_at`, compared against SQLite `CURRENT_TIMESTAMP` (UTC). Grants extra lifetime at UTC+; **breaks registration/login entirely west of UTC**. | 🟡 Medium | ⛔ New |
-| **B17** | Registration validates `username` strictly but accepts any `nickname` / `email` (length-only). Email → SMTP header-injection surface; nickname → stored-XSS surface wherever rendered unescaped. | 🟡 Medium | ⛔ New |
-| **B18** | `share_access_log` grows unbounded; anonymous share hits are un-throttled and each bumps `access_count` + inserts a row → disk-fill vector on any public share. | 🟡 Medium | ⛔ New |
-| **B19** | Every `ON DELETE CASCADE` is dead — `PRAGMA foreign_keys` is never enabled. Admin user-delete orphans sessions, shares, trash, checksums, notifications, policy rows. Compounds the GDPR gap. | 🟡 Medium | ⛔ New |
+| **B13** | Authenticated SSRF via upload-notification webhooks (no host/IP allow-list, redirects followed, `file://` reachable) + arbitrary outbound email (`target` unvalidated). | 🟠 High | ✅ Fixed — `core/notifications.py`: private opener (http/https only), public-IP validation re-checked on every redirect hop, email target regex + CR/LF rejection; same checks added at subscribe time in `server_cdn.py` for fast feedback |
+| **B15** | Per-IP rate-limit & IP blacklist ineffective behind the reverse proxy — CDN reads `self.client_address` (always `127.0.0.1`) instead of the `X-Forwarded-For` the proxies set. | 🟠 High | ✅ Fixed — `AuthHandler._client_ip()` trusts `X-Forwarded-For` only when the direct peer is loopback (the CDN's internal port is bound to `127.0.0.1` only, so this can't be spoofed); all 14 rate-limit/blacklist/logging sites now use it |
+| **B14** | Naive `datetime.now()` written to `expires_at`, compared against SQLite `CURRENT_TIMESTAMP` (UTC). **Worse than first written up**: `pending_verifications` used `.isoformat()`, whose `T` separator sorts *after* SQLite's space in a plain TEXT comparison — confirmed live that same-day tokens never expire at all, not just skewed by a few hours. | 🟡→🟠 Medium, revised up | ✅ Fixed — all 3 sites (`pending_verifications`, `sessions`, `download_tokens`) now use `datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')`, matching `CURRENT_TIMESTAMP`'s exact format; verified with a live sqlite3 comparison that a 1s TTL now expires on schedule |
+| **B17** | Registration validates `username` strictly but accepts any `nickname` / `email` (length-only). Email → SMTP header-injection surface; nickname → stored-XSS surface wherever rendered unescaped. | 🟡 Medium | ✅ Fixed — `handle_register` now rejects control chars / `< > & " '` in nickname and validates email against a real address pattern + rejects CR/LF |
+| **B18** | `share_access_log` grows unbounded; anonymous share hits are un-throttled and each bumps `access_count` + inserts a row → disk-fill vector on any public share. | 🟡 Medium | ✅ Fixed — a 90-day age-based prune already existed (missed in the first pass); added the missing piece, a 20-hits/(token, ip)/minute insert throttle via the existing `_rate_limit` bucket at all 3 call sites |
+| **B19** | Every `ON DELETE CASCADE` is dead — `PRAGMA foreign_keys` is never enabled. Admin user-delete orphans sessions, shares, trash, checksums, notifications, policy rows. Compounds the GDPR gap. | 🟡 Medium | ✅ Fixed — `PRAGMA foreign_keys = ON` added to `_db_connect()`. **Note:** this is enforcement turning on for the first time; watch the logs after restart for any insert that was silently relying on a FK never being checked (none found in this read, but I can't exercise every write path from here) |
 | **B8** | HSTS `max-age` still `300` (`config.HSTS_MAX_AGE`). | ⚠️ Open | Carry-forward from v6 |
-| **B9** | CSP still carries `unsafe-inline` (`script-src`, `style-src`) for the snippet pages. | ⚠️ Open | Carry-forward from v6 |
+| **B9** | CSP still carries `unsafe-inline` (`script-src`, `style-src`) for the snippet pages. Font hosts already dropped (see below). | ⚠️ Open | Carry-forward from v6 — partially addressed |
 | **B1–B7, B10–B12, C1–C2, J1** | — | ✅ | Resolved in v5/v6, still resolved |
 
-Minor / low: notification email body has literal `\n` (`core/notifications.py:84‑88`); PIL avatar decode relies on the default `MAX_IMAGE_PIXELS` guard only; failed-token prefix is logged (`server_cdn.py:1377`); `datetime.fromtimestamp` (naive) in status rendering.
+Minor / low: ~~notification email body has literal `\n`~~ ✅ fixed alongside B13; PIL avatar decode relies on the default `MAX_IMAGE_PIXELS` guard only; failed-token prefix is logged (`server_cdn.py:1377`); `datetime.fromtimestamp` (naive) in status rendering.
+
+**Since v7 was written**, unrelated to the audit but in the same files: `PUBLIC_BASE_URL` replaced 9 hardcoded `https://{PUBLIC_DOMAIN}:{HTTPS_PORT}` sites (broken links behind the reverse proxy); all snippet pages now load fonts locally instead of from `fonts.googleapis.com`/`fonts.gstatic.com`, and the CDN's CSP dropped those hosts plus the unused `cdnjs.cloudflare.com`; every hardcoded `{PUBLIC_DOMAIN}`-absolute link in a snippet was converted to a relative `/fluxdrop_pp/...` path (fixes a live CSP `img-src` violation on the old subdomain).
 
 ---
 
@@ -194,10 +196,11 @@ All are compared against `CURRENT_TIMESTAMP` (`sessions`, `pending_verifications
 |---|---|---|
 | ~~🔴 1~~ | ~~**B16**~~ — ✅ done: `_is_within()` in `server_cdn.py`, applied to 33 sites; `_trash_restore` now containment-checks `dest` | — |
 | ~~🟠 2~~ | ~~**C3**~~ — ✅ done: 3 closures call `AuthHandler.end_headers(self)` | — |
-| 🟠 3 | **B13** — private opener (no `file://`), private-IP block, redirect re-check; validate/restrict email target | Medium |
-| 🟠 4 | **B15** — `_client_ip()` helper trusting XFF only from loopback; route all rate-limit/blacklist through it | Small–medium |
-| 🟡 5 | **B14** — UTC at the 3 expiry-write sites | 3 lines |
-| 🟡 6 | **B17** — validate `nickname` / `email` in `handle_register` | Small |
-| 🟡 7 | **B19** — `PRAGMA foreign_keys = ON` + widen admin-delete cleanup | Small (pairs with the GDPR work) |
-| 🟡 8 | **B18** — throttle + cap `share_access_log` | Small |
-| ⚠️ 9 | **B8** HSTS 1-year, **B9** drop `unsafe-inline` (after snippet externalisation) | 2 lines / medium |
+| ~~🟠 3~~ | ~~**B13**~~ — ✅ done: private opener, public-IP validation on connect + every redirect, email regex + CR/LF rejection | — |
+| ~~🟠 4~~ | ~~**B15**~~ — ✅ done: `_client_ip()` helper, all 14 sites routed through it | — |
+| ~~🟡 5~~ | ~~**B14**~~ — ✅ done: UTC + exact `CURRENT_TIMESTAMP` format at all 3 expiry-write sites, verified live | — |
+| ~~🟡 6~~ | ~~**B17**~~ — ✅ done: `nickname`/`email` validated in `handle_register` | — |
+| ~~🟡 7~~ | ~~**B19**~~ — ✅ done: `PRAGMA foreign_keys = ON` in `_db_connect()` | — |
+| ~~🟡 8~~ | ~~**B18**~~ — ✅ done: per-(token,ip) insert throttle added (age-based prune already existed) | — |
+| 🟡 next | **Wider admin-delete cleanup** — B19 makes cascades work on *new* deletes; the admin delete handler itself still only touches `sessions`/`users` (needs the GDPR grace-window work, deferred at your request) | Medium |
+| ⚠️ open | **B8** HSTS 1-year once HTTPS redirect confirmed end-to-end, **B9** drop `unsafe-inline` (snippet inline `<style>`/`<script>` still need externalising — font hosts are already gone) | 2 lines / medium |

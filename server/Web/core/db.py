@@ -27,6 +27,12 @@ def _db_connect():
     conn = sqlite3.connect(DB_FILE, timeout=15)
     try:
         conn.execute("PRAGMA journal_mode=WAL")
+        # B19: SQLite ignores every declared "ON DELETE CASCADE" unless this is
+        # set on the connection — it was never set, so deleting a user left
+        # trash_items/upload_notifications/policy_acceptances/file_checksums/
+        # checksum_jobs/copy_jobs/beacon_read_tokens all orphaned. Off by
+        # default per-connection, so it has to be requested every time.
+        conn.execute("PRAGMA foreign_keys = ON")
         yield conn
     finally:
         conn.close()

@@ -8,7 +8,7 @@ from config import SMTP_SERVER, SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWO
 from core.snippets import _render_snippet
 from config import PUBLIC_DOMAIN, HTTPS_PORT, SERVE_DIRECTORY, PUBLIC_BASE_URL
 from email.mime.image import MIMEImage
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ── P1: Session token hashing ────────────────────────────────────────────
 def _hash_session_token(raw: str) -> str:
@@ -174,7 +174,10 @@ def _mint_download_token(relative_path: str, user_id: int) -> str:
     """
     raw = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
-    expires_at = datetime.now() + timedelta(seconds=DOWNLOAD_TOKEN_TTL_SECONDS)
+    # B14: UTC + SQLite's own TEXT format ('YYYY-MM-DD HH:MM:SS', no 'T', no
+    # microseconds) — must match CURRENT_TIMESTAMP exactly for the plain TEXT
+    # comparison in _validate_download_token to compare real instants.
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=DOWNLOAD_TOKEN_TTL_SECONDS)).strftime('%Y-%m-%d %H:%M:%S')
     with _db_connect() as conn:
         conn.execute(
             "INSERT INTO download_tokens (token_hash, relative_path, user_id, expires_at, bytes_confirmed) VALUES (?, ?, ?, ?, 0)",

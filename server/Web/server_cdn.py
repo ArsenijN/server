@@ -93,7 +93,7 @@ import hashlib
 import bcrypt
 import sqlite3
 from werkzeug.formparser import parse_form_data # For parsing multipart/form-data (cgi deprecated in Python 3.13+)
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer, HTTPServer
 from urllib.parse import unquote, quote, urlparse, parse_qs
 import gzip as _gzip_mod
@@ -128,7 +128,7 @@ from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, 
                     checksum_job_create, checksum_job_get_latest, checksum_job_update_status, \
                     checksum_jobs_reset_stale, checksum_jobs_get_pending
 from core.rate_limit import _rate_limit
-from core.notifications import _fire_upload_notification
+from core.notifications import _fire_upload_notification, _is_safe_webhook_url, _EMAIL_RE
 from core.upload import MAX_JSON_BODY, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, _upload_init, _upload_get, _upload_receive_chunk, \
     _upload_session_status, _upload_assemble, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, _purge_abandoned_upload_sessions, UPLOAD_TMP_DIR, \
     _cancel_upload_session, compute_and_store_crc32, dispatch_checksum_job
@@ -1160,8 +1160,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(400, json.dumps({"error": "target is required."}))
         if len(target) > 512:
             return self._send_response(400, json.dumps({"error": "target too long."}))
-        if notif_type == "webhook" and not target.startswith(("http://", "https://")):
-            return self._send_response(400, json.dumps({"error": "Webhook target must be an http/https URL."}))
+        if notif_type == "webhook":
+            if not target.startswith(("http://", "https://")):
+                return self._send_response(400, json.dumps({"error": "Webhook target must be an http/https URL."}))
+            # B13: reject targets that resolve to loopback/private/link-local
+            # addresses up front — the real enforcement is the re-check at
+            # delivery time (DNS can change), this just gives fast feedback.
+            if not _is_safe_webhook_url(target):
+                return self._send_response(400, json.dumps({
+                    "error": "Webhook target must resolve to a public address (no loopback/private/internal hosts)."
+                }))
+        if notif_type == "email":
+            if '\r' in target or '\n' in target or not _EMAIL_RE.match(target):
+                return self._send_response(400, json.dumps({"error": "target must be a valid email address."}))
 
         try:
             with _db_connect() as conn:
@@ -1358,6 +1369,26 @@ class AuthHandler(SimpleHTTPRequestHandler):
             # Client closed the connection before we finished writing.
             # (e.g. after a 460 chunk-hash mismatch). Not an error on our side.
             pass
+
+    # ── B15: trusted client IP ───────────────────────────────────────────────
+    def _client_ip(self) -> str:
+        """The IP to use for rate-limiting, blacklisting, and access logging.
+
+        server_http.py / server_https.py sit in front of this server and proxy
+        over loopback, so self.client_address[0] is '127.0.0.1' for every
+        request that came through the public entrypoint — rate limits and IP
+        bans keyed on that are a single global bucket / a no-op. Those proxies
+        set X-Forwarded-For to the real peer they saw, so trust it, but ONLY
+        when the direct connection actually is the loopback proxy — otherwise
+        a client hitting this port directly could spoof the header to dodge
+        its own rate limit or blacklist entry.
+        """
+        peer = self.client_address[0]
+        if peer in ('127.0.0.1', '::1'):
+            forwarded = self.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+            if forwarded:
+                return forwarded
+        return peer
 
     # --- Authentication Middleware ---
     def _check_token_auth(self):
@@ -1623,7 +1654,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def _handle_net_outage_note(self, outage_id: str) -> None:
         """POST /api/v1/net_outage/<id>/note  {"note": "..."}  — admin only."""
-        if not _rate_limit(self.client_address[0], "api"):
+        if not _rate_limit(self._client_ip(), "api"):
             self._send_response(429, json.dumps({'error': 'Too many requests.'}), 'application/json')
             return
         user = self._check_admin_auth()
@@ -1651,7 +1682,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def _handle_board_post(self) -> None:
         """POST /api/v1/board  {level, title, body}  — admin only."""
-        if not _rate_limit(self.client_address[0], 'api'):
+        if not _rate_limit(self._client_ip(), 'api'):
             return self._send_response(429, json.dumps({'error': 'Rate limit exceeded.'}))
         user = self._check_admin_auth()
         if not user:
@@ -1690,7 +1721,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def _handle_board_delete(self, post_id: str) -> None:
         """DELETE /api/v1/board/<id>  — admin only."""
-        if not _rate_limit(self.client_address[0], 'api'):
+        if not _rate_limit(self._client_ip(), 'api'):
             return self._send_response(429, json.dumps({'error': 'Rate limit exceeded.'}))
         user = self._check_admin_auth()
         if not user:
@@ -1720,7 +1751,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         the browser datetime-local input — stored as-is (treated as local by
         the existing incident rendering logic).
         """
-        if not _rate_limit(self.client_address[0], 'api'):
+        if not _rate_limit(self._client_ip(), 'api'):
             return self._send_response(429, json.dumps({'error': 'Rate limit exceeded.'}))
         user = self._check_admin_auth()
         if not user:
@@ -2339,7 +2370,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     # --- Main Router (do_*) ---
     def do_OPTIONS(self):
         with blacklist_lock:
-            if self.client_address[0] in current_blacklist:
+            if self._client_ip() in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
         self.send_response(204)
         self._send_cors_headers()
@@ -2359,7 +2390,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # actual network changes.
         if self.upload_session_config_pattern.match(urlparse(self.path).path):
             with blacklist_lock:
-                if self.client_address[0] in current_blacklist:
+                if self._client_ip() in current_blacklist:
                     return self._send_response(403, json.dumps({'error': 'Forbidden'}))
             return self.handle_upload_session_config()
 
@@ -2425,8 +2456,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             data = json.loads(body) if body else {}
         except Exception:
             data = {}
-        forwarded = self.headers.get('X-Forwarded-For', '').split(',')[0].strip()
-        ip  = forwarded or self.client_address[0]
+        ip  = self._client_ip()
         ua  = self.headers.get('User-Agent', '')[:256]
         now = time.time()
         with _db_connect() as conn:
@@ -2603,7 +2633,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return
 
         with blacklist_lock:
-            if self.client_address[0] in current_blacklist:
+            if self._client_ip() in current_blacklist:
                 return self._send_response(403, json.dumps({"error": "Forbidden"}))
         parsed_url = urlparse(self.path)
 
@@ -2927,7 +2957,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return
 
         with blacklist_lock:
-            if self.client_address[0] in current_blacklist:
+            if self._client_ip() in current_blacklist:
                 return self._send_response(403, json.dumps({"error": "Forbidden"}))
         parsed_url = urlparse(self.path)
 
@@ -3209,7 +3239,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return
 
         with blacklist_lock:
-            if self.client_address[0] in current_blacklist:
+            if self._client_ip() in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
         parsed_url = urlparse(self.path)
         item_match = self.shares_item_pattern.match(parsed_url.path)
@@ -3241,7 +3271,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # Password change: PATCH /api/v1/me/password  {current_password, new_password}
         if parsed_url.path == '/api/v1/me/password':
             # P4a: rate-limit — same bucket as login to prevent brute-forcing current_password
-            client_ip = self.client_address[0]
+            client_ip = self._client_ip()
             if not _rate_limit(client_ip, "auth"):
                 return self._send_response(429, json.dumps({'error': 'Too many attempts. Please wait.'}))
 
@@ -3309,7 +3339,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return
 
         with blacklist_lock:
-            if self.client_address[0] in current_blacklist:
+            if self._client_ip() in current_blacklist:
                 return self._send_response(403, json.dumps({'error': 'Forbidden'}))
         parsed_url = urlparse(self.path)
         us_cancel = self.upload_session_cancel_pattern.match(parsed_url.path)
@@ -3486,7 +3516,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     # --- Auth API Handlers ---
     def handle_auth_register(self, data):
         """Handles user registration."""
-        client_ip = self.client_address[0]
+        client_ip = self._client_ip()
         if not _rate_limit(client_ip, "auth"):
             logging.warning(f"Rate limit hit on register from {client_ip}")
             return self._send_response(429, json.dumps({"error": "Too many attempts. Please wait a minute."}))
@@ -3514,6 +3544,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(
                 400, json.dumps({'error': 'Username must be 3–64 characters: letters, digits, _ - .'})
             )
+        # B17: nickname is a free-text display name (unicode letters/spaces are
+        # fine — the UI is bilingual) but must reject control characters and
+        # the handful of characters that make it unsafe to render if any future
+        # view ever forgets to HTML-escape it.
+        if not _re.match(r'^[^\x00-\x1f<>&"\']{1,64}$', nickname.strip()):
+            return self._send_response(
+                400, json.dumps({'error': 'Nickname must not contain control characters or < > & " \' and cannot be blank.'})
+            )
+        # B17: email had no format check at all — garbage addresses silently
+        # created a dead pending_verifications row, and an unchecked value
+        # lands directly in an SMTP header (msg['To']) in send_verification_email.
+        if '\r' in email or '\n' in email or not _EMAIL_RE.match(email):
+            return self._send_response(400, json.dumps({'error': 'A valid email address is required.'}))
 
         with _db_connect() as conn:
             cursor = conn.cursor()
@@ -3532,7 +3575,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         password_hash, salt = hash_password(password)
         verification_token = secrets.token_urlsafe(32)
-        expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
+        # B14: SQLite's CURRENT_TIMESTAMP (used in every expiry comparison) is
+        # UTC and formatted 'YYYY-MM-DD HH:MM:SS'. datetime.now().isoformat()
+        # is both naive-local (wrong instant) AND 'T'-separated with
+        # microseconds — the 'T' (0x54) sorts *after* a space (0x20) in a
+        # plain TEXT comparison, so on any day where the calendar date still
+        # matches, "expires_at > CURRENT_TIMESTAMP" was true regardless of the
+        # actual time, i.e. tokens practically never expired same-day. Match
+        # the format exactly and use real UTC.
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
 
         with _db_connect() as conn:
             cursor = conn.cursor()
@@ -3586,7 +3637,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
     def handle_auth_login(self, data):
         """Handles user login and issues a session token."""
-        client_ip = self.client_address[0]
+        client_ip = self._client_ip()
         if not _rate_limit(client_ip, "auth"):
             logging.warning(f"Rate limit hit on login from {client_ip}")
             return self._send_response(429, json.dumps({"error": "Too many login attempts. Please wait a minute."}))
@@ -3647,7 +3698,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             # Issue a new session token
             session_token = secrets.token_urlsafe(32)
             _token_hash   = _hash_session_token(session_token)   # ← P1
-            expires_at = datetime.now() + timedelta(days=7) # Session expires in 7 days
+            # B14: UTC + SQLite's own TEXT format — see the pending_verifications
+            # comment above for why this must not be a naive local datetime.
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')  # Session expires in 7 days
             cursor.execute(
                 "INSERT INTO sessions (user_id, session_token, expires_at) VALUES (?, ?, ?)",
                 (user_id, _token_hash, expires_at)               # ← store hash
@@ -3853,7 +3906,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 disposition = self._content_disposition(os.path.basename(target_fs))
                 action = "download"
 
-            if share["track_stats"]:
+            # B18: share_access_log had no insert throttle — anyone with the
+            # link could loop it to grow the table without bound. 20 logged
+            # hits / (token, ip) / minute is generous for real browsing and
+            # blocks a hammering loop; the file still downloads either way,
+            # only the logging (and access_count bump) is skipped.
+            if share["track_stats"] and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
                 _log_share_access(token, visitor_user_id, action=action)
 
             file_size = os.path.getsize(target_fs)
@@ -3906,7 +3964,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # --- Directory listing page ---
         if os.path.isdir(target_fs):
-            if share["track_stats"]:
+            if share["track_stats"] and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
                 _log_share_access(token, visitor_user_id, action="view")
 
             qs = parse_qs(parsed_url.query)
@@ -5455,7 +5513,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         return self._send_response(413, json.dumps({"error": "File too large."}))
                     f.write(chunk)
 
-            if share["track_stats"]:
+            if share["track_stats"] and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
                 _log_share_access(token, visitor_user_id, action="upload")
             logging.info(f"Share upload: token={token} file='{safe_name}' subpath='{raw_subpath}' user={visitor_user_id}")
             return self._send_response(200, "OK", "text/plain")

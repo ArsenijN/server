@@ -43,8 +43,6 @@ on i5 8350U)
 - [ ] Add `.7z`, `.rar` and other archive types for file table previews
 - [ ] Add `.docx`, `.pptx`, `.odt`, `.odf`, `.ods`, and other for previews
 - [ ] Add `.dng` and other raw image formats support for previews
-- [ ] Fix i18n in:
-  - [ ] Error-related pages -- untested
 - [ ] Add or fix animations in:
   - [ ] `ap-body`'s spinning wheel is still spinning in background (not visible 
   but Animations debugger sees it)
@@ -52,7 +50,8 @@ on i5 8350U)
 - [ ] Add loading wheels/bars/things to:
   - [ ] Stats button for shared links manager
   - [ ] Profile infos
-- [ ] Hide file selector for the mobile version of the FluxDrop
+- [ ] Hide file selector (`fd-sel-bar`) for the mobile version of the FluxDrop 
+if no keyboard is present
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
@@ -149,6 +148,8 @@ usages, for example the abuse
 ---
 
 ## Items that needs additional checks or implementations:
+- [ ] Fix i18n in:
+  - [ ] Error-related pages -- untested
 
 ---
 

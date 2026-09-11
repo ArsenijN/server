@@ -1,11 +1,11 @@
-# server `v0.20.0.26`
+# server `v0.20.0.27`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
 *Release notes: Soft touches to the user experience with the service*
 
-***Mainstream: ***
+***Mainstream: ...***
 
 ***This update ...***
 

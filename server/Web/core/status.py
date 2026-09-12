@@ -1,4 +1,4 @@
-import os, time, threading, logging, json
+import os, time, threading, logging, json, socket, ssl
 from datetime import datetime, timedelta
 from core.db import _db_connect
 from core.net_monitor import _net_monitor_state, _get_net_outages, _get_net_history_by_day, _net_state_lock
@@ -236,14 +236,50 @@ def _disk_indicator(pct: float) -> str:
     if pct >= 75: return 'warn'
     return 'ok'
 
+def _probe_tcp(port: int, timeout: float = 1.0) -> bool:
+    """True if a TCP connection to 127.0.0.1:<port> can be established."""
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def _probe_tls(port: int, timeout: float = 3.0) -> bool:
+    """True if 127.0.0.1:<port> completes a TLS handshake.
+
+    A bare TCP connect is not a meaningful liveness check for a TLS port. The
+    kernel completes the three-way handshake from the listen backlog on its
+    own, so a listener whose accept loop has stopped still looks "up" to a
+    connect() until the backlog fills — and once it does fill, connect()
+    starts timing out with no indication of why. Driving a real handshake
+    exercises the accept loop and the TLS layer, which is what "HTTPS is
+    serving" is supposed to mean.
+
+    Verification is disabled on purpose: the cert is issued for the public
+    domain, not 127.0.0.1, so validating it here would fail on a perfectly
+    healthy server. This probe answers "is TLS answering", not "is the cert
+    trustworthy" — expiry is reported separately by the cert check below.
+    """
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout=timeout) as raw:
+            with ctx.wrap_socket(raw) as tls:
+                return tls.version() is not None
+    except Exception:
+        return False
+
+
 def _build_snapshot_cause(http_up: bool, https_up: bool, db_ok: bool,
                            mem_pct: int, disk_pct: int) -> str | None:
     """Return a short human-readable cause string when something is not fully ok."""
     parts = []
     if not http_up:
-        parts.append('HTTP server unreachable')
+        parts.append(f'CDN HTTP listener (port {HTTP_PORT}) unreachable')
     if not https_up:
-        parts.append('HTTPS server unreachable')
+        parts.append(f'CDN HTTPS listener (port {HTTPS_PORT}) not completing TLS handshake')
     if not db_ok:
         parts.append('database query failed')
     if mem_pct >= 95:
@@ -651,16 +687,8 @@ def _build_status_page() -> str:
         ssl_ind = 'info'; ssl_status = 'info'
 
     # ── port liveness ──
-    import socket as _sock2
-    def _port_open(port: int) -> bool:
-        try:
-            with _sock2.create_connection(('127.0.0.1', port), timeout=1):
-                return True
-        except Exception:
-            return False
-
-    http_up  = _port_open(HTTP_PORT)
-    https_up = _port_open(HTTPS_PORT)
+    http_up  = _probe_tcp(HTTP_PORT)
+    https_up = _probe_tls(HTTPS_PORT)
     http_ind    = 'ok'   if http_up  else 'crit'
     https_ind   = 'ok'   if https_up else 'crit'
     http_status = 'operational' if http_up  else 'down'

@@ -137,7 +137,7 @@ from core.shares import _get_share, _get_shares_for_user, _create_share, _update
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
     _trash_purge_expired, _user_trash_root
 from core.net_monitor import _get_net_history_by_day, _net_state_lock, _net_monitor_state, _get_net_outages, _net_monitor_worker, _reconcile_open_outages
-from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get, _dir_cache_get_ex
+from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get, _dir_cache_get_ex, _probe_tcp, _probe_tls
 from core.quota import _compute_dynamic_quota, _quota_updater_thread
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
@@ -778,6 +778,13 @@ class _FastThreadingHTTPServer(HTTPServer):
     # Keep-alive: allow the OS to reuse address immediately on restart
     allow_reuse_address = True
 
+    # socketserver's default backlog is 5, which is far too shallow for a
+    # listener that fronts large multi-part uploads: five connections landing
+    # while the accept loop is mid-dispatch is enough to start refusing the
+    # sixth, including the status page's own liveness probe. 128 is the usual
+    # server default and costs nothing when idle.
+    request_queue_size = 128
+
     # Active worker threads. Kept lower than server_https.py's 100 — this
     # process buffers full request/response bodies in memory for several
     # operations (chunk uploads, checksum jobs), so each concurrent worker
@@ -785,7 +792,11 @@ class _FastThreadingHTTPServer(HTTPServer):
     # Tune based on actual available memory on the host.
     _MAX_WORKERS = 40
 
-    _SILENT_ERRORS = (BrokenPipeError, ConnectionResetError, ssl.SSLError)
+    # TimeoutError covers the deferred TLS handshake giving up after
+    # AuthHandler.timeout on a peer that connected and sent nothing —
+    # routine scanner behaviour, not worth a traceback per hit.
+    _SILENT_ERRORS = (BrokenPipeError, ConnectionResetError, ssl.SSLError,
+                      TimeoutError)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1464,13 +1475,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
         Returns current live metrics (no auth required — same info as /status page)
         plus the 90-day daily uptime history from the DB.
         """
-        def _port_open(port):
-            try:
-                with _socket.create_connection(('127.0.0.1', port), timeout=1): return True
-            except Exception: return False
-
-        http_up  = _port_open(HTTP_PORT)
-        https_up = _port_open(HTTPS_PORT)
+        # HTTPS gets a real TLS handshake, not a bare connect() — see
+        # _probe_tls() for why a TCP connect cannot tell a serving listener
+        # apart from one whose accept loop has stopped.
+        http_up  = _probe_tcp(HTTP_PORT)
+        https_up = _probe_tls(HTTPS_PORT)
 
         # Memory
         mem_pct = 0
@@ -6677,7 +6686,21 @@ def run_server(port, use_ssl=False):
                 pass
             context.options |= getattr(ssl, 'OP_NO_TICKET', 0)
             context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
-            server.socket = context.wrap_socket(server.socket, server_side=True)
+            # do_handshake_on_connect=False is REQUIRED here, not an
+            # optimisation. Wrapping the *listening* socket makes
+            # SSLSocket.accept() run the TLS handshake inline, inside
+            # serve_forever()'s single accept loop, with no timeout. One peer
+            # that completes the TCP connect and then never sends a
+            # ClientHello (port scanners do this constantly) blocks that loop
+            # forever: the accept backlog fills, every subsequent connection
+            # to this port times out, and the listener is dead until restart
+            # while the rest of the process keeps serving normally.
+            # Deferring the handshake means accept() returns immediately and
+            # the handshake happens on first read in a pool worker, bounded by
+            # AuthHandler.timeout. server_https.py already does this — see the
+            # matching wrap_socket() call there.
+            server.socket = context.wrap_socket(server.socket, server_side=True,
+                                                do_handshake_on_connect=False)
         except Exception as e:
             logging.critical(f"Fatal error setting up SSL for port {port}: {e}")
             return

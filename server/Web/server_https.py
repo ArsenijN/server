@@ -1535,14 +1535,16 @@ if __name__ == "__main__":
         except AttributeError:
             pass
         ctx.options |= getattr(ssl, 'OP_NO_TICKET', 0)
-        try:
-            ctx.set_ciphersuites(
-                'TLS_CHACHA20_POLY1305_SHA256:'
-                'TLS_AES_256_GCM_SHA384:'
-                'TLS_AES_128_GCM_SHA256'
-            )
-        except AttributeError:
-            pass
+        # TLS 1.3 suite order is deliberately NOT set here. CPython exposes no
+        # binding for OpenSSL's SSL_CTX_set_ciphersuites(), so there is no supported
+        # way to order TLS 1.3 suites from Python at all. What used to sit here was a
+        # try/except AttributeError around a set_ciphersuites() call — it raised and
+        # was swallowed on every single run, so it read like working code while every
+        # TLS 1.3 connection quietly negotiated AES-256-GCM. On this AES-NI-less host
+        # that is roughly half the throughput of ChaCha20 and was the ceiling on large
+        # downloads. The preference now comes from OPENSSL_CONF, pointed at
+        # services/openssl-tls13-chacha.cnf by the systemd unit.
+        # set_ciphers() below still applies, but only to TLS 1.2 and earlier.
         try:
             ctx.set_ciphers(
                 'ECDHE+CHACHA20:ECDHE+AESGCM:DHE+CHACHA20:DHE+AESGCM:'

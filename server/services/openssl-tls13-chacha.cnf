@@ -1,0 +1,51 @@
+# =============================================================================
+# openssl-tls13-chacha.cnf — force ChaCha20-Poly1305 first for TLS 1.3
+# =============================================================================
+# Point a service at this file with:
+#     Environment=OPENSSL_CONF=/path/to/services/openssl-tls13-chacha.cnf
+# (see webserver-https.service / webserver-cdn.service).
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The server host has no AES-NI, so AES-GCM is done in software and is roughly
+# 2x slower than ChaCha20-Poly1305 here. Measured on the deployment box, one
+# saturated thread pushes ~40 MB/s with AES-256-GCM versus ~80 MB/s with
+# ChaCha20 — on a large download that difference IS the throughput ceiling.
+#
+# The Python code asks for the right thing and cannot get it: CPython's
+# ssl module exposes SSLContext.set_ciphers() (TLS 1.2 and below) but has
+# never exposed OpenSSL's SSL_CTX_set_ciphersuites(), which is the only way
+# to order TLS 1.3 suites. There is no supported Python API for this, so the
+# preference has to be expressed in OpenSSL's own config — hence this file.
+#
+# Without it, OpenSSL's built-in default order applies and puts
+# TLS_AES_256_GCM_SHA384 first. SSL_OP_PRIORITIZE_CHACHA does not rescue this:
+# it only promotes ChaCha20 when the *client's* top preference is ChaCha20,
+# and clients on AES-NI hardware (browsers, and Cloudflare's edge on the
+# origin-pull leg) always prefer AES.
+#
+# SAFETY NOTES
+# ------------
+# OPENSSL_CONF replaces the whole config for the process, so this file must be
+# self-sufficient. It deliberately does NOT declare a [provider_sect]: the
+# stock /etc/ssl/openssl.cnf does not activate any provider explicitly either,
+# and OpenSSL activates the default provider implicitly when none are listed.
+# Only the TLS 1.3 suite order is overridden; CipherString, MinProtocol and
+# everything else keep their built-in defaults, and the application still sets
+# its own TLS 1.2 cipher list via set_ciphers() at runtime.
+#
+# All three suites below are TLS 1.3 AEAD suites and all are safe. This only
+# changes which is *preferred*, never which are *permitted*, so a client that
+# cannot do ChaCha20 still negotiates AES-256-GCM as before.
+# =============================================================================
+
+openssl_conf = fluxdrop_openssl_init
+
+[fluxdrop_openssl_init]
+ssl_conf = fluxdrop_ssl_sect
+
+[fluxdrop_ssl_sect]
+system_default = fluxdrop_tls_defaults
+
+[fluxdrop_tls_defaults]
+Ciphersuites = TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256

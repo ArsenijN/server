@@ -1,3 +1,16 @@
+# webserver-https.service — public HTTPS entrypoint (terminates client TLS)
+#
+# First-time setup:
+#   1. Adjust User=, WorkingDirectory=, ExecStart= and OPENSSL_CONF= below if
+#      your install paths differ from the defaults. Every path is absolute on
+#      purpose — systemd does not expand ~ and does not resolve Environment=
+#      values against WorkingDirectory.
+#   2. sudo cp webserver-https.service /etc/systemd/system/
+#   3. sudo systemctl daemon-reload && sudo systemctl enable --now webserver-https
+#
+# No secrets belong in this file. Credentials live in Web/secrets/ and are read
+# by the application at startup.
+
 [Unit]
 Description=Web Server HTTPS
 After=network.target
@@ -9,6 +22,15 @@ User=arsen
 WorkingDirectory=/home/arsen/servers/self-host/site/Web
 # Use the virtualenv Python created by the installer. Update this path if your venv is different.
 ExecStart=/opt/venvs/site_web/bin/python server_https.py
+
+# Prefer ChaCha20-Poly1305 over AES-GCM for TLS 1.3. Required because CPython
+# exposes no API for ordering TLS 1.3 ciphersuites, and this host has no
+# AES-NI, so software AES-GCM runs at roughly half the speed of ChaCha20 and
+# becomes the throughput ceiling on large downloads. See the config file for
+# the full explanation. Remove this line on a host WITH AES-NI, where AES-GCM
+# is hardware-accelerated and faster.
+Environment=OPENSSL_CONF=/home/arsen/servers/self-host/site/services/openssl-tls13-chacha.cnf
+
 Restart=always
 RestartSec=5
 StandardOutput=journal

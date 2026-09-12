@@ -1,4 +1,4 @@
-# server `v0.21.0.1`
+# server `v0.21.0.2`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -21,6 +21,7 @@ Just backend code of my server, nothing else, anyone can use it
 ***Backend fixes:***
 - ***Fix CDN reporing the outage on HTTPS and being really dead (unresponcive) 
 on HTTPS port***
+- ***Fix encryption enforcements (ChaCha)***
 
 ***About Immich: right now I don't provide the ability for anyone (except 
 chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you 

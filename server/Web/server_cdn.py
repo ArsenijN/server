@@ -6658,18 +6658,23 @@ def run_server(port, use_ssl=False):
             context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE
             # Prefer ChaCha20 for software-only CPU (no AES-NI).
             # See server_https.py for the full rationale.
-            # OP_PRIORITIZE_CHACHA is required for TLS 1.3; without it
-            # OP_CIPHER_SERVER_PREFERENCE alone is ignored for TLS 1.3 suites.
+            # NB: OP_PRIORITIZE_CHACHA is not sufficient on its own — it only
+            # promotes ChaCha20 when the *client's* top preference is already
+            # ChaCha20, and clients on AES-NI hardware (browsers, and
+            # Cloudflare's edge on the origin-pull leg) always prefer AES.
+            # The actual ordering comes from OPENSSL_CONF; see the note below.
             if hasattr(ssl, 'OP_PRIORITIZE_CHACHA'):
                 context.options |= ssl.OP_PRIORITIZE_CHACHA
-            try:
-                context.set_ciphersuites(
-                    'TLS_CHACHA20_POLY1305_SHA256:'
-                    'TLS_AES_256_GCM_SHA384:'
-                    'TLS_AES_128_GCM_SHA256'
-                )
-            except AttributeError:
-                pass
+            # TLS 1.3 suite order is deliberately NOT set here. CPython exposes no
+            # binding for OpenSSL's SSL_CTX_set_ciphersuites(), so there is no supported
+            # way to order TLS 1.3 suites from Python at all. What used to sit here was a
+            # try/except AttributeError around a set_ciphersuites() call — it raised and
+            # was swallowed on every single run, so it read like working code while every
+            # TLS 1.3 connection quietly negotiated AES-256-GCM. On this AES-NI-less host
+            # that is roughly half the throughput of ChaCha20 and was the ceiling on large
+            # downloads. The preference now comes from OPENSSL_CONF, pointed at
+            # services/openssl-tls13-chacha.cnf by the systemd unit.
+            # set_ciphers() below still applies, but only to TLS 1.2 and earlier.
             try:
                 context.set_ciphers(
                     'ECDHE+CHACHA20:ECDHE+AESGCM:DHE+CHACHA20:DHE+AESGCM:'

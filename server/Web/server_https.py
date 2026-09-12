@@ -13,7 +13,7 @@ from werkzeug.formparser import parse_form_data # For parsing multipart/form-dat
 from urllib.parse import quote_plus
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
-from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, raise_fd_limit, \
+from shared import PrefetchReader, CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
     KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN, \
@@ -646,14 +646,18 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
             # FluxDrop's own API/downloads rather than the Immich host proxy,
             # was still exposed to it).
             try:
-                while True:
-                    chunk = resp.read(_PROXY_BUF)
-                    if not chunk:
-                        break
-                    try:
-                        handler.wfile.write(chunk)
-                    except (BrokenPipeError, ConnectionResetError):
-                        break   # client disconnected mid-download — normal for seeks/cancels
+                # Read ahead from the CDN while the previous chunk is still
+                # being encrypted and written to the client. Without this the
+                # backend fetch and the TLS write strictly alternate and the
+                # two rates combine harmonically instead of overlapping — see
+                # PrefetchReader for the measurements behind this.
+                with PrefetchReader(lambda: resp.read(_PROXY_BUF), depth=4,
+                                    name='CDNProxyRead') as _chunks:
+                    for chunk in _chunks:
+                        try:
+                            handler.wfile.write(chunk)
+                        except (BrokenPipeError, ConnectionResetError):
+                            break   # client disconnected mid-download — normal for seeks/cancels
             except (TimeoutError, OSError, _urllib_err.URLError) as e:
                 # Same double-response hazard as above: headers are already
                 # out, so don't try to send an error response — just log and

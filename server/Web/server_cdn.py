@@ -108,7 +108,7 @@ import zipfile as _zf
 import struct  as _st
 import time as _time
 import urllib.parse as _up
-from shared import CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
+from shared import PrefetchReader, CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
 from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
@@ -5282,14 +5282,24 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             with open(entry['abs_path'], 'rb') as fh:
                                 if file_skip:
                                     fh.seek(file_skip)
-                                sent = 0
-                                while sent < read_len:
-                                    chunk = fh.read(min(READ_BUF, read_len - sent))
-                                    if not chunk:
-                                        break
-                                    if not _write(chunk):
-                                        return
-                                    sent += len(chunk)
+                                # Read ahead so the disk keeps working while
+                                # the previous chunk is written (see
+                                # PrefetchReader). _pf_left is the reader
+                                # thread's own counter — it must not share the
+                                # consumer's tally, which lags behind.
+                                _pf_left = read_len
+                                def _pf_next():
+                                    nonlocal _pf_left
+                                    if _pf_left <= 0:
+                                        return b''
+                                    buf = fh.read(min(READ_BUF, _pf_left))
+                                    _pf_left -= len(buf)
+                                    return buf
+                                with PrefetchReader(_pf_next, depth=2,
+                                                    name='ZipStreamRead') as _chunks:
+                                    for chunk in _chunks:
+                                        if not _write(chunk):
+                                            return
                         except OSError:
                             # File disappeared mid-stream — pad with zeros so the
                             # stream length stays correct (CRC will flag the file).
@@ -5945,16 +5955,21 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     with open(base_path, 'rb') as f:
                         f.seek(start)
                         remaining = length
-                        while remaining > 0:
-                            chunk = f.read(min(bufsize, remaining))
-                            if not chunk:
-                                break
-                            self.wfile.write(chunk)
-                            bytes_sent += len(chunk)
-                            remaining -= len(chunk)
-                            if bytes_sent - last_confirmed >= progress_interval:
-                                _update_token_progress(token_id, bytes_sent)
-                                last_confirmed = bytes_sent
+                        def _pf_next():
+                            nonlocal remaining
+                            if remaining <= 0:
+                                return b''
+                            buf = f.read(min(bufsize, remaining))
+                            remaining -= len(buf)
+                            return buf
+                        with PrefetchReader(_pf_next, depth=2,
+                                            name='DownloadRead') as _chunks:
+                            for chunk in _chunks:
+                                self.wfile.write(chunk)
+                                bytes_sent += len(chunk)
+                                if bytes_sent - last_confirmed >= progress_interval:
+                                    _update_token_progress(token_id, bytes_sent)
+                                    last_confirmed = bytes_sent
                     _update_token_progress(token_id, bytes_sent)
                     return
                 else:
@@ -5971,15 +5986,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     bytes_sent = 0
                     last_confirmed = 0
                     with open(base_path, 'rb') as f:
-                        while True:
-                            chunk = f.read(bufsize)
-                            if not chunk:
-                                break
-                            self.wfile.write(chunk)
-                            bytes_sent += len(chunk)
-                            if bytes_sent - last_confirmed >= progress_interval:
-                                _update_token_progress(token_id, bytes_sent)
-                                last_confirmed = bytes_sent
+                        with PrefetchReader(lambda: f.read(bufsize), depth=2,
+                                            name='DownloadRead') as _chunks:
+                            for chunk in _chunks:
+                                self.wfile.write(chunk)
+                                bytes_sent += len(chunk)
+                                if bytes_sent - last_confirmed >= progress_interval:
+                                    _update_token_progress(token_id, bytes_sent)
+                                    last_confirmed = bytes_sent
                     _update_token_progress(token_id, bytes_sent)
                     return
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError, ssl.SSLError) as _disc:

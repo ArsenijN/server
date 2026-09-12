@@ -2,7 +2,7 @@
   "_meta": {
     "lang": "en",
     "label": "English",
-    "version": "1.4.9"
+    "version": "1.5.0"
   },
   "login": "Login",
   "register": "Register",
@@ -434,5 +434,11 @@
   "registering": "Creating your account…",
   "register_success_title": "Registration Success",
   "register_success_body": "Your account has been created. Check your email for a verification link to activate it.",
-  "register_failed_title": "Registration Failed"
+  "register_failed_title": "Registration Failed",
+  "shares_manager_title": "🔗 Shared Links",
+  "shares_manager_empty": "No shared links yet. Use the Share button on any file or folder.",
+  "shares_revoke_confirm_title": "Delete this share link?",
+  "shares_revoke_confirm_body": "Recipients will no longer be able to access it.",
+  "shares_revoke_failed": "Failed to revoke share",
+  "shares_update_failed": "Update failed"
 }

@@ -219,13 +219,18 @@ def init_db():
             )
         ''')
         # Admin message board — manually posted notices shown on /status.
+        # A row with show_modal=1 is ALSO surfaced as a blocking modal to every
+        # FluxDrop visitor (planned maintenance, incidents) until it expires or
+        # is deleted. expires_at is UTC, compared against CURRENT_TIMESTAMP.
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS message_board (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 posted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 level TEXT NOT NULL DEFAULT 'info',
                 title TEXT NOT NULL,
-                body TEXT DEFAULT NULL
+                body TEXT DEFAULT NULL,
+                show_modal INTEGER NOT NULL DEFAULT 0,
+                expires_at TIMESTAMP DEFAULT NULL
             )
         ''')
         # Network connectivity outage log.
@@ -388,6 +393,9 @@ def init_db():
         _add_column_if_missing('status_snapshots', 'net_ok',     'INTEGER DEFAULT 1')
         _add_column_if_missing('status_snapshots', 'latency_ms', 'REAL DEFAULT NULL')
         _add_column_if_missing('net_outages', 'note', 'TEXT DEFAULT NULL')
+        _add_column_if_missing('message_board', 'show_modal',
+                               'INTEGER NOT NULL DEFAULT 0')
+        _add_column_if_missing('message_board', 'expires_at', 'TIMESTAMP DEFAULT NULL')
         _add_column_if_missing('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0')
         _add_column_if_missing('beacon_read_tokens', 'last_used', 'REAL DEFAULT NULL')
         _add_column_if_missing('upload_sessions', 'strategy',

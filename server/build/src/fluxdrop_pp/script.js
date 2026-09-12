@@ -8577,3 +8577,78 @@ function initFooter() {
 
 // Initialize when the DOM is ready
 document.addEventListener('DOMContentLoaded', initFooter);
+
+// ── Admin-pushed site notice ─────────────────────────────────────────────────
+// Posted with  POST /api/v1/board {show_modal:true, level, title, body,
+// expires_in_hours?}  and served to everyone by GET /api/v1/notice (public, no
+// auth — the point is that a visitor sees "down for maintenance" BEFORE they
+// sign in or start a 10 GB upload).
+//
+// Shown once per notice id: the dismissal is remembered in localStorage so a
+// routine "maintenance tonight" doesn't nag on every navigation. `critical`
+// deliberately ignores that and re-shows on every load — that's the escape
+// hatch for a real outage where people need to stop what they're doing.
+const _NOTICE_SEEN_KEY = 'fluxdrop_notice_seen';
+const _NOTICE_ACCENT = {
+    info:     '#38bdf8',
+    ok:       '#4ade80',
+    warning:  '#fbbf24',
+    critical: '#f87171',
+};
+
+function _noticeSeen(id) {
+    // Storage can throw (private mode, blocked site data). Showing the notice
+    // one extra time is strictly better than swallowing it.
+    try { return localStorage.getItem(_NOTICE_SEEN_KEY) === String(id); }
+    catch (_) { return false; }
+}
+
+function _markNoticeSeen(id) {
+    try { localStorage.setItem(_NOTICE_SEEN_KEY, String(id)); } catch (_) {}
+}
+
+async function checkSiteNotice() {
+    let notice = null;
+    try {
+        const resp = await fetch(`${API_BASE_URL}/api/v1/notice`, { cache: 'no-store' });
+        if (!resp.ok) return;
+        notice = (await resp.json()).notice;
+    } catch (_) {
+        return;   // offline or server down: never block the app over a notice
+    }
+    if (!notice) return;
+
+    const isCritical = notice.level === 'critical';
+    if (!isCritical && _noticeSeen(notice.id)) return;
+
+    document.getElementById('notice-modal-accent').style.background =
+        _NOTICE_ACCENT[notice.level] || _NOTICE_ACCENT.info;
+
+    // textContent, never innerHTML: this string comes from the database and
+    // must not be able to inject markup into everyone's page.
+    document.getElementById('notice-modal-title').textContent = notice.title || '';
+    const bodyEl = document.getElementById('notice-modal-body');
+    bodyEl.textContent = notice.body || '';
+    bodyEl.style.display = notice.body ? '' : 'none';
+
+    const metaEl = document.getElementById('notice-modal-meta');
+    if (notice.expires_at) {
+        // expires_at is UTC wall-clock from SQLite; render it in local time.
+        const when = new Date(notice.expires_at.replace(' ', 'T') + 'Z');
+        metaEl.textContent = isNaN(when) ? '' : `${when.toLocaleString()}`;
+        metaEl.style.display = metaEl.textContent ? '' : 'none';
+    } else {
+        metaEl.textContent = '';
+        metaEl.style.display = 'none';
+    }
+
+    const dismiss = () => { _markNoticeSeen(notice.id); hideModal('notice-modal'); };
+    const okBtn = document.getElementById('notice-modal-ok');
+    okBtn.textContent = (window.t ? t('ok') : 'OK');
+    okBtn.onclick = dismiss;
+
+    showModal('notice-modal');
+    _attachModalKeys(dismiss, dismiss);   // Enter or Escape both dismiss
+}
+
+document.addEventListener('DOMContentLoaded', checkSiteNotice);

@@ -1469,6 +1469,44 @@ class AuthHandler(SimpleHTTPRequestHandler):
             logging.exception("Failed to render status page")
             self._send_response(500, '<h1>Status page error</h1>', 'text/html')
 
+    def _handle_active_notice(self) -> None:
+        """GET /api/v1/notice — the current site-wide notice, or null.
+
+        Deliberately public and unauthenticated: the whole point is that a
+        visitor sees "we are down for maintenance" BEFORE trying to sign in or
+        start a 10 GB upload.
+
+        Returns the newest non-expired message_board row with show_modal set,
+        so posting a new notice supersedes the previous one without having to
+        delete it first. Clearing is either DELETE /api/v1/board/<id> or simply
+        letting expires_at pass.
+        """
+        try:
+            with _db_connect() as conn:
+                row = conn.execute(
+                    """SELECT id, posted_at, level, title, body, expires_at
+                         FROM message_board
+                        WHERE show_modal = 1
+                          AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                     ORDER BY id DESC
+                        LIMIT 1"""
+                ).fetchone()
+        except Exception:
+            logging.exception('Failed to fetch active notice')
+            return self._send_response(
+                500, json.dumps({'error': 'Internal server error.'}), 'application/json')
+        if not row:
+            return self._send_response(200, json.dumps({'notice': None}), 'application/json')
+        nid, posted_at, level, title, body, expires_at = row
+        return self._send_response(200, json.dumps({'notice': {
+            'id':         nid,
+            'posted_at':  posted_at,
+            'level':      level,
+            'title':      title,
+            'body':       body,
+            'expires_at': expires_at,
+        }}), 'application/json')
+
     def _handle_status_json(self):
         """GET /api/v1/status.json — lightweight JSON snapshot for AJAX polling.
 
@@ -1714,11 +1752,44 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(400, json.dumps({'error': 'title too long (max 200).'}))
         if body and len(body) > 2000:
             return self._send_response(400, json.dumps({'error': 'body too long (max 2000).'}))
+
+        # show_modal promotes this post from a /status board entry to a modal
+        # shown to every FluxDrop visitor. Expiry is optional; without it the
+        # notice stays up until deleted.
+        show_modal = 1 if data.get('show_modal') else 0
+        expires_at = None
+        if show_modal:
+            hours = data.get('expires_in_hours')
+            raw   = str(data.get('expires_at', '') or '').strip()
+            if hours is not None:
+                try:
+                    hours = float(hours)
+                except (TypeError, ValueError):
+                    return self._send_response(400, json.dumps(
+                        {'error': 'expires_in_hours must be a number.'}))
+                if not (0 < hours <= 24 * 365):
+                    return self._send_response(400, json.dumps(
+                        {'error': 'expires_in_hours out of range (0 < h <= 8760).'}))
+                expires_at = (datetime.now(timezone.utc)
+                              + timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            elif raw:
+                # Explicit UTC wall-clock, matching how CURRENT_TIMESTAMP is stored.
+                for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M',
+                            '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M'):
+                    try:
+                        expires_at = datetime.strptime(raw, fmt).strftime('%Y-%m-%d %H:%M:%S')
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    return self._send_response(400, json.dumps(
+                        {'error': 'expires_at must be UTC "YYYY-MM-DD HH:MM[:SS]".'}))
         try:
             with _db_connect() as conn:
                 cur = conn.execute(
-                    'INSERT INTO message_board (level, title, body) VALUES (?, ?, ?)',
-                    (level, title, body)
+                    'INSERT INTO message_board (level, title, body, show_modal, expires_at) '
+                    'VALUES (?, ?, ?, ?, ?)',
+                    (level, title, body, show_modal, expires_at)
                 )
                 conn.commit()
                 row_id = cur.lastrowid
@@ -2651,6 +2722,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._handle_status_page()
 
         # JSON status API (for AJAX updates and external monitoring)
+        if parsed_url.path == '/api/v1/notice':
+            return self._handle_active_notice()
+
         if parsed_url.path == '/api/v1/status.json':
             return self._handle_status_json()
 

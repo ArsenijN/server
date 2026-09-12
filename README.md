@@ -1,4 +1,4 @@
-# server `v0.21.0.3`
+# server `v0.21.0.4`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -16,13 +16,33 @@ Just backend code of my server, nothing else, anyone can use it
 - ***...***
 
 ***Backend additions:***
-- ***...***
+- ***`PrefetchReader` (`shared.py`), wired into the download, `zip_stream` and 
+CDN-proxy copy loops so disk reads overlap socket writes instead of strictly 
+alternating. Note: no measurable throughput gain on the current setup — the 
+real ceiling turned out to be the router's NAT hairpin and a BIOS-clamped CPU, 
+not the server — but it removes a serialisation that does bind on a faster 
+link***
 
 ***Backend fixes:***
-- ***Fix CDN reporing the outage on HTTPS and being really dead (unresponcive) 
-on HTTPS port***
-- ***Fix encryption enforcements (ChaCha)***
-- ***Tweaked `PrefetchReader` to utilize more of the HDD/SSD***
+- ***Fix the CDN's HTTPS listener (`:64800`) wedging permanently. The TLS 
+handshake ran inside `serve_forever()`'s accept loop with no timeout, so one 
+peer that completed the TCP connect and never sent a ClientHello (port scanners 
+do this constantly) blocked the loop forever and the port went dead. Uploads 
+kept working the whole time because they take the proxy's internal loopback 
+port instead, which is exactly why it went unnoticed for two days — the status 
+page was reporting it correctly***
+- ***Fix TLS 1.3 always negotiating AES-256-GCM instead of ChaCha20. CPython 
+exposes no binding for OpenSSL's `SSL_CTX_set_ciphersuites()`, so the existing 
+`set_ciphersuites()` call raised `AttributeError` and was silently swallowed on 
+every run — the preference had never once applied. Ordering now comes from 
+`OPENSSL_CONF` (`services/openssl-tls13-chacha.cnf`, set in the units). On this 
+AES-NI-less host that is ~2x the cipher throughput and half the CPU per byte***
+- ***Raise the CDN listener's accept backlog from Python's default of 5 to 
+128***
+- ***Status page now checks HTTPS with a real TLS handshake instead of a bare 
+TCP connect (a connect succeeds from the kernel's backlog even when the accept 
+loop is dead), and names the affected port in the cause text instead of saying 
+"HTTPS server unreachable"***
 
 ***About Immich: right now I don't provide the ability for anyone (except 
 chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you 
@@ -32,8 +52,8 @@ some point later, but not now***
 ***Regressions: ...***
 
 *Patch notes: **Changelog:***
-- ***Delete old README and fix the CDN being dead on HTTPS port and being saved 
-by proxy's internal port***
+- ***Delete old README; fix the CDN's HTTPS port being dead while the proxy's 
+internal loopback port kept uploads working and so masked the outage***
 - ***...***
 
 ---

@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-e54efff6
+// Current version of script.js is: fluxdrop-v-1cf8ce17
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-e54efff6'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-1cf8ce17'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -8462,7 +8462,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-e54efff6'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-1cf8ce17'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {
@@ -8607,6 +8607,58 @@ function _markNoticeSeen(id) {
     try { localStorage.setItem(_NOTICE_SEEN_KEY, String(id)); } catch (_) {}
 }
 
+function _noticeLang() {
+    try { return (localStorage.getItem('fluxdrop_lang') || 'en').toLowerCase(); }
+    catch (_) { return 'en'; }
+}
+
+// Pick the best text for the current UI language. Exact tag first ("uk"), then
+// the bare language of a regional tag ("pt-br" -> "pt"), then the notice's base
+// text. Title and body fall back independently, so a translation that only
+// bothers to localise the headline still works.
+function _noticeText(notice) {
+    const i18n = notice.i18n || {};
+    const lang = _noticeLang();
+    const tr = i18n[lang] || i18n[lang.split('-')[0]] || {};
+    return { title: tr.title || notice.title || '', body: tr.body || notice.body || '' };
+}
+
+let _activeNotice = null;
+
+function _renderNotice(notice) {
+    const txt = _noticeText(notice);
+    document.getElementById('notice-modal-accent').style.background =
+        _NOTICE_ACCENT[notice.level] || _NOTICE_ACCENT.info;
+
+    // textContent, never innerHTML: these strings come from the database and
+    // must not be able to inject markup into everyone's page.
+    document.getElementById('notice-modal-title').textContent = txt.title;
+    const bodyEl = document.getElementById('notice-modal-body');
+    bodyEl.textContent = txt.body;
+    bodyEl.style.display = txt.body ? '' : 'none';
+
+    const metaEl = document.getElementById('notice-modal-meta');
+    if (notice.expires_at) {
+        // expires_at is UTC wall-clock from SQLite; render it in local time.
+        const when = new Date(notice.expires_at.replace(' ', 'T') + 'Z');
+        metaEl.textContent = isNaN(when) ? '' : when.toLocaleString();
+    } else {
+        metaEl.textContent = '';
+    }
+    metaEl.style.display = metaEl.textContent ? '' : 'none';
+
+    const okBtn = document.getElementById('notice-modal-ok');
+    okBtn.textContent = (window.t ? t('ok') : 'OK');
+}
+
+// If the language is switched while the notice is open, follow it immediately
+// rather than leaving a Ukrainian UI with an English modal on top of it.
+document.addEventListener('fd-locale-change', () => {
+    if (_activeNotice && !document.getElementById('notice-modal')?.classList.contains('hidden')) {
+        _renderNotice(_activeNotice);
+    }
+});
+
 async function checkSiteNotice() {
     let notice = null;
     try {
@@ -8621,31 +8673,15 @@ async function checkSiteNotice() {
     const isCritical = notice.level === 'critical';
     if (!isCritical && _noticeSeen(notice.id)) return;
 
-    document.getElementById('notice-modal-accent').style.background =
-        _NOTICE_ACCENT[notice.level] || _NOTICE_ACCENT.info;
+    _activeNotice = notice;
+    _renderNotice(notice);
 
-    // textContent, never innerHTML: this string comes from the database and
-    // must not be able to inject markup into everyone's page.
-    document.getElementById('notice-modal-title').textContent = notice.title || '';
-    const bodyEl = document.getElementById('notice-modal-body');
-    bodyEl.textContent = notice.body || '';
-    bodyEl.style.display = notice.body ? '' : 'none';
-
-    const metaEl = document.getElementById('notice-modal-meta');
-    if (notice.expires_at) {
-        // expires_at is UTC wall-clock from SQLite; render it in local time.
-        const when = new Date(notice.expires_at.replace(' ', 'T') + 'Z');
-        metaEl.textContent = isNaN(when) ? '' : `${when.toLocaleString()}`;
-        metaEl.style.display = metaEl.textContent ? '' : 'none';
-    } else {
-        metaEl.textContent = '';
-        metaEl.style.display = 'none';
-    }
-
-    const dismiss = () => { _markNoticeSeen(notice.id); hideModal('notice-modal'); };
-    const okBtn = document.getElementById('notice-modal-ok');
-    okBtn.textContent = (window.t ? t('ok') : 'OK');
-    okBtn.onclick = dismiss;
+    const dismiss = () => {
+        _activeNotice = null;
+        _markNoticeSeen(notice.id);
+        hideModal('notice-modal');
+    };
+    document.getElementById('notice-modal-ok').onclick = dismiss;
 
     showModal('notice-modal');
     _attachModalKeys(dismiss, dismiss);   // Enter or Escape both dismiss

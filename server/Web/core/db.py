@@ -230,7 +230,8 @@ def init_db():
                 title TEXT NOT NULL,
                 body TEXT DEFAULT NULL,
                 show_modal INTEGER NOT NULL DEFAULT 0,
-                expires_at TIMESTAMP DEFAULT NULL
+                expires_at TIMESTAMP DEFAULT NULL,
+                i18n TEXT DEFAULT NULL
             )
         ''')
         # Network connectivity outage log.
@@ -396,6 +397,8 @@ def init_db():
         _add_column_if_missing('message_board', 'show_modal',
                                'INTEGER NOT NULL DEFAULT 0')
         _add_column_if_missing('message_board', 'expires_at', 'TIMESTAMP DEFAULT NULL')
+        # Per-language overrides for the notice modal: {"uk": {"title","body"}}
+        _add_column_if_missing('message_board', 'i18n', 'TEXT DEFAULT NULL')
         _add_column_if_missing('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0')
         _add_column_if_missing('beacon_read_tokens', 'last_used', 'REAL DEFAULT NULL')
         _add_column_if_missing('upload_sessions', 'strategy',

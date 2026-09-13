@@ -1,4 +1,4 @@
-# server `v0.21.0.4`
+# server `v0.21.0.5`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -10,12 +10,38 @@ Just backend code of my server, nothing else, anyone can use it
 ***This update ...***
 
 ***Additions:***
-- ***...***
+- ***Important-message modal. An admin can push a notice that everyone sees the
+moment they open FluxDrop — signed in or not — for planned maintenance,
+incidents, policy changes and the like. Dismissed once per person, except
+`CRITICAL` which re-shows on every load so a real outage can't be clicked away
+and forgotten***
+- ***Notices are translatable. Each notice carries optional per-language
+overrides, so a Ukrainian UI shows Ukrainian text instead of the odd mix of a
+translated interface with an English announcement on top. Missing translations
+fall back to the default text field by field, and switching language while the
+modal is open re-renders it immediately***
 
 ***Fixes:***
 - ***...***
 
 ***Backend additions:***
+- ***Notice plumbing on top of the existing `message_board` table, rather than
+a parallel concept: new `show_modal`, `expires_at` and `i18n` columns (added by
+the startup migration, so existing databases upgrade in place). New public
+`GET /api/v1/notice` returns the newest non-expired notice — unauthenticated on
+purpose, since the whole point is that a visitor reads "down for maintenance"
+*before* signing in or starting a 10 GB upload. Posting a new notice supersedes
+the previous one without needing to delete it***
+- ***New admin `PATCH /api/v1/board/<id>`, which only touches the keys actually
+present in the request body, so the status page can flip `show_modal` or extend
+an expiry without resending the whole post and clobbering fields it never
+rendered***
+- ***Status page admin panel gained a 📢 button on every board post: it
+promotes that post to a FluxDrop notice in place — no duplicate row, so the
+board entry and the notice can never drift apart — with level, duration and
+Ukrainian translation editable at the same time. Live notices are badged in the
+list, and "Stop showing" clears the modal while leaving the post (and its
+translations) on the board***
 - ***`PrefetchReader` (`shared.py`), wired into the download, `zip_stream` and 
 CDN-proxy copy loops so disk reads overlap socket writes instead of strictly 
 alternating. Note: no measurable throughput gain on the current setup — the 
@@ -120,6 +146,52 @@ them to the destination file. It's very recommended to ensure that
 `UPLOAD_TMP_DIR` lives on separate drive (other HDD from main storage of files) 
 since that will envolve severe head seeks that will significantly reduce the 
 speeds of the file processing
+
+### Posting a notice
+
+Notices live in the `message_board` table, so anything on the status page's
+message board can become one. The intended flow is the status page admin panel
+(bottom-right *Admin* pill → **Message Board**): post the announcement as usual,
+then press 📢 on it, choose level/duration, optionally fill in the Ukrainian
+text, and save. Press 📢 again on a live notice to edit it, or **Stop showing**
+to pull it while keeping the board post.
+
+Levels are `info`, `ok`, `warning`, `critical`. Only `critical` re-shows after a
+user dismisses it; the rest are remembered per notice id in the visitor's
+`localStorage`.
+
+The same thing over the API, if you prefer scripting it:
+
+```bash
+TOKEN=<admin session token>
+
+# Post, and show it as a notice for the next 6 hours
+curl -X POST https://fluxdrop.me/api/v1/board \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"level":"warning","title":"Planned maintenance 02:00-04:00",
+       "body":"Uploads are paused while the CDN restarts.",
+       "show_modal":true,"expires_in_hours":6,
+       "i18n":{"uk":{"title":"Планові роботи 02:00-04:00",
+                     "body":"Завантаження призупинено на час перезапуску CDN."}}}'
+
+# Promote an existing board post (id 42) without changing its text
+curl -X PATCH https://fluxdrop.me/api/v1/board/42 \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"show_modal":true,"expires_in_hours":24}'
+
+# What visitors currently get (no auth)
+curl -s https://fluxdrop.me/api/v1/notice
+
+# Stop showing it (the board post stays)
+curl -X PATCH https://fluxdrop.me/api/v1/board/42 \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"show_modal":false}'
+```
+
+Omit both `expires_in_hours` and `expires_at` and the notice stays up until you
+stop it. `expires_at` is UTC `YYYY-MM-DD HH:MM[:SS]`, matching how SQLite stores
+`CURRENT_TIMESTAMP`. Sending `"expires_at": null` or `"i18n": null` on a PATCH
+clears that field.
 
 ### Secrets handling
 

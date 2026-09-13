@@ -652,6 +652,14 @@ footer a:hover { text-decoration: underline; }
 .admin-board-item:last-child { border-bottom: none; }
 .admin-board-item .item-title { flex: 1; color: var(--text); }
 .admin-board-item .item-time { color: var(--muted); font-size: 10px; white-space: nowrap; margin-top: 2px; }
+/* Notice editor sits above the admin panel that launched it. */
+#notice-editor-backdrop { z-index: 3200; }
+.notice-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  font-size: 9px; font-weight: 700; letter-spacing: .5px; vertical-align: middle;
+  background: rgba(59,130,246,0.18); color: var(--accent2); border: 1px solid rgba(59,130,246,0.3);
+}
+.notice-badge.lang { background: rgba(148,163,184,0.14); color: var(--muted); border-color: var(--border2); }
 
 @media (max-width: 640px) {
   header, .container, footer { padding-left: 20px; padding-right: 20px; }
@@ -1664,6 +1672,100 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── Board management ──────────────────────────────────────────────────────
 const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
+// ── Notice editor ────────────────────────────────────────────────────────────
+// "Copy to notice": takes any message-board post and pushes it to FluxDrop as a
+// modal every visitor sees. The post is promoted in place rather than
+// duplicated, so the board and the notice never drift apart — edit the text
+// here and both change together.
+let _adminBoardPosts = [];
+
+function _noticeIsLive(p) {
+  if (!p || !p.show_modal) return false;
+  if (!p.expires_at) return true;
+  const t = new Date(p.expires_at.replace(' ', 'T') + 'Z');
+  return isNaN(t) ? true : t > new Date();
+}
+
+window.openNoticeEditor = function(id) {
+  const p = _adminBoardPosts.find(x => x.id === id);
+  if (!p) { alert('Post not found — reload the panel.'); return; }
+  const i18n = p.i18n || {};
+  const uk = i18n.uk || {};
+  document.getElementById('notice-edit-id').value      = p.id;
+  document.getElementById('notice-edit-level').value   = p.level || 'info';
+  document.getElementById('notice-edit-title').value   = p.title || '';
+  document.getElementById('notice-edit-body').value    = p.body  || '';
+  document.getElementById('notice-edit-uk-title').value = uk.title || '';
+  document.getElementById('notice-edit-uk-body').value  = uk.body  || '';
+  // Editing a live notice must not silently reset its expiry, so default the
+  // dropdown to "keep" when one is already set.
+  document.getElementById('notice-edit-duration').value = _noticeIsLive(p) ? 'keep' : '';
+  document.getElementById('notice-edit-keep').hidden = !_noticeIsLive(p);
+  document.getElementById('notice-edit-stop').style.display = _noticeIsLive(p) ? '' : 'none';
+  document.getElementById('notice-edit-status').textContent = '';
+  document.getElementById('notice-editor-backdrop').classList.add('open');
+};
+
+function closeNoticeEditor() {
+  document.getElementById('notice-editor-backdrop').classList.remove('open');
+}
+
+async function _noticePatch(id, payload, okMsg) {
+  if (!_adminToken) { alert('Not logged in.'); return false; }
+  const statusEl = document.getElementById('notice-edit-status');
+  statusEl.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/v1/board/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json', 'Authorization':'Bearer ' + _adminToken},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { statusEl.textContent = 'Failed: ' + (d.error || r.status); return false; }
+    statusEl.textContent = okMsg;
+    await adminLoadBoard();
+    return true;
+  } catch (e) {
+    statusEl.textContent = 'Failed: ' + e;
+    return false;
+  }
+}
+
+window.saveNotice = async function() {
+  const id    = parseInt(document.getElementById('notice-edit-id').value, 10);
+  const title = document.getElementById('notice-edit-title').value.trim();
+  if (!title) { alert('Title is required.'); return; }
+  const ukT = document.getElementById('notice-edit-uk-title').value.trim();
+  const ukB = document.getElementById('notice-edit-uk-body').value.trim();
+  const i18n = {};
+  if (ukT || ukB) {
+    i18n.uk = {};
+    if (ukT) i18n.uk.title = ukT;
+    if (ukB) i18n.uk.body  = ukB;
+  }
+  const payload = {
+    show_modal: true,
+    level: document.getElementById('notice-edit-level').value,
+    title: title,
+    body:  document.getElementById('notice-edit-body').value.trim(),
+    i18n:  Object.keys(i18n).length ? i18n : null
+  };
+  const dur = document.getElementById('notice-edit-duration').value;
+  if (dur === '')            payload.expires_at = null;        // explicit: never expires
+  else if (dur !== 'keep')   payload.expires_in_hours = parseFloat(dur);
+  // 'keep' sends neither key, so the server leaves the existing expiry alone.
+  if (await _noticePatch(id, payload, 'Saved — live for FluxDrop users.')) {
+    setTimeout(closeNoticeEditor, 700);
+  }
+};
+
+window.clearNotice = async function() {
+  const id = parseInt(document.getElementById('notice-edit-id').value, 10);
+  if (await _noticePatch(id, {show_modal: false}, 'Stopped. Post stays on the board.')) {
+    setTimeout(closeNoticeEditor, 700);
+  }
+};
+
 async function adminLoadBoard() {
   const el = document.getElementById('admin-board-list');
   try {
@@ -1675,14 +1777,22 @@ async function adminLoadBoard() {
       el.innerHTML = '<div style="padding:10px 12px;font-size:11px;color:var(--muted)">No posts yet.</div>';
       return;
     }
+    _adminBoardPosts = posts;
     el.innerHTML = posts.map(p => {
       const ind = BIND[p.level] || 'info';
+      const live = _noticeIsLive(p);
+      const langs = Object.keys(p.i18n || {});
       return `<div class="admin-board-item">
         <div class="svc-indicator ${ind}" style="flex-shrink:0;margin-top:2px"></div>
         <div class="item-title">${_esc(p.title)}
+          ${live ? `<span class="notice-badge">📢 NOTICE${p.expires_at ? ' · ' + _fmtUtc(p.expires_at) : ''}</span>` : ''}
+          ${langs.length ? `<span class="notice-badge lang">${_esc(langs.join(' ').toUpperCase())}</span>` : ''}
           ${p.body ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${_esc(p.body)}</div>` : ''}
           <div class="item-time">${_fmtUtc(p.posted_at)} · ${p.level.toUpperCase()}</div>
         </div>
+        <button class="admin-btn" style="padding:3px 8px;font-size:10px;flex-shrink:0;margin-top:2px;
+            background:rgba(59,130,246,0.14);color:var(--accent2);border:1px solid rgba(59,130,246,0.28)"
+          title="Show this to FluxDrop users" onclick="openNoticeEditor(${p.id})">📢</button>
         <button class="admin-btn danger" style="padding:3px 8px;font-size:10px;flex-shrink:0;margin-top:2px"
           onclick="adminBoardDelete(${p.id})">✕</button>
       </div>`;
@@ -1782,6 +1892,71 @@ window.editOutageNote = async function(id, btn) {
 </script>
 
 <!-- ── ADMIN PANEL MODAL ── -->
+<div class="admin-modal-backdrop" id="notice-editor-backdrop">
+  <div class="admin-modal" style="max-width:560px">
+    <button class="admin-modal-close" onclick="closeNoticeEditor()" aria-label="Close">✕</button>
+    <div class="admin-modal-title">📢 Show as FluxDrop notice</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:16px;line-height:1.5">
+      Shown as a modal to everyone who opens FluxDrop, signed in or not.
+      Dismissed once per person — except <strong>CRITICAL</strong>, which re-shows
+      on every page load.
+    </div>
+    <input type="hidden" id="notice-edit-id">
+    <div class="admin-field">
+      <label>Level</label>
+      <select id="notice-edit-level">
+        <option value="info">INFO</option>
+        <option value="warning">WARNING</option>
+        <option value="critical">CRITICAL (cannot be dismissed for good)</option>
+        <option value="ok">OK / Resolved</option>
+      </select>
+    </div>
+    <div class="admin-field">
+      <label>Show for</label>
+      <select id="notice-edit-duration">
+        <option value="keep" id="notice-edit-keep" hidden>Keep current expiry</option>
+        <option value="">Until I remove it</option>
+        <option value="1">1 hour</option>
+        <option value="3">3 hours</option>
+        <option value="6">6 hours</option>
+        <option value="12">12 hours</option>
+        <option value="24">1 day</option>
+        <option value="72">3 days</option>
+        <option value="168">7 days</option>
+      </select>
+    </div>
+    <div class="admin-field">
+      <label>Title — default (English)</label>
+      <input type="text" id="notice-edit-title" maxlength="200">
+    </div>
+    <div class="admin-field">
+      <label>Body — default (English)</label>
+      <textarea id="notice-edit-body" maxlength="2000"></textarea>
+    </div>
+    <div style="border-top:1px solid var(--border);margin:18px 0 14px;padding-top:16px">
+      <div style="font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+                  color:var(--muted);margin-bottom:4px">Українська — optional</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Shown to users whose FluxDrop UI is Ukrainian. Leave blank to fall back
+        to the default text above.
+      </div>
+      <div class="admin-field">
+        <label>Заголовок</label>
+        <input type="text" id="notice-edit-uk-title" maxlength="200">
+      </div>
+      <div class="admin-field">
+        <label>Текст</label>
+        <textarea id="notice-edit-uk-body" maxlength="2000"></textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="admin-btn primary" onclick="saveNotice()">Save notice</button>
+      <button class="admin-btn danger" id="notice-edit-stop" onclick="clearNotice()">Stop showing</button>
+      <span id="notice-edit-status" style="font-size:11px;color:var(--muted)"></span>
+    </div>
+  </div>
+</div>
+
 <div class="admin-modal-backdrop" id="admin-modal-backdrop">
   <div class="admin-modal" role="dialog" aria-modal="true">
     <button class="admin-modal-close" id="admin-modal-close" aria-label="Close">✕</button>

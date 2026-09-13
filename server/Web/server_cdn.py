@@ -832,6 +832,78 @@ class _FastThreadingHTTPServer(HTTPServer):
         super().server_close()
 
 
+# ── Notice validation helpers ────────────────────────────────────────────────
+# Shared by POST /api/v1/board and PATCH /api/v1/board/<id> so the two paths
+# can never drift into accepting different things.
+
+_NOTICE_LANG_RE = re.compile(r'^[a-z]{2}(-[a-z]{2})?$')
+
+
+def _parse_notice_i18n(raw):
+    """Validate per-language overrides for a notice.
+
+    Shape: {"uk": {"title": "...", "body": "..."}} — either field may be
+    omitted for any language, in which case that language falls back to the
+    row's base title/body. Returns (json_text_or_None, error_or_None); an
+    empty/None input clears the overrides.
+    """
+    if raw is None or raw == '' or raw == {}:
+        return None, None
+    if not isinstance(raw, dict):
+        return None, 'i18n must be an object keyed by language code.'
+    if len(raw) > 16:
+        return None, 'i18n: too many languages (max 16).'
+    clean = {}
+    for lang, val in raw.items():
+        if not isinstance(lang, str) or not _NOTICE_LANG_RE.match(lang):
+            return None, f'i18n: invalid language code {lang!r}.'
+        if not isinstance(val, dict):
+            return None, f'i18n[{lang}] must be an object.'
+        entry = {}
+        for field, limit in (('title', 200), ('body', 2000)):
+            v = val.get(field)
+            if v is None:
+                continue
+            v = str(v).strip()
+            if len(v) > limit:
+                return None, f'i18n[{lang}].{field} too long (max {limit}).'
+            if v:
+                entry[field] = v
+        if entry:
+            clean[lang] = entry
+    return (json.dumps(clean, ensure_ascii=False) if clean else None), None
+
+
+def _parse_notice_expiry(data):
+    """Resolve expires_in_hours / expires_at into a UTC 'YYYY-MM-DD HH:MM:SS'.
+
+    expires_in_hours is the ergonomic form ("up for the next 6 hours");
+    expires_at is explicit UTC wall-clock, matching how SQLite stores
+    CURRENT_TIMESTAMP so the comparison in the notice query is apples-to-apples.
+    Returns (value_or_None, error_or_None); None means "no expiry".
+    """
+    hours = data.get('expires_in_hours')
+    raw   = str(data.get('expires_at', '') or '').strip()
+    if hours is not None and str(hours).strip() != '':
+        try:
+            hours = float(hours)
+        except (TypeError, ValueError):
+            return None, 'expires_in_hours must be a number.'
+        if not (0 < hours <= 24 * 365):
+            return None, 'expires_in_hours out of range (0 < h <= 8760).'
+        return (datetime.now(timezone.utc)
+                + timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S'), None
+    if raw:
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M',
+                    '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M'):
+            try:
+                return datetime.strptime(raw, fmt).strftime('%Y-%m-%d %H:%M:%S'), None
+            except ValueError:
+                continue
+        return None, 'expires_at must be UTC "YYYY-MM-DD HH:MM[:SS]".'
+    return None, None
+
+
 class AuthHandler(SimpleHTTPRequestHandler):
     server_version = "FluxDrop/4.0-Auth"
 
@@ -1484,7 +1556,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         try:
             with _db_connect() as conn:
                 row = conn.execute(
-                    """SELECT id, posted_at, level, title, body, expires_at
+                    """SELECT id, posted_at, level, title, body, expires_at, i18n
                          FROM message_board
                         WHERE show_modal = 1
                           AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
@@ -1497,7 +1569,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 500, json.dumps({'error': 'Internal server error.'}), 'application/json')
         if not row:
             return self._send_response(200, json.dumps({'notice': None}), 'application/json')
-        nid, posted_at, level, title, body, expires_at = row
+        nid, posted_at, level, title, body, expires_at, i18n_raw = row
+        try:
+            i18n = json.loads(i18n_raw) if i18n_raw else {}
+        except Exception:
+            i18n = {}   # corrupt blob must not break the notice for everyone
         return self._send_response(200, json.dumps({'notice': {
             'id':         nid,
             'posted_at':  posted_at,
@@ -1505,6 +1581,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             'title':      title,
             'body':       body,
             'expires_at': expires_at,
+            'i18n':       i18n,
         }}), 'application/json')
 
     def _handle_status_json(self):
@@ -1757,39 +1834,18 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # shown to every FluxDrop visitor. Expiry is optional; without it the
         # notice stays up until deleted.
         show_modal = 1 if data.get('show_modal') else 0
-        expires_at = None
-        if show_modal:
-            hours = data.get('expires_in_hours')
-            raw   = str(data.get('expires_at', '') or '').strip()
-            if hours is not None:
-                try:
-                    hours = float(hours)
-                except (TypeError, ValueError):
-                    return self._send_response(400, json.dumps(
-                        {'error': 'expires_in_hours must be a number.'}))
-                if not (0 < hours <= 24 * 365):
-                    return self._send_response(400, json.dumps(
-                        {'error': 'expires_in_hours out of range (0 < h <= 8760).'}))
-                expires_at = (datetime.now(timezone.utc)
-                              + timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
-            elif raw:
-                # Explicit UTC wall-clock, matching how CURRENT_TIMESTAMP is stored.
-                for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M',
-                            '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M'):
-                    try:
-                        expires_at = datetime.strptime(raw, fmt).strftime('%Y-%m-%d %H:%M:%S')
-                        break
-                    except ValueError:
-                        continue
-                else:
-                    return self._send_response(400, json.dumps(
-                        {'error': 'expires_at must be UTC "YYYY-MM-DD HH:MM[:SS]".'}))
+        expires_at, err = _parse_notice_expiry(data)
+        if err:
+            return self._send_response(400, json.dumps({'error': err}))
+        i18n_json, err = _parse_notice_i18n(data.get('i18n'))
+        if err:
+            return self._send_response(400, json.dumps({'error': err}))
         try:
             with _db_connect() as conn:
                 cur = conn.execute(
-                    'INSERT INTO message_board (level, title, body, show_modal, expires_at) '
-                    'VALUES (?, ?, ?, ?, ?)',
-                    (level, title, body, show_modal, expires_at)
+                    'INSERT INTO message_board (level, title, body, show_modal, expires_at, i18n) '
+                    'VALUES (?, ?, ?, ?, ?, ?)',
+                    (level, title, body, show_modal, expires_at, i18n_json)
                 )
                 conn.commit()
                 row_id = cur.lastrowid
@@ -1821,6 +1877,87 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except Exception:
             logging.exception('Failed to delete board post')
             return self._send_response(500, json.dumps({'error': 'Internal server error.'}))
+
+    def _handle_board_update(self, post_id: str) -> None:
+        """PATCH /api/v1/board/<id> — admin only.
+
+        Promotes an existing board post to the FluxDrop notice modal, or edits
+        a notice that is already showing. Only the keys actually present in the
+        body are touched, so the status page can flip show_modal (or extend an
+        expiry) without having to resend the whole post and risk clobbering
+        fields it didn't render.
+
+        Sending "expires_at": null explicitly clears the expiry; likewise
+        "i18n": null drops all translations.
+        """
+        if not _rate_limit(self._client_ip(), 'api'):
+            return self._send_response(429, json.dumps({'error': 'Rate limit exceeded.'}))
+        user = self._check_admin_auth()
+        if not user:
+            return
+        try:
+            pid = int(post_id)
+        except ValueError:
+            return self._send_response(400, json.dumps({'error': 'Invalid id.'}))
+        try:
+            cl = int(self.headers.get('Content-Length', 0))
+            if cl <= 0 or cl > MAX_JSON_BODY:
+                return self._send_response(400, json.dumps({'error': 'Invalid body.'}))
+            data = json.loads(self.rfile.read(cl))
+        except Exception:
+            return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
+        if not isinstance(data, dict):
+            return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
+
+        updates = {}
+        if 'level' in data:
+            lvl = str(data.get('level') or 'info')
+            if lvl not in ('info', 'warning', 'critical', 'ok'):
+                return self._send_response(400, json.dumps({'error': 'Invalid level.'}))
+            updates['level'] = lvl
+        if 'title' in data:
+            title = str(data.get('title') or '').strip()
+            if not title:
+                return self._send_response(400, json.dumps({'error': 'title cannot be empty.'}))
+            if len(title) > 200:
+                return self._send_response(400, json.dumps({'error': 'title too long (max 200).'}))
+            updates['title'] = title
+        if 'body' in data:
+            body = str(data.get('body') or '').strip() or None
+            if body and len(body) > 2000:
+                return self._send_response(400, json.dumps({'error': 'body too long (max 2000).'}))
+            updates['body'] = body
+        if 'show_modal' in data:
+            updates['show_modal'] = 1 if data.get('show_modal') else 0
+        if 'expires_in_hours' in data or 'expires_at' in data:
+            exp, err = _parse_notice_expiry(data)
+            if err:
+                return self._send_response(400, json.dumps({'error': err}))
+            updates['expires_at'] = exp
+        if 'i18n' in data:
+            i18n_json, err = _parse_notice_i18n(data.get('i18n'))
+            if err:
+                return self._send_response(400, json.dumps({'error': err}))
+            updates['i18n'] = i18n_json
+
+        if not updates:
+            return self._send_response(400, json.dumps({'error': 'No supported fields to update.'}))
+
+        cols = ', '.join(f'{k} = ?' for k in updates)
+        try:
+            with _db_connect() as conn:
+                cur = conn.execute(f'UPDATE message_board SET {cols} WHERE id = ?',
+                                   (*updates.values(), pid))
+                conn.commit()
+            if cur.rowcount == 0:
+                return self._send_response(404, json.dumps({'error': 'Post not found.'}))
+        except Exception:
+            logging.exception('Failed to update board post')
+            return self._send_response(500, json.dumps({'error': 'Internal server error.'}))
+        logging.info(f"Board post {pid} updated by admin {user['id']}: {sorted(updates)}")
+        return self._send_response(200, json.dumps({'ok': True, 'id': pid,
+                                                    'updated': sorted(updates)}),
+                                   'application/json')
 
     def _handle_incident_create(self) -> None:
         """POST /api/v1/incident  {cause, started_at, ended_at?, severity}  — admin only.
@@ -3390,6 +3527,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 conn.execute('DELETE FROM sessions WHERE user_id = ? AND session_token != (SELECT session_token FROM sessions WHERE user_id = ? ORDER BY expires_at DESC LIMIT 1)', (user_id, user_id))
                 conn.commit()
             return self._send_response(200, json.dumps({'message': 'Password changed. Other sessions have been logged out.'}))
+
+        _board_patch = re.match(r'^/api/v1/board/(\d+)$', parsed_url.path)
+        if _board_patch:
+            return self._handle_board_update(_board_patch.group(1))
 
         _admin_user = re.match(r'^/api/v1/admin/users/(\d+)$', parsed_url.path)
         if _admin_user:

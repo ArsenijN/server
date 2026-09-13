@@ -416,21 +416,32 @@ def _get_recent_incidents(limit: int = 20) -> list:
 def _get_message_board(limit: int = 10) -> list:
     """Return the most recent message-board posts, newest first.
 
-    Each row: { id, posted_at, level, title, body }
+    Each row: { id, posted_at, level, title, body, show_modal, expires_at, i18n }
+
+    show_modal/expires_at/i18n are included so the status page's admin panel
+    can show which post is currently being pushed to FluxDrop users as a modal
+    without needing a second, admin-only endpoint. Nothing here is secret —
+    an active notice is served to every visitor by GET /api/v1/notice anyway.
     """
     try:
         with _db_connect() as conn:
             rows = conn.execute(
-                '''SELECT id, posted_at, level, title, body
+                '''SELECT id, posted_at, level, title, body, show_modal, expires_at, i18n
                    FROM message_board
                    ORDER BY id DESC
                    LIMIT ?''',
                 (limit,)
             ).fetchall()
-        return [
-            {'id': r[0], 'posted_at': r[1], 'level': r[2], 'title': r[3], 'body': r[4]}
-            for r in rows
-        ]
+        out = []
+        for r in rows:
+            try:
+                i18n = json.loads(r[7]) if r[7] else {}
+            except Exception:
+                i18n = {}
+            out.append({'id': r[0], 'posted_at': r[1], 'level': r[2], 'title': r[3],
+                        'body': r[4], 'show_modal': bool(r[5]), 'expires_at': r[6],
+                        'i18n': i18n})
+        return out
     except Exception:
         return []
 

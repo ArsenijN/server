@@ -12,6 +12,8 @@ user feedback or ideas for future development.
 V0.19.2 over V0.19.1), instead, add them or new items to the separate TODO's 
 list specifically for those breaking changes (that are allowed in the V0.20 
 over V0.19)
+- [ ] Starting from V0.21.0.5, the commits may start to have only 1 change per 
+commit, if this practive will be better than current mix
 
 ### UI - add new features
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
@@ -26,6 +28,11 @@ inside it to...
   some part of the UI)
 - [ ] Rework the `btn-toolbar-toggle` to become as mini modal (aka menu) with 
 options
+- [ ] Dynamic page building (footer and header are shared, the body is 
+different, if it's blogs - text of the blogs are changing, etc.)
+- [ ] Add blogs page
+- [ ] Add support page (tickets system)
+- [ ] Add reviews
 
 ### UX - fixes for existing features or new overall experience enhancements
 - [ ] Add multiple files streaming (archive and stream to the server; one 
@@ -55,6 +62,10 @@ if no keyboard is present
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
+- [ ] Clicking on folder name that's selected before doesn't drop the 
+selection (sometimes), but opening a folder that isn't selected does drop (as 
+should)
+- [ ] Pressing Esc doesn't deselect the items
 
 ### Server-side non-breaking changes:
 
@@ -80,6 +91,8 @@ current `maintenance window`
     - [ ] Add parchives to avoid file damages on server
     - [ ] Add some kind of messages if files got corrupted on server side and 
     was unrecoverable
+- [ ] Backend doesn't always save all received chunks (results in reduced 
+amount of completed upload data after pause)
 
 #### Medium:
 - [ ] Update the services (and exclude the entry in the `.gitignore`)

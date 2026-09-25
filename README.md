@@ -1,13 +1,15 @@
-# server `v0.21.0.6`
+# server `v0.21.1`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes: ...*
+*Release notes: fix some old issues with a codebase*
 
-***Mainstream: ...***
+***Mainstream: helpers usage, i18n and file manager usage are now updated and 
+fixed***
 
-***This update ...***
+***This update is a round of tails removal, where the tails is an old TODO 
+items that should been already fixed long time ago***
 
 ***Additions:***
 - ***Important-message modal. An admin can push a notice that everyone sees the
@@ -20,9 +22,12 @@ overrides, so a Ukrainian UI shows Ukrainian text instead of the odd mix of a
 translated interface with an English announcement on top. Missing translations
 fall back to the default text field by field, and switching language while the
 modal is open re-renders it immediately***
+- ***`Esc` button now deselecs the selected items***
 
 ***Fixes:***
-- ***...***
+- ***I18n fix in the trash delete note and resume panel***
+- ***Clicking on the item to select it and going inside it resulted in the item 
+still being selected, without "Keep" enabled***
 
 ***Backend additions:***
 - ***Notice plumbing on top of the existing `message_board` table, rather than
@@ -69,6 +74,9 @@ AES-NI-less host that is ~2x the cipher throughput and half the CPU per byte***
 TCP connect (a connect succeeds from the kernel's backlog even when the accept 
 loop is dead), and names the affected port in the cause text instead of saying 
 "HTTPS server unreachable"***
+- ***Helpers (e.g. for changing an user password, listing users, etc.) are now 
+updated to the new backend code accomodance. Before that, creation of new users 
+resulted in the lock-up due to fundamental code changes***
 
 ***About Immich: right now I don't provide the ability for anyone (except 
 chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you 
@@ -78,9 +86,7 @@ some point later, but not now***
 ***Regressions: ...***
 
 *Patch notes: **Changelog:***
-- ***Delete old README; fix the CDN's HTTPS port being dead while the proxy's 
-internal loopback port kept uploads working and so masked the outage***
-- ***...***
+- ***Coming up for V0.21.1 version***
 
 ---
 

@@ -5,29 +5,24 @@ Useful when a user is locked out and cannot use the email-reset flow,
 or when bootstrapping the first admin account.
 
 Usage:
-    python _helper-set_user_password.py <username> <new_password>
+    python .helper-set_user_password.py <username> <new_password>
 
-This always writes a bcrypt hash (rounds=12). The legacy SHA-256 path is
-intentionally not used here — any account touched by this tool is fully
-migrated to bcrypt.
+The hash is produced by the server's own core.auth.hash_password(), so it is
+always the current scheme (bcrypt over a SHA-256 pre-hash, rounds=12) — any
+account touched by this tool is fully migrated.
 
 All existing sessions for the user are invalidated so no stale tokens survive.
 """
 import sys
-import sqlite3
 
 try:
-    from config import DB_FILE
-except ImportError:
-    print("ERROR: Could not import config.py. Run this script from the Web/ directory.", file=sys.stderr)
+    from core.db import _db_connect
+    from core.auth import hash_password
+except ImportError as e:
+    print(f"ERROR: {e}. Run this script from the Web/ directory with the venv active.", file=sys.stderr)
     sys.exit(2)
 
-try:
-    import bcrypt
-except ImportError:
-    print("ERROR: bcrypt not installed. Activate the venv first.", file=sys.stderr)
-    sys.exit(2)
-
+# Same limits the register / change-password endpoints enforce.
 _MIN_PASSWORD_LEN = 8
 _MAX_PASSWORD_LEN = 1024
 
@@ -40,10 +35,9 @@ def set_password(username: str, new_password: str) -> None:
         print(f"ERROR: Password must be at most {_MAX_PASSWORD_LEN} characters.", file=sys.stderr)
         sys.exit(1)
 
-    new_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+    new_hash, salt = hash_password(new_password)
 
-    conn = sqlite3.connect(DB_FILE, timeout=10)
-    try:
+    with _db_connect() as conn:
         row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
         if not row:
             print(f"ERROR: User '{username}' not found.", file=sys.stderr)
@@ -51,15 +45,13 @@ def set_password(username: str, new_password: str) -> None:
 
         user_id = row[0]
         conn.execute(
-            "UPDATE users SET password_hash = ?, salt = '' WHERE id = ?",
-            (new_hash, user_id)
+            "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
+            (new_hash, salt, user_id)
         )
         deleted = conn.execute(
             "DELETE FROM sessions WHERE user_id = ?", (user_id,)
         ).rowcount
         conn.commit()
-    finally:
-        conn.close()
 
     print(f"Password updated for '{username}' (bcrypt, rounds=12).")
     if deleted:

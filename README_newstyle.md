@@ -19,7 +19,7 @@ Backend for my personal server — anyone can use it.
 | `server_http.py` / `server_https.py` | Thin redirectors for ports 80/443 |
 | `shared.py` | Shared utilities (blacklist, logger, health checks) |
 | `config.py` | Centralised path/credential config, loaded from `secrets/` |
-| `_helper-*.py` | CLI tools for user and token management |
+| `.helper-*.py` | CLI tools for user and token management |
 | `server/Web/` | Frontend: HTML, JS, CSS |
 | `services/` | systemd unit files |
 
@@ -89,9 +89,10 @@ Run from `Web/` with the venv active. See [Wiki: Admin & Helpers](https://github
 
 | Script | Purpose |
 |--------|---------|
-| `_helper-check_user_password.py <user> <pass>` | Verify a user's password (bcrypt + legacy SHA-256) |
-| `_helper-set_user_password.py <user> <pass>` | Reset a password; invalidates all sessions |
-| `_helper-generate_token.py <user> <pass> <path>` | Mint a 1-hour file download token |
+| `.helper-list_users.py [--db path]` | List accounts (incl. admin flag and quota) |
+| `.helper-check_user_password.py <user> <pass>` | Verify a user's password; reports which hash scheme matched |
+| `.helper-set_user_password.py <user> <pass>` | Reset a password; invalidates all sessions |
+| `.helper-generate_token.py <user> <pass> <path>` | Mint a download token (`DOWNLOAD_TOKEN_TTL`, default 1 h) and print its URL; path as `/docs/a.pdf` or `/FluxDrop/<id>/docs/a.pdf` |
 
 ---
 

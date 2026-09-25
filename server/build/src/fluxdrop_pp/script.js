@@ -183,6 +183,7 @@ function navigateTo(path) {
     if (!window._fdKeepSelectionOnNav) {
         _selectedPaths.clear();
         _lastClickedPath = null;
+        _updateSelBar();
     }
     currentPath = path;
     const urlPath = _APP_BASE + '/files' + (path === '/' ? '' : encodePath(path));
@@ -202,6 +203,7 @@ window.addEventListener('popstate', event => {
     if (path !== currentPath && !window._fdKeepSelectionOnNav) {
         _selectedPaths.clear();
         _lastClickedPath = null;
+        _updateSelBar();
     }
     currentPath = path;
     loadDirectory(path);
@@ -2028,6 +2030,10 @@ async function loadDirectory(path) {
         const entries = data.entries || [];
         if (entries.length === 0) {
             fileList.innerHTML = `<p class="text-sm text-gray-600" style="padding:1rem">${t('empty_folder')}</p>`;
+            // Still sync the sel-bar: navigateTo() may have just cleared the
+            // selection, and returning early here used to leave the bar
+            // showing the stale count from the previous folder.
+            _updateSelBar();
             return;
         }
         const sorted = sortEntries(entries);
@@ -2050,6 +2056,7 @@ async function loadDirectory(path) {
         // renderApp('login') — don't overwrite the login view with an error.
         if (err.message === 'SESSION_EXPIRED') return;
         fileList.innerHTML = `<p class="text-sm text-red-600" style="padding:1rem">Failed to load directory: ${escapeHtml(err.message)}</p>`;
+        _updateSelBar();
     }
 }
 
@@ -4595,9 +4602,8 @@ window.deleteItem = async function(path, optsOrLegacy = {}) {
     const disp = stripInternalPrefix(path);
     if (!skipConfirm) {
         const ok = await showConfirmModal({
-            title: `Move "${disp}" to Trash?`,
-            message: `You'll be able to retrieve it from the Trash bin for the next `
-                     + `${_lastKnownRetentionDays} day${_lastKnownRetentionDays !== 1 ? 's' : ''}.`,
+            title: t('trash_single_title', { name: disp }),
+            message: t('sel_bar_delete_msg', { n: 1, days: _lastKnownRetentionDays }),
         });
         if (!ok) return false;
     }
@@ -4616,12 +4622,12 @@ window.deleteItem = async function(path, optsOrLegacy = {}) {
         _selectedPaths.delete(path);
         if (!silent) {
             _updateSelBar();
-            showToast(`${disp} moved to Trash (${days} day${days !== 1 ? 's' : ''})`);
+            showToast(t('trash_single_toast', { name: disp, days }));
         }
         loadDirectory(currentPath);
         return days;   // return retention days so batch callers can use the last value
     } catch (err) {
-        showMessage('Failed', err.message);
+        showMessage(t('trash_delete_failed'), err.message);
         return false;
     }
 }
@@ -4638,11 +4644,8 @@ function _showTrashBatchNotice(count, retentionDays) {
     if (already) return;   // already seen — stay silent
     localStorage.setItem(_TRASH_BATCH_NOTICE_KEY, '1');
     showMessage(
-        `${count} item${count !== 1 ? 's' : ''} moved to Trash`,
-        `They will be kept for ${days} day${days !== 1 ? 's' : ''} before permanent deletion.\n\n`
-        + 'Open Trash (🗑 in the sidebar) at any time to restore or permanently delete them.\n\n'
-        + '💡 This notice appears only once. For more details on Trash behaviour, '
-        + 'visit the Wiki inside your profile settings.'
+        t('trash_moved_toast', { n: count }),
+        t('trash_batch_notice_body', { days })
     );
 }
 
@@ -6175,7 +6178,7 @@ function renderUploadTray() {
             dismissBtn.addEventListener('click', () => { activeUploads.delete(id); renderUploadTray(); });
 
             const pauseBtn = document.createElement('button');
-            pauseBtn.textContent = '⏸ Pause';
+            pauseBtn.textContent = '⏸ ' + t('ul_pause');
             pauseBtn.style.cssText = 'background:#f59e0b;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
             pauseBtn.addEventListener('click', () => {
                 ul.paused = true;
@@ -6186,7 +6189,7 @@ function renderUploadTray() {
             });
 
             const resumeBtn = document.createElement('button');
-            resumeBtn.textContent = '▶ Resume';
+            resumeBtn.textContent = '▶ ' + t('im_resume');
             resumeBtn.style.cssText = 'background:#22c55e;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
             resumeBtn.addEventListener('click', () => {
                 ul.paused    = false;
@@ -6215,7 +6218,7 @@ function renderUploadTray() {
             });
 
             const cancelBtn = document.createElement('button');
-            cancelBtn.textContent = '✕ Cancel';
+            cancelBtn.textContent = '✕ ' + t('ul_cancel');
             cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
             cancelBtn.addEventListener('click', () => {
                 const wasPaused = ul.paused;
@@ -8068,7 +8071,7 @@ function openInterruptedManager(onClose) {
 
     function buildHTML(pending) {
         const rows = pending.length === 0
-            ? `<p style="color:#94a3b8;text-align:center;padding:1.5rem 0">No interrupted uploads found.</p>`
+            ? `<p style="color:#94a3b8;text-align:center;padding:1.5rem 0">${t('im_empty')}</p>`
             : pending.map((meta, i) => {
                 const pct = meta.total > 0
                     ? Math.min(100, Math.round(((meta.nextChunkIdx || 0) * (meta.chunkSize || 1)) / meta.total * 100))
@@ -8081,25 +8084,25 @@ function openInterruptedManager(onClose) {
                         <div style="flex:1;min-width:0">
                             <div style="font-weight:600;white-space:nowrap;overflow:hidden;
                                         text-overflow:ellipsis;margin-bottom:2px"
-                                 title="${escapeHtmlAttr(meta.filename)}">${escapeHtml(meta.filename)}</div>
-                            <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">
+                                 title="${escapeHtmlAttr(meta.filename)}" data-fd-notranslate>${escapeHtml(meta.filename)}</div>
+                            <div style="font-size:11px;color:#94a3b8;margin-bottom:6px" data-fd-notranslate>
                                 ${formatBytes(meta.total)} · ${escapeHtml(meta.destRel)}
                             </div>
                             <div style="background:#1e293b;border-radius:4px;height:6px;margin-bottom:4px">
                                 <div style="background:${progressColor};height:6px;border-radius:4px;width:${pct}%"></div>
                             </div>
-                            <div style="font-size:11px;color:#64748b">${pct}% uploaded before interruption</div>
+                            <div style="font-size:11px;color:#64748b">${t('im_progress', { pct })}</div>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
                             <button class="im-resume" data-im="${i}"
                                 style="background:#22c55e;color:white;border:none;border-radius:6px;
                                        padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600">
-                                ▶ Resume
+                                ▶ ${t('im_resume')}
                             </button>
                             <button class="im-discard" data-im="${i}"
                                 style="background:#ef4444;color:white;border:none;border-radius:6px;
                                        padding:5px 12px;cursor:pointer;font-size:12px">
-                                🗑 Discard
+                                🗑 ${t('im_discard')}
                             </button>
                         </div>
                     </div>
@@ -8112,20 +8115,19 @@ function openInterruptedManager(onClose) {
                     color:#e2e8f0;position:relative">
             <div style="display:flex;justify-content:space-between;align-items:center;
                         margin-bottom:1rem;border-bottom:1px solid #334155;padding-bottom:.75rem">
-                <span style="font-weight:700;font-size:16px">⟳ Interrupted Uploads (${pending.length})</span>
+                <span style="font-weight:700;font-size:16px">⟳ ${t('im_title', { n: pending.length })}</span>
                 <button id="im-close" style="background:rgba(255,255,255,0.1);border:none;color:white;
                     border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;
                     display:flex;align-items:center;justify-content:center">✕</button>
             </div>
             <p style="font-size:12px;color:#64748b;margin-bottom:12px">
-                To resume, click <strong style="color:#22c55e">Resume</strong> and select the same file from your computer.
-                The upload will continue from where it left off.
+                ${t('im_hint', { resume: `<strong style="color:#22c55e">${t('im_resume')}</strong>` })}
             </p>
             <div id="im-list">${rows}</div>
             ${pending.length > 1 ? `<div style="margin-top:1rem;text-align:right">
                 <button id="im-discard-all"
                     style="background:#64748b;color:white;border:none;border-radius:7px;
-                           padding:6px 14px;cursor:pointer;font-size:12px">Discard all</button>
+                           padding:6px 14px;cursor:pointer;font-size:12px">${t('im_discard_all')}</button>
             </div>` : ''}
         </div>`;
     }
@@ -8159,7 +8161,7 @@ function openInterruptedManager(onClose) {
                 removeInterruptedUpload(meta.uploadToken);
                 if (onClose) onClose();
                 render(getAllInterruptedUploads());
-                showMessage('Session expired', `The upload session for "${meta.filename}" has expired on the server. Please upload the file again.`);
+                showMessage(t('im_expired_title'), t('im_expired_body', { name: meta.filename }));
                 return;
             }
         } catch { /* proceed with stored chunk index */ }
@@ -8175,8 +8177,10 @@ function openInterruptedManager(onClose) {
             if (!fileInput.files.length) return;
             const f = fileInput.files[0];
             if (f.name !== meta.filename || f.size !== meta.total) {
-                showMessage('File mismatch',
-                    `Expected "${meta.filename}" (${formatBytes(meta.total)}) but got "${f.name}" (${formatBytes(f.size)}). Please select the exact same file.`);
+                showMessage(t('im_mismatch_title'), t('im_mismatch_body', {
+                    expected: meta.filename, expected_size: formatBytes(meta.total),
+                    got: f.name, got_size: formatBytes(f.size),
+                }));
                 return;
             }
             overlay.remove();
@@ -8192,7 +8196,7 @@ function openInterruptedManager(onClose) {
                 if (onClose) onClose();
             }).catch(err => {
                 if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled') {
-                    showMessage('Resume failed', err.message);
+                    showMessage(t('im_resume_failed'), err.message);
                 }
                 if (onClose) onClose();
             });
@@ -8380,8 +8384,18 @@ document.addEventListener('DOMContentLoaded', () => {
             window.fdCloseOverlay(document.getElementById('share-manager-overlay'));
         } else if (document.getElementById('profile-menu-modal')) {
             window.fdCloseOverlay(document.getElementById('profile-menu-modal'));
-        } else {
+        } else if (!document.getElementById('message-modal').classList.contains('hidden')) {
             hideModal('message-modal');
+        } else if (document.getElementById('fd-ctx-menu')) {
+            _dismissContextMenu();
+        } else if (_selectedPaths.size > 0 && !document.getElementById('trash-overlay')) {
+            // Don't steal Esc from text fields; checkboxes (e.g. the sel-bar's
+            // "keep selection" toggle) are fine to deselect from.
+            const ae = document.activeElement;
+            const typing = ae && ((ae.tagName === 'INPUT' && ae.type !== 'checkbox')
+                               || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+            if (typing) return;
+            _clearSelection(); _updateSelBar();
         }
     });
 

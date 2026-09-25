@@ -341,15 +341,32 @@ threading.Thread(target=_zip_sessions_cleanup, daemon=True, name='ZipSessionClea
 
 
 # ── Background CRC32 integrity scanner ───────────────────────────────────────
-# Runs daily inside the maintenance window (23:00–04:00 EEST = 20:00–01:00 UTC).
 # Walks every user's FluxDrop directory and hashes any file that has no stored
 # checksum or whose mtime/size has changed since the last scan.
-# Throttled to ~5 MB/s by default — adjustable via BG_SCAN_RATE_BYTES env var.
+#
+# Two ways a pass may run:
+#   • Maintenance window (23:00–04:00 EEST = 20:00–01:00 UTC) — always allowed,
+#     throttled to BG_SCAN_RATE_BYTES (~5 MB/s by default).
+#   • Idle mode (BG_SCAN_IDLE=1, default) — outside the window the scanner
+#     keeps going, but only while the machine isn't busy: before every read
+#     chunk it checks the 1-min load average (per CPU core, so it also counts
+#     tasks stuck on disk I/O) and pauses until it drops below
+#     BG_SCAN_MAX_LOAD. Outside the window, a pass is paused instead of
+#     aborted, so it picks up where it left off rather than re-walking.
+#
+# The scanner thread also lowers its own priority, like `nice -n 19` +
+# `ionice -c3`: on Linux both apply per thread, so the request-serving
+# threads of this process stay at normal priority.
 
 _BG_SCAN_READ_BUF     = int(os.getenv('BG_SCAN_READ_BUF',   str(2 * 1024 * 1024)))
 _BG_SCAN_RATE_BYTES_S = int(os.getenv('BG_SCAN_RATE_BYTES',  str(5 * 1024 * 1024)))
 _BG_SCAN_WINDOW_START = int(os.getenv('BG_SCAN_START_UTC',  '20'))  # 23:00 EEST
 _BG_SCAN_WINDOW_END   = int(os.getenv('BG_SCAN_END_UTC',     '1'))  # 04:00 EEST
+_BG_SCAN_IDLE         = os.getenv('BG_SCAN_IDLE', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+_BG_SCAN_MAX_LOAD     = float(os.getenv('BG_SCAN_MAX_LOAD', '0.5'))   # 1-min loadavg per CPU core
+_BG_SCAN_NICE         = int(os.getenv('BG_SCAN_NICE', '19'))
+_BG_SCAN_IDLE_RESCAN_S = int(os.getenv('BG_SCAN_IDLE_RESCAN_S', str(6 * 3600)))  # gap between idle passes
+_BG_SCAN_BUSY_SLEEP_S = 30   # how long to wait before re-checking a busy system
 
 
 _MAINTENANCE_LOG = os.getenv(
@@ -364,6 +381,40 @@ def _mlog(fh, msg: str) -> None:
     fh.flush()
 
 
+def _bg_scan_lower_priority() -> str:
+    """Drop the calling thread to nice BG_SCAN_NICE and the idle I/O class.
+
+    Returns a short description for the maintenance log. Every step is best
+    effort — on non-Linux hosts or when a syscall is refused the scanner just
+    keeps its current priority (the load gate and rate limit still apply).
+    """
+    parts = []
+    tid = threading.get_native_id()
+    try:
+        os.setpriority(os.PRIO_PROCESS, tid, _BG_SCAN_NICE)
+        parts.append(f'nice={os.getpriority(os.PRIO_PROCESS, tid)}')
+    except (AttributeError, OSError) as e:
+        parts.append(f'nice=unchanged ({e})')
+    # ioprio_set(IOPRIO_WHO_PROCESS, tid, IOPRIO_CLASS_IDLE << 13) — the same
+    # thing `ionice -c3` does. No stdlib wrapper, so call it via libc.
+    nr = {'x86_64': 251, 'amd64': 251, 'i386': 289, 'i686': 289,
+          'aarch64': 30, 'arm64': 30, 'armv7l': 315, 'armv6l': 315}.get(
+          os.uname().machine if hasattr(os, 'uname') else '')
+    if nr is None:
+        parts.append('ionice=unsupported')
+    else:
+        try:
+            import ctypes as _ct
+            libc = _ct.CDLL(None, use_errno=True)
+            if libc.syscall(nr, 1, tid, 3 << 13) == 0:
+                parts.append('ionice=idle')
+            else:
+                parts.append(f'ionice=unchanged (errno {_ct.get_errno()})')
+        except OSError as e:
+            parts.append(f'ionice=unchanged ({e})')
+    return '  '.join(parts)
+
+
 def _bg_crc32_scanner():
 
     def _in_window() -> bool:
@@ -373,10 +424,43 @@ def _bg_crc32_scanner():
             return h >= _BG_SCAN_WINDOW_START or h < _BG_SCAN_WINDOW_END
         return _BG_SCAN_WINDOW_START <= h < _BG_SCAN_WINDOW_END
 
+    _ncpu = os.cpu_count() or 1
+
+    def _system_idle() -> bool:
+        try:
+            return os.getloadavg()[0] / _ncpu < _BG_SCAN_MAX_LOAD
+        except (AttributeError, OSError):
+            return False   # can't measure load → never treat as idle
+
+    def _may_run() -> bool:
+        return _in_window() or (_BG_SCAN_IDLE and _system_idle())
+
     time.sleep(300)          # let the server finish starting up
+    prio_desc = _bg_scan_lower_priority()
+
+    # Earliest time the next idle-mode pass may start. The window ignores it
+    # (one nightly pass is always wanted), but a complete idle pass shouldn't
+    # immediately re-walk 150k+ files just because the machine is still idle.
+    next_idle_pass_ts = 0.0
+    last_window_date  = None   # UTC date of the window a pass last ran in
 
     while True:
-        while not _in_window():
+        while True:
+            if _in_window():
+                # One pass per window: the window spans midnight, so key it on
+                # the date the window started (hours before END belong to the
+                # previous day's window).
+                now = _dt.datetime.now(_dt.timezone.utc)
+                wdate = (now - _dt.timedelta(days=1)).date() \
+                    if _BG_SCAN_WINDOW_START > _BG_SCAN_WINDOW_END and now.hour < _BG_SCAN_WINDOW_END \
+                    else now.date()
+                if wdate != last_window_date:
+                    last_window_date = wdate
+                    trigger = 'window'
+                    break
+            if _BG_SCAN_IDLE and time.time() >= next_idle_pass_ts and _system_idle():
+                trigger = 'idle'
+                break
             time.sleep(60)
 
         run_start    = _dt.datetime.now(_dt.timezone.utc)
@@ -384,6 +468,12 @@ def _bg_crc32_scanner():
         scanned = skipped = errors = 0
         bytes_read = 0
         done       = False
+        pauses     = 0
+        paused_s   = 0.0
+        # Rate-limit bucket: reset after every pause so time spent waiting on
+        # a busy system doesn't turn into a burst of "saved up" budget.
+        rl_start_ts = run_start_ts
+        rl_bytes    = 0
 
         # Open maintenance log (append mode — one file, runs accumulate)
         try:
@@ -402,11 +492,35 @@ def _bg_crc32_scanner():
             if DEBUG_LOGGING:
                 logging.info('BG CRC32: %s', msg)
 
+        def _gate() -> bool:
+            """Block until the scan may continue. False = stop this pass.
+
+            Inside the window this never blocks. Outside it, window-only mode
+            stops the pass (the old behaviour); idle mode waits for the load
+            to drop instead, however long that takes.
+            """
+            nonlocal pauses, paused_s, rl_start_ts, rl_bytes
+            if _may_run():
+                return True
+            if not _BG_SCAN_IDLE:
+                _ml('WINDOW : maintenance window ended mid-scan — stopping early')
+                return False
+            t0 = time.time()
+            while not _may_run():
+                time.sleep(_BG_SCAN_BUSY_SLEEP_S)
+            pauses   += 1
+            paused_s += time.time() - t0
+            rl_start_ts = time.time(); rl_bytes = 0
+            return True
+
         SEP = '=' * 72
         _ml(SEP)
-        _ml('MAINTENANCE WINDOW STARTED')
-        _ml(f'Window : {_BG_SCAN_WINDOW_START:02d}:00–{_BG_SCAN_WINDOW_END:02d}:00 UTC')
+        _ml('MAINTENANCE WINDOW STARTED' if trigger == 'window'
+            else 'IDLE HASH SCAN STARTED (system load below threshold)')
+        _ml(f'Window : {_BG_SCAN_WINDOW_START:02d}:00–{_BG_SCAN_WINDOW_END:02d}:00 UTC'
+            f'  |  idle mode: {"on, max load " + str(_BG_SCAN_MAX_LOAD) + "/core" if _BG_SCAN_IDLE else "off"}')
         _ml(f'Rate   : {_BG_SCAN_RATE_BYTES_S // 1024} KB/s  |  read buf: {_BG_SCAN_READ_BUF // 1024} KB')
+        _ml(f'Prio   : {prio_desc}')
         _ml(SEP)
 
         try:
@@ -432,12 +546,10 @@ def _bg_crc32_scanner():
                 _ml(f'USER   : id={uid}  path={user_entry.path!r}')
 
                 for dirpath, _dirs, filenames in os.walk(user_entry.path):
-                    if not _in_window():
-                        _ml('WINDOW : maintenance window ended mid-scan — stopping early')
-                        done = True; break
+                    if done:
+                        break
                     for fname in sorted(filenames):
-                        if not _in_window():
-                            _ml('WINDOW : maintenance window ended mid-scan — stopping early')
+                        if not _gate():
                             done = True; break
                         abs_path = os.path.join(dirpath, fname)
                         rel_path = ('/' +
@@ -456,26 +568,30 @@ def _bg_crc32_scanner():
                         try:
                             with open(abs_path, 'rb') as fh:
                                 while True:
+                                    # Re-check per chunk, not just per file —
+                                    # one multi-GB file would otherwise be read
+                                    # start to finish at full speed.
+                                    if not _gate():
+                                        done = True; break
                                     chunk = fh.read(_BG_SCAN_READ_BUF)
                                     if not chunk: break
                                     crc    = _zl.crc32(chunk, crc) & 0xFFFF_FFFF
                                     h256.update(chunk)
-                                    read_b += len(chunk)
+                                    read_b   += len(chunk)
+                                    rl_bytes += len(chunk)
+                                    if _BG_SCAN_RATE_BYTES_S > 0:
+                                        budget = (time.time() - rl_start_ts + 0.001) * _BG_SCAN_RATE_BYTES_S
+                                        if rl_bytes > budget:
+                                            time.sleep((rl_bytes - budget) / _BG_SCAN_RATE_BYTES_S)
+                            bytes_read += read_b
+                            if done:
+                                break   # partial read — don't store a checksum for it
                             sha256_hex = h256.hexdigest()
                             checksum_put(rel_path, uid, crc, st.st_size,
                                          int(st.st_mtime_ns), 'background',
                                          sha256=sha256_hex)
                             scanned    += 1; user_scanned += 1
-                            bytes_read += read_b
                             _ml(f'  HASH : {rel_path}  crc={crc:08x}  sha256={sha256_hex[:16]}…  size={st.st_size}')
-                            # Rate-limit
-                            if _BG_SCAN_RATE_BYTES_S > 0:
-                                elapsed = time.time() - run_start_ts + 0.001
-                                budget  = elapsed * _BG_SCAN_RATE_BYTES_S
-                                if bytes_read > budget:
-                                    time.sleep(
-                                        (bytes_read - budget) / _BG_SCAN_RATE_BYTES_S
-                                    )
                         except OSError as e:
                             logging.debug('BG CRC32: error %r: %s', abs_path, e)
                             _ml(f'  ERROR: {rel_path}  {e}')
@@ -491,8 +607,10 @@ def _bg_crc32_scanner():
         elapsed_s = time.time() - run_start_ts
         _ml(SEP)
         _ml('SUMMARY')
+        _ml(f'  Trigger  : {trigger}')
         _ml(f'  Started  : {run_start.strftime("%Y-%m-%d %H:%M:%S UTC")}')
         _ml(f'  Elapsed  : {int(elapsed_s // 60)}m {int(elapsed_s % 60)}s')
+        _ml(f'  Paused   : {pauses} time(s), {int(paused_s // 60)}m {int(paused_s % 60)}s total (system busy)')
         _ml(f'  Hashed   : {scanned} file(s)  ({bytes_read / 1024 / 1024:.1f} MB read)')
         _ml(f'  Skipped  : {skipped} file(s)  (checksum already fresh)')
         _ml(f'  Errors   : {errors}')
@@ -505,7 +623,9 @@ def _bg_crc32_scanner():
             except OSError:
                 pass
 
-        time.sleep(20 * 3600)   # earliest next scan in 20 h
+        # Next idle pass only after a rest period — the files just hashed stay
+        # fresh, so re-walking right away would only burn stat()/DB lookups.
+        next_idle_pass_ts = time.time() + _BG_SCAN_IDLE_RESCAN_S
 
 
 threading.Thread(target=_bg_crc32_scanner, daemon=True, name='CRC32BgScanner').start()

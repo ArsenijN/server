@@ -33,6 +33,7 @@ different, if it's blogs - text of the blogs are changing, etc.)
 - [ ] Add blogs page
 - [ ] Add support page (tickets system)
 - [ ] Add reviews
+- [ ] Not always UI cancels the upload (says Cancelling... and does nothing)
 
 ### UX - fixes for existing features or new overall experience enhancements
 - [ ] Add multiple files streaming (archive and stream to the server; one 
@@ -62,10 +63,6 @@ if no keyboard is present
 - [ ] Add some animation to the main file browser from the landing page
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
-- [ ] Clicking on folder name that's selected before doesn't drop the 
-selection (sometimes), but opening a folder that isn't selected does drop (as 
-should)
-- [ ] Pressing Esc doesn't deselect the items
 
 ### Server-side non-breaking changes:
 
@@ -79,11 +76,10 @@ internet is bad -- if so - needs changes in how the chunks are calculated,
 maybe do a dynamic chunk size based on an speed of upload
 
 #### High:
-- [ ] Update the helpers functionality
 - [ ] Document the new proxy method that is currently used with my Immich 
 instance
 - [ ] Check code for security flaws/vulnerabilities
-- [ ] Background hashsums (do it via `nice` so it will execute when server 
+- [x] Background hashsums (do it via `nice` so it will execute when server 
 isn't fully utilized, as background thing) -- make it as improvement for the 
 current `maintenance window`
   - [ ] Use those hashes for silent file check activity in background -- 
@@ -272,6 +268,15 @@ overhead
 
 - [x] Prettify the emails that comes to people
 - [x] Fix emails missing the icon for FluxDrop
+
+- [ ] Fix i18n in:
+  - [x] Trash bin's messages for item removal
+  - [x] Interrupted uploads modal
+- [x] Clicking on folder name that's selected before doesn't drop the 
+selection (sometimes), but opening a folder that isn't selected does drop (as 
+should)
+- [x] Pressing Esc doesn't deselect the items
+- [x] Update the helpers functionality
 
 ---
 

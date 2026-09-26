@@ -1,82 +1,25 @@
-# server `v0.21.1`
+# server `v0.21.1.1`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
 
-*Release notes: fix some old issues with a codebase*
+*Release notes: ...*
 
-***Mainstream: helpers usage, i18n and file manager usage are now updated and 
-fixed***
+***Mainstream: ...***
 
-***This update is a round of tails removal, where the tails is an old TODO 
-items that should been already fixed long time ago***
+***This update ...***
 
 ***Additions:***
-- ***Important-message modal. An admin can push a notice that everyone sees the
-moment they open FluxDrop — signed in or not — for planned maintenance,
-incidents, policy changes and the like. Dismissed once per person, except
-`CRITICAL` which re-shows on every load so a real outage can't be clicked away
-and forgotten***
-- ***Notices are translatable. Each notice carries optional per-language
-overrides, so a Ukrainian UI shows Ukrainian text instead of the odd mix of a
-translated interface with an English announcement on top. Missing translations
-fall back to the default text field by field, and switching language while the
-modal is open re-renders it immediately***
-- ***`Esc` button now deselecs the selected items***
+- ***...***
 
 ***Fixes:***
-- ***I18n fix in the trash delete note and resume panel***
-- ***Clicking on the item to select it and going inside it resulted in the item 
-still being selected, without "Keep" enabled***
+- ***...***
 
 ***Backend additions:***
-- ***Notice plumbing on top of the existing `message_board` table, rather than
-a parallel concept: new `show_modal`, `expires_at` and `i18n` columns (added by
-the startup migration, so existing databases upgrade in place). New public
-`GET /api/v1/notice` returns the newest non-expired notice — unauthenticated on
-purpose, since the whole point is that a visitor reads "down for maintenance"
-*before* signing in or starting a 10 GB upload. Posting a new notice supersedes
-the previous one without needing to delete it***
-- ***New admin `PATCH /api/v1/board/<id>`, which only touches the keys actually
-present in the request body, so the status page can flip `show_modal` or extend
-an expiry without resending the whole post and clobbering fields it never
-rendered***
-- ***Status page admin panel gained a 📢 button on every board post: it
-promotes that post to a FluxDrop notice in place — no duplicate row, so the
-board entry and the notice can never drift apart — with level, duration and
-Ukrainian translation editable at the same time. Live notices are badged in the
-list, and "Stop showing" clears the modal while leaving the post (and its
-translations) on the board***
-- ***`PrefetchReader` (`shared.py`), wired into the download, `zip_stream` and 
-CDN-proxy copy loops so disk reads overlap socket writes instead of strictly 
-alternating. Note: no measurable throughput gain on the current setup — the 
-real ceiling turned out to be the router's NAT hairpin and a BIOS-clamped CPU, 
-not the server — but it removes a serialisation that does bind on a faster 
-link***
+- ***...***
 
 ***Backend fixes:***
-- ***Fix the CDN's HTTPS listener (`:64800`) wedging permanently. The TLS 
-handshake ran inside `serve_forever()`'s accept loop with no timeout, so one 
-peer that completed the TCP connect and never sent a ClientHello (port scanners 
-do this constantly) blocked the loop forever and the port went dead. Uploads 
-kept working the whole time because they take the proxy's internal loopback 
-port instead, which is exactly why it went unnoticed for two days — the status 
-page was reporting it correctly***
-- ***Fix TLS 1.3 always negotiating AES-256-GCM instead of ChaCha20. CPython 
-exposes no binding for OpenSSL's `SSL_CTX_set_ciphersuites()`, so the existing 
-`set_ciphersuites()` call raised `AttributeError` and was silently swallowed on 
-every run — the preference had never once applied. Ordering now comes from 
-`OPENSSL_CONF` (`services/openssl-tls13-chacha.cnf`, set in the units). On this 
-AES-NI-less host that is ~2x the cipher throughput and half the CPU per byte***
-- ***Raise the CDN listener's accept backlog from Python's default of 5 to 
-128***
-- ***Status page now checks HTTPS with a real TLS handshake instead of a bare 
-TCP connect (a connect succeeds from the kernel's backlog even when the accept 
-loop is dead), and names the affected port in the cause text instead of saying 
-"HTTPS server unreachable"***
-- ***Helpers (e.g. for changing an user password, listing users, etc.) are now 
-updated to the new backend code accomodance. Before that, creation of new users 
-resulted in the lock-up due to fundamental code changes***
+- ***...***
 
 ***About Immich: right now I don't provide the ability for anyone (except 
 chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you 
@@ -86,7 +29,8 @@ some point later, but not now***
 ***Regressions: ...***
 
 *Patch notes: **Changelog:***
-- ***Coming up for V0.21.1 version***
+- ***Clean up the `README.md` and `TODO.md`***
+- ***Bump the `VERSION` to proper version***
 
 ---
 

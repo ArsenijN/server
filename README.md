@@ -1,62 +1,81 @@
-# server `v0.21.1.2`
-Just backend code of my server, nothing else, anyone can use it
+# FluxDrop & server `v0.21.1.3`
+Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
+repo. Anyone can use it.
 
----
+## What's new
+> **In short:** ...
 
-*Release notes: ...*
+### FluxDrop (UI)
+**Added**
+- ...
 
-***Mainstream: ...***
+**Changed**
+- ...
 
-***This update ...***
-
-***Additions:***
-- ***...***
-
-***Fixes:***
-- ***...***
-
-***Backend additions:***
-- ***...***
-
-***Backend fixes:***
-- ***...***
-
-***Regressions: ...***
-
-*Patch notes: **Changelog:***
+**Fixed**
 - ***I18n fix in the profile panel: the title, avatar upload/remove statuses, 
 password-change validation and result messages, the "Saving…"/"Changing…" 
 button states and the Space Analyzer tooltips (also in the profile menu) were 
 hardcoded English and now follow the selected language***
-- ***Move the finished "Background hashsums" entry to the done part of 
-`TODO.md`; its unfinished follow-ups (silent file checks, parchives, corruption 
-messages) stay pending as their own entry***
+- I18n in the profile panel: title, avatar statuses, password messages,
+  button states and Space Analyzer tooltips now follow the selected language
+
+### Server (backend)
+**Added**
+- ...
+
+**Fixed**
+- ...
+
+### Known issues
+- ...
+
+### Housekeeping
+- Moved the finished "Background hashsums" entry to the Done part of `TODO.md`
+- Updated the `README.md` layout
+
+<details>
+<summary>Older releases</summary>
+
+Short one-line summaries of previous versions, or a link to CHANGELOG.md /
+git tags — optional.
+
+</details>
 
 ---
 
-***About Immich: right now I don't provide the ability for anyone (except 
-chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you 
-can use FluxDrop for your own purposes. Immich may start to be available at 
-some point later, but not now***
+## About
+
+At this moment, I don't provide `Immich` server for anyone except the selected 
+users. This is due to limited resources, zero profit and "Who can see your 
+data" concept being unregulated, because Immich have unencrypted data at the 
+storage endpoint (means that I can access it on local disk). The used domain is 
+`gallery.arseniusgen.dev`. 
+
+Please use the FluxDrop services for this purpose. For details about **your** 
+data processing on FluxDrop services and other policies, please refer to the 
+Privacy Policy and Terms of Service at [FluxDrop](https://fluxdrop.me/) at the 
+bottom right of the page.
 
 ---
 
-`server` is ready for public usage according to the data from `September 11, 
-2026`. (see: [FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md))
+According to the data from `September 11, 2026` (see: 
+[FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md)), `server` is ready 
+for public usage.
 
-The future code updates would cover important code logic/safety issues 
-first, then ToDo entries, then user feedback/issue tracker list on GitHub
+Updates to the FluxDrop covers the important logic/safety issues first, then 
+anything left in the TODO or from user feedback/issue tracker list on GitHub. 
+Please report the problems there on 
+[GitHub Issues](https://github.com/ArsenijN/server/issues)
 
+---
 
-Main service is accessible at: https://arseniusgen.uk.to, https://arseniusgen.dev
+Main service is accessible at: https://arseniusgen.uk.to, 
+https://arseniusgen.dev
 
 FluxDrop is accessible at: https://fluxdrop.me
 
 Wiki page for `server`: https://github.com/ArsenijN/server/wiki
-
-New `README.md` style will be applied or merged with current after when 
-FluxDrop will reach full production-ready state 
-([current look](./README_newstyle.md)) and the version will be bumped to 1.0.0
 
 ## Large FluxDrop relations to this server
 

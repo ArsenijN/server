@@ -1,4 +1,4 @@
-# server `v0.21.1.1`
+# server `v0.21.1.2`
 Just backend code of my server, nothing else, anyone can use it
 
 ---
@@ -21,16 +21,23 @@ Just backend code of my server, nothing else, anyone can use it
 ***Backend fixes:***
 - ***...***
 
+***Regressions: ...***
+
+*Patch notes: **Changelog:***
+- ***I18n fix in the profile panel: the title, avatar upload/remove statuses, 
+password-change validation and result messages, the "Saving…"/"Changing…" 
+button states and the Space Analyzer tooltips (also in the profile menu) were 
+hardcoded English and now follow the selected language***
+- ***Move the finished "Background hashsums" entry to the done part of 
+`TODO.md`; its unfinished follow-ups (silent file checks, parchives, corruption 
+messages) stay pending as their own entry***
+
+---
+
 ***About Immich: right now I don't provide the ability for anyone (except 
 chosen ones) to use `gallery.arseniusgen.dev` (Immich hosted instance), but you 
 can use FluxDrop for your own purposes. Immich may start to be available at 
 some point later, but not now***
-
-***Regressions: ...***
-
-*Patch notes: **Changelog:***
-- ***Clean up the `README.md` and `TODO.md`***
-- ***Bump the `VERSION` to proper version***
 
 ---
 

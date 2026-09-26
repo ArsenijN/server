@@ -79,14 +79,11 @@ maybe do a dynamic chunk size based on an speed of upload
 - [ ] Document the new proxy method that is currently used with my Immich 
 instance
 - [ ] Check code for security flaws/vulnerabilities
-- [x] Background hashsums (do it via `nice` so it will execute when server 
-isn't fully utilized, as background thing) -- make it as improvement for the 
-current `maintenance window`
-  - [ ] Use those hashes for silent file check activity in background -- 
-  specifiable time period in server config
-    - [ ] Add parchives to avoid file damages on server
-    - [ ] Add some kind of messages if files got corrupted on server side and 
-    was unrecoverable
+- [ ] Use the background hashsums for silent file check activity in 
+background -- specifiable time period in server config
+  - [ ] Add parchives to avoid file damages on server
+  - [ ] Add some kind of messages if files got corrupted on server side and 
+  was unrecoverable
 - [ ] Backend doesn't always save all received chunks (results in reduced 
 amount of completed upload data after pause)
 
@@ -167,6 +164,13 @@ usages, for example the abuse
 (e.g. `Vx.y.z.0` to `Vx.y.z.1`)*
 
 (end of release note there)
+
+- [x] Background hashsums (do it via `nice` so it will execute when server 
+isn't fully utilized, as background thing) -- make it as improvement for the 
+current `maintenance window`
+- [ ] Fix i18n in:
+  - [x] Profile panel (`profile-panel-overlay`) -- title, avatar and password 
+  status messages, save/change buttons, Space Analyzer tooltips
 
 ---
 

@@ -6862,7 +6862,7 @@ function openProfileMenu() {
     document.getElementById('pm-profile').addEventListener('click', () => { overlay.remove(); openProfilePanel(); });
     // Quota bar → open space analyzer directly
     document.getElementById('pm-quota-bar').style.cursor = 'pointer';
-    document.getElementById('pm-quota-bar').title = 'Click to open Space Analyzer';
+    document.getElementById('pm-quota-bar').title = t('pp_open_space_analyzer');
     document.getElementById('pm-quota-bar').addEventListener('click', () => { window.fdCloseOverlay(overlay); openSpaceAnalyzer(); });
     document.getElementById('pm-shares').addEventListener('click', () => { overlay.remove(); openShareManager(); });
     document.getElementById('pm-beacon').addEventListener('click', () => {
@@ -6917,7 +6917,7 @@ async function openProfilePanel() {
                     overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;max-height:90vh">
             <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:18px 24px;
                         display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
-                <div style="color:white;font-weight:700;font-size:18px">👤 My Profile</div>
+                <div style="color:white;font-weight:700;font-size:18px">${t('menu_account_info_profile')}</div>
                 <button id="pp-close" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;
                     width:32px;height:32px;color:white;font-size:18px;cursor:pointer;
                     display:flex;align-items:center;justify-content:center">✕</button>
@@ -6941,7 +6941,7 @@ async function openProfilePanel() {
                                  style="width:64px;height:64px;border-radius:50%;object-fit:cover;
                                         border:2px solid #e2e8f0;background:#f1f5f9"
                                  onerror="this.style.display='none';document.getElementById('pp-avatar-fallback').style.display='flex'"
-                                 alt="Avatar">
+                                 alt="${t('pp_avatar_alt')}">
                             <div id="pp-avatar-fallback"
                                  style="display:none;width:64px;height:64px;border-radius:50%;
                                         background:#dbeafe;border:2px solid #e2e8f0;
@@ -7081,7 +7081,7 @@ async function openProfilePanel() {
         // Make quota card open space analyzer on click
         const _qCard = overlay.querySelector('#pp-quota-card');
         _qCard.style.cursor = 'pointer';
-        _qCard.title = 'Open Space Analyzer';
+        _qCard.title = t('pp_open_space_analyzer');
         _qCard.addEventListener('click', () => { window.fdCloseOverlay(overlay); openSpaceAnalyzer(); });
 
         // Fill in editable fields
@@ -7099,7 +7099,7 @@ async function openProfilePanel() {
     } catch (err) {
         if (!overlay.isConnected) return;
         overlay.querySelector('#pp-quota-card').innerHTML =
-            `<div style="color:#ef4444;font-size:13px">Failed to load profile: ${escapeHtml(err.message)}</div>`;
+            `<div style="color:#ef4444;font-size:13px">${t('pp_load_failed')}: ${escapeHtml(err.message)}</div>`;
     }
 
     // Save profile info
@@ -7107,17 +7107,17 @@ async function openProfilePanel() {
         const btn      = overlay.querySelector('#pp-save-profile');
         const nickname = overlay.querySelector('#pp-nickname').value.trim();
         const email    = overlay.querySelector('#pp-email').value.trim();
-        if (!nickname && !email) { ppMsg('pp-profile-msg', 'Nothing to save.', true); return; }
+        if (!nickname && !email) { ppMsg('pp-profile-msg', t('pp_nothing_to_save'), true); return; }
         ppMsg('pp-profile-msg', '', false);
-        btn.disabled = true; btn.textContent = 'Saving…';
+        btn.disabled = true; btn.textContent = t('pp_saving');
         try {
             await apiCall('/api/v1/me', 'PATCH', { nickname, email });
-            ppMsg('pp-profile-msg', 'Saved!', false);
+            ppMsg('pp-profile-msg', t('pp_saved'), false);
         } catch (err) {
             if (!overlay.isConnected) return;
             ppMsg('pp-profile-msg', err.message, true);
         } finally {
-            if (overlay.isConnected) { btn.disabled = false; btn.textContent = 'Save changes'; }
+            if (overlay.isConnected) { btn.disabled = false; btn.textContent = t('save_changes'); }
         }
     });
 
@@ -7159,7 +7159,7 @@ async function openProfilePanel() {
 
     // Upload helper — called after the editor produces a cropped blob
     async function _ppDoUpload(blob) {
-        _ppAvatarMsg.textContent = 'Uploading…';
+        _ppAvatarMsg.textContent = t('uploading');
         _ppAvatarMsg.style.color = '#64748b';
         const fd = new FormData();
         fd.append('avatar', blob, 'avatar.jpg');
@@ -7171,7 +7171,7 @@ async function openProfilePanel() {
             });
             const result = await resp.json();
             if (!resp.ok) throw new Error(result.error || `HTTP ${resp.status}`);
-            _ppAvatarMsg.textContent = `✓ Saved (${result.mime}, ${Math.round(result.size_bytes / 1024)} kB)`;
+            _ppAvatarMsg.textContent = '✓ ' + t('pp_avatar_saved', { mime: result.mime, kb: Math.round(result.size_bytes / 1024) });
             _ppAvatarMsg.style.color = '#16a34a';
             _ppRefreshAvatar();
         } catch (e) {
@@ -7185,7 +7185,7 @@ async function openProfilePanel() {
             const file = this.files && this.files[0];
             if (!file) return;
             if (!file.type.startsWith('image/')) {
-                _ppAvatarMsg.textContent = '⚠ Please select an image file.';
+                _ppAvatarMsg.textContent = '⚠ ' + t('pp_avatar_not_image');
                 _ppAvatarMsg.style.color = '#ef4444';
                 return;
             }
@@ -7198,7 +7198,7 @@ async function openProfilePanel() {
     const _ppAvatarRemove = overlay.querySelector('#pp-avatar-remove');
     if (_ppAvatarRemove) {
         _ppAvatarRemove.addEventListener('click', async () => {
-            _ppAvatarMsg.textContent = 'Removing…';
+            _ppAvatarMsg.textContent = t('pp_avatar_removing');
             _ppAvatarMsg.style.color = '#64748b';
             try {
                 const resp = await fetchWithFallback(`${API_BASE_URL}/api/v1/me/avatar`, {
@@ -7206,7 +7206,7 @@ async function openProfilePanel() {
                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
                 });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                _ppAvatarMsg.textContent = 'Photo removed.';
+                _ppAvatarMsg.textContent = t('pp_avatar_removed');
                 _ppAvatarMsg.style.color = '#64748b';
                 _ppRefreshAvatar();
             } catch (e) {
@@ -7223,21 +7223,21 @@ async function openProfilePanel() {
         const newPw     = overlay.querySelector('#pp-new-pw').value;
         const confirmPw = overlay.querySelector('#pp-confirm-pw').value;
         if (!curPw || !newPw || !confirmPw) {
-            ppMsg('pp-pw-msg', 'All three fields are required.', true); return;
+            ppMsg('pp-pw-msg', t('pp_pw_all_required'), true); return;
         }
         if (newPw !== confirmPw) {
-            ppMsg('pp-pw-msg', 'New passwords do not match.', true); return;
+            ppMsg('pp-pw-msg', t('pp_pw_mismatch'), true); return;
         }
         if (newPw.length < 8) {
-            ppMsg('pp-pw-msg', 'New password must be at least 8 characters.', true); return;
+            ppMsg('pp-pw-msg', t('pp_pw_too_short', { n: 8 }), true); return;
         }
         ppMsg('pp-pw-msg', '', false);
-        btn.disabled = true; btn.textContent = 'Changing…';
+        btn.disabled = true; btn.textContent = t('pp_pw_changing');
         try {
             const res = await apiCall('/api/v1/me/password', 'PATCH', {
                 current_password: curPw, new_password: newPw,
             });
-            ppMsg('pp-pw-msg', res.message || 'Password changed!', false);
+            ppMsg('pp-pw-msg', t('pp_pw_changed'), false);
             overlay.querySelector('#pp-cur-pw').value     = '';
             overlay.querySelector('#pp-new-pw').value     = '';
             overlay.querySelector('#pp-confirm-pw').value = '';
@@ -7245,7 +7245,7 @@ async function openProfilePanel() {
             if (!overlay.isConnected) return;
             ppMsg('pp-pw-msg', err.message, true);
         } finally {
-            if (overlay.isConnected) { btn.disabled = false; btn.textContent = 'Change password'; }
+            if (overlay.isConnected) { btn.disabled = false; btn.textContent = t('change_password'); }
         }
     });
     const dismissSel = overlay.querySelector('#pp-dismiss-delay');

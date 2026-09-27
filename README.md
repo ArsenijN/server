@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.4`
+# FluxDrop & server `v0.21.1.5`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -19,6 +19,9 @@ repo. Anyone can use it.
   that still had hardcoded English text (upload/download errors, session
   expired, login failed, share updates, account verification), plus the
   desktop notification shown when an upload finishes in the background
+- Ukrainian UI now tells uploads and downloads apart: upload is
+  «вивантажити / вивантаження», download is «завантажити / завантаження».
+  Previously both buttons read «Завантажити»
 
 ### Server (backend)
 **Added**

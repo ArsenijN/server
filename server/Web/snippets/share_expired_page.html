@@ -18,6 +18,8 @@ body{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:ce
   <span class="badge">LINK EXPIRED</span>
   <h2 style="margin:0 0 8px;color:#1e293b;font-size:20px">This link has expired</h2>
   <p style="color:#64748b;font-size:13px;margin:0">The owner's share link is no longer valid. Ask them to generate a new one.</p>
-  <a class="btn" href="/fluxdrop_pp/">Go to FluxDrop</a>
+  <a class="btn" href="/fluxdrop_pp/" data-app-home>Go to FluxDrop</a>
 </div>
+<script>/* App home: fluxdrop.me serves the app at /, other domains at /fluxdrop_pp/ */
+(function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();</script>
 </body></html>

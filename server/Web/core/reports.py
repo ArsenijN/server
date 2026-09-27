@@ -104,6 +104,12 @@ def create_report(target_url: str, reason: str, message: str,
     return report_id
 
 
+def _app_home_url() -> str:
+    # fluxdrop.me serves the app at /, the other domains under /fluxdrop_pp/
+    base = PUBLIC_BASE_URL.rstrip('/')
+    return base + ('/' if 'fluxdrop.me' in base else '/fluxdrop_pp/')
+
+
 def _notify_operator(report_id, target_url, reason, message, t):
     if not REPORT_NOTIFY_EMAIL:
         logging.info('Content report #%s received (REPORT_NOTIFY_EMAIL not set, no alert sent)', report_id)
@@ -116,7 +122,7 @@ def _notify_operator(report_id, target_url, reason, message, t):
         f"Type:    {kind}" + (f" (owner user id {t['owner_id']})" if t['owner_id'] else '') + "\n"
         f"Reason:  {reason}\n\n"
         f"Message:\n{message or '(none)'}\n\n"
-        f"Review it in the admin panel: {PUBLIC_BASE_URL}/fluxdrop_pp/ → Admin panel → Reports\n"
+        f"Review it in the admin panel: {_app_home_url()} → Admin panel → Reports\n"
     )
     # Off the request thread — a slow SMTP server must not delay the reply.
     threading.Thread(

@@ -24,9 +24,16 @@ textarea{min-height:110px;resize:vertical}
 .done{text-align:center;padding:12px 0}
 .foot{margin-top:20px;padding-top:14px;border-top:1px solid #f1f5f9;font-size:12px;color:#94a3b8;text-align:center}
 .foot a{color:#3b82f6;text-decoration:none}
+.langs{float:right;display:flex;gap:2px;margin:-4px -6px 0 8px}
+.langs button{border:none;background:none;padding:3px 7px;border-radius:6px;font-size:12px;font-weight:600;color:#94a3b8;cursor:pointer;font-family:inherit}
+.langs button[aria-pressed=true]{background:#e0f2fe;color:#0369a1}
 </style>
 </head><body>
 <div class="card" id="card">
+  <div class="langs" role="group" aria-label="Language">
+    <button type="button" data-lang="en" lang="en">EN</button>
+    <button type="button" data-lang="uk" lang="uk">УКР</button>
+  </div>
   <h1 data-t="title">🚩 Report content</h1>
   <p class="muted" data-t="intro">Use this form to report a FluxDrop share link or an embedded (CDN) file that is illegal, infringes your rights or breaks the Terms of Service. Every report is reviewed by the operator. The person you report is not told who reported them.</p>
 
@@ -61,7 +68,7 @@ textarea{min-height:110px;resize:vertical}
 
   <div class="foot">
     <span data-t="privacy">What we store about reports: Privacy Policy, section 2.12.</span><br>
-    <a href="/fluxdrop_pp/index.html">FluxDrop</a>
+    <a href="/fluxdrop_pp/" data-app-home>FluxDrop</a>
   </div>
 </div>
 
@@ -110,23 +117,35 @@ textarea{min-height:110px;resize:vertical}
       e_generic_mail: 'The report could not be sent. Try again or email {mail}.',
     },
   };
-  let lang = 'en';
+  const APP_HOME = /(^|\.)fluxdrop\.me$/.test(location.hostname) ? '/' : '/fluxdrop_pp/';
+  // Same key the FluxDrop app uses, so the choice carries over both ways.
+  let lang = '';
   try { lang = localStorage.getItem('fluxdrop_lang') || ''; } catch (e) {}
   if (!lang) lang = (navigator.language || '').toLowerCase().startsWith('uk') ? 'uk' : 'en';
   if (!T[lang]) lang = 'en';
-  document.documentElement.lang = lang;
   const tr = (k, v) => {
     let s = (T[lang] && T[lang][k]) || T.en[k] || k;
     if (v) for (const [a, b] of Object.entries(v)) s = s.replace('{' + a + '}', b);
     return s;
   };
-  if (lang !== 'en') {
+  // English lives in the HTML; remember it per element so switching back works.
+  document.querySelectorAll('[data-t]').forEach(el => { el.dataset.en = el.textContent; });
+  const EN_TITLE = document.title;
+  function applyLang() {
+    document.documentElement.lang = lang;
     document.querySelectorAll('[data-t]').forEach(el => {
-      const s = T[lang][el.dataset.t];
-      if (s) el.textContent = s;
+      el.textContent = (lang !== 'en' && T[lang][el.dataset.t]) || el.dataset.en;
     });
-    document.title = 'FluxDrop — ' + T[lang].title.replace(/^🚩\s*/, '');
+    document.title = lang === 'en' ? EN_TITLE : 'FluxDrop — ' + T[lang].title.replace(/^🚩\s*/, '');
+    document.querySelectorAll('.langs button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
   }
+  document.querySelectorAll('.langs button').forEach(b => b.addEventListener('click', () => {
+    lang = b.dataset.lang;
+    try { localStorage.setItem('fluxdrop_lang', lang); } catch (e) {}
+    applyLang();
+  }));
+  applyLang();
 
   const q = new URLSearchParams(location.search);
   const urlIn = document.getElementById('rf-url');
@@ -162,7 +181,7 @@ textarea{min-height:110px;resize:vertical}
       if (r.ok) {
         document.getElementById('card').innerHTML =
           '<div class="done"><div style="font-size:42px">✅</div><h1></h1><p class="muted"></p>' +
-          '<p style="margin-top:18px"><a href="/fluxdrop_pp/index.html" style="color:#3b82f6">FluxDrop</a></p></div>';
+          '<p style="margin-top:18px"><a href="' + APP_HOME + '" style="color:#3b82f6">FluxDrop</a></p></div>';
         document.querySelector('.done h1').textContent = tr('done_title');
         document.querySelector('.done p').textContent  = tr('done_body', { id: d.id });
         return;
@@ -177,4 +196,6 @@ textarea{min-height:110px;resize:vertical}
   });
 })();
 </script>
+<script>/* App home: fluxdrop.me serves the app at /, other domains at /fluxdrop_pp/ */
+(function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();</script>
 </body></html>

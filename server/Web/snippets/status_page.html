@@ -1003,7 +1003,7 @@ footer a:hover { text-decoration: underline; }
 </div>
 
 <footer>
-  <span>FluxDrop CDN v{SERVER_VERSION} · <a href="/fluxdrop_pp/">Go to app</a></span>
+  <span>FluxDrop CDN v{SERVER_VERSION} · <a href="/fluxdrop_pp/" data-app-home>Go to app</a></span>
   <span>Live data — AJAX refresh every 30 s, no page reload</span>
 </footer>
 <!-- ── DAY DETAIL MODAL ── -->
@@ -2033,5 +2033,7 @@ window.editOutageNote = async function(id, btn) {
   <span class="pill-label" id="admin-label">Admin</span>
 </div>
 
+<script>/* App home: fluxdrop.me serves the app at /, other domains at /fluxdrop_pp/ */
+(function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();</script>
 </body>
 </html>

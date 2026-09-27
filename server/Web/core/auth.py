@@ -1,10 +1,11 @@
 import bcrypt, secrets, hashlib, time, logging, smtplib, os, re
 import base64 as _base64
+import html as _html
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from core.db import _db_connect
 from core.rate_limit import _rate_limit
-from config import SMTP_SERVER, SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD
+from config import SMTP_SERVER, SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD, SMTP_REPLY_TO, CONTACT_EMAIL
 from core.snippets import _render_snippet
 from core.mailer import send_message
 from config import PUBLIC_DOMAIN, HTTPS_PORT, SERVE_DIRECTORY, PUBLIC_BASE_URL
@@ -100,10 +101,21 @@ def send_verification_email(email, token, username):
     else:
         icon_img = ''
 
+    # Where replies and questions should go: the Reply-To address if set,
+    # else the public contact address. Also keeps the text-to-image ratio
+    # healthy — a near-empty body next to the inline logo trips spam filters
+    # (SpamAssassin HTML_IMAGE_ONLY_*).
+    support_addr = SMTP_REPLY_TO or CONTACT_EMAIL
+    support_html = (
+        f'<p style="color:#94a3b8;font-size:12px;margin:0 0 8px">Questions or problems? Just reply to this '
+        f'email or write to <a href="mailto:{support_addr}" style="color:#64748b">{support_addr}</a>.</p>'
+        if support_addr else '')
     html_body = _render_snippet('email_verification.html',
         icon_img=icon_img,
-        username=username,
+        username=_html.escape(username),
         verification_link=verification_link,
+        email=_html.escape(email),
+        support_html=support_html,
     )
 
     # Build a multipart/related message so the icon CID attachment is recognised
@@ -117,8 +129,12 @@ def send_verification_email(email, token, username):
         f"Hello {username},\n\n"
         f"Thanks for signing up. Confirm your email address to activate your account:\n"
         f"{verification_link}\n\n"
+        f"Once it's confirmed, you can sign in and start uploading, organising and sharing your files.\n\n"
         f"This link expires in 1 hour. If you didn't create a FluxDrop account, you can ignore this email.\n\n"
-        f"FluxDrop - Your files. Your server. Your rules.",
+        f"You're receiving this because someone signed up for FluxDrop with {email}. "
+        f"We only email you about your account; there are no newsletters or ads.\n"
+        + (f"Questions or problems? Just reply to this email or write to {support_addr}.\n" if support_addr else "")
+        + "\nFluxDrop - Your files. Your server. Your rules.",
         'plain'
     ))
     alt.attach(MIMEText(html_body, 'html'))

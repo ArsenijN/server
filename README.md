@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.9`
+# FluxDrop & server `v0.21.1.10`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -17,6 +17,13 @@ repo. Anyone can use it.
 **Changed**
 - The offline page loads the Inter font from FluxDrop itself instead of Google
   Fonts, so visitors' IPs are no longer sent to Google
+- Verification email: explains what happens after confirming, why it was
+  sent, and where to get help (`support@fluxdrop.me`). The extra text also
+  cleared a spam-filter penalty for image-heavy mail — mail-tester now scores
+  it 10/10. Username and address are HTML-escaped in the email
+- The report page has an EN / УКР switch (shared with the app's language
+  setting), and "FluxDrop" links on share / report / status pages go to `/` on
+  fluxdrop.me instead of the legacy `/fluxdrop_pp/index.html`
 
 **Fixed**
 - I18n in the profile panel: title, avatar statuses, password messages,

@@ -88,6 +88,25 @@ SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT', os.getenv('SMTP_PORT', '587')))
 SMTP_SENDER_EMAIL = os.getenv('SMTP_SENDER_EMAIL', '')
 SMTP_SENDER_PASSWORD = os.getenv('SMTP_SENDER_PASSWORD', '')
+# Login name for the SMTP server. Most transactional providers (Resend, Brevo,
+# Amazon SES, …) use a separate username or API-key id instead of the sender
+# address; defaults to SMTP_SENDER_EMAIL, which is what Gmail/Proton expect.
+SMTP_USERNAME = os.getenv('SMTP_USERNAME', '') or SMTP_SENDER_EMAIL
+# Display name shown in the From: header, e.g. "FluxDrop <noreply@fluxdrop.me>"
+SMTP_SENDER_NAME = os.getenv('SMTP_SENDER_NAME', 'FluxDrop')
+# Where replies to automated mail go (e.g. support@fluxdrop.me). Empty = none.
+SMTP_REPLY_TO = os.getenv('SMTP_REPLY_TO', '')
+
+# Public contact address shown in the policies and the report page, and the
+# inbox that receives new content-report alerts (falls back to CONTACT_EMAIL).
+CONTACT_EMAIL = os.getenv('CONTACT_EMAIL', '')
+REPORT_NOTIFY_EMAIL = os.getenv('REPORT_NOTIFY_EMAIL', '') or CONTACT_EMAIL
+
+# How many days of server logs to keep (daily rotation at midnight). The
+# Privacy Policy promises 90 — change both together.
+LOG_RETENTION_DAYS = int(os.getenv('LOG_RETENTION_DAYS', '90'))
+# Grace period before a deleted account's files are removed from disk.
+DELETED_ACCOUNT_PURGE_DAYS = int(os.getenv('DELETED_ACCOUNT_PURGE_DAYS', '30'))
 
 # Chunks
 # Chunk size and abandoned-session TTL are tunable via env

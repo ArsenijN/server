@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FluxDrop — Report content</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="/fluxdrop_pp/icon.svg">
+<link rel="stylesheet" href="/fluxdrop_pp/assets/Inter.css">
+<meta name="robots" content="noindex">
+<style>
+*{box-sizing:border-box}
+body{font-family:Inter,sans-serif;background:#f0f9ff;min-height:100vh;margin:0;padding:24px 16px;color:#1e293b}
+.card{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:28px;max-width:560px;margin:0 auto}
+h1{margin:0 0 6px;font-size:20px}
+.muted{color:#64748b;font-size:13px;line-height:1.5}
+label{display:block;font-size:13px;font-weight:600;color:#374151;margin-top:16px}
+input[type=text],input[type=email],input[type=url],textarea,select{display:block;width:100%;margin-top:5px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;background:white;color:inherit}
+textarea{min-height:110px;resize:vertical}
+.reasons label{display:flex;gap:9px;align-items:flex-start;font-weight:500;margin-top:8px;cursor:pointer}
+.reasons input{margin-top:3px}
+.hint{font-weight:400;color:#94a3b8;font-size:12px}
+.btn{margin-top:20px;padding:10px 22px;background:#ef4444;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn:disabled{opacity:.6;cursor:default}
+.msg{display:none;margin-top:14px;padding:10px 12px;border-radius:8px;font-size:13px}
+.msg.err{display:block;background:#fef2f2;color:#b91c1c}
+.done{text-align:center;padding:12px 0}
+.foot{margin-top:20px;padding-top:14px;border-top:1px solid #f1f5f9;font-size:12px;color:#94a3b8;text-align:center}
+.foot a{color:#3b82f6;text-decoration:none}
+</style>
+</head><body>
+<div class="card" id="card">
+  <h1 data-t="title">🚩 Report content</h1>
+  <p class="muted" data-t="intro">Use this form to report a FluxDrop share link or an embedded (CDN) file that is illegal, infringes your rights or breaks the Terms of Service. Every report is reviewed by the operator. The person you report is not told who reported them.</p>
+
+  <form id="rf" novalidate>
+    <label><span data-t="url_label">Link or file address</span>
+      <input type="url" id="rf-url" required maxlength="2048" placeholder="https://fluxdrop.me/share/…">
+    </label>
+
+    <label data-t="reason_label">What is wrong?</label>
+    <div class="reasons">
+      <label><input type="radio" name="reason" value="illegal"> <span data-t="r_illegal">Illegal content (e.g. child abuse material, malware, stolen data)</span></label>
+      <label><input type="radio" name="reason" value="copyright"> <span data-t="r_copyright">Infringes my copyright</span></label>
+      <label><input type="radio" name="reason" value="encrypted"> <span data-t="r_encrypted">Encrypted or password-protected archive shared publicly</span></label>
+      <label><input type="radio" name="reason" value="abuse"> <span data-t="r_abuse">Spam, harassment or other abuse</span></label>
+      <label><input type="radio" name="reason" value="other"> <span data-t="r_other">Something else</span></label>
+    </div>
+
+    <label><span data-t="msg_label">Details</span> <span class="hint" data-t="msg_hint">(for copyright: show that you own the rights)</span>
+      <textarea id="rf-msg" maxlength="4000"></textarea>
+    </label>
+
+    <label><span data-t="email_label">Your email</span> <span class="hint" data-t="email_hint">(optional — only if you want a reply)</span>
+      <input type="email" id="rf-email" maxlength="254" autocomplete="email">
+    </label>
+
+    <div class="msg" id="rf-err"></div>
+    <button class="btn" id="rf-send" type="submit" data-t="send">Send report</button>
+    <p class="muted" style="margin-top:14px" data-t="false_reports">Knowingly false reports break the Terms of Service.</p>
+  </form>
+
+  <noscript><p class="muted">This form needs JavaScript. {CONTACT_NOSCRIPT}</p></noscript>
+
+  <div class="foot">
+    <span data-t="privacy">What we store about reports: Privacy Policy, section 2.12.</span><br>
+    <a href="/fluxdrop_pp/index.html">FluxDrop</a>
+  </div>
+</div>
+
+<script>
+(function () {
+  const T = {
+    uk: {
+      title: '🚩 Поскаржитися на вміст',
+      intro: 'Цією формою можна поскаржитися на спільне посилання FluxDrop чи вбудований (CDN) файл, який незаконний, порушує ваші права чи Умови використання. Кожну скаргу розглядає оператор. Людині, на яку ви скаржитеся, не повідомляють, хто це зробив.',
+      url_label: 'Посилання чи адреса файлу',
+      reason_label: 'Що не так?',
+      r_illegal: 'Незаконний вміст (напр. матеріали насильства над дітьми, шкідливе ПЗ, викрадені дані)',
+      r_copyright: 'Порушує мої авторські права',
+      r_encrypted: 'Зашифрований чи захищений паролем архів, поширений публічно',
+      r_abuse: 'Спам, переслідування чи інше зловживання',
+      r_other: 'Інше',
+      msg_label: 'Подробиці',
+      msg_hint: '(щодо авторських прав: підтвердьте, що вони належать вам)',
+      email_label: 'Ваш email',
+      email_hint: '(необов’язково — лише якщо хочете отримати відповідь)',
+      send: 'Надіслати скаргу',
+      false_reports: 'Свідомо неправдиві скарги порушують Умови використання.',
+      privacy: 'Що ми зберігаємо про скарги: Політика конфіденційності, розділ 2.12.',
+      sending: 'Надсилання…',
+      done_title: 'Дякуємо, скаргу надіслано',
+      done_body: 'Номер скарги: #{id}. Оператор її розгляне.',
+      e_bad_url: 'Вкажіть посилання чи адресу файлу.',
+      e_bad_reason: 'Виберіть причину.',
+      e_message_required: 'Опишіть, що не так.',
+      e_bad_email: 'Перевірте адресу email.',
+      e_rate: 'Забагато скарг за короткий час. Спробуйте за хвилину.',
+      e_generic: 'Не вдалося надіслати скаргу. Спробуйте ще раз.',
+      e_generic_mail: 'Не вдалося надіслати скаргу. Спробуйте ще раз або напишіть на {mail}.',
+    },
+    en: {
+      send: 'Send report',
+      sending: 'Sending…',
+      done_title: 'Thank you, your report was sent',
+      done_body: 'Report number: #{id}. The operator will review it.',
+      e_bad_url: 'Enter the link or file address.',
+      e_bad_reason: 'Choose a reason.',
+      e_message_required: 'Describe what is wrong.',
+      e_bad_email: 'Check the email address.',
+      e_rate: 'Too many reports in a short time. Please try again in a minute.',
+      e_generic: 'The report could not be sent. Please try again.',
+      e_generic_mail: 'The report could not be sent. Try again or email {mail}.',
+    },
+  };
+  let lang = 'en';
+  try { lang = localStorage.getItem('fluxdrop_lang') || ''; } catch (e) {}
+  if (!lang) lang = (navigator.language || '').toLowerCase().startsWith('uk') ? 'uk' : 'en';
+  if (!T[lang]) lang = 'en';
+  document.documentElement.lang = lang;
+  const tr = (k, v) => {
+    let s = (T[lang] && T[lang][k]) || T.en[k] || k;
+    if (v) for (const [a, b] of Object.entries(v)) s = s.replace('{' + a + '}', b);
+    return s;
+  };
+  if (lang !== 'en') {
+    document.querySelectorAll('[data-t]').forEach(el => {
+      const s = T[lang][el.dataset.t];
+      if (s) el.textContent = s;
+    });
+    document.title = 'FluxDrop — ' + T[lang].title.replace(/^🚩\s*/, '');
+  }
+
+  const q = new URLSearchParams(location.search);
+  const urlIn = document.getElementById('rf-url');
+  if (q.get('url')) urlIn.value = q.get('url');
+
+  const form = document.getElementById('rf');
+  const err  = document.getElementById('rf-err');
+  const btn  = document.getElementById('rf-send');
+  const MAIL = '{CONTACT_EMAIL}';
+  const showErr = m => { err.textContent = m; err.className = 'msg err'; };
+  const genericErr = () => MAIL ? tr('e_generic_mail', { mail: MAIL }) : tr('e_generic');
+
+  form.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    err.className = 'msg';
+    const reason = (form.querySelector('input[name=reason]:checked') || {}).value;
+    const payload = {
+      url:     urlIn.value.trim(),
+      reason:  reason || '',
+      message: document.getElementById('rf-msg').value,
+      email:   document.getElementById('rf-email').value.trim(),
+    };
+    if (!payload.url)    return showErr(tr('e_bad_url'));
+    if (!payload.reason) return showErr(tr('e_bad_reason'));
+    if (payload.reason === 'other' && !payload.message.trim()) return showErr(tr('e_message_required'));
+
+    const headers = { 'Content-Type': 'application/json' };
+    try { const tok = localStorage.getItem('fluxdrop_token'); if (tok) headers.Authorization = 'Bearer ' + tok; } catch (e) {}
+    btn.disabled = true; btn.textContent = tr('sending');
+    try {
+      const r = await fetch('/api/v1/report', { method: 'POST', headers, body: JSON.stringify(payload) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        document.getElementById('card').innerHTML =
+          '<div class="done"><div style="font-size:42px">✅</div><h1></h1><p class="muted"></p>' +
+          '<p style="margin-top:18px"><a href="/fluxdrop_pp/index.html" style="color:#3b82f6">FluxDrop</a></p></div>';
+        document.querySelector('.done h1').textContent = tr('done_title');
+        document.querySelector('.done p').textContent  = tr('done_body', { id: d.id });
+        return;
+      }
+      const key = 'e_' + d.code;
+      if (r.status === 429) showErr(tr('e_rate'));
+      else showErr(d.code && (T[lang][key] || T.en[key]) ? tr(key) : genericErr());
+    } catch (e) {
+      showErr(genericErr());
+    }
+    btn.disabled = false; btn.textContent = tr('send');
+  });
+})();
+</script>
+</body></html>

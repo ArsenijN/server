@@ -378,6 +378,30 @@ def init_db():
                 error_msg     TEXT    DEFAULT NULL
             )
         ''')
+        # Content reports (Report button on share pages + the /report form).
+        # target_url is what the reporter gave us; share_token / cdn_path are
+        # resolved from it server-side when possible so the admin panel can
+        # act on the report (disable the link, delete the file). owner_id is
+        # snapshotted at report time so the report survives the link being
+        # deleted. Rows are pruned 1 year after being closed (Privacy Policy
+        # 2.12) by _token_purge_worker.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS content_reports (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                target_url       TEXT    NOT NULL,
+                share_token      TEXT    DEFAULT NULL,
+                cdn_path         TEXT    DEFAULT NULL,
+                owner_id         INTEGER DEFAULT NULL,
+                reason           TEXT    NOT NULL,
+                message          TEXT    NOT NULL DEFAULT '',
+                reporter_user_id INTEGER DEFAULT NULL,
+                reporter_email   TEXT    DEFAULT NULL,
+                status           TEXT    NOT NULL DEFAULT 'open',
+                resolution_note  TEXT    DEFAULT NULL,
+                closed_at        TIMESTAMP DEFAULT NULL
+            )
+        ''')
         conn.commit()
 
     # ── Schema migrations (safe to run on every startup) ──────────────────
@@ -410,6 +434,9 @@ def init_db():
         _add_column_if_missing('users', 'avatar_data', 'BLOB DEFAULT NULL')
         _add_column_if_missing('users', 'avatar_mime', 'TEXT DEFAULT NULL')
         _add_column_if_missing('file_checksums', 'sha256', 'TEXT DEFAULT NULL')
+        # IP Beacon devices belong to the account that registered them, so
+        # registration can require a login and devices go away with the account.
+        _add_column_if_missing('beacon_devices', 'user_id', 'INTEGER DEFAULT NULL')
         try:
             conn.execute(
                 '''CREATE INDEX IF NOT EXISTS idx_upload_sessions_dest_status

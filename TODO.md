@@ -14,6 +14,9 @@ list specifically for those breaking changes (that are allowed in the V0.20
 over V0.19)
 - [ ] Starting from V0.21.0.5, the commits may start to have only 1 change per 
 commit, if this practive will be better than current mix
+- [ ] Publish Privacy Policy and Terms of Service v0.1.0: set up 
+`privacy@fluxdrop.me`, fill in `[CONTACT EMAIL]`, the email provider and the 
+effective date, then bump `policies/versions.json`
 
 ### UI - add new features
 - [ ] Add MIDI and modules player (tracker music). Inspired by modarchive.org
@@ -145,7 +148,11 @@ as specified in `PUBLIC_DOMAIN`)
 - [ ] Add code map
 - [ ] Use separate email for FluxDrop
 - [ ] Add proper account disable and deletion, compliances to GDPR (incl. 
-"Download everything as a ZIP")
+"Download everything as a ZIP") -- admin-side deletion with a 30-day file 
+purge is done; still missing: self-service deletion and data export from the 
+profile
+- [ ] Share access statistics: decide on the default (currently on) and 
+whether owners should see visitors' usernames or just "signed-in user"
 - [ ] Add a way to track IPs, auths, etc. - aka special admin page for specific 
 usages, for example the abuse
 - [ ] Make emails have local the same as user
@@ -164,6 +171,15 @@ usages, for example the abuse
 (e.g. `Vx.y.z.0` to `Vx.y.z.1`)*
 
 (end of release note there)
+
+- [x] Content reports: Report link on share pages, `/report` form for CDN 
+files, Reports tab in the admin panel, email alerts
+- [x] IP Beacon registration requires a login (was open to anyone)
+- [x] Server logs kept for 90 days (daily rotation), `maintenance.log` too
+- [x] Account deletion removes files after 30 days; fixed the constraint error 
+when deleting users with share links
+- [x] Offline page no longer loads Google Fonts
+- [x] Draft Privacy Policy and Terms of Service v0.1.0
 
 - [x] Background hashsums (do it via `nice` so it will execute when server 
 isn't fully utilized, as background thing) -- make it as improvement for the 

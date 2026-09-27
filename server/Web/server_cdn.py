@@ -113,6 +113,10 @@ from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, 
 from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
 from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
 from config import PUBLIC_BASE_URL
+from config import CONTACT_EMAIL, LOG_RETENTION_DAYS, DELETED_ACCOUNT_PURGE_DAYS
+from core.accounts import delete_account as _delete_account, purge_deleted_accounts as _purge_deleted_accounts
+from core.reports import (create_report, list_reports, count_open as _reports_count_open,
+                          apply_action as _report_apply_action, prune_closed_reports)
 
 # Plain-HTTP loopback port used by server_https proxy to avoid double-TLS.
 # Bound to 127.0.0.1 only — never reachable from outside the machine.
@@ -374,6 +378,33 @@ _MAINTENANCE_LOG = os.getenv(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), 'maintenance.log')
 )
 
+def _rotate_maintenance_log() -> None:
+    """Keep maintenance.log to one day per file and LOG_RETENTION_DAYS files.
+
+    Called before each scan run opens the log. If the current file was last
+    written on an earlier day, it's renamed maintenance.log.YYYY-MM-DD (that
+    day); archives older than the retention period are deleted. It lists file
+    paths per user id, so it falls under the Privacy Policy's 90-day limit.
+    """
+    try:
+        if os.path.exists(_MAINTENANCE_LOG):
+            mdate = _dt.date.fromtimestamp(os.path.getmtime(_MAINTENANCE_LOG))
+            if mdate < _dt.date.today():
+                dest = f'{_MAINTENANCE_LOG}.{mdate.isoformat()}'
+                if not os.path.exists(dest):
+                    os.rename(_MAINTENANCE_LOG, dest)
+        cutoff = time.time() - LOG_RETENTION_DAYS * 86400
+        log_dir  = os.path.dirname(_MAINTENANCE_LOG) or '.'
+        prefix   = os.path.basename(_MAINTENANCE_LOG) + '.'
+        for name in os.listdir(log_dir):
+            if name.startswith(prefix):
+                path = os.path.join(log_dir, name)
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+    except OSError as e:
+        logging.warning('maintenance.log rotation failed: %s', e)
+
+
 def _mlog(fh, msg: str) -> None:
     """Write a timestamped line to the open maintenance log file handle."""
     ts = _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
@@ -475,7 +506,8 @@ def _bg_crc32_scanner():
         rl_start_ts = run_start_ts
         rl_bytes    = 0
 
-        # Open maintenance log (append mode — one file, runs accumulate)
+        # Open maintenance log (append mode — one file per day, see rotation)
+        _rotate_maintenance_log()
         try:
             mlog_fh = open(_MAINTENANCE_LOG, 'a', encoding='utf-8')
         except OSError as e:
@@ -2750,7 +2782,17 @@ class AuthHandler(SimpleHTTPRequestHandler):
     # ── IP Beacon handlers ────────────────────────────────────────────────────
 
     def _handle_beacon_register(self):
-        """POST /beacon/register  — register a new device, return both tokens."""
+        """POST /beacon/register  — register a new device, return both tokens.
+
+        Requires a FluxDrop session (Authorization: Bearer <session token>):
+        the device is owned by that account, so it's covered by the account's
+        data (Privacy Policy 2.9) and removed when the account is deleted.
+        """
+        user_id = self._check_token_auth()
+        if not user_id:
+            return self._send_response(401, json.dumps({'error': 'Sign in to FluxDrop to register a device.'}))
+        if not _rate_limit(self._client_ip(), 'beacon_register', max_hits=10):
+            return self._send_response(429, json.dumps({'error': 'Too many registrations, try again in a minute.'}))
         length = int(self.headers.get('Content-Length', 0))
         if length > MAX_JSON_BODY:
             return self._send_response(413, json.dumps({'error': 'Request body too large.'}))
@@ -2765,8 +2807,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         now           = time.time()
         with _db_connect() as conn:
             cur = conn.execute(
-                "INSERT INTO beacon_devices (primary_token, label, created_at, last_seen) VALUES (?,?,?,?)",
-                (primary_token, label, now, now)
+                "INSERT INTO beacon_devices (primary_token, label, created_at, last_seen, user_id) VALUES (?,?,?,?,?)",
+                (primary_token, label, now, now, user_id)
             )
             conn.execute(
                 "INSERT INTO beacon_read_tokens (read_token, device_id, created_at) VALUES (?,?,?)",
@@ -3045,6 +3087,21 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # Share list endpoint
         if self.shares_list_pattern.match(parsed_url.path):
             return self.handle_shares_list()
+
+        # Content report form (TOS §6) — public, works for share links and CDN files
+        if parsed_url.path in ('/report', '/report/'):
+            return self._send_response(200, self._render_report_page(), 'text/html')
+
+        if parsed_url.path == '/api/v1/admin/reports':
+            admin = self._check_admin_auth()
+            if not admin: return
+            status = parse_qs(parsed_url.query).get('status', [None])[0]
+            if status not in (None, 'open', 'action_taken', 'dismissed'):
+                status = None
+            return self._send_response(200, json.dumps({
+                'reports':    list_reports(status),
+                'open_count': _reports_count_open(),
+            }, default=str))
 
         # Bare /share or /share/ with no token → friendly error page
         if parsed_url.path in ('/share', '/share/'):
@@ -3409,6 +3466,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if parsed_url.path == '/api/v1/incident':
             return self._handle_incident_create()
 
+        # Content reports
+        if parsed_url.path == '/api/v1/report':
+            return self._handle_report_create()
+        _rep_act = re.match(r'^/api/v1/admin/reports/(\d+)$', parsed_url.path)
+        if _rep_act:
+            return self._handle_report_action(int(_rep_act.group(1)))
+
         # Beacon IP tracking endpoints
         if parsed_url.path == '/beacon/register':
             return self._handle_beacon_register()
@@ -3703,13 +3767,17 @@ class AuthHandler(SimpleHTTPRequestHandler):
             target_id = int(_admin_user_del.group(1))
             if target_id == admin['id']:
                 return self._send_response(400, json.dumps({'error': 'Cannot delete your own account'}))
-            # Note: user files on disk are NOT deleted here intentionally.
-            # Manual cleanup via filesystem if needed: SERVE_ROOT/FluxDrop/<user_id>/
-            with _db_connect() as conn:
-                conn.execute('DELETE FROM sessions WHERE user_id = ?', (target_id,))
-                conn.execute('DELETE FROM users WHERE id = ?', (target_id,))
-                conn.commit()
-            return self._send_response(200, json.dumps({'message': 'User deleted'}))
+            # Account rows go now; files move to FluxDrop/.deleted_accounts and
+            # are purged after DELETED_ACCOUNT_PURGE_DAYS (see core/accounts.py).
+            try:
+                res = _delete_account(target_id)
+            except LookupError:
+                return self._send_response(404, json.dumps({'error': 'User not found'}))
+            except OSError as e:
+                logging.exception('Account %s: DB rows deleted but moving files failed', target_id)
+                return self._send_response(500, json.dumps({
+                    'error': f'Account deleted, but its files could not be moved for purging: {e}'}))
+            return self._send_response(200, json.dumps({'message': 'User deleted', **res}))
         # Trash bin: permanently delete one item or empty entire trash
         _tr_item = self.trash_item_pattern.match(parsed_url.path)
         if _tr_item:
@@ -4656,8 +4724,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         current_zip_direct_url = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?zip=1&direct=1")
         current_size_url       = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?foldersize=1")
 
+        report_url = '/report?url=' + quote(f"{PUBLIC_BASE_URL}/share/{token}", safe='')
         return _render_snippet('share_folder_page.html',
             PUBLIC_DOMAIN=PUBLIC_DOMAIN,
+            report_url=report_url,
             current_title=current_title,
             share_icon=share_icon,
             owner_name=owner_name,
@@ -4679,6 +4749,55 @@ class AuthHandler(SimpleHTTPRequestHandler):
             cdn_origin=repr(cdn_origin),
             share_path=repr(share_path),
         )
+
+    def _render_report_page(self):
+        email = CONTACT_EMAIL if re.fullmatch(r"[^@\s'\"<>\\]+@[^@\s'\"<>\\]+", CONTACT_EMAIL or '') else ''
+        noscript = (f'You can also email your report to <strong>{email}</strong>.' if email
+                    else 'You can also contact the operator via https://github.com/ArsenijN.')
+        return _render_snippet('report_page.html', CONTACT_EMAIL=email, CONTACT_NOSCRIPT=noscript)
+
+    def _handle_report_create(self):
+        """POST /api/v1/report — public. {url, reason, message, email?}"""
+        # 3 reports / minute / IP: plenty for a real person, stops a flood.
+        if not _rate_limit(self._client_ip(), 'report', max_hits=3):
+            return self._send_response(429, json.dumps({'error': 'Too many reports.', 'code': 'rate'}))
+        length = int(self.headers.get('Content-Length', 0) or 0)
+        if length <= 0 or length > MAX_JSON_BODY:
+            return self._send_response(400, json.dumps({'error': 'Invalid body.', 'code': 'bad_body'}))
+        try:
+            data = json.loads(self.rfile.read(length))
+            if not isinstance(data, dict):
+                raise ValueError
+        except ValueError:
+            return self._send_response(400, json.dumps({'error': 'Invalid JSON.', 'code': 'bad_body'}))
+        reporter = self._check_token_auth()   # optional — anonymous reports are fine
+        try:
+            report_id = create_report(
+                str(data.get('url', '')), str(data.get('reason', '')),
+                str(data.get('message', '')), reporter_user_id=reporter or None,
+                reporter_email=str(data.get('email', '') or ''))
+        except ValueError as e:
+            return self._send_response(400, json.dumps({'error': 'Invalid report.', 'code': str(e)}))
+        return self._send_response(200, json.dumps({'id': report_id}))
+
+    def _handle_report_action(self, report_id: int):
+        """POST /api/v1/admin/reports/<id> — admin. {action, note?}"""
+        admin = self._check_admin_auth()
+        if not admin: return
+        length = int(self.headers.get('Content-Length', 0) or 0)
+        try:
+            data = json.loads(self.rfile.read(length)) if 0 < length <= MAX_JSON_BODY else {}
+        except ValueError:
+            data = {}
+        try:
+            res = _report_apply_action(report_id, str(data.get('action', '')), str(data.get('note', '') or ''))
+        except LookupError:
+            return self._send_response(404, json.dumps({'error': 'Report not found.'}))
+        except ValueError as e:
+            return self._send_response(400, json.dumps({'error': str(e)}))
+        except OSError as e:
+            return self._send_response(500, json.dumps({'error': f'File operation failed: {e}'}))
+        return self._send_response(200, json.dumps(res))
 
     def _render_share_expired_page(self):
         return _render_snippet('share_expired_page.html',PUBLIC_DOMAIN=PUBLIC_DOMAIN)
@@ -7124,6 +7243,17 @@ def _token_purge_worker():
                 conn.commit()
         except Exception:
             logging.exception('TokenPurge: failed to purge pending_verifications')
+
+        # Privacy Policy §7: deleted accounts' files after the grace period,
+        # closed content reports after 1 year.
+        try:
+            _purge_deleted_accounts()
+        except Exception:
+            logging.exception('TokenPurge: failed to purge deleted accounts')
+        try:
+            prune_closed_reports(365)
+        except Exception:
+            logging.exception('TokenPurge: failed to prune content_reports')
 
         # A2: Prune share_access_log (keep 90 days, consistent with status_snapshots retention)
         try:

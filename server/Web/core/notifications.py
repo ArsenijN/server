@@ -3,7 +3,7 @@ import urllib.request as _ur, urllib.error as _ue, urllib.parse as _up
 from core.db import _db_connect
 # SMTP config — these globals must come with it:
 import os
-from config import SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD, SMTP_SERVER
+from core.mailer import send_plain, smtp_configured
 
 # ── B13: SSRF-safe webhook delivery ─────────────────────────────────────────
 # Webhook targets are supplied by an authenticated user (POST /api/v1/notifications)
@@ -143,7 +143,7 @@ def _fire_upload_notification(user_id: int, path: str, message: str) -> None:
 
                 elif sub["type"] == "email":
                     # Reuse existing SMTP infrastructure
-                    if not SMTP_SENDER_EMAIL or not SMTP_SENDER_PASSWORD:
+                    if not smtp_configured():
                         logging.warning("SMTP not configured; skipping email notification")
                         continue
                     # B13/B17: validate the address shape and reject control
@@ -153,28 +153,16 @@ def _fire_upload_notification(user_id: int, path: str, message: str) -> None:
                     if '\r' in target or '\n' in target or not _EMAIL_RE.match(target):
                         logging.warning(f"Notification email target {target!r} rejected: not a valid address")
                         continue
-                    import smtplib as _smtp
-                    from email.mime.text import MIMEText as _MT
-                    msg = _MT(
+                    ok = send_plain(
+                        target,
+                        "FluxDrop: upload complete",
                         f"FluxDrop upload notification\n\n"
                         f"Path:    {path}\n"
                         f"Message: {message}\n"
                         f"Time:    {time.strftime('%Y-%m-%d %H:%M:%S')}\n",
-                        "plain"
                     )
-                    msg["Subject"] = "FluxDrop: upload complete"
-                    msg["From"]    = SMTP_SENDER_EMAIL
-                    msg["To"]      = target
-                    try:
-                        with _smtp.SMTP(SMTP_SERVER, SMTP_PORT) as srv:
-                            srv.ehlo()
-                            if SMTP_PORT == 587:
-                                srv.starttls(); srv.ehlo()
-                            srv.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
-                            srv.sendmail(SMTP_SENDER_EMAIL, [sub["target"]], msg.as_string())
-                        logging.info(f"Notification email sent to {sub['target']!r}")
-                    except Exception as exc:
-                        logging.warning(f"Notification email to {sub['target']!r} failed: {exc}")
+                    if ok:
+                        logging.info(f"Notification email sent to {target!r}")
             except Exception:
                 logging.exception(f"_fire_upload_notification: unexpected error for sub {sub}")
 

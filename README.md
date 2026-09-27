@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.7`
+# FluxDrop & server `v0.21.1.8`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -7,10 +7,16 @@ repo. Anyone can use it.
 
 ### FluxDrop (UI)
 **Added**
-- ...
+- Content reports: a 🚩 Report link on shared folder pages, and a report form
+  at `/report` for single-file links and CDN / CatBox files (English and
+  Ukrainian). Reports can be sent anonymously; an email for a reply is optional
+- Admin panel: a **Reports** tab with an open-report counter, filters, and
+  actions — disable the share link, delete the CDN file, mark resolved,
+  dismiss, reopen
 
 **Changed**
-- ...
+- The offline page loads the Inter font from FluxDrop itself instead of Google
+  Fonts, so visitors' IPs are no longer sent to Google
 
 **Fixed**
 - I18n in the profile panel: title, avatar statuses, password messages,
@@ -25,10 +31,32 @@ repo. Anyone can use it.
 
 ### Server (backend)
 **Added**
-- ...
+- `content_reports` table and `POST /api/v1/report` (3 reports per minute per
+  IP), `GET /api/v1/admin/reports`, `POST /api/v1/admin/reports/<id>`. New
+  reports are emailed to `REPORT_NOTIFY_EMAIL` (defaults to `CONTACT_EMAIL`);
+  closed reports are pruned after 1 year
+- Server logs rotate daily and are kept for `LOG_RETENTION_DAYS` (90);
+  `maintenance.log` is split per day with the same limit
+- Deleting an account moves its files to `FluxDrop/.deleted_accounts/` and
+  purges them after `DELETED_ACCOUNT_PURGE_DAYS` (30); its share links,
+  tokens and IP Beacon devices are removed right away
+- One mail module (`core/mailer.py`) for all outgoing email, with port 465
+  support and new `SMTP_USERNAME`, `SMTP_SENDER_NAME`, `SMTP_REPLY_TO`
+  settings — needed for transactional providers when sending from
+  `@fluxdrop.me`
+
+**Changed (breaking)**
+- `POST /beacon/register` now requires a FluxDrop login and records the
+  owning account. `ip_beacon.py --register` needs `--fluxdrop-token` (or
+  `FLUXDROP_TOKEN`); devices registered on the web page can be handed over
+  with `--primary-token`. Older daemons keep pinging, only new registrations
+  change
 
 **Fixed**
-- ...
+- Deleting a user from the admin panel failed with a database constraint
+  error when the user had share links, download tokens or protected files
+- `/beacon/register` accepted registrations without any login, despite the
+  code comments calling it session-gated
 
 ### Known issues
 - ...
@@ -36,6 +64,8 @@ repo. Anyone can use it.
 ### Housekeeping
 - Moved the finished "Background hashsums" entry to the Done part of `TODO.md`
 - Updated the `README.md` layout
+- Drafted Privacy Policy and Terms of Service v0.1.0 (English and Ukrainian)
+  in `policies/`; not active until `versions.json` is bumped
 
 <details>
 <summary>Older releases</summary>

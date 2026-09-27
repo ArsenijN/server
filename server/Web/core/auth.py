@@ -6,6 +6,7 @@ from core.db import _db_connect
 from core.rate_limit import _rate_limit
 from config import SMTP_SERVER, SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD
 from core.snippets import _render_snippet
+from core.mailer import send_message
 from config import PUBLIC_DOMAIN, HTTPS_PORT, SERVE_DIRECTORY, PUBLIC_BASE_URL
 from email.mime.image import MIMEImage
 from datetime import datetime, timedelta, timezone
@@ -108,7 +109,6 @@ def send_verification_email(email, token, username):
     # Build a multipart/related message so the icon CID attachment is recognised
     msg = MIMEMultipart('related')
     msg['Subject'] = subject
-    msg['From'] = SMTP_SENDER_EMAIL
     msg['To'] = email
 
     # Wrap HTML in multipart/alternative (text fallback + HTML)
@@ -133,22 +133,13 @@ def send_verification_email(email, token, username):
         img_part.add_header('X-Attachment-Id', icon_cid)
         msg.attach(img_part)
 
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            # ensure connection established
-            server.ehlo()
-            if SMTP_PORT == 587:
-                server.starttls()
-                server.ehlo()
-            server.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
-            server.sendmail(SMTP_SENDER_EMAIL, [email], msg.as_string())
+    if send_message(msg, [email]):
         logging.info(f"Verification email sent to {email}")
         return True
-    except Exception:
-        # don't let SMTP errors interrupt registration flow; log and simulate
-        logging.exception(f"Failed to send verification email to {email}, falling back to simulation")
-        logging.info(f"EMAIL SIMULATION: Verification link for {email}: {verification_link}")
-        return True
+    # don't let SMTP errors interrupt registration flow; log and simulate
+    logging.error(f"Failed to send verification email to {email}, falling back to simulation")
+    logging.info(f"EMAIL SIMULATION: Verification link for {email}: {verification_link}")
+    return True
     
 # ==============================================================================
 # --- DOWNLOAD TOKEN HELPERS ---

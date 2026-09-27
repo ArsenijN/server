@@ -62,6 +62,7 @@ _CDN_PROXY_PREFIXES = (
     '/share/',
     '/status',
     '/beacon',
+    '/report',
     '/FluxDrop/',
     '/cdn/',
     '/CB_uploads/',

@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-84566714
+// Current version of script.js is: fluxdrop-v-7899e2b4
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-84566714'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-7899e2b4'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -7281,6 +7281,10 @@ async function openAdminPanel() {
                     width:32px;height:32px;color:white;font-size:18px;cursor:pointer;
                     display:flex;align-items:center;justify-content:center">✕</button>
             </div>
+            <div id="ap-tabs" style="display:flex;gap:4px;padding:8px 24px 0;background:#f8fafc;flex-shrink:0">
+                <button class="ap-tab" data-tab="users">${t('admin_tab_users')}</button>
+                <button class="ap-tab" data-tab="reports">${t('admin_tab_reports')} <span id="ap-reports-badge"></span></button>
+            </div>
             <div id="ap-stats" style="background:#f8fafc;border-bottom:1px solid #e2e8f0;
                 padding:10px 24px;display:flex;gap:24px;flex-shrink:0;flex-wrap:wrap"></div>
             <div style="overflow-y:auto;flex:1;padding:16px 24px">
@@ -7299,7 +7303,60 @@ async function openAdminPanel() {
     overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
     document.getElementById('ap-close').addEventListener('click', () => window.fdCloseOverlay(overlay));
 
-    await _apLoadUsers();
+    _apInjectStyle();
+    overlay.querySelectorAll('.ap-tab').forEach(tab => {
+        tab.addEventListener('click', () => _apShowTab(tab.dataset.tab));
+    });
+    _apRefreshReportsBadge();
+    await _apShowTab('users');
+}
+
+async function _apShowTab(name) {
+    document.querySelectorAll('#ap-tabs .ap-tab').forEach(tb =>
+        tb.classList.toggle('ap-tab-active', tb.dataset.tab === name));
+    const body = document.getElementById('ap-body');
+    if (body) body.innerHTML = `<div style="padding:24px 0;color:#64748b;font-size:14px">${t('loading')}</div>`;
+    if (name === 'reports') await _apLoadReports();
+    else await _apLoadUsers();
+}
+
+// Open-report count on the Reports tab, so a new report is visible without
+// switching tabs. Failures are silent — the Users tab still works.
+async function _apRefreshReportsBadge() {
+    try {
+        const d = await apiCall('/api/v1/admin/reports?status=open', 'GET');
+        const b = document.getElementById('ap-reports-badge');
+        if (b) b.innerHTML = d.open_count
+            ? `<span class="ap-badge" style="background:#fee2e2;color:#b91c1c">${d.open_count}</span>` : '';
+    } catch { /* ignore */ }
+}
+
+function _apInjectStyle() {
+    if (document.getElementById('ap-style')) return;
+    const st = document.createElement('style');
+    st.id = 'ap-style';
+    st.textContent = `
+        .ap-row{display:grid;grid-template-columns:1fr 90px 140px 100px;gap:12px;
+            align-items:center;padding:10px 12px;border-radius:8px;transition:background .12s}
+        .ap-row:hover{background:#f8fafc}
+        .ap-row+.ap-row{border-top:1px solid #f1f5f9}
+        .ap-bar-wrap{background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden}
+        .ap-bar-fill{height:100%;border-radius:4px;transition:width .3s}
+        .ap-badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600}
+        .ap-btn{border:none;border-radius:6px;padding:4px 10px;font-size:12px;
+            font-weight:600;cursor:pointer;transition:opacity .15s}
+        .ap-btn:hover{opacity:.85}
+        .ap-tab{border:none;background:none;padding:8px 14px;font-size:13px;font-weight:600;
+            color:#64748b;cursor:pointer;border-radius:8px 8px 0 0;font-family:inherit}
+        .ap-tab-active{background:white;color:#1e293b;box-shadow:0 -1px 0 #e2e8f0}
+        .ap-rep{border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+        .ap-rep-closed{opacity:.7}
+        .ap-rep-meta{font-size:12px;color:#64748b;margin-top:4px;line-height:1.6}
+        .ap-rep-msg{white-space:pre-wrap;font-size:13px;background:#f8fafc;border-radius:6px;
+            padding:8px 10px;margin-top:8px;color:#334155;max-height:160px;overflow:auto}
+        .ap-rep-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+    `;
+    document.head.appendChild(st);
 }
 
 async function _apLoadUsers() {
@@ -7324,23 +7381,7 @@ async function _apLoadUsers() {
             return;
         }
 
-        if (!document.getElementById('ap-style')) {
-            const st = document.createElement('style');
-            st.id = 'ap-style';
-            st.textContent = `
-                .ap-row{display:grid;grid-template-columns:1fr 90px 140px 100px;gap:12px;
-                    align-items:center;padding:10px 12px;border-radius:8px;transition:background .12s}
-                .ap-row:hover{background:#f8fafc}
-                .ap-row+.ap-row{border-top:1px solid #f1f5f9}
-                .ap-bar-wrap{background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden}
-                .ap-bar-fill{height:100%;border-radius:4px;transition:width .3s}
-                .ap-badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600}
-                .ap-btn{border:none;border-radius:6px;padding:4px 10px;font-size:12px;
-                    font-weight:600;cursor:pointer;transition:opacity .15s}
-                .ap-btn:hover{opacity:.85}
-            `;
-            document.head.appendChild(st);
-        }
+        _apInjectStyle();
 
         body.innerHTML = `
             <div class="ap-row" style="font-size:12px;font-weight:700;color:#94a3b8;
@@ -7361,6 +7402,108 @@ async function _apLoadUsers() {
         if (err.message !== 'SESSION_EXPIRED' && b) {
             b.innerHTML = `<p style="color:#ef4444;font-size:14px;padding:20px 0">${t('admin_panel_load_failed', { err: escapeHtml(err.message) })}</p>`;
         }
+    }
+}
+
+// ── Content reports (TOS §6) ────────────────────────────────────────────────
+let _apReportsFilter = 'open';
+
+async function _apLoadReports() {
+    const body = document.getElementById('ap-body');
+    const statsBar = document.getElementById('ap-stats');
+    if (!body) return;
+    try {
+        const q = _apReportsFilter === 'open' ? '?status=open' : '';
+        const d = await apiCall('/api/v1/admin/reports' + q, 'GET');
+        const reports = d.reports || [];
+        if (statsBar) statsBar.innerHTML = `
+            <span style="font-size:13px;color:#475569"><strong style="color:#1e293b">${d.open_count}</strong> ${t('admin_reports_open_count')}</span>
+            <label style="font-size:13px;color:#475569;margin-left:auto;display:flex;align-items:center;gap:6px">
+                ${t('admin_reports_show')}
+                <select id="ap-rep-filter" style="padding:3px 6px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+                    <option value="open" ${_apReportsFilter === 'open' ? 'selected' : ''}>${t('admin_reports_filter_open')}</option>
+                    <option value="all" ${_apReportsFilter === 'all' ? 'selected' : ''}>${t('admin_reports_filter_all')}</option>
+                </select>
+            </label>`;
+        document.getElementById('ap-rep-filter')?.addEventListener('change', ev => {
+            _apReportsFilter = ev.target.value;
+            _apLoadReports();
+        });
+        const badge = document.getElementById('ap-reports-badge');
+        if (badge) badge.innerHTML = d.open_count
+            ? `<span class="ap-badge" style="background:#fee2e2;color:#b91c1c">${d.open_count}</span>` : '';
+
+        if (!reports.length) {
+            body.innerHTML = `<p style="color:#64748b;font-size:14px;padding:20px 0">${t('admin_reports_none')}</p>`;
+            return;
+        }
+        body.innerHTML = reports.map(_apRenderReport).join('');
+        body.querySelectorAll('.ap-rep-act').forEach(btn => {
+            btn.addEventListener('click', () => _apReportAction(+btn.dataset.id, btn.dataset.action));
+        });
+    } catch (err) {
+        if (err.message !== 'SESSION_EXPIRED')
+            body.innerHTML = `<p style="color:#ef4444;font-size:14px;padding:20px 0">${t('admin_panel_load_failed', { err: escapeHtml(err.message) })}</p>`;
+    }
+}
+
+function _apRenderReport(r) {
+    const statusStyle = {
+        open:         'background:#fee2e2;color:#b91c1c',
+        action_taken: 'background:#dcfce7;color:#166534',
+        dismissed:    'background:#f1f5f9;color:#475569',
+    }[r.status] || '';
+    const kind = r.share_token ? t('admin_reports_kind_share')
+               : r.cdn_path    ? t('admin_reports_kind_cdn')
+               : t('admin_reports_kind_unknown');
+    const reporter = r.reporter_username
+        ? escapeHtml(r.reporter_username) + (r.reporter_email ? ` · ${escapeHtml(r.reporter_email)}` : '')
+        : r.reporter_email ? escapeHtml(r.reporter_email) : t('admin_reports_anonymous');
+    const safeUrl = /^https?:\/\//i.test(r.target_url) ? escapeHtmlAttr(r.target_url) : '';
+    const btn = (action, label, bg) =>
+        `<button class="ap-btn ap-rep-act" data-id="${r.id}" data-action="${action}" style="background:${bg};color:white">${label}</button>`;
+    let actions = '';
+    if (r.status === 'open') {
+        if (r.share_token && r.share_active) actions += btn('disable_link', t('admin_reports_disable_link'), '#ef4444');
+        if (r.cdn_file_exists)               actions += btn('delete_file', t('admin_reports_delete_file'), '#ef4444');
+        actions += btn('resolve', t('admin_reports_resolve'), '#16a34a');
+        actions += btn('dismiss', t('admin_reports_dismiss'), '#64748b');
+    } else {
+        actions += btn('reopen', t('admin_reports_reopen'), '#64748b');
+    }
+    return `<div class="ap-rep ${r.status === 'open' ? '' : 'ap-rep-closed'}">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <strong style="font-size:14px">#${r.id}</strong>
+            <span class="ap-badge" style="${statusStyle}">${t('admin_reports_status_' + r.status)}</span>
+            <span class="ap-badge" style="background:#fef3c7;color:#92400e">${t('report_reason_' + r.reason)}</span>
+            <span style="font-size:12px;color:#94a3b8;margin-left:auto">${escapeHtml(String(r.created_at || ''))} UTC</span>
+        </div>
+        <div class="ap-rep-meta" data-fd-notranslate>
+            ${kind}: ${safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:#3b82f6;word-break:break-all">${escapeHtml(r.target_url)}</a>` : escapeHtml(r.target_url)}
+            ${r.share_token && !r.share_active ? ` <em>(${t('admin_reports_link_gone')})</em>` : ''}<br>
+            ${t('admin_reports_owner')}: ${r.owner_username ? escapeHtml(r.owner_username) : '—'}
+            · ${t('admin_reports_reporter')}: ${reporter}
+            ${r.resolution_note ? `<br>${t('admin_reports_note')}: ${escapeHtml(r.resolution_note)}` : ''}
+        </div>
+        ${r.message ? `<div class="ap-rep-msg" data-fd-notranslate>${escapeHtml(r.message)}</div>` : ''}
+        <div class="ap-rep-actions">${actions}</div>
+    </div>`;
+}
+
+async function _apReportAction(id, action) {
+    if (action === 'disable_link' || action === 'delete_file') {
+        const ok = await showConfirmModal({
+            title:   t(action === 'disable_link' ? 'admin_reports_confirm_disable' : 'admin_reports_confirm_delete', { id }),
+            message: t('admin_reports_confirm_body'),
+        });
+        if (!ok) return;
+    }
+    try {
+        await apiCall(`/api/v1/admin/reports/${id}`, 'POST', { action });
+        showToast(t('admin_reports_done'));
+        await _apLoadReports();
+    } catch (err) {
+        if (err.message !== 'SESSION_EXPIRED') showMessage(t('update_failed'), err.message);
     }
 }
 
@@ -8475,7 +8618,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-84566714'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-7899e2b4'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

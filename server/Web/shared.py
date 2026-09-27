@@ -5,6 +5,7 @@ import ssl
 import threading
 import time
 import logging
+import logging.handlers
 import socket
 import resource
 import queue
@@ -155,6 +156,14 @@ def raise_fd_limit(target: int = 65536) -> None:
         print(f"Warning: could not raise file descriptor limit: {e}")
 
 # --- Custom Logger ---
+def _log_retention_days() -> int:
+    try:
+        from config import LOG_RETENTION_DAYS
+        return max(1, int(LOG_RETENTION_DAYS))
+    except Exception:
+        return 90
+
+
 class CustomLogger:
     # The real terminal stdout/stderr captured before any redirection.
     # Both stdout and stderr loggers write through this so neither fans
@@ -169,7 +178,11 @@ class CustomLogger:
         self.file_logger.propagate = False
         if not self.file_logger.handlers:          # ← only add once
             formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            # One file per day, rotated at midnight; only the newest
+            # LOG_RETENTION_DAYS are kept (Privacy Policy §2.6 promises 90).
+            # Old days are renamed <log_file>.YYYY-MM-DD and deleted in turn.
+            file_handler = logging.handlers.TimedRotatingFileHandler(
+                log_file, when='midnight', backupCount=_log_retention_days(), encoding='utf-8')
             file_handler.setFormatter(formatter)
             self.file_logger.addHandler(file_handler)
 

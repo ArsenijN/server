@@ -7,10 +7,20 @@ FluxDrop server so it can record the device's current public IP.
 
 First run
 ---------
-  python ip_beacon.py --server https://your-server:8443 --register --label "My Laptop"
+Registering needs a FluxDrop login, because each device belongs to an
+account. Either:
 
-This registers the device and saves tokens to ~/.config/fluxdrop_beacon/tokens.json
-(or --token-file of your choice).  It then starts pinging automatically.
+  python ip_beacon.py --server https://your-server:8443 --register \
+      --label "My Laptop" --fluxdrop-token <your FluxDrop session token>
+
+(the session token is in the browser's localStorage as "fluxdrop_token";
+FLUXDROP_TOKEN in the environment works too), or register the device on the
+server's /beacon/ui page while signed in and hand the result to the daemon:
+
+  python ip_beacon.py --server https://your-server:8443 --primary-token <token>
+
+Either way the tokens are saved to ~/.config/fluxdrop_beacon/tokens.json
+(or --token-file of your choice) and pinging starts automatically.
 
 Subsequent runs
 ---------------
@@ -21,7 +31,9 @@ Tokens are loaded from the saved file.
 Flags
 -----
   --server      Base URL of your FluxDrop CDN server  (required)
-  --register    Register this device (first run)
+  --register    Register this device (first run; needs --fluxdrop-token)
+  --fluxdrop-token  FluxDrop session token used by --register ($FLUXDROP_TOKEN)
+  --primary-token   Save a device token from the web page instead of registering
   --label       Human-readable name shown on the lookup page
   --token-file  Where to persist tokens (default: ~/.config/fluxdrop_beacon/tokens.json)
   --interval    Ping interval in seconds (default: 60)
@@ -86,9 +98,21 @@ def _save_tokens(path: Path, data: dict) -> None:
         pass
 
 
-def register(server: str, label: str, token_file: Path, ctx: ssl.SSLContext) -> dict:
-    url  = f"{server.rstrip('/')}/beacon/register"
-    resp = _post(url, {"label": label}, token=None, ctx=ctx)
+def register(server: str, label: str, token_file: Path, ctx: ssl.SSLContext,
+             fluxdrop_token: str) -> dict:
+    """Register this device. Needs a FluxDrop session token (the device is
+    owned by that account) — copy it from the web UI, or register on the
+    IP Beacon page instead and pass the result with --primary-token."""
+    url = f"{server.rstrip('/')}/beacon/register"
+    try:
+        resp = _post(url, {"label": label}, token=fluxdrop_token, ctx=ctx)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            print("[beacon] Registration needs a FluxDrop login: pass --fluxdrop-token "
+                  "(or set FLUXDROP_TOKEN), or register on the IP Beacon page and use "
+                  "--primary-token.", file=sys.stderr)
+            sys.exit(1)
+        raise
     _save_tokens(token_file, resp)
     print(f"[beacon] Registered!")
     print(f"  primary_token : {resp['primary_token']}")
@@ -122,6 +146,12 @@ def main():
                         help="Base URL of your FluxDrop server, e.g. https://arseniusgen.uk.to:64800")
     parser.add_argument("--register",   action="store_true",
                         help="Register this device (first run only)")
+    parser.add_argument("--fluxdrop-token", default=os.environ.get("FLUXDROP_TOKEN", ""),
+                        help="FluxDrop session token, required with --register "
+                             "(default: $FLUXDROP_TOKEN)")
+    parser.add_argument("--primary-token", default="",
+                        help="Use a device already registered on the IP Beacon web page: "
+                             "saves this primary token to the token file and starts pinging")
     parser.add_argument("--label",      default="",
                         help="Human-readable label for this device")
     parser.add_argument("--token-file", default=str(DEFAULT_TOKEN_FILE),
@@ -139,7 +169,14 @@ def main():
 
     # ── Register ──────────────────────────────────────────────────────────
     if args.register:
-        tokens = register(args.server, args.label, token_file, ctx)
+        if not args.fluxdrop_token:
+            print("[beacon] --register needs --fluxdrop-token (or FLUXDROP_TOKEN).", file=sys.stderr)
+            sys.exit(2)
+        tokens = register(args.server, args.label, token_file, ctx, args.fluxdrop_token)
+    elif args.primary_token:
+        tokens = {"primary_token": args.primary_token, "label": args.label}
+        _save_tokens(token_file, tokens)
+        print(f"[beacon] Primary token saved to {token_file}")
     else:
         tokens = _load_tokens(token_file)
         if not tokens.get("primary_token"):

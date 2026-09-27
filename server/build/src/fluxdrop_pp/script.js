@@ -667,7 +667,7 @@ async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = tru
                 localStorage.removeItem('fluxdrop_username');
                 renderApp('login');
                 // Show a gentle notice instead of a raw error
-                showMessage('Session expired', 'Your session has expired. Please log in again.');
+                showMessage(t('session_expired'), t('session_expired_msg'));
                 throw new Error('SESSION_EXPIRED');
             }
             throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
@@ -694,17 +694,16 @@ function _requestNotificationPermission() {
 function _notifyUploadDone(okCount, failCount = 0) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     if (document.hasFocus()) return; // user is watching — no need for OS notification
-    const n = x => `${x} file${x !== 1 ? 's' : ''}`;
     let title, body;
     if (failCount > 0 && okCount === 0) {
-        title = 'FluxDrop — Upload failed';
-        body  = `${n(failCount)} could not be uploaded.`;
+        title = 'FluxDrop — ' + t('upload_failed');
+        body  = t('notify_upload_all_failed', { n: failCount });
     } else if (failCount > 0) {
-        title = 'FluxDrop — Upload finished with errors';
-        body  = `${n(okCount)} uploaded, ${failCount} failed.`;
+        title = 'FluxDrop — ' + t('notify_upload_partial_title');
+        body  = t('notify_upload_partial', { ok: okCount, failed: failCount });
     } else {
-        title = 'FluxDrop — Upload complete';
-        body  = `${n(okCount)} uploaded successfully.`;
+        title = 'FluxDrop — ' + t('notify_upload_done_title');
+        body  = t('notify_upload_done', { n: okCount });
     }
     new Notification(title, {
         body,
@@ -1069,7 +1068,7 @@ async function checkAndShowPolicies(onAllAccepted) {
         localStorage.removeItem('fluxdrop_token');
         localStorage.removeItem('fluxdrop_username');
         renderApp('login');
-        showMessage('Session expired', 'Your session has expired. Please log in again.');
+        showMessage(t('session_expired'), t('session_expired_msg'));
         return;
     }
     if (status.needs_tos) queue.push({ type: 'tos', version: status.current_tos });
@@ -1187,14 +1186,14 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             }
             agreeBtn.disabled = false;
             agreeBtn.textContent = t('policy_agree_btn', { label });
-            showMessage('Error', 'Could not save your agreement: ' + err.message);
+            showMessage(t('msg_error'), t('policy_save_failed') + ': ' + err.message);
         }
     });
 
     const declineBtn = overlay.querySelector('#pam-decline-btn');
     declineBtn.addEventListener('click', () => {
         overlay.remove();
-        showMessage('Policy not accepted',
+        showMessage(t('policy_not_accepted'),
             t('policy_logout_msg'));
         handleLogout();
     });
@@ -1753,11 +1752,11 @@ function renderFileBrowserView() {
                 try {
                     await uploadChunked(items[0].file, items[0].destRel, { ownerType });
                     _notifyUploadDone(1);
-                    showMessage('Upload successful', `${items[0].file.name} uploaded.`);
+                    showMessage(t('upload_successful'), t('upload_success_msg', { name: items[0].file.name }));
                     loadDirectory(currentPath);
                 } catch (err) {
                     if (err.name !== 'PauseSignal' && err.message !== 'Upload cancelled')
-                        showMessage('Upload failed', err.message || String(err));
+                        showMessage(t('upload_failed'), err.message || String(err));
                 } finally {
                     window.removeEventListener('beforeunload', windowLock);
                 }
@@ -1806,7 +1805,7 @@ function renderFileBrowserView() {
                             }
                             if (err.message !== 'Upload cancelled') {
                                 _dropFail++;
-                                showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
+                                showMessage(t('upload_failed'), `${item.file.name}: ${err.message || String(err)}`);
                                 window.removeEventListener('beforeunload', windowLock);
                             }
                         }
@@ -2357,7 +2356,7 @@ window.downloadFile = async function(path, opts = {}) {
             dlUrl     = `${API_BASE_URL}/api/v1/download${enc}?dl_token=${encodeURIComponent(td.download_token)}`;
             totalSize = td.total_size || null;
         } catch (err) {
-            showMessage('Download failed', err.message);
+            showMessage(t('download_failed'), err.message);
             return;
         }
     }
@@ -2699,7 +2698,7 @@ window.resumeDownload = async function(safePath) {
             const sc = td.bytes_confirmed || 0;
             if (sc < dl._resumeFrom) dl._resumeFrom = sc;
         } catch (err) {
-            showMessage('Resume failed', err.message);
+            showMessage(t('im_resume_failed'), err.message);
             return;
         }
     }
@@ -5140,7 +5139,7 @@ async function openMoveDialog(srcPath) {
             updateDestLabel();
             renderTree();
         } catch (err) {
-            showMessage('Create folder failed', err.message);
+            showMessage(t('create_folder_failed'), err.message);
         }
     });
     $('mv-new-folder-input').addEventListener('keydown', e => {
@@ -5957,7 +5956,7 @@ async function handleUploadForm(e) {
     window.addEventListener('beforeunload', windowLock);
 
     const fileInput = document.getElementById('upload-file');
-    if (!fileInput.files.length) { showMessage('Upload', 'No file selected'); return; }
+    if (!fileInput.files.length) { showMessage(t('upload_title'), t('upload_no_file')); return; }
     const files = Array.from(fileInput.files);
     const isProtected = document.getElementById('upload-protected').checked;
     const ownerType = currentPath.startsWith('/cdn') ? 'catbox' : 'user';
@@ -5994,13 +5993,13 @@ async function handleUploadForm(e) {
             await _p;
             _hideUploadSpinner();
             _notifyUploadDone(1);   // P10
-            showMessage('Upload successful', `${items[0].file.name} uploaded successfully.`);
+            showMessage(t('upload_successful'), t('upload_success_msg', { name: items[0].file.name }));
             window.removeEventListener('beforeunload', windowLock);
             loadDirectory(currentPath);
         } catch (err) {
             _hideUploadSpinner();
             if (err.name === 'PauseSignal' || err.message === 'Upload cancelled') return;
-            showMessage('Upload failed', err.message || String(err));
+            showMessage(t('upload_failed'), err.message || String(err));
         }
     } else {
         // Multiple files: first file starts immediately, rest go to queue
@@ -6048,7 +6047,7 @@ async function handleUploadForm(e) {
                     }
                     if (err.message !== 'Upload cancelled') {
                         _qFail++;
-                        showMessage('Upload failed', `${item.file.name}: ${err.message || String(err)}`);
+                        showMessage(t('upload_failed'), `${item.file.name}: ${err.message || String(err)}`);
                         window.removeEventListener('beforeunload', windowLock);
                     }
                 }
@@ -6063,7 +6062,7 @@ async function handleUploadForm(e) {
             }
         }
         drainQueue(first);
-        showMessage('Queued', `${files.length} files queued. Uploading now…`);
+        showMessage(t('queued'), t('upload_queued_msg', { n: files.length }));
     }
 
     // Reset the file input
@@ -6212,7 +6211,7 @@ function renderUploadTray() {
                 }).catch(err => {
                     if (err.name === 'PauseSignal') return;   // paused again — queue stays parked
                     if (err.message === 'Upload cancelled') { if (_pausedQueueDrain) _pausedQueueDrain(); return; }
-                    showMessage('Upload failed', err.message);
+                    showMessage(t('upload_failed'), err.message);
                     if (_pausedQueueDrain) _pausedQueueDrain();
                 });
             });
@@ -6468,7 +6467,7 @@ async function handleLogin(e) {
             renderApp();
         }
     } catch (error) {
-        showMessage('Login Failed', error.message);
+        showMessage(t('login_failed'), error.message);
     }
 }
 
@@ -7804,7 +7803,7 @@ async function loadShareManager() {
                     await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at });
                     // Refresh to show updated display
                     await loadShareManager();
-                } catch(e) { showMessage('Update failed', e.message); }
+                } catch(e) { showMessage(t('update_failed'), e.message); }
             };
             input.addEventListener('change', saveExpiry);
         });
@@ -7816,7 +7815,7 @@ async function loadShareManager() {
                 try {
                     await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at: null });
                     await loadShareManager();
-                } catch(e) { showMessage('Update failed', e.message); }
+                } catch(e) { showMessage(t('update_failed'), e.message); }
             });
         });
     } catch(e) {
@@ -7956,7 +7955,7 @@ async function openShareStats(token, name) {
             </tr></thead><tbody>${rows}</tbody></table></div>`,
             true /* isHtml */
         );
-    } catch(e) { showMessage('Stats error', e.message); }
+    } catch(e) { showMessage(t('stats_error'), e.message); }
 }
 
         // ======================================================================
@@ -8418,7 +8417,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('verified')) {
-        showMessage('Verification Successful', 'Your account is verified. Please log in.');
+        showMessage(t('verify_success_title'), t('verify_success_msg'));
         // Clean the URL
         window.history.replaceState({}, document.title, window.location.pathname);
     }

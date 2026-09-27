@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.3`
+# FluxDrop & server `v0.21.1.4`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -13,12 +13,12 @@ repo. Anyone can use it.
 - ...
 
 **Fixed**
-- ***I18n fix in the profile panel: the title, avatar upload/remove statuses, 
-password-change validation and result messages, the "Saving…"/"Changing…" 
-button states and the Space Analyzer tooltips (also in the profile menu) were 
-hardcoded English and now follow the selected language***
 - I18n in the profile panel: title, avatar statuses, password messages,
   button states and Space Analyzer tooltips now follow the selected language
+- I18n in pop-up messages: "Upload successful" and every other message dialog
+  that still had hardcoded English text (upload/download errors, session
+  expired, login failed, share updates, account verification), plus the
+  desktop notification shown when an upload finishes in the background
 
 ### Server (backend)
 **Added**
@@ -46,86 +46,194 @@ git tags — optional.
 
 ## About
 
-At this moment, I don't provide `Immich` server for anyone except the selected 
-users. This is due to limited resources, zero profit and "Who can see your 
-data" concept being unregulated, because Immich have unencrypted data at the 
-storage endpoint (means that I can access it on local disk). The used domain is 
-`gallery.arseniusgen.dev`. 
+### What's in this repo
 
-Please use the FluxDrop services for this purpose. For details about **your** 
-data processing on FluxDrop services and other policies, please refer to the 
-Privacy Policy and Terms of Service at [FluxDrop](https://fluxdrop.me/) at the 
-bottom right of the page.
+Mostly **FluxDrop**; a few other things share the same server for now:
+
+| Part | What it is | Code |
+|---|---|---|
+| FluxDrop | File hosting: resumable chunked uploads, sharing, trash, previews, storage quotas | `server_cdn.py`, `core/`, `build/src/fluxdrop_pp/` |
+| CatBox API | CatBox-compatible upload API (`/user/api.php`) on the same CDN | `server_cdn.py` |
+| Status page | Uptime, incidents, message board and FluxDrop notices | `core/status.py`, `snippets/status_page.html` |
+| Main site | Static sites and reverse proxy for my domains | `server_http.py`, `server_https.py` |
+| IP beacon | Small client daemon that reports a device's public IP to FluxDrop | `ip_beacon.py` |
+
+FluxDrop and the rest of the server may become separate repos later. For
+now they share one codebase and one version number.
+
+### Status
+
+As of September 11, 2026, FluxDrop is ready for public use (see the
+[audit](./fluxdrop_audit.md) and [TODO](./TODO.md)).
+
+Updates go in this order: logic and safety issues first, then TODO entries,
+then feedback and [GitHub Issues](https://github.com/ArsenijN/server/issues).
+Please report problems there.
+
+### Links
+
+- FluxDrop: https://fluxdrop.me
+- Main site: https://arseniusgen.dev, https://arseniusgen.uk.to
+- Wiki: https://github.com/ArsenijN/server/wiki
+
+For how FluxDrop handles **your** data, see the Privacy Policy and Terms of
+Service linked at the bottom right of [fluxdrop.me](https://fluxdrop.me/).
+
+### About Immich
+
+I don't provide the Immich server (`gallery.arseniusgen.dev`) to anyone except
+a few selected users. Resources are limited, it makes no profit, and Immich
+stores data unencrypted on disk, so I could technically see it. Please use
+FluxDrop instead.
+
+### History
+
+The repo started in 2023 as the backend for my personal site on free FreeDNS
+subdomains. FluxDrop began as my own file host inside it and grew into the main
+project; most changes since then are for FluxDrop. I want its design to feel
+"very human" and be open to anyone. The repo also served
+[driveguard](https://github.com/ArsenijN/driveguard) (OTA updates; currently
+stalled) and briefly hosted a friend's site, which now runs on its own server.
+
+Everything now runs on proper HTTPS with **Let's Encrypt** certificates:
+arseniusgen.dev, fluxdrop.me, arseniusgen.uk.to and arsenius-gen.uk.to.
+(arsenius_gen.uk.to also works, but can't get a certificate because of the
+underscore.)
+
+Many thanks to Afraid FreeDNS for providing free subdomains for over two years.
+They are what got me into running my own internet projects in 2023.
+
+> **Q: Why didn't you use Let's Encrypt before?**
+>
+> A: I only owned a subdomain from [FreeDNS](https://freedns.afraid.org/subdomain/),
+> not a domain, and many other people used uk.to subdomains too. In 2023
+> `certbot` refused with "too many certificates already issued for this
+> domain", so self-signed certificates were the only option. By 2026 the
+> domain's usage had dropped (uk.to may now be a stealth domain that only
+> existing users can use), and the certificates were issued without problems.
 
 ---
 
-According to the data from `September 11, 2026` (see: 
-[FluxDrop Audit](./fluxdrop_audit.md), [ToDo](./TODO.md)), `server` is ready 
-for public usage.
+## Installation
 
-Updates to the FluxDrop covers the important logic/safety issues first, then 
-anything left in the TODO or from user feedback/issue tracker list on GitHub. 
-Please report the problems there on 
-[GitHub Issues](https://github.com/ArsenijN/server/issues)
+### Prerequisites
+- Python 3.14+ (developed and tested on 3.14.3)
+- `pip`
+- ImageMagick (`sudo apt install imagemagick libmagickwand-dev`) — for email
+  icon embedding
+- Node.js + npm — for rebuilding Tailwind CSS and the locale bundle if you
+  change the frontend
+
+### 1. Clone the repository (on your build machine)
+```bash
+git clone https://github.com/ArsenijN/server
+cd server
+```
+
+### 2. Build the frontend
+```bash
+./build.sh
+```
+Checks the locale files, regenerates the locale bundle, builds Tailwind CSS
+and syncs `server/build/src` → `server/TestWeb`.
+
+### 3. Create a virtual environment (on the server)
+```bash
+python3.14 -m venv /opt/venvs/site_web   # matches the path in the .service files
+source /opt/venvs/site_web/bin/activate
+pip install -r requirements.txt           # from the deployed Web/ directory
+```
+Any path works — just update `ExecStart=` in the `.service` files to match.
+
+### 4. Configure secrets
+
+Sensitive data (database, SMTP credentials, TLS keys, blacklist) lives in
+`server/Web/secrets/`, which git **ignores** and deploys never overwrite.
+Samples are in `server/Web/secrets_samples/`:
+```bash
+cp secrets_samples/credentials_local.env.sample secrets/credentials_local.env
+cp secrets_samples/smtp.env.sample               secrets/smtp.env
+cp secrets_samples/myCA.pem.sample               secrets/myCA.pem   # replace with real cert
+cp secrets_samples/myCA.key.sample               secrets/myCA.key   # replace with real key
+cp secrets_samples/blklst.txt.sample             secrets/blklst.txt
+```
+`config.py` loads `KEY=VALUE` pairs from these files automatically.
+
+Key variables (in `secrets/vars.env`):
+
+| Variable | Description | Example |
+|---|---|---|
+| `PUBLIC_DOMAIN` | Your public hostname | `example.com` |
+| `SERVE_ROOT` | Root of the CDN/media volume | `/srv/fluxdrop/cdn` |
+| `SERVE_DIRECTORY` | Root of the static web files | `/srv/fluxdrop/site/TestWeb` |
+| `UPLOAD_TMP_DIR` | Temp dir for upload chunks — put it on a **different drive** than `SERVE_ROOT` (ideally an SSD), see below | `/mnt/ssd/fluxdrop_upload_sessions` |
+| `HTTP_PORT` | HTTP listen port | `63512` |
+| `HTTPS_PORT` | HTTPS listen port | `64800` |
+
+The background hash scanner has its own settings (`BG_SCAN_*`); see the
+comments above `_bg_crc32_scanner` in `server_cdn.py`.
+
+### 5. Install the systemd services
+
+The `.service` files in `server/services/` use the author's user and paths
+(`User=arsen`, `WorkingDirectory=/home/arsen/...`). Edit `User=`,
+`WorkingDirectory=` and `ExecStart=` to match your setup first, then:
+```bash
+sudo cp ../services/webserver-*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now webserver-http webserver-https webserver-cdn
+```
+
+### 6. Check the logs
+```bash
+journalctl -u webserver-cdn -f
+journalctl -u webserver-https -f
+```
 
 ---
 
-Main service is accessible at: https://arseniusgen.uk.to, 
-https://arseniusgen.dev
+## Keeping the server up to date
 
-FluxDrop is accessible at: https://fluxdrop.me
+`sync_to_server.sh` mirrors your local `./server` tree to the host and
+restarts all three services:
+```bash
+./sync_to_server.sh
+```
 
-Wiki page for `server`: https://github.com/ArsenijN/server/wiki
+- SSH `ControlMaster` multiplexing means your passphrase is asked only once.
+- `secrets/` is **always excluded**, so live credentials and the SQLite
+  database are never overwritten.
+- To avoid a sudo prompt each time, either allow passwordless sudo for
+  `systemctl restart` on the remote, or set `NO_SUDO_PROMPT=1` (uses `sudo`
+  without `-S`, so you need an active sudo session there already).
 
-## Large FluxDrop relations to this server
+Check the deployed version on the status page: `https://<your-domain>/status`.
 
-This server repo is a crucial part of my own projects, like FluxDrop (whole CDN 
-implementation and most of the changes are made for it there in the repo) and 
-[driveguard](https://github.com/ArsenijN/driveguard) (OTA updates, etc.; 
-currently stalled). Since I made my own file hosting thing, I want to make it's 
-design "very human" and open for anyone. So... there we are
+Over time, old files from earlier versions can pile up in `Web/`. To clean up,
+wipe the `Web/` folder **except `secrets/`** and deploy again. Be careful with
+`rm -rf` here — deleting `secrets/` loses all credentials and the user
+database.
 
-FluxDrop and entire server now operates with proper HTTPS thanks to **Let's 
-Encrypt**'s certificates! Test it out at: arseniusgen.uk.to or 
-arsenius-gen.uk.to (arsenius_gen.uk.to is also valid, but can't have secure 
-HTTPS due to the limitations in the URL/address of having underscores). Also 
-now on arseniusgen.dev and fluxdrop.me
+---
 
-A huge thanks to the Afraid FreeDNS for providing the free subdomains for now 
-over than 2 years straight. Those subdomains based my interest in making own 
-internet projects since 2023
+## Dev notes
 
-> Q: Why you didn't used Let's Encrypt before?
+### Upload temp directory
 
-> A: High usage of domain. Yes, since I technically owned only a subdomain and 
-not a domain, provided by [FreeDNS](https://freedns.afraid.org/subdomain/), I 
-was restricted by the thing that other users also used the subdomains from 
-uk.to, and... In 2023, I was not able to do the certs because following the 
-instructions with `certbot` from Let's Encrypt, it said that "there's a lot of 
-certs already made for this domain", and... Self-signed certs was only the 
-option that made all of this happened. At 2026 usage was lowered (or because 
-the uk.to is now a shealth domain, basically no one can now use it except 
-those who used it before?), and I was able to do the certificates successfully 
-and properly, and... Now there we are
+`UPLOAD_TMP_DIR` decides how uploads are written (see `core/upload.py`):
 
-## Dev info
-### Server deployment
+- **Different drive than the destination** (recommended): chunks are written
+  straight into the pre-allocated destination file — no temp copies, no
+  assembly step.
+- **Same drive**: chunks are buffered in `UPLOAD_TMP_DIR` and copied into the
+  destination when the upload finishes. On an HDD this means heavy head seeking
+  and much slower processing.
 
-It's recommended to wipe the `Web` subfolder (preserving the secrets and 
-settings) and re-deploy the new server files to remove excess files from older 
-updates and commits. Please be cautious with `rm -rf` command since this may 
-lead to the total server wipe of credentials and frontend files
-
-Please take a note that server uses `UPLOAD_TMP_DIR` as storage for chunks that 
-are uploaded to the server, to then process them and while processing, write 
-them to the destination file. It's very recommended to ensure that 
-`UPLOAD_TMP_DIR` lives on separate drive (other HDD from main storage of files) 
-since that will envolve severe head seeks that will significantly reduce the 
-speeds of the file processing
+The default is `/tmp/fluxdrop_upload_sessions`.
 
 ### Posting a notice
 
-Notices live in the `message_board` table, so anything on the status page's
+Notices live in the `message_board` table, so any post on the status page's
 message board can become one. The intended flow is the status page admin panel
 (bottom-right *Admin* pill → **Message Board**): post the announcement as usual,
 then press 📢 on it, choose level/duration, optionally fill in the Ukrainian
@@ -169,111 +277,13 @@ stop it. `expires_at` is UTC `YYYY-MM-DD HH:MM[:SS]`, matching how SQLite stores
 `CURRENT_TIMESTAMP`. Sending `"expires_at": null` or `"i18n": null` on a PATCH
 clears that field.
 
-### Secrets handling
+### Helper scripts
 
-Sensitive information (database, SMTP credentials, SSL keys, etc.) is kept in 
-`server/Web/secrets` and is **ignored by git**. Example files are available in 
-`server/Web/secrets_samples`; copy the relevant sample and rename it without 
-the `.sample` suffix before running the servers.  `config.py` and the request 
-handlers automatically load any environment-style `KEY=VALUE` pairs from those 
-files.
+Run from `Web/` with the venv active:
 
-This makes the repository safe to sync or publish; no actual credentials should 
-appear in the tracked files.
-
-### Services
-
-The `.service` files use `User=arsen` and `WorkingDirectory=/home/arsen/...` 
-which match the author's server. Before running `systemctl enable`, edit these 
-to match your own username and deploy path, or set `REMOTE_SERVICE_USER` in 
-`deploy.env` (a future deploy step can patch them automatically).
-
-## Installation
-
-### Prerequisites
-- Python 3.14+ (developed and tested on 3.14.3)
-- `pip`
-- ImageMagick (`sudo apt install imagemagick libmagickwand-dev`) — for email 
-icon embedding
-- Node.js + npm — for rebuilding Tailwind CSS if you modify the frontend
-
-### 1. Clone and enter the repository on building station
-```bash
-git clone https://github.com/ArsenijN/server
-cd serevr/server/Web
-```
-
-### 2. Create and activate a virtual environment on remote server
-```bash
-python3.14 -m venv /opt/venvs/site_web   # matches the path in the .service files
-source /opt/venvs/site_web/bin/activate
-```
-Or use any path you prefer — just update `ExecStart=` in the `.service` files 
-accordingly.
-
-### 3. Install dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configure secrets
-Copy the sample files and fill in your values:
-```bash
-cp secrets_samples/credentials_local.env.sample secrets/credentials_local.env
-cp secrets_samples/smtp.env.sample               secrets/smtp.env
-cp secrets_samples/myCA.pem.sample               secrets/myCA.pem   # replace with real cert
-cp secrets_samples/myCA.key.sample               secrets/myCA.key   # replace with real key
-cp secrets_samples/blklst.txt.sample             secrets/blklst.txt
-```
-
-Key environment variables (set in `secrets/vars.env`):
-| Variable | Description | Example |
-|---|---|---|
-| `PUBLIC_DOMAIN` | Your public hostname | `example.com` |
-| `SERVE_ROOT` | Root of the CDN/media volume | `/srv/fluxdrop/cdn` |
-| `SERVE_DIRECTORY` | Root of the static web files | `/srv/fluxdrop/site/TestWeb` |
-| `UPLOAD_TMP_DIR` | Temp dir for chunked uploads (should be on the same volume as `SERVE_ROOT`) | `/srv/fluxdrop/cdn/.upload_sessions` |
-| `HTTP_PORT` | HTTP listen port | `63512` |
-| `HTTPS_PORT` | HTTPS listen port | `64800` |
-
-### 5. Install and enable systemd services
-```bash
-# Edit the service files first — update User=, WorkingDirectory=, ExecStart= to match your paths
-sudo cp ../services/*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now webserver-http webserver-https webserver-cdn
-```
-
-### 6. Check logs
-```bash
-journalctl -u webserver-cdn -f
-journalctl -u webserver-https -f
-```
-
-
-
-## Keeping the server up to date
-
-The `sync_to_server.sh` script performs a one-way mirror from your local
-`./server` tree to the Debian host and restarts all three services 
-automatically:
-```bash
-./sync_to_server.sh
-```
-
-It uses SSH `ControlMaster` multiplexing, so your passphrase is only asked once
-regardless of how many rsync invocations run.
-
-The `secrets/` directory is **always excluded** from sync — live credentials and
-the SQLite database on the server are never overwritten by a deploy.
-
-If you prefer not to be prompted for a sudo password each time, either:
-- Configure passwordless sudo on the remote for `systemctl restart` only, or
-- Set `NO_SUDO_PROMPT=1` before running (uses `sudo` without `-S`, so you'll
-  need an active sudo session on the remote already)
-
-To verify the deployed version after a sync, check the server's log or the
-`/status` page:
-```
-https://<your-domain>/status
-```
+| Script | Purpose |
+|---|---|
+| `.helper-list_users.py [--db path]` | List accounts (incl. admin flag and quota) |
+| `.helper-check_user_password.py <user> <pass>` | Check a password; reports which hash scheme matched |
+| `.helper-set_user_password.py <user> <pass>` | Reset a password; logs out all sessions |
+| `.helper-generate_token.py <user> <pass> <path>` | Mint a download token and print its URL |

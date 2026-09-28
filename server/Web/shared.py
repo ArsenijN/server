@@ -285,3 +285,112 @@ def health_check_self_ping_http(server_ip, http_port):
 
 def health_check_self_ping_https(server_ip, https_port):
     _health_check_socket(server_ip, https_port, label="HTTPS")
+
+
+# --- Compressed static files ---
+# Text assets (JS/CSS/HTML/SVG/JSON/Markdown) used to go out uncompressed —
+# script.js alone was 456 KB on the wire instead of ~60 KB. build.sh writes
+# pre-compressed "<file>.gz" (and ".br" if a brotli tool is available) next to
+# each asset; serve_compressed_static() sends the best one the browser
+# accepts, and gzips on the fly (cached in memory) when no copy exists.
+import gzip as _gzip
+import mimetypes as _mimetypes
+from email.utils import formatdate as _formatdate, parsedate_to_datetime as _parsedate
+
+_COMPRESSIBLE_EXTS = {'.js', '.mjs', '.css', '.html', '.htm', '.svg', '.json',
+                      '.md', '.txt', '.xml', '.map'}
+_GZ_MIN, _GZ_MAX_ONTHEFLY = 512, 4 * 1024 * 1024
+_gz_cache: dict = {}              # path -> (mtime_ns, size, bytes)
+_gz_cache_lock = threading.Lock()
+_GZ_CACHE_MAX_ENTRIES = 64
+
+
+def _accepts(accept_encoding: str, coding: str) -> bool:
+    for part in accept_encoding.split(','):
+        name, _, params = part.strip().partition(';')
+        if name.strip().lower() == coding:
+            return 'q=0' not in params.replace(' ', '') or 'q=0.' in params.replace(' ', '')
+    return False
+
+
+def _gzip_cached(filepath: str, st) -> bytes:
+    key = filepath
+    with _gz_cache_lock:
+        hit = _gz_cache.get(key)
+        if hit and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
+            return hit[2]
+    with open(filepath, 'rb') as f:
+        data = _gzip.compress(f.read(), compresslevel=6, mtime=0)
+    with _gz_cache_lock:
+        if len(_gz_cache) >= _GZ_CACHE_MAX_ENTRIES:
+            _gz_cache.pop(next(iter(_gz_cache)))
+        _gz_cache[key] = (st.st_mtime_ns, st.st_size, data)
+    return data
+
+
+def serve_compressed_static(handler, filepath: str) -> bool:
+    """Send *filepath* compressed if possible. True = response fully sent.
+
+    Returns False (caller falls back to plain serving) for non-text files,
+    tiny files, Range requests (byte ranges refer to the uncompressed file),
+    or clients that don't accept gzip/br.
+    """
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext not in _COMPRESSIBLE_EXTS or not os.path.isfile(filepath):
+        return False
+    if handler.headers.get('Range'):
+        return False
+    ae = handler.headers.get('Accept-Encoding', '') or ''
+    try:
+        st = os.stat(filepath)
+    except OSError:
+        return False
+    if st.st_size < _GZ_MIN:
+        return False
+
+    body = coding = None
+    for enc, suffix in (('br', '.br'), ('gzip', '.gz')):
+        side = filepath + suffix
+        if _accepts(ae, enc) and os.path.isfile(side) and os.path.getmtime(side) >= st.st_mtime:
+            try:
+                with open(side, 'rb') as f:
+                    body, coding = f.read(), enc
+                break
+            except OSError:
+                pass
+    if body is None and _accepts(ae, 'gzip') and st.st_size <= _GZ_MAX_ONTHEFLY:
+        try:
+            body, coding = _gzip_cached(filepath, st), 'gzip'
+        except OSError:
+            return False
+    if body is None:
+        return False
+
+    # Conditional GET — same semantics SimpleHTTPRequestHandler uses.
+    ims = handler.headers.get('If-Modified-Since')
+    if ims and not handler.headers.get('If-None-Match'):
+        try:
+            if int(st.st_mtime) <= _parsedate(ims).timestamp():
+                handler.send_response(304)
+                handler.send_header('Vary', 'Accept-Encoding')
+                handler.end_headers()
+                return True
+        except (TypeError, ValueError, OverflowError, IndexError):
+            pass
+
+    ctype = _mimetypes.guess_type(filepath)[0] or 'application/octet-stream'
+    if ext == '.md':
+        ctype = 'text/markdown'
+    if ctype.startswith('text/') or ctype in ('application/javascript', 'application/json',
+                                              'image/svg+xml'):
+        ctype += '; charset=utf-8'
+    handler.send_response(200)
+    handler.send_header('Content-Type', ctype)
+    handler.send_header('Content-Encoding', coding)
+    handler.send_header('Vary', 'Accept-Encoding')
+    handler.send_header('Content-Length', str(len(body)))
+    handler.send_header('Last-Modified', _formatdate(st.st_mtime, usegmt=True))
+    handler.end_headers()
+    if handler.command != 'HEAD':
+        handler.wfile.write(body)
+    return True

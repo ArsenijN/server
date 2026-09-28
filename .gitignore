@@ -122,3 +122,8 @@ server/files/
 /server/services/tilesna_api.service
 # This is temporary site for a friend, hosted on my server until we'll get a 
 # proper hardware+software
+# Build output from build.sh: pre-compressed copies and source maps
+# (regenerated on every build; sync_to_server.sh deploys them from disk)
+server/TestWeb/**/*.gz
+server/TestWeb/**/*.br
+server/TestWeb/**/*.map

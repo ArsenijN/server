@@ -8,6 +8,9 @@
 #   3. Sync all source files from server/build/src → server/TestWeb (rsync)
 #   4. Build / watch Tailwind CSS
 #   5. Stamp @@CACHE_VER@@ in sw.js and script.js
+#   6. Minify JS/CSS in TestWeb (esbuild, with source maps) — src stays readable
+#   7. Pre-compress text assets (.gz, plus .br if a brotli tool is installed)
+#      so the web server can send them compressed without per-request CPU
 
 set -e
 
@@ -29,15 +32,18 @@ BUILD_BUNDLE="$BUILD_DIR/build_locale_bundle.py"
 # Parse flags
 WATCH=false
 SKIP_LOCALE=false
+MINIFY=true
 for arg in "$@"; do
     case $arg in
         --watch|-w)        WATCH=true ;;
         --skip-locale)     SKIP_LOCALE=true ;;  # escape hatch for CI that manages locales separately
+        --no-minify)       MINIFY=false ;;      # keep TestWeb JS/CSS readable (debugging)
         --help|-h)
             echo "Usage: ./build.sh [options]"
             echo "  (no flags)       Check locales, build bundle + CSS, sync src→TestWeb"
             echo "  --watch,-w       Sync once, then watch CSS for changes"
             echo "  --skip-locale    Skip locale check/rebuild (useful if already up to date)"
+            echo "  --no-minify      Don't minify JS/CSS in TestWeb (still pre-compresses)"
             exit 0
             ;;
     esac
@@ -115,6 +121,57 @@ build_css() {
     echo "✅ Tailwind CSS → $CSS_OUTPUT"
 }
 
+# ── Minify (TestWeb copies only) ──────────────────────────────────────────────
+# Strips comments/whitespace and shortens local names. Top-level functions keep
+# their names (esbuild doesn't rename them when not bundling), so inline
+# onclick="showPolicyModal('tos')" handlers keep working. Each file gets a
+# source map, so errors in devtools still point at the readable source.
+# Runs after stamping so the stamped cache version is what gets minified.
+minify_assets() {
+    local ESB="$SCRIPT_DIR/node_modules/.bin/esbuild"
+    if [ ! -x "$ESB" ]; then
+        echo "⚠  esbuild not installed (npm install) — skipping minification"
+        return 0
+    fi
+    echo "🗜  Minifying JS/CSS..."
+    local TMPD
+    TMPD=$(mktemp -d)
+    local f
+    for f in "$OUT/script.js" "$OUT/fd_addons.js" "$OUT/fd_locale_bundle.js" "$OUT/sw.js" \
+             "$OUT/fd_dark.css" "$OUT/assets/Inter.css"; do
+        [ -f "$f" ] || continue
+        local base; base=$(basename "$f")
+        if "$ESB" "$f" --minify --charset=utf8 --sourcemap --log-level=warning \
+               --outfile="$TMPD/$base"; then
+            mv -f "$TMPD/$base" "$f"
+            mv -f "$TMPD/$base.map" "$f.map"
+        else
+            echo "   ⚠ minify failed for $f — keeping it unminified"
+        fi
+    done
+    rm -rf "$TMPD"
+    echo "✅ Minified"
+}
+
+# ── Pre-compress text assets ──────────────────────────────────────────────────
+precompress_assets() {
+    echo "📦 Pre-compressing text assets..."
+    local HAS_BR=false
+    command -v brotli &>/dev/null && HAS_BR=true
+    # Drop stale compressed copies whose original is gone.
+    find "$OUT" -type f \( -name "*.gz" -o -name "*.br" \) | while read -r c; do
+        [ -f "${c%.*}" ] || rm -f "$c"
+    done
+    local n=0
+    while IFS= read -r -d '' f; do
+        gzip -9 -k -f -n "$f"
+        $HAS_BR && brotli -f -q 11 -o "$f.br" "$f"
+        n=$((n + 1))
+    done < <(find "$OUT" -type f -size +511c \( -name "*.js" -o -name "*.css" -o -name "*.html" \
+                -o -name "*.svg" -o -name "*.json" -o -name "*.md" -o -name "*.map" \) -print0)
+    echo "✅ Pre-compressed $n files (gzip$($HAS_BR && echo ' + brotli'))"
+}
+
 # ── Main build sequence ───────────────────────────────────────────────────────
 if ! $SKIP_LOCALE; then
     check_locales      # abort if locale files are broken
@@ -130,4 +187,6 @@ if $WATCH; then
 else
     build_css
     stamp_cache_version
+    $MINIFY && minify_assets
+    precompress_assets
 fi

@@ -9,6 +9,7 @@ from config import SERVE_DIRECTORY, LOG_FILE_HTTP, BLACKLIST_FILE
 from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
 from config import HTTPS_PORT as _HTTPS_PORT
 from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
+from shared import serve_compressed_static
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 import datetime
@@ -273,35 +274,19 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def send_head(self):
-        """Gzip static .md files — mirrors server_https.py's identical override.
-        See that copy's docstring for the full rationale; kept in sync here
-        since arseniusgen.uk.to/arseniusgen.dev traffic over plain HTTP isn't
-        redirected to HTTPS (only fluxdrop.me is, via _ROOT_HTTPS_DOMAINS),
-        so this same static-file path is genuinely reachable here too."""
+        """Serve text assets compressed (pre-built .br/.gz, else on-the-fly
+        gzip) before falling back to plain static serving — see
+        shared.serve_compressed_static. Used to cover only .md files; JS/CSS
+        went out uncompressed (script.js: 456 KB instead of ~60 KB)."""
         _clean_path = self.path.split('?')[0]
         filepath = self.translate_path(_clean_path)
-        if (os.path.isfile(filepath)
-                and filepath.lower().endswith('.md')
-                and 'gzip' in self.headers.get('Accept-Encoding', '')
-                and not self.headers.get('Range')):
-            try:
-                st = os.stat(filepath)
-                if _GZIP_MIN_SIZE <= st.st_size <= _GZIP_MAX_INLINE:
-                    with open(filepath, 'rb') as f:
-                        raw = f.read()
-                    compressed = _gzip_mod.compress(raw, compresslevel=6)
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'text/markdown; charset=utf-8')
-                    self.send_header('Content-Encoding', 'gzip')
-                    self.send_header('Vary', 'Accept-Encoding')
-                    self.send_header('Content-Length', str(len(compressed)))
-                    self.send_header('Last-Modified', _formatdate(st.st_mtime, usegmt=True))
-                    self.send_header('Accept-Ranges', 'none')
-                    self.end_headers()
-                    self.wfile.write(compressed)
-                    return None
-            except Exception:
-                logging.exception('gzip static .md serving failed for %r — falling back to plain', filepath)
+        try:
+            if serve_compressed_static(self, filepath):
+                return None
+        except (BrokenPipeError, ConnectionResetError):
+            raise
+        except Exception:
+            logging.exception('compressed static serving failed for %r — falling back to plain', filepath)
         return super().send_head()
 
     def add_cors_headers(self):

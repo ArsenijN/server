@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.16`
+# FluxDrop & server `v0.21.1.17`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -21,6 +21,9 @@ repo. Anyone can use it.
 - Version picker in the Terms of Service / Privacy Policy viewer: read any
   earlier published version, with a note when it's no longer in effect
 - Full-screen "Creating your account…" spinner while registering
+- Loading screen shows what it's doing ("Loading the app… / translations… /
+  extras… / Starting…") with a progress bar, and after 8 s explains that the
+  connection seems slow and that later visits load from the device
 
 **Changed**
 - The offline page loads the Inter font from FluxDrop itself instead of Google
@@ -99,6 +102,14 @@ repo. Anyone can use it.
   readable "server is out of storage space" message once only the reserve
   (`QUOTA_RESERVE_GB`, default 20, or `QUOTA_RESERVE_PCT` of the disk, default
   2 %) is left — instead of failing with "No space left on device" mid-transfer
+- Static text files (JS, CSS, HTML, SVG, JSON, Markdown) are now sent
+  compressed: the web servers serve the pre-built `.br` / `.gz` copy when the
+  browser accepts it, and gzip on the fly (cached in memory) otherwise. Before,
+  only `.md` was compressed — `script.js` went out as 456 KB, now ~63 KB
+- `build.sh` minifies the TestWeb copies of the JS/CSS with esbuild (source
+  maps included, `build/src` stays readable; `--no-minify` to skip) and
+  pre-compresses text assets. esbuild is a new dev dependency — run
+  `npm install` once
 - `GET /api/v1/policy/history`: published versions of each policy per
   language (never anything newer than `versions.json`, so drafts stay hidden)
 

@@ -75,16 +75,51 @@
                  border:3px solid #dbeafe;border-top-color:#3b82f6;
                  animation:fd-boot-spin .8s linear infinite"></div>
             <span id="fd-boot-text" style="font-size:0.9rem">Loading FluxDrop…</span>
+            <div style="width:180px;height:4px;border-radius:2px;background:#dbeafe;overflow:hidden">
+                <div id="fd-boot-bar" style="width:8%;height:100%;background:#3b82f6;transition:width .3s"></div>
+            </div>
+            <span id="fd-boot-hint" style="font-size:0.78rem;color:#94a3b8;max-width:320px;text-align:center;display:none"></span>
         </div>
         <script>
-          /* The locale bundle hasn't loaded yet at this point — pick the text
-             from the saved language (same key as the app) or the browser. */
+          /* Boot progress. The locale bundle hasn't loaded yet at this point,
+             so the texts live here, picked by the saved language (same key as
+             the app) or the browser. Each <script> tag below reports in via
+             _fdBootStep() when it finishes; on slow connections a hint
+             explains the wait. script.js removes #fd-boot-loading on first
+             render, which also ends this. */
           (function () {
+            var L = 'en';
             try {
-              var l = localStorage.getItem('fluxdrop_lang') ||
-                      ((navigator.language || '').toLowerCase().indexOf('uk') === 0 ? 'uk' : 'en');
-              if (l === 'uk') document.getElementById('fd-boot-text').textContent = 'Завантаження FluxDrop…';
+              L = localStorage.getItem('fluxdrop_lang') ||
+                  ((navigator.language || '').toLowerCase().indexOf('uk') === 0 ? 'uk' : 'en');
             } catch (_) {}
+            var T = {
+              en: { start: 'Loading FluxDrop…', app: 'Loading the app…', i18n: 'Loading translations…',
+                    extras: 'Loading extras…', run: 'Starting…',
+                    slow: 'Your connection seems slow, so this may take a minute. Next time FluxDrop loads from your device and starts much faster.' },
+              uk: { start: 'Завантаження FluxDrop…', app: 'Завантаження застосунку…', i18n: 'Завантаження перекладів…',
+                    extras: 'Завантаження додатків…', run: 'Запуск…',
+                    slow: 'Схоже, з\u2019єднання повільне, тож це може зайняти хвилину. Наступного разу FluxDrop завантажиться з вашого пристрою й запуститься набагато швидше.' }
+            }[L === 'uk' ? 'uk' : 'en'];
+            var text = document.getElementById('fd-boot-text');
+            var bar  = document.getElementById('fd-boot-bar');
+            var order = ['app', 'i18n', 'extras'], done = {};
+            text.textContent = T.app;
+            window._fdBootStep = function (part) {
+              done[part] = true;
+              var n = order.filter(function (p) { return done[p]; }).length;
+              if (bar) bar.style.width = Math.round(8 + 92 * n / order.length) + '%';
+              var next = order.filter(function (p) { return !done[p]; })[0];
+              if (text) text.textContent = next ? T[next] : T.run;
+            };
+            setTimeout(function () {
+              var box = document.getElementById('fd-boot-loading');
+              var hint = document.getElementById('fd-boot-hint');
+              if (box && box.isConnected && box.style.display !== 'none' && hint) {
+                hint.textContent = T.slow;
+                hint.style.display = 'block';
+              }
+            }, 8000);
           })();
         </script>
         <style>@keyframes fd-boot-spin{to{transform:rotate(360deg)}}</style>
@@ -161,12 +196,12 @@
         if (boot) boot.style.display = 'none';
       };
     </script>
-    <script src="/fluxdrop_pp/script.js" onerror="window._fdScriptError('script.js')"></script>
+    <script src="/fluxdrop_pp/script.js" onload="window._fdBootStep && _fdBootStep('app')" onerror="window._fdScriptError('script.js')"></script>
     <!-- fd_locale_bundle.js MUST be before fd_addons.js so t() is synchronous.
          Regenerate after editing locale files:
            python3 build_locale_bundle.py locale/ fd_locale_bundle.js -->
-    <script src="/fluxdrop_pp/fd_locale_bundle.js" onerror="window._fdScriptError('fd_locale_bundle.js')"></script>
-    <script src="/fluxdrop_pp/fd_addons.js" onerror="window._fdScriptError('fd_addons.js')"></script>
+    <script src="/fluxdrop_pp/fd_locale_bundle.js" onload="window._fdBootStep && _fdBootStep('i18n')" onerror="window._fdScriptError('fd_locale_bundle.js')"></script>
+    <script src="/fluxdrop_pp/fd_addons.js" onload="window._fdBootStep && _fdBootStep('extras')" onerror="window._fdScriptError('fd_addons.js')"></script>
 
     <!--
         Pure-CSS style-load fallback.

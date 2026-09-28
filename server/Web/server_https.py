@@ -13,6 +13,7 @@ from werkzeug.formparser import parse_form_data # For parsing multipart/form-dat
 from urllib.parse import quote_plus
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
+from shared import serve_compressed_static
 from shared import PrefetchReader, CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
@@ -851,46 +852,19 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def send_head(self):
-        """Gzip static .md files before falling back to normal static serving.
-
-        Policy documents (ToS/Privacy Policy) and any other .md file are
-        served as plain static assets through this class's inherited
-        do_GET() → send_head() path — there was no gzip support anywhere on
-        that path at all. (server_cdn.py has its own identical copy of this
-        logic for CDN-proxied paths, but policy docs aren't proxied there —
-        this is the actual code path they go through.)
-
-        Skipped when the client doesn't advertise gzip support, the file is
-        outside the sane size range, or a Range request is in play (a
-        byte-range against a whole-body-gzip'd response doesn't make sense —
-        we explicitly advertise Accept-Ranges: none for this response instead
-        of letting the client assume ranges work).
-        """
+        """Serve text assets compressed (pre-built .br/.gz, else on-the-fly
+        gzip) before falling back to plain static serving — see
+        shared.serve_compressed_static. Used to cover only .md files; JS/CSS
+        went out uncompressed (script.js: 456 KB instead of ~60 KB)."""
         _clean_path = self.path.split('?')[0]
         filepath = self.translate_path(_clean_path)
-        if (os.path.isfile(filepath)
-                and filepath.lower().endswith('.md')
-                and 'gzip' in self.headers.get('Accept-Encoding', '')
-                and not self.headers.get('Range')):
-            try:
-                st = os.stat(filepath)
-                if _GZIP_MIN_SIZE <= st.st_size <= _GZIP_MAX_INLINE:
-                    with open(filepath, 'rb') as f:
-                        raw = f.read()
-                    compressed = _gzip_mod.compress(raw, compresslevel=6)
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'text/markdown; charset=utf-8')
-                    self.send_header('Content-Encoding', 'gzip')
-                    self.send_header('Vary', 'Accept-Encoding')
-                    self.send_header('Content-Length', str(len(compressed)))
-                    self.send_header('Last-Modified', _formatdate(st.st_mtime, usegmt=True))
-                    self.send_header('Accept-Ranges', 'none')
-                    self.end_headers()
-                    self.wfile.write(compressed)
-                    return None
-            except Exception:
-                logging.exception('gzip static .md serving failed for %r — falling back to plain', filepath)
-                # Fall through to the normal (uncompressed) path below.
+        try:
+            if serve_compressed_static(self, filepath):
+                return None
+        except (BrokenPipeError, ConnectionResetError):
+            raise
+        except Exception:
+            logging.exception('compressed static serving failed for %r — falling back to plain', filepath)
         return super().send_head()
 
     def _set_headers(self, status_code=200, content_type='text/html'):

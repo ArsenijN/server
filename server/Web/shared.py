@@ -394,3 +394,24 @@ def serve_compressed_static(handler, filepath: str) -> bool:
     if handler.command != 'HEAD':
         handler.wfile.write(body)
     return True
+
+
+def send_body_compressed(handler, body: bytes, content_type: str,
+                         headers: dict | None = None, status: int = 200) -> None:
+    """Send an in-memory response (e.g. a patched index.html), gzipped when
+    the client accepts it. For pages built per request, where there's no file
+    for serve_compressed_static to work from."""
+    coding = None
+    if len(body) >= _GZ_MIN and _accepts(handler.headers.get('Accept-Encoding', '') or '', 'gzip'):
+        body, coding = _gzip.compress(body, compresslevel=6, mtime=0), 'gzip'
+    handler.send_response(status)
+    handler.send_header('Content-Type', content_type)
+    if coding:
+        handler.send_header('Content-Encoding', coding)
+    handler.send_header('Vary', 'Accept-Encoding')
+    handler.send_header('Content-Length', str(len(body)))
+    for k, v in (headers or {}).items():
+        handler.send_header(k, v)
+    handler.end_headers()
+    if handler.command != 'HEAD':
+        handler.wfile.write(body)

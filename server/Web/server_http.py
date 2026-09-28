@@ -9,7 +9,7 @@ from config import SERVE_DIRECTORY, LOG_FILE_HTTP, BLACKLIST_FILE
 from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
 from config import HTTPS_PORT as _HTTPS_PORT
 from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
-from shared import serve_compressed_static
+from shared import serve_compressed_static, send_body_compressed
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 import datetime
@@ -280,6 +280,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         went out uncompressed (script.js: 456 KB instead of ~60 KB)."""
         _clean_path = self.path.split('?')[0]
         filepath = self.translate_path(_clean_path)
+        # Folder URL (/fluxdrop_pp/) → its index.html, like the plain handler
+        # does, so the page itself is compressed too.
+        if _clean_path.endswith('/') and os.path.isdir(filepath):
+            filepath = os.path.join(filepath, 'index.html')
         try:
             if serve_compressed_static(self, filepath):
                 return None

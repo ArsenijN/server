@@ -103,6 +103,8 @@ const PRECACHE_URLS = [
 // the page's scripts sat "pending" behind them. Cached on first use instead.
 const LAZY_URLS = [
     '/fluxdrop_pp/icon-128.png',
+    '/fluxdrop_pp/icon-72.webp',
+    '/fluxdrop_pp/icon-128.webp',
     '/fluxdrop_pp/assets/heic2any.min.js',
     '/fluxdrop_pp/assets/jszip.min.js',
     '/fluxdrop_pp/assets/marked.min.js',

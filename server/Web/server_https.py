@@ -13,7 +13,7 @@ from werkzeug.formparser import parse_form_data # For parsing multipart/form-dat
 from urllib.parse import quote_plus
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
-from shared import serve_compressed_static
+from shared import serve_compressed_static, send_body_compressed
 from shared import PrefetchReader, CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
@@ -858,6 +858,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         went out uncompressed (script.js: 456 KB instead of ~60 KB)."""
         _clean_path = self.path.split('?')[0]
         filepath = self.translate_path(_clean_path)
+        # Folder URL (/fluxdrop_pp/) → its index.html, like the plain handler
+        # does, so the page itself is compressed too.
+        if _clean_path.endswith('/') and os.path.isdir(filepath):
+            filepath = os.path.join(filepath, 'index.html')
         try:
             if serve_compressed_static(self, filepath):
                 return None
@@ -963,14 +967,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                             b'<base href="/">',
                             1,
                         )
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'text/html; charset=utf-8')
-                        self.send_header('Content-Length', str(len(_html)))
                         # Never cache the shell — a stale version with the wrong
                         # base href would silently break asset loading.
-                        self.send_header('Cache-Control', 'no-cache, no-store')
-                        self.end_headers()
-                        self.wfile.write(_html)
+                        send_body_compressed(self, _html, 'text/html; charset=utf-8',
+                                             {'Cache-Control': 'no-cache, no-store'})
                         return
                     except Exception as _e:
                         print(f'[root-domain rewrite] index.html read failed '

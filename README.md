@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.17`
+# FluxDrop & server `v0.21.1.18`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -35,6 +35,11 @@ repo. Anyone can use it.
 - The report page has an EN / УКР switch (shared with the app's language
   setting), and "FluxDrop" links on share / report / status pages go to `/` on
   fluxdrop.me instead of the legacy `/fluxdrop_pp/index.html`
+- Better contrast for the blue and green buttons and the grey footer text
+  (they were below the WCAG 4.5 : 1 minimum)
+- Faster first load: the Latin Inter font is preloaded instead of waiting for
+  `Inter.css`, the landing logo is a 3 KB WebP instead of an 11 KB PNG, and the
+  loading bar animates with `transform` (no layout work per frame)
 
 **Fixed**
 - I18n in the profile panel: title, avatar statuses, password messages,
@@ -106,6 +111,8 @@ repo. Anyone can use it.
   compressed: the web servers serve the pre-built `.br` / `.gz` copy when the
   browser accepts it, and gzip on the fly (cached in memory) otherwise. Before,
   only `.md` was compressed — `script.js` went out as 456 KB, now ~63 KB
+- The app page itself is compressed too (13.8 KB → 4.9 KB): the `fluxdrop.me/`
+  rewrite and folder URLs like `/fluxdrop_pp/` sent it uncompressed
 - `build.sh` minifies the TestWeb copies of the JS/CSS with esbuild (source
   maps included, `build/src` stays readable; `--no-minify` to skip) and
   pre-compresses text assets. esbuild is a new dev dependency — run

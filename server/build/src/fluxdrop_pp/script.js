@@ -759,7 +759,7 @@ function renderAuthControls() {
         authControls.innerHTML = `
             <div class="flex items-center gap-4">
                 <button id="show-login-btn" class="btn text-sm">${t('login')}</button>
-                <button id="show-register-btn" class="btn bg-green-500 hover:bg-green-600 text-sm">${t('register')}</button>
+                <button id="show-register-btn" class="btn bg-green-700 hover:bg-green-800 text-sm">${t('register')}</button>
             </div>
         `;
         document.getElementById('show-login-btn').addEventListener('click', () => renderApp('login'));
@@ -812,7 +812,7 @@ function renderLandingView() {
 
             <!-- Hero -->
             <div class="card" style="text-align:center;padding:3rem 2rem">
-                <img src="/fluxdrop_pp/icon-128.png" width="72" height="72" style="width:72px;height:72px;margin:0 auto 1rem" alt="FluxDrop">
+                <img src="/fluxdrop_pp/icon-72.webp" srcset="/fluxdrop_pp/icon-72.webp 1x, /fluxdrop_pp/icon-128.webp 2x" width="72" height="72" style="width:72px;height:72px;margin:0 auto 1rem" alt="FluxDrop">
                 <h2 style="font-size:2.2rem;font-weight:800;color:#1e40af;margin-bottom:.75rem">
                     ${t('home_slogan')}
                 </h2>
@@ -823,7 +823,7 @@ function renderLandingView() {
                 <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
                     <button class="btn" style="font-size:1rem;padding:0.85rem 2rem"
                             onclick="renderApp('login')">${t('login')}</button>
-                    <button class="btn" style="font-size:1rem;padding:0.85rem 2rem;background:#16a34a"
+                    <button class="btn" style="font-size:1rem;padding:0.85rem 2rem;background:#15803d"
                             onclick="renderApp('register')">${t('home_create_account')}</button>
                 </div>
             </div>
@@ -870,13 +870,13 @@ function renderLandingView() {
             </div>
 
             <!-- Footer links -->
-            <div style="text-align:center;padding-bottom:1rem;font-size:.85rem;color:#94a3b8">
+            <div style="text-align:center;padding-bottom:1rem;font-size:.85rem;color:#475569">
                 <button onclick="showPolicyModal('tos')"
-                    style="background:none;border:none;color:#94a3b8;cursor:pointer;text-decoration:underline;font-size:.85rem">
+                    style="background:none;border:none;color:inherit;cursor:pointer;text-decoration:underline;font-size:.85rem">
                     ${t('footer_tos')}</button>
                 &nbsp;·&nbsp;
                 <button onclick="showPolicyModal('pp')"
-                    style="background:none;border:none;color:#94a3b8;cursor:pointer;text-decoration:underline;font-size:.85rem">
+                    style="background:none;border:none;color:inherit;cursor:pointer;text-decoration:underline;font-size:.85rem">
                     ${t('footer_pp')}</button>
             </div>
         </div>
@@ -8771,7 +8771,7 @@ function initFooter() {
         marginTop: 'auto',
         paddingTop: '0.75rem',
         paddingBottom: '0.5rem',
-        color: '#a0aec0',
+        color: '#475569',
         fontSize: '11px',
         fontFamily: 'sans-serif',
         fontWeight: '300',
@@ -8789,10 +8789,10 @@ function initFooter() {
     }
     // Helper to generate the HTML
     const renderContent = (swVer, srvVer) => `
-        <div>FluxDrop Preview Program | <a href="https://github.com/ArsenijN/server/" style="color: #a0a0a0; text-decoration: underline;">GitHub repo</a></div>
+        <div>FluxDrop Preview Program | <a href="https://github.com/ArsenijN/server/" style="color: inherit; text-decoration: underline;">GitHub repo</a></div>
         <div>&copy; 2025-2026 by Arsenii Nochevnyi.</div>
-        <div><button onclick="showPolicyModal('tos')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:#a0a0a0; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
-        <div style="opacity:.7">Script v.${SCRIPT_VERSION} · SW v.${swVer} · Server v.${srvVer || '?'}</div>
+        <div><button onclick="showPolicyModal('tos')" style="background:none; border:none; color:inherit; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:inherit; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
+        <div>Script v.${SCRIPT_VERSION} · SW v.${swVer} · Server v.${srvVer || '?'}</div>
     `;
 
     let _swVer = '...', _srvVer = '...';

@@ -44,6 +44,11 @@
         } catch(_){}
       })();
     </script>
+    <!-- Critical rules that must hold even before (or without) the main
+         stylesheets: if tailwindcss.css is slow, .hidden elements (message
+         modals, the script-error banner) would otherwise show as stray
+         "OK" buttons and a false "failed to load" banner. -->
+    <style>.hidden{display:none}</style>
     <link href="/fluxdrop_pp/assets/Inter.css" rel="stylesheet">
     <link rel="stylesheet" href="/fluxdrop_pp/assets/all.min.css">
     <link rel="stylesheet" href="tailwindcss.css">
@@ -53,7 +58,7 @@
     <!-- Header -->
     <header class="w-full max-w-5xl mb-4 flex justify-between items-center">
         <h1 class="text-3xl font-bold text-blue-800 flex items-center">
-            <img src="icon.svg" class="h-8 w-8 mr-2 inline" alt="FluxDrop logo">
+            <img src="icon.svg" width="32" height="32" class="h-8 w-8 mr-2 inline" alt="FluxDrop logo">
             FluxDrop
         </h1>
         <div id="auth-controls">

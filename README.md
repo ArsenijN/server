@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.14`
+# FluxDrop & server `v0.21.1.15`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -49,6 +49,15 @@ repo. Anyone can use it.
   restart: it measured every account's folder size inside the request when the
   size cache was cold. Sizes not cached yet now show "calculating…" and fill
   in automatically (the list refreshes every few seconds until they're in)
+- Page could hang on "Loading FluxDrop…" right after a deploy, with a huge
+  logo, stray "OK" buttons and a false "FluxDrop failed to load ()" banner: the
+  new service worker downloaded ~5 MB of assets all at once while the page was
+  loading, so the page's own CSS/JS sat pending behind them. The service
+  worker now precaches only the app shell, 3 files at a time; on-demand
+  libraries (heic2any, jszip, marked, untar, StreamSaver) are cached on first
+  use; registration waits for the page's `load` event; and `index.html` keeps
+  `.hidden` elements hidden and the logo at 32 px even before the stylesheets
+  arrive
 - "Loading…" in the Terms / Privacy Policy viewer, trash, move dialog and
   Markdown preview was hardcoded English; it's now translated, with a spinner.
   The policy "could not load" / "Retry" messages are translated too

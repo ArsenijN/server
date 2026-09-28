@@ -8493,8 +8493,10 @@ function openInterruptedManager(onClose) {
         // ======================================================================
 document.addEventListener('DOMContentLoaded', () => {
     // ── Service Worker registration ───────────────────────────────────────
+    // Deferred to window 'load' so a first install's precache downloads never
+    // compete with the page's own CSS/JS/icon requests.
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register(
+        const _registerSW = () => navigator.serviceWorker.register(
             _APP_BASE + '/sw.js',
             { scope: _APP_BASE + '/' }
         ).catch(err => {
@@ -8502,6 +8504,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Log it though — a failed registration is worth knowing about.
             console.warn('[FluxDrop] SW registration failed:', err);
         });
+        if (document.readyState === 'complete') _registerSW();
+        else window.addEventListener('load', _registerSW, { once: true });
     }
 
     // ── Offline / online banner ───────────────────────────────────────────

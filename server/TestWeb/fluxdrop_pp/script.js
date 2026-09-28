@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-15fc1fdc
+// Current version of script.js is: fluxdrop-v-a2a7aaa8
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-15fc1fdc'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-a2a7aaa8'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -8493,8 +8493,10 @@ function openInterruptedManager(onClose) {
         // ======================================================================
 document.addEventListener('DOMContentLoaded', () => {
     // ── Service Worker registration ───────────────────────────────────────
+    // Deferred to window 'load' so a first install's precache downloads never
+    // compete with the page's own CSS/JS/icon requests.
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register(
+        const _registerSW = () => navigator.serviceWorker.register(
             _APP_BASE + '/sw.js',
             { scope: _APP_BASE + '/' }
         ).catch(err => {
@@ -8502,6 +8504,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Log it though — a failed registration is worth knowing about.
             console.warn('[FluxDrop] SW registration failed:', err);
         });
+        if (document.readyState === 'complete') _registerSW();
+        else window.addEventListener('load', _registerSW, { once: true });
     }
 
     // ── Offline / online banner ───────────────────────────────────────────
@@ -8706,7 +8710,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-15fc1fdc'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-a2a7aaa8'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

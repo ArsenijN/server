@@ -87,11 +87,7 @@ const PRECACHE_URLS = [
     '/fluxdrop_pp/fd_locale_bundle.js',
     '/fluxdrop_pp/fd_addons.js',
     '/fluxdrop_pp/assets/all.min.css',
-    '/fluxdrop_pp/assets/heic2any.min.js',
     '/fluxdrop_pp/assets/Inter.css',
-    '/fluxdrop_pp/assets/jszip.min.js',
-    '/fluxdrop_pp/assets/marked.min.js',
-    '/fluxdrop_pp/assets/untar.min.js',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2',
@@ -99,10 +95,28 @@ const PRECACHE_URLS = [
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2',
+];
+
+// Loaded on demand by the app (HEIC preview, ZIP/TAR browsing, Markdown,
+// streamed downloads). Cache-first like the shell, but NOT downloaded during
+// install: they add ~1.5 MB (heic2any alone is 1.35 MB), and downloading them
+// during install competed with the page's own requests right after a deploy —
+// the page's scripts sat "pending" behind them. Cached on first use instead.
+const LAZY_URLS = [
+    '/fluxdrop_pp/assets/heic2any.min.js',
+    '/fluxdrop_pp/assets/jszip.min.js',
+    '/fluxdrop_pp/assets/marked.min.js',
+    '/fluxdrop_pp/assets/untar.min.js',
     '/fluxdrop_pp/assets/streamsaver/StreamSaver.js',
     '/fluxdrop_pp/assets/streamsaver/mitm.html',
     '/fluxdrop_pp/assets/streamsaver/sw.js',
 ];
+const CACHED_URLS = PRECACHE_URLS.concat(LAZY_URLS);
+
+// At most this many install downloads at once. Browsers allow ~6 connections
+// per host over HTTP/1.1; leaving some free keeps a reload during an update
+// from queueing the page's own requests behind the precache.
+const PRECACHE_CONCURRENCY = 3;
 
 // ── Install ───────────────────────────────────────────────────────────────
 self.addEventListener('install', event => {
@@ -117,12 +131,16 @@ self.addEventListener('install', event => {
         caches.open(CACHE_NAME).then(cache => {
             // Force a network fetch, bypassing the browser's HTTP cache, so a
             // long max-age on static .js/.css can't pin an old copy.
-            return Promise.all(PRECACHE_URLS.map(url => {
-                return fetch(new Request(url, { cache: 'no-cache' })).then(response => {
+            const queue = PRECACHE_URLS.slice();
+            const worker = async () => {
+                while (queue.length) {
+                    const url = queue.shift();
+                    const response = await fetch(new Request(url, { cache: 'no-cache' }));
                     if (!response.ok) throw new Error(`Failed to fetch ${url}`);
-                    return cache.put(url, response);
-                });
-            }));
+                    await cache.put(url, response);
+                }
+            };
+            return Promise.all(Array.from({ length: PRECACHE_CONCURRENCY }, worker));
         })
     );
 });
@@ -230,7 +248,7 @@ self.addEventListener('fetch', event => {
     const reqCacheMode = event.request.cache; // 'default'|'no-store'|'no-cache'|'reload'|'force-cache'|'only-if-cached'
     const bypassCache  = reqCacheMode === 'no-store' || reqCacheMode === 'no-cache' || reqCacheMode === 'reload';
 
-    const isShellAsset = PRECACHE_URLS.some(p =>
+    const isShellAsset = CACHED_URLS.some(p =>
         path === p || path === p.replace(/\/+$/, '')
     );
 

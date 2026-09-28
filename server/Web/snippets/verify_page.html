@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FluxDrop — Verify your account</title>
+<link rel="icon" type="image/svg" sizes="32x32" href="/fluxdrop_pp/icon.svg">
+<link rel="stylesheet" href="/fluxdrop_pp/assets/Inter.css">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<style>
+*{box-sizing:border-box}
+body{font-family:Inter,sans-serif;background:#f0f9ff;min-height:100vh;margin:0;padding:24px 16px;color:#1e293b;display:flex;align-items:center;justify-content:center}
+.card{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:32px 28px;max-width:480px;width:100%;text-align:center;animation:in .22s cubic-bezier(.22,1,.36,1)}
+@keyframes in{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+h1{margin:0 0 8px;font-size:22px}
+.muted{color:#64748b;font-size:13px;line-height:1.6;margin:0}
+.lead{color:#475569;font-size:14px;margin:0 0 20px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border:none;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none}
+.btn:disabled{opacity:.65;cursor:default}
+.btn-main{background:#3b82f6;color:white}
+.btn-main:hover:not(:disabled){background:#2563eb}
+.btn-small{padding:5px 12px;font-size:12px;border-radius:7px;background:#fee2e2;color:#b91c1c;margin-top:8px}
+.who{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin:24px 0 16px;text-align:left}
+.who strong{color:#1e293b;word-break:break-all}
+.spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.45);border-top-color:white;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.err{display:none;margin-top:14px;padding:9px 12px;border-radius:8px;font-size:13px;background:#fef2f2;color:#b91c1c}
+.confirm-box{display:none;margin-top:10px;font-size:13px;color:#475569}
+.langs{position:absolute;top:14px;right:14px;display:flex;gap:2px}
+.langs button{border:none;background:none;padding:3px 7px;border-radius:6px;font-size:12px;font-weight:600;color:#94a3b8;cursor:pointer;font-family:inherit}
+.langs button[aria-pressed=true]{background:#e0f2fe;color:#0369a1}
+.card{position:relative}
+.icon{font-size:44px;line-height:1;margin-bottom:12px}
+</style>
+</head><body>
+<div class="card" id="card">
+  <div class="langs" role="group" aria-label="Language">
+    <button type="button" data-lang="en" lang="en">EN</button>
+    <button type="button" data-lang="uk" lang="uk">УКР</button>
+  </div>
+  <div id="view"></div>
+  <noscript><p class="muted">Verifying your account needs JavaScript. Please enable it and reload this page.</p></noscript>
+</div>
+
+<script id="verify-data" type="application/json">{VERIFY_DATA}</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById('verify-data').textContent);
+  const APP_HOME = /(^|\.)fluxdrop\.me$/.test(location.hostname) ? '/' : '/fluxdrop_pp/';
+  const T = {
+    en: {
+      title: "You're almost set!",
+      lead: 'Press the button to verify your account.',
+      verify: 'Verify my account',
+      verifying: 'Verifying…',
+      who: 'This verification link was sent to {email} for the account {username} ({nickname}).',
+      not_me: "If it wasn't you, press:",
+      report: 'Report',
+      confirm_q: 'Cancel this registration and report it? No account will be created.',
+      confirm_yes: 'Yes, cancel and report',
+      confirm_no: 'Keep it',
+      expires: 'This verification link expires automatically at {when} if nothing is done.',
+      ok_title: 'Your account is verified',
+      ok_body: 'You can now sign in. Taking you to FluxDrop…',
+      open_app: 'Open FluxDrop',
+      cancelled_title: 'Registration cancelled',
+      cancelled_body: 'Thank you. No account was created with your address, and the FluxDrop operator has been told about it.',
+      invalid_title: 'This link is invalid or has expired',
+      invalid_body: 'Verification links work for 1 hour and only once. If you still want an account, register again.',
+      taken: 'This username, nickname or email was taken in the meantime. Please register again.',
+      failed: 'Something went wrong. Please try again in a moment.',
+      rate: 'Too many attempts. Please wait a minute and try again.',
+    },
+    uk: {
+      title: 'Майже готово!',
+      lead: 'Натисніть кнопку, щоб підтвердити акаунт.',
+      verify: 'Підтвердити акаунт',
+      verifying: 'Підтвердження…',
+      who: 'Це посилання для підтвердження надіслано на {email} для акаунта {username} ({nickname}).',
+      not_me: 'Якщо це були не ви, натисніть:',
+      report: 'Поскаржитися',
+      confirm_q: 'Скасувати цю реєстрацію й повідомити про неї? Акаунт не буде створено.',
+      confirm_yes: 'Так, скасувати й повідомити',
+      confirm_no: 'Залишити',
+      expires: 'Якщо нічого не робити, посилання автоматично перестане діяти {when}.',
+      ok_title: 'Акаунт підтверджено',
+      ok_body: 'Тепер можна увійти. Переходимо до FluxDrop…',
+      open_app: 'Відкрити FluxDrop',
+      cancelled_title: 'Реєстрацію скасовано',
+      cancelled_body: 'Дякуємо. Акаунт з вашою адресою не створено, а оператора FluxDrop повідомлено.',
+      invalid_title: 'Посилання недійсне або прострочене',
+      invalid_body: 'Посилання для підтвердження діє 1 годину й лише один раз. Якщо акаунт усе ще потрібен, зареєструйтеся знову.',
+      taken: 'Це ім’я користувача, нікнейм чи email тим часом уже зайняли. Будь ласка, зареєструйтеся знову.',
+      failed: 'Щось пішло не так. Спробуйте ще раз за мить.',
+      rate: 'Забагато спроб. Зачекайте хвилину й спробуйте знову.',
+    },
+  };
+  // Same key as the FluxDrop app, so the choice carries over both ways.
+  let lang = '';
+  try { lang = localStorage.getItem('fluxdrop_lang') || ''; } catch (e) {}
+  if (!lang) lang = (navigator.language || '').toLowerCase().startsWith('uk') ? 'uk' : 'en';
+  if (!T[lang]) lang = 'en';
+  let state = D.state;          // pending | done | cancelled | invalid
+  let errKey = '';
+  const tr = k => T[lang][k] || T.en[k] || k;
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const fill = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] !== undefined ? v[k] : '');
+
+  function whenText() {
+    const d = new Date(D.expires);
+    if (isNaN(d)) return esc(D.expires);
+    return esc(new Intl.DateTimeFormat(lang === 'uk' ? 'uk-UA' : 'en-GB',
+      { dateStyle: 'long', timeStyle: 'short' }).format(d));
+  }
+
+  function render() {
+    document.documentElement.lang = lang;
+    document.querySelectorAll('.langs button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+    const v = document.getElementById('view');
+    const errHtml = `<div class="err" id="err" style="${errKey ? 'display:block' : ''}">${errKey ? esc(tr(errKey)) : ''}</div>`;
+    if (state === 'pending') {
+      document.title = 'FluxDrop — ' + tr('verify');
+      v.innerHTML = `
+        <div class="icon">✉️</div>
+        <h1>${esc(tr('title'))}</h1>
+        <p class="lead">${esc(tr('lead'))}</p>
+        <button class="btn btn-main" id="btn-verify">${esc(tr('verify'))}</button>
+        ${errHtml}
+        <div class="who">
+          <p class="muted">${fill(esc(tr('who')), {
+              email: '<strong>' + esc(D.email) + '</strong>',
+              username: '<strong>' + esc(D.username) + '</strong>',
+              nickname: esc(D.nickname) })}</p>
+          <p class="muted" style="margin-top:8px">${esc(tr('not_me'))}
+            <button class="btn btn-small" id="btn-report">🚩 ${esc(tr('report'))}</button></p>
+          <div class="confirm-box" id="confirm-box">
+            <p style="margin:0 0 8px">${esc(tr('confirm_q'))}</p>
+            <button class="btn btn-small" id="btn-report-yes" style="background:#ef4444;color:white">${esc(tr('confirm_yes'))}</button>
+            <button class="btn btn-small" id="btn-report-no" style="background:#f1f5f9;color:#475569">${esc(tr('confirm_no'))}</button>
+          </div>
+        </div>
+        <p class="muted">${fill(esc(tr('expires')), { when: '<strong>' + whenText() + '</strong>' })}</p>`;
+      document.getElementById('btn-verify').onclick = verify;
+      document.getElementById('btn-report').onclick = () => {
+        document.getElementById('confirm-box').style.display = 'block';
+      };
+      document.getElementById('btn-report-no').onclick = () => {
+        document.getElementById('confirm-box').style.display = 'none';
+      };
+      document.getElementById('btn-report-yes').onclick = cancelReg;
+    } else {
+      const m = {
+        done:      ['✅', 'ok_title', 'ok_body'],
+        cancelled: ['🛑', 'cancelled_title', 'cancelled_body'],
+        invalid:   ['⌛', 'invalid_title', 'invalid_body'],
+      }[state];
+      document.title = 'FluxDrop — ' + tr(m[1]);
+      v.innerHTML = `
+        <div class="icon">${m[0]}</div>
+        <h1>${esc(tr(m[1]))}</h1>
+        <p class="lead">${esc(tr(m[2]))}</p>
+        ${errHtml}
+        <a class="btn btn-main" href="${APP_HOME}${state === 'done' ? '?verified=1' : ''}">${esc(tr('open_app'))}</a>`;
+    }
+  }
+
+  async function post(path) {
+    const r = await fetch(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: D.token }),
+    });
+    const d = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, code: d.code };
+  }
+
+  function handleFail(res) {
+    if (res.code === 'invalid') { state = 'invalid'; errKey = ''; }
+    else if (res.code === 'taken') { state = 'invalid'; errKey = 'taken'; }
+    else errKey = res.status === 429 ? 'rate' : 'failed';
+    render();
+  }
+
+  async function verify() {
+    const b = document.getElementById('btn-verify');
+    b.disabled = true;
+    b.innerHTML = '<span class="spin"></span>' + esc(tr('verifying'));
+    try {
+      const res = await post('/auth/verify');
+      if (res.ok) {
+        state = 'done'; errKey = ''; render();
+        setTimeout(() => { location.href = APP_HOME + '?verified=1'; }, 1800);
+      } else handleFail(res);
+    } catch (e) { errKey = 'failed'; render(); }
+  }
+
+  async function cancelReg() {
+    const b = document.getElementById('btn-report-yes');
+    b.disabled = true;
+    try {
+      const res = await post('/auth/verify_cancel');
+      if (res.ok) { state = 'cancelled'; errKey = ''; render(); }
+      else handleFail(res);
+    } catch (e) { errKey = 'failed'; render(); }
+  }
+
+  document.querySelectorAll('.langs button').forEach(b => b.addEventListener('click', () => {
+    lang = b.dataset.lang;
+    try { localStorage.setItem('fluxdrop_lang', lang); } catch (e) {}
+    render();
+  }));
+  render();
+})();
+</script>
+</body></html>

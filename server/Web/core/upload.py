@@ -304,6 +304,13 @@ def _upload_init(filename: str, dest_path: str, total_size: int,
     token    = secrets.token_urlsafe(32)
     strategy = _choose_strategy(dest_path)
 
+    # ── Server space guard (every owner type: user, share, catbox) ──────────
+    # Per-user quotas can't stop the disk itself from filling up; refuse the
+    # upload up front instead of failing with ENOSPC mid-transfer.
+    if total_size > 0:
+        from core.quota import _check_server_space
+        _check_server_space(total_size)   # ValueError → 409 with a readable message
+
     # ── Quota guard for user uploads ─────────────────────────────────────────
     # We reserve `total_size` bytes before pre-allocating so that two
     # concurrent uploads cannot both pass the guard with the same free quota.

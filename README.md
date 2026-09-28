@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.13`
+# FluxDrop & server `v0.21.1.14`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -13,6 +13,14 @@ repo. Anyone can use it.
 - Admin panel: a **Reports** tab with an open-report counter, filters, and
   actions — disable the share link, delete the CDN file, mark resolved,
   dismiss, reopen
+- Account verification page: the email link now opens a "You're almost set!"
+  page with a **Verify my account** button, the address / username / nickname
+  it was sent for, when the link expires (in the visitor's time zone), and a
+  **Report** button that cancels a registration you didn't make (English and
+  Ukrainian)
+- Version picker in the Terms of Service / Privacy Policy viewer: read any
+  earlier published version, with a note when it's no longer in effect
+- Full-screen "Creating your account…" spinner while registering
 
 **Changed**
 - The offline page loads the Inter font from FluxDrop itself instead of Google
@@ -41,6 +49,9 @@ repo. Anyone can use it.
   restart: it measured every account's folder size inside the request when the
   size cache was cold. Sizes not cached yet now show "calculating…" and fill
   in automatically (the list refreshes every few seconds until they're in)
+- "Loading…" in the Terms / Privacy Policy viewer, trash, move dialog and
+  Markdown preview was hardcoded English; it's now translated, with a spinner.
+  The policy "could not load" / "Retry" messages are translated too
 - The Terms of Service and Privacy Policy pop-ups open and close with the same
   animation as the other dialogs (the viewer also closes with `Esc`)
 
@@ -60,7 +71,24 @@ repo. Anyone can use it.
   settings — needed for transactional providers when sending from
   `@fluxdrop.me`
 
+**Changed**
+- Dynamic quotas are now a fair share of the real available space
+  (`free − reserve + what non-pinned users store − headroom promised to pinned
+  users`, split between non-pinned users, 10–100 GB) instead of free-space
+  tiers. One user uploading no longer shrinks everyone else's quota, and the
+  quotas together can't promise more space than the disk has
+- Disk-full guard: uploads, copies and tar streams are refused up front with a
+  readable "server is out of storage space" message once only the reserve
+  (`QUOTA_RESERVE_GB`, default 20, or `QUOTA_RESERVE_PCT` of the disk, default
+  2 %) is left — instead of failing with "No space left on device" mid-transfer
+- `GET /api/v1/policy/history`: published versions of each policy per
+  language (never anything newer than `versions.json`, so drafts stay hidden)
+
 **Changed (breaking)**
+- `/auth/verify` no longer activates the account on GET; activation is
+  `POST /auth/verify {token}` (the page's button), and
+  `POST /auth/verify_cancel {token}` cancels the registration and files a
+  content report
 - `POST /beacon/register` now requires a FluxDrop login and records the
   owning account. `ip_beacon.py --register` needs `--fluxdrop-token` (or
   `FLUXDROP_TOKEN`); devices registered on the web page can be handed over
@@ -72,6 +100,9 @@ repo. Anyone can use it.
   error when the user had share links, download tokens or protected files
 - `/beacon/register` accepted registrations without any login, despite the
   code comments calling it session-gated
+- Accounts were verified by anything that opened the email link — mail
+  scanners (Outlook Safe Links, antivirus gateways, mail-tester's link check)
+  verified accounts nobody had confirmed
 
 ### Known issues
 - ...

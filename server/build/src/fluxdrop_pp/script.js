@@ -244,6 +244,20 @@ function withMinDelay(promise, minMs = 1000) {
 }
 
 // Show a loading spinner overlay with a message. Returns a dismiss function.
+// Inline loading placeholder: small spinner + translated "Loading…".
+// Used wherever a panel shows content that is still being fetched.
+function _loadingHtml(pad = '24px') {
+    if (!document.getElementById('fd-spin-style')) {
+        const st = document.createElement('style');
+        st.id = 'fd-spin-style';
+        st.textContent = '@keyframes fd-spin{to{transform:rotate(360deg)}}';
+        document.head.appendChild(st);
+    }
+    return `<div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:${pad};color:#94a3b8;font-size:14px">` +
+        `<span style="width:18px;height:18px;border:2px solid #cbd5e1;border-top-color:#3b82f6;border-radius:50%;` +
+        `animation:fd-spin .7s linear infinite;flex-shrink:0"></span>${escapeHtml(t('loading'))}</div>`;
+}
+
 function showSpinnerOverlay(message = 'Loading…', opts = {}) {
     const minMs = opts.minMs != null ? opts.minMs : 1000;
     const id    = opts.id || ('fd-spinner-' + Date.now());
@@ -946,7 +960,7 @@ async function showPolicyModal(type) {
                     <h2 style="font-size:1.15rem;font-weight:700;color:#1e40af;margin:0">
                         ${label}
                     </h2>
-                    <span id="pm-version" style="font-size:.8rem;color:#94a3b8;font-weight:400">v${version}</span>
+                    <span id="pm-ver-wrap"><span style="font-size:.8rem;color:#94a3b8;font-weight:400">v${version}</span></span>
                     ${_langSelectorHtml(availableLangs, languages, lang, 'pm-lang')}
                 </div>
                 <button id="pm-close" style="background:none;border:none;font-size:1.4rem;
@@ -954,7 +968,7 @@ async function showPolicyModal(type) {
             </div>
             <div id="pm-body" class="fd-md-body" data-fd-notranslate style="padding:1.5rem;overflow-y:auto;flex:1;
                                      font-size:.93rem;line-height:1.7;color:#1e293b">
-                <div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>
+                ${_loadingHtml('2rem')}
             </div>
         </div>`;
 
@@ -969,15 +983,40 @@ async function showPolicyModal(type) {
     overlay.querySelector('#pm-close').addEventListener('click', closeModal);
     overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
 
-    async function loadDoc(loadLang) {
-        const loadVer = versionMap[loadLang] || '0.0.0';
-        overlay.querySelector('#pm-version').textContent = `v${loadVer}`;
+    // Version picker: every published version of this document in the chosen
+    // language (GET /api/v1/policy/history lists them, newest first, never
+    // anything newer than the current one). Falls back to "current only".
+    const history = await _fetchPolicyHistory();
+
+    function renderVersionPicker(pickLang, selectedVer) {
+        const wrap = overlay.querySelector('#pm-ver-wrap');
+        const current = versionMap[pickLang] || '0.0.0';
+        const list = ((history[type] || {})[pickLang] || []).slice();
+        if (!list.includes(current)) list.unshift(current);
+        if (list.length <= 1) {
+            wrap.innerHTML = `<span style="font-size:.8rem;color:#94a3b8;font-weight:400">v${escapeHtml(current)}</span>`;
+            return;
+        }
+        wrap.innerHTML = `<select id="pm-ver" title="${escapeHtmlAttr(t('policy_version_label'))}"
+            style="font-size:.8rem;padding:3px 6px;border-radius:6px;border:1px solid #cbd5e1;
+                   color:#475569;background:#f8fafc;cursor:pointer">
+            ${list.map(v => `<option value="${escapeHtmlAttr(v)}"${v === selectedVer ? ' selected' : ''}>v${escapeHtml(v)}${
+                v === current ? ' · ' + escapeHtml(t('policy_version_current')) : ''}</option>`).join('')}
+        </select>`;
+        wrap.querySelector('#pm-ver').addEventListener('change', ev => loadDoc(pickLang, ev.target.value));
+    }
+
+    async function loadDoc(loadLang, loadVer) {
+        const current = versionMap[loadLang] || '0.0.0';
+        loadVer = loadVer || current;
+        renderVersionPicker(loadLang, loadVer);
         const bodyEl = overlay.querySelector('#pm-body');
-        bodyEl.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8">Loading…</div>';
+        bodyEl.innerHTML = _loadingHtml('2rem');
         try {
             const resp = await fetch(_policyUrl(type, loadLang, loadVer), { cache: 'no-cache' });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const text = await resp.text();
+            let html;
             try {
                 // Same engine used for file-preview Markdown (GFM tables,
                 // links, code fences, blockquotes) — the old hand-rolled
@@ -985,17 +1024,23 @@ async function showPolicyModal(type) {
                 // lists, so any policy doc using a link or table rendered
                 // as literal, unformatted Markdown text.
                 await _loadMarked();
-                bodyEl.innerHTML = _mdParseAndSanitize(text);
+                html = _mdParseAndSanitize(text);
             } catch (mdErr) {
                 // marked.js failed to load (CDN blocked/offline) — we already
                 // have the document text, so fall back to the tiny renderer
                 // rather than showing a hard error for a doc we did fetch.
-                bodyEl.innerHTML = _mdToHtml(text);
+                html = _mdToHtml(text);
             }
+            const oldNote = loadVer !== current
+                ? `<div style="background:#fef3c7;color:#92400e;border-radius:8px;padding:8px 12px;margin-bottom:1rem;font-size:.85rem">
+                       ${escapeHtml(t('policy_old_version_note', { version: loadVer, current }))}</div>`
+                : '';
+            bodyEl.innerHTML = oldNote + html;
+            bodyEl.scrollTop = 0;
         } catch (err) {
             bodyEl.innerHTML =
-                `<p style="color:#dc2626">Could not load the document. Please try again later.<br>
-                 <small style="color:#94a3b8">${err.message}</small></p>`;
+                `<p style="color:#dc2626">${escapeHtml(t('policy_load_failed'))}<br>
+                 <small style="color:#94a3b8">${escapeHtml(err.message)}</small></p>`;
         }
     }
 
@@ -1008,6 +1053,16 @@ async function showPolicyModal(type) {
         });
     }
     loadDoc(lang);
+}
+
+let _policyHistoryCache = null;
+async function _fetchPolicyHistory() {
+    if (_policyHistoryCache) return _policyHistoryCache;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/v1/policy/history`, { cache: 'no-cache' });
+        if (r.ok) _policyHistoryCache = await r.json();
+    } catch { /* offline or old server — the picker just shows the current version */ }
+    return _policyHistoryCache || {};
 }
 
 // Tiny built-in Markdown renderer — headings, bold, italic, lists, paragraphs
@@ -1258,13 +1313,13 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
         } catch (err) {
             const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
             const reason = isTimeout
-                ? 'The document is taking too long to load — your connection may be slow or unstable.'
-                : `Could not load the document: ${err.message}`;
+                ? t('policy_load_slow')
+                : `${t('policy_load_failed')} (${err.message})`;
             bodyEl.innerHTML = `
                 <p style="color:#dc2626">${escapeHtml(reason)}</p>
                 <p>
-                    <button id="pam-retry-btn" class="btn" style="background:#3b82f6;margin-right:8px">Retry</button>
-                    You can also agree by clicking the button below, or try reloading the page.
+                    <button id="pam-retry-btn" class="btn" style="background:#3b82f6;margin-right:8px">${escapeHtml(t('retry_btn'))}</button>
+                    ${escapeHtml(t('policy_load_retry_hint'))}
                 </p>`;
             const retryBtn = bodyEl.querySelector('#pam-retry-btn');
             if (retryBtn) retryBtn.addEventListener('click', () => loadDoc(loadLang));
@@ -3446,7 +3501,7 @@ async function _previewTrashFile(trashId, filename) {
     const dlBtn   = document.getElementById('preview-download-btn');
 
     titleEl.textContent = filename;
-    bodyEl.innerHTML = '<p style="color:#64748b;padding:2rem;text-align:center">Loading…</p>';
+    bodyEl.innerHTML = _loadingHtml('2rem');
     dlBtn.style.display = 'none';
     modal.classList.remove('hidden');
 
@@ -4707,7 +4762,7 @@ async function openTrashView() {
                 </button>
             </div>
             <div id="trash-body" style="max-height:55vh;overflow-y:auto;padding:8px 0">
-                <div style="padding:24px;text-align:center;color:#94a3b8">Loading…</div>
+                ${_loadingHtml()}
             </div>
         </div>`;
     document.body.appendChild(overlay);
@@ -4736,7 +4791,7 @@ async function _refreshTrashView() {
     const notice   = document.getElementById('trash-notice');
     if (!body) return;
 
-    body.innerHTML = '<div style="padding:24px;text-align:center;color:#94a3b8">Loading…</div>';
+    body.innerHTML = _loadingHtml();
 
     let data;
     try {
@@ -5085,7 +5140,7 @@ async function openMoveDialog(srcPath) {
         if (!treeEl) return;
         const root = getNode('/');
         if (!root.loaded) {
-            treeEl.innerHTML = '<div style="padding:12px;color:#64748b;font-size:13px">Loading…</div>';
+            treeEl.innerHTML = _loadingHtml('12px');
             await loadChildren('/');
             root.expanded = true;
         }
@@ -6430,8 +6485,13 @@ async function handleRegister(e) {
         submitBtn.innerHTML = `<span class="fd-btn-spin" aria-hidden="true"></span>${t('registering')}`;
     }
 
+    // Registering hashes the password and sends the verification email before
+    // answering, which can take a few seconds — show a clear full-screen
+    // spinner, not just the small one inside the button.
+    const _regDismiss = showSpinnerOverlay(t('registering'), { minMs: 600 });
     try {
         await apiCall('/auth/register', 'POST', { username, nickname, email, password }, false);
+        _regDismiss();
         showMessage(t('register_success_title'), t('register_success_body'));
         // Switch to the login tab in the existing modal (or open fresh login)
         const _existingModal = document.getElementById('fd-auth-modal');
@@ -6441,6 +6501,7 @@ async function handleRegister(e) {
             renderApp('login');
         }
     } catch (error) {
+        _regDismiss();
         showMessage(t('register_failed_title'), error.message);
     } finally {
         if (submitBtn) {

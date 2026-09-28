@@ -142,7 +142,7 @@ from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _mo
     _trash_purge_expired, _user_trash_root
 from core.net_monitor import _get_net_history_by_day, _net_state_lock, _net_monitor_state, _get_net_outages, _net_monitor_worker, _reconcile_open_outages
 from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get, _dir_cache_get_ex, _probe_tcp, _probe_tls
-from core.quota import _compute_dynamic_quota, _quota_updater_thread
+from core.quota import _compute_dynamic_quota, _quota_updater_thread, _check_server_space
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
 from core.meta import _SERVER_START_TIME, SERVER_VERSION
@@ -837,6 +837,41 @@ def _get_policy_versions() -> dict:
         logging.exception('Failed to read policies/versions.json — defaulting to 0.0.0')
         return {'tos': '0.0.0', 'pp': '0.0.0'}
 
+def _version_key(v: str) -> tuple:
+    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r'[.\-]', v))
+
+
+def _policy_history() -> dict:
+    """Published versions of each policy per language, newest first.
+
+    Lists the v*.md files next to versions.json, but only up to the version
+    that's current for that language — a newer file is an unpublished draft
+    and must not show up in the version picker.
+    """
+    base = os.path.dirname(os.path.abspath(_POLICY_VERSIONS_FILE))
+    try:
+        with open(_POLICY_VERSIONS_FILE, encoding='utf-8') as f:
+            current = json.load(f)
+    except Exception:
+        current = {}
+    out = {}
+    for doc, folder in (('tos', 'TOS'), ('pp', 'PP')):
+        cur = current.get(doc) or {}
+        if not isinstance(cur, dict):
+            cur = {'eng': str(cur)}
+        out[doc] = {}
+        for lang, cur_ver in cur.items():
+            d = os.path.join(base, folder, lang)
+            try:
+                names = os.listdir(d)
+            except OSError:
+                continue
+            vers = [m.group(1) for m in (re.fullmatch(r'v([0-9][0-9A-Za-z.\-]*)\.md', n) for n in names) if m]
+            vers = [v for v in vers if _version_key(v) <= _version_key(str(cur_ver))]
+            out[doc][lang] = sorted(vers, key=_version_key, reverse=True)
+    return out
+
+
 # ==============================================================================
 # --- LOGGER SETUP (use shared CustomLogger) ---
 # ==============================================================================
@@ -1090,7 +1125,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     shares_stats_pattern = re.compile(r'^/api/(v[1-3])/shares/([A-Za-z0-9_\-]+)/stats$')
     public_share_pattern = re.compile(r'^/share/([A-Za-z0-9_\-]+)(/.*)?$')
     catbox_api_path = '/user/api.php'
-    auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify)$')
+    auth_api_pattern = re.compile(r'^/auth/(register|login|logout|verify|verify_cancel)$')
     zip_pattern          = re.compile(r'^/api/(v[1-3])/zip(/.*)?$')
     zip_meta_pattern     = re.compile(r'^/api/(v[1-3])/zip_meta(/.*)?$')
     zip_status_pattern   = re.compile(r'^/api/(v[1-3])/zip_status/([0-9a-f\-]{36})$')
@@ -1196,6 +1231,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
             _usage = _get_user_disk_usage(user_id)
             if _usage >= _quota:
                 return self._send_response(507, json.dumps({"error": "Storage quota exceeded."}))
+            # Streamed tar: size unknown up front, so only refuse when the
+            # server is already at its reserve.
+            try:
+                _check_server_space(1)
+            except ValueError as _full:
+                return self._send_response(507, json.dumps({"error": str(_full)}))
         except Exception:
             logging.exception("batch_tar: quota check failed")
 
@@ -3166,6 +3207,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         
         if parsed_url.path == '/api/v1/policy/status':
             return self._handle_policy_status()
+        if parsed_url.path == '/api/v1/policy/history':
+            return self._send_response(200, json.dumps(_policy_history()))
 
         # ── Avatar serve: GET /api/v1/avatar/<user_id> ───────────────────────
         # Public: no auth required so avatars load in the login screen too.
@@ -3398,6 +3441,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
                 if command == 'register':
                     return self.handle_auth_register(data)
+                if command == 'verify':
+                    return self.handle_auth_verify_confirm(data)
+                if command == 'verify_cancel':
+                    return self.handle_auth_verify_cancel(data)
                 if command == 'login':
                     return self.handle_auth_login(data)
                 if command == 'logout':
@@ -4024,32 +4071,87 @@ class AuthHandler(SimpleHTTPRequestHandler):
         else:
             return self._send_response(500, json.dumps({"error": "Failed to send verification email."}))
 
-    def handle_auth_verify(self, query_string):
-        """Handles email verification from the link."""
-        params = parse_qs(query_string)
-        token = params.get('token', [None])[0]
-        if not token:
-            return self._send_response(400, "<h1>Verification Failed</h1><p>No token provided.</p>", 'text/html')
-
+    def _pending_by_token(self, token):
+        """Non-expired pending registration for a verification token, or None."""
+        if not token or not isinstance(token, str) or len(token) > 200:
+            return None
         with _db_connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM pending_verifications WHERE verification_token = ? AND expires_at > CURRENT_TIMESTAMP", (token,))
-            pending_user = cursor.fetchone()
+            return conn.execute(
+                "SELECT id, username, nickname, email, password_hash, salt, expires_at "
+                "FROM pending_verifications WHERE verification_token = ? AND expires_at > CURRENT_TIMESTAMP",
+                (token,)).fetchone()
 
-            if not pending_user:
-                return self._send_response(400, "<h1>Verification Failed</h1><p>Invalid or expired token.</p>", 'text/html')
+    def handle_auth_verify(self, query_string):
+        """GET /auth/verify?token=… — show the confirmation page.
 
-            # Transfer user to the main users table
-            # pending_user columns: id, username, nickname, email, password_hash, salt, verification_token, expires_at
-            cursor.execute(
-                "INSERT INTO users (username, nickname, email, password_hash, salt) VALUES (?, ?, ?, ?, ?)",
-                (pending_user[1], pending_user[2], pending_user[3], pending_user[4], pending_user[5])
-            )
-            # Delete from pending table
-            cursor.execute("DELETE FROM pending_verifications WHERE verification_token = ?", (token,))
+        Opening the link must NOT activate the account: mail scanners (Outlook
+        Safe Links, antivirus gateways, mail-tester's link check) fetch every
+        link in an incoming email, which used to verify accounts nobody had
+        confirmed. Activation happens only on the page's button (POST).
+        """
+        token = parse_qs(query_string).get('token', [None])[0]
+        row = self._pending_by_token(token)
+        if row:
+            _id, username, nickname, email, _ph, _salt, expires_at = row
+            data = {'state': 'pending', 'token': token, 'email': email, 'username': username,
+                    'nickname': nickname, 'expires': expires_at.replace(' ', 'T') + 'Z'}
+        else:
+            data = {'state': 'invalid'}
+        # JSON inside <script>: escape "<" so no value can close the tag.
+        blob = json.dumps(data).replace('<', '\\u003c')
+        html = _render_snippet('verify_page.html', VERIFY_DATA=blob)
+        return self._send_response(200 if row else 400, html, 'text/html')
+
+    def handle_auth_verify_confirm(self, data):
+        """POST /auth/verify {token} — the page's "verify" button."""
+        if not _rate_limit(self._client_ip(), "auth"):
+            return self._send_response(429, json.dumps({"error": "Too many attempts. Please wait a minute."}))
+        token = data.get('token')
+        row = self._pending_by_token(token)
+        if not row:
+            return self._send_response(400, json.dumps({"error": "Invalid or expired link.", "code": "invalid"}))
+        _id, username, nickname, email, password_hash, salt, _exp = row
+        with _db_connect() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO users (username, nickname, email, password_hash, salt) VALUES (?, ?, ?, ?, ?)",
+                    (username, nickname, email, password_hash, salt))
+            except sqlite3.IntegrityError:
+                # Someone else verified the same name/email first.
+                conn.execute("DELETE FROM pending_verifications WHERE verification_token = ?", (token,))
+                conn.commit()
+                return self._send_response(409, json.dumps({"error": "Already taken.", "code": "taken"}))
+            conn.execute("DELETE FROM pending_verifications WHERE verification_token = ?", (token,))
             conn.commit()
+        logging.info(f"Account verified: {username}")
+        return self._send_response(200, json.dumps({"ok": True}))
 
-        return self._send_response(200, "<h1>Verification Successful!</h1><p>Your account has been verified. You can now log in.</p>", 'text/html')
+    def handle_auth_verify_cancel(self, data):
+        """POST /auth/verify_cancel {token} — "this wasn't me".
+
+        Cancels the pending registration (nothing is created) and files a
+        content report so the operator sees that someone used this address.
+        """
+        if not _rate_limit(self._client_ip(), "auth"):
+            return self._send_response(429, json.dumps({"error": "Too many attempts. Please wait a minute."}))
+        token = data.get('token')
+        row = self._pending_by_token(token)
+        if not row:
+            return self._send_response(400, json.dumps({"error": "Invalid or expired link.", "code": "invalid"}))
+        _id, username, nickname, email, _ph, _salt, _exp = row
+        with _db_connect() as conn:
+            conn.execute("DELETE FROM pending_verifications WHERE verification_token = ?", (token,))
+            conn.commit()
+        try:
+            create_report(
+                f'registration: {username}', 'abuse',
+                f'The owner of {email} says they did not sign up. The registration '
+                f'"{username}" ({nickname}) was cancelled automatically; no account was created.',
+                reporter_email=email)
+        except ValueError:
+            logging.exception('verify_cancel: could not file report')
+        logging.info(f"Pending registration cancelled by email owner: {username}")
+        return self._send_response(200, json.dumps({"ok": True}))
 
     def handle_auth_login(self, data):
         """Handles user login and issues a session token."""
@@ -6809,6 +6911,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     _needed = _copy_size(src_path)
                     if _usage + _needed > _quota:
                         return self._send_response(507, json.dumps({"error": "Storage quota exceeded."}))
+                    _check_server_space(_needed)
+                except ValueError as _full:
+                    return self._send_response(507, json.dumps({"error": str(_full)}))
                 except Exception:
                     logging.exception("copy: quota check failed")
 

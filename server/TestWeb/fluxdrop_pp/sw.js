@@ -10,7 +10,7 @@
 // Navigation requests for /fluxdrop_pp/files/* must serve /fluxdrop_pp/index.html
 // (SPA routing) rather than trying to fetch the directory as a real file.
 
-const CACHE_NAME  = 'fluxdrop-v-a2a7aaa8';  // replaced by build.sh — do not edit manually
+const CACHE_NAME  = 'fluxdrop-v-4c1e69e7';  // replaced by build.sh — do not edit manually
 const OFFLINE_URL = '/fluxdrop_pp/offline.html';
 const APP_BASE    = '/fluxdrop_pp';
 
@@ -81,12 +81,11 @@ const PRECACHE_URLS = [
     '/fluxdrop_pp/index.html',
     '/fluxdrop_pp/script.js',
     '/fluxdrop_pp/tailwindcss.css',
-    '/fluxdrop_pp/icon.svg',
+    '/fluxdrop_pp/icon-64.png',
     '/fluxdrop_pp/offline.html',
     '/fluxdrop_pp/fd_dark.css',
     '/fluxdrop_pp/fd_locale_bundle.js',
     '/fluxdrop_pp/fd_addons.js',
-    '/fluxdrop_pp/assets/all.min.css',
     '/fluxdrop_pp/assets/Inter.css',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2',
     '/fluxdrop_pp/assets/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2',
@@ -103,6 +102,7 @@ const PRECACHE_URLS = [
 // during install competed with the page's own requests right after a deploy —
 // the page's scripts sat "pending" behind them. Cached on first use instead.
 const LAZY_URLS = [
+    '/fluxdrop_pp/icon-128.png',
     '/fluxdrop_pp/assets/heic2any.min.js',
     '/fluxdrop_pp/assets/jszip.min.js',
     '/fluxdrop_pp/assets/marked.min.js',

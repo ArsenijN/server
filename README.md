@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.15`
+# FluxDrop & server `v0.21.1.16`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -58,6 +58,15 @@ repo. Anyone can use it.
   use; registration waits for the page's `load` event; and `index.html` keeps
   `.hidden` elements hidden and the logo at 32 px even before the stylesheets
   arrive
+- Slow first paint on slow connections (tested on simulated GPRS): removed the
+  unused Font Awesome stylesheet (84 KB, render-blocking, its fonts weren't even
+  deployed); `Inter.css` now declares one face per character subset with a
+  weight range (the font is variable) instead of 35 faces, which made Firefox
+  request the same font file up to 5 times; the 176 KB `icon.svg` (a PNG wrapped
+  in SVG) is replaced in the app and page favicons by `icon-64.png` (4.5 KB) and
+  `icon-128.png` (11 KB)
+- "Loading FluxDrop…" and the "failed to load" banner in `index.html` were
+  always English; they now follow the saved language
 - "Loading…" in the Terms / Privacy Policy viewer, trash, move dialog and
   Markdown preview was hardcoded English; it's now translated, with a spinner.
   The policy "could not load" / "Retry" messages are translated too

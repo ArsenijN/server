@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-a2a7aaa8
+// Current version of script.js is: fluxdrop-v-4c1e69e7
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-a2a7aaa8'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-4c1e69e7'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -721,7 +721,7 @@ function _notifyUploadDone(okCount, failCount = 0) {
     }
     new Notification(title, {
         body,
-        icon: '/icon.svg',
+        icon: '/fluxdrop_pp/icon-128.png',
         tag: 'fluxdrop-upload-done',  // replaces previous notification if still showing
     });
 }
@@ -812,7 +812,7 @@ function renderLandingView() {
 
             <!-- Hero -->
             <div class="card" style="text-align:center;padding:3rem 2rem">
-                <img src="icon.svg" style="width:72px;height:72px;margin:0 auto 1rem" alt="FluxDrop">
+                <img src="/fluxdrop_pp/icon-128.png" width="72" height="72" style="width:72px;height:72px;margin:0 auto 1rem" alt="FluxDrop">
                 <h2 style="font-size:2.2rem;font-weight:800;color:#1e40af;margin-bottom:.75rem">
                     ${t('home_slogan')}
                 </h2>
@@ -6583,7 +6583,7 @@ function _doShowWelcome() {
             <!-- Header -->
             <div style="background:linear-gradient(135deg,#1e40af,#4f46e5);padding:1.75rem 2rem 1.5rem;flex-shrink:0">
                 <div style="display:flex;align-items:center;gap:.9rem;margin-bottom:.5rem">
-                    <img src="icon.svg" style="width:44px;height:44px" alt="">
+                    <img src="/fluxdrop_pp/icon-128.png" width="44" height="44" style="width:44px;height:44px" alt="">
                     <h2 style="color:white;font-size:1.55rem;font-weight:800;margin:0">Welcome to FluxDrop!</h2>
                 </div>
                 <p style="color:rgba(255,255,255,.82);margin:0;font-size:.95rem;line-height:1.6">
@@ -8710,7 +8710,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-a2a7aaa8'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-4c1e69e7'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

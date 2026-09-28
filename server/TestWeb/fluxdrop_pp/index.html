@@ -7,7 +7,9 @@
     <title>FluxDrop</title>
     <meta name="description" content="FluxDrop — self-hosted file storage and sharing.">
 
-    <!-- Tells Google not to index the app shell itself, only the landing page -->
+    <!-- Keeps the app shell out of search results. server_https.py swaps this
+         for "index, follow" + a canonical link on the fluxdrop.me/ landing
+         page only — keep the tag text exactly as is so that replace matches. -->
     <meta name="robots" content="noindex, nofollow">
 
     <!-- Open Graph — controls how the link looks when shared in Slack, Discord, etc. -->

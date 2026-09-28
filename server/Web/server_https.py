@@ -967,6 +967,18 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                             b'<base href="/">',
                             1,
                         )
+                        # The landing page (/) is the one URL search engines
+                        # may index; index.html ships noindex so every other
+                        # route to the shell (/files/…, /fluxdrop_pp/, other
+                        # domains) stays out of search results.
+                        if _clean == '/':
+                            _html = _html.replace(
+                                b'<meta name="robots" content="noindex, nofollow">',
+                                b'<meta name="robots" content="index, follow">\n'
+                                b'    <link rel="canonical" href="https://'
+                                + _host_bare.removeprefix('www.').encode() + b'/">',
+                                1,
+                            )
                         # Never cache the shell — a stale version with the wrong
                         # base href would silently break asset loading.
                         send_body_compressed(self, _html, 'text/html; charset=utf-8',

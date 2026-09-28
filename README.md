@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.18`
+# FluxDrop & server `v0.21.1.19`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -113,6 +113,9 @@ repo. Anyone can use it.
   only `.md` was compressed — `script.js` went out as 456 KB, now ~63 KB
 - The app page itself is compressed too (13.8 KB → 4.9 KB): the `fluxdrop.me/`
   rewrite and folder URLs like `/fluxdrop_pp/` sent it uncompressed
+- The landing page at `fluxdrop.me/` can be indexed by search engines
+  (`index, follow` plus a canonical link). Every other URL that serves the app
+  (`/files/…`, `/fluxdrop_pp/`, other domains) stays `noindex`
 - `build.sh` minifies the TestWeb copies of the JS/CSS with esbuild (source
   maps included, `build/src` stays readable; `--no-minify` to skip) and
   pre-compresses text assets. esbuild is a new dev dependency — run

@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.12`
+# FluxDrop & server `v0.21.1.13`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -35,6 +35,14 @@ repo. Anyone can use it.
 - Ukrainian UI now tells uploads and downloads apart: upload is
   «вивантажити / вивантаження», download is «завантажити / завантаження».
   Previously both buttons read «Завантажити»
+- Admin panel dark mode: hovered user rows turned white, row dividers, usage
+  bars, the active tab and report cards kept their light colours
+- Admin panel user list could fail with "proxy error: timed out" after a
+  restart: it measured every account's folder size inside the request when the
+  size cache was cold. Sizes not cached yet now show "calculating…" and fill
+  in automatically (the list refreshes every few seconds until they're in)
+- The Terms of Service and Privacy Policy pop-ups open and close with the same
+  animation as the other dialogs (the viewer also closes with `Esc`)
 
 ### Server (backend)
 **Added**

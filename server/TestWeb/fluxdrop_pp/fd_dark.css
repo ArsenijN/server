@@ -519,3 +519,17 @@ html[data-theme="dark"] { background: #0d1520 !important; }
 .fd-col-actions { width: 36px !important; }
 
 /* ── Admin panel: dark surface fix for stats bar already above ──────────── */
+
+/* ── Admin panel: classes from the injected #ap-style block ──────────────
+   Inline styles are darkened by the fd_addons.js patcher, but these rules live
+   in a <style> element, so they need their own dark variants. */
+[data-theme="dark"] #ap-tabs                  { background: var(--fd-surface2) !important; }
+[data-theme="dark"] .ap-tab                   { color: var(--fd-muted) !important; }
+[data-theme="dark"] .ap-tab-active            { background: var(--fd-surface) !important; color: var(--fd-text) !important;
+                                                box-shadow: 0 -1px 0 var(--fd-border) !important; }
+[data-theme="dark"] .ap-row:hover             { background: var(--fd-surface3) !important; }
+[data-theme="dark"] .ap-row + .ap-row         { border-top-color: var(--fd-border) !important; }
+[data-theme="dark"] .ap-bar-wrap              { background: var(--fd-border) !important; }
+[data-theme="dark"] .ap-rep                   { border-color: var(--fd-border) !important; }
+[data-theme="dark"] .ap-rep-msg               { background: var(--fd-surface2) !important; color: var(--fd-text2) !important; }
+[data-theme="dark"] .ap-rep-meta              { color: var(--fd-muted) !important; }

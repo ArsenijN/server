@@ -1,7 +1,7 @@
 // ======================================================================
         // --- DEBUG ---
         // ======================================================================
-// Current version of script.js is: fluxdrop-v-561c8690
+// Current version of script.js is: fluxdrop-v-10d3b357
 
         // ======================================================================
         // --- CONFIGURATION ---
@@ -10,7 +10,7 @@
 const API_HTTPS = `https://${window.location.hostname}`;
 const API_HTTP  = `http://${window.location.hostname}`;
 
-const SCRIPT_VERSION_RAW = 'v-561c8690'; // Replaced by your build script
+const SCRIPT_VERSION_RAW = 'v-10d3b357'; // Replaced by your build script
 const SCRIPT_VERSION = SCRIPT_VERSION_RAW.replace(/^(?:fluxdrop-)?(?:v-)?/, '');
 
 // Pick a sensible base URL depending on how the page was loaded.  We
@@ -933,10 +933,11 @@ async function showPolicyModal(type) {
     overlay.style.cssText = [
         'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10000',
         'background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:1rem',
+        'animation:fd-fade-in .18s ease',
     ].join(';');
 
     overlay.innerHTML = `
-        <div style="background:#fff;border-radius:1rem;width:100%;max-width:720px;
+        <div class="fd-modal-panel-in" style="background:#fff;border-radius:1rem;width:100%;max-width:720px;
                     max-height:88vh;display:flex;flex-direction:column;overflow:hidden;
                     box-shadow:0 24px 48px rgba(0,0,0,.3)">
             <div style="padding:1.25rem 1.5rem;border-bottom:1px solid #e2e8f0;
@@ -958,8 +959,15 @@ async function showPolicyModal(type) {
         </div>`;
 
     document.body.appendChild(overlay);
-    overlay.querySelector('#pm-close').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    // Same animated exit as every other overlay; Esc closes it too.
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); closeModal(); } };
+    function closeModal() {
+        document.removeEventListener('keydown', onKey, true);
+        window.fdCloseOverlay(overlay);
+    }
+    document.addEventListener('keydown', onKey, true);
+    overlay.querySelector('#pm-close').addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
 
     async function loadDoc(loadLang) {
         const loadVer = versionMap[loadLang] || '0.0.0';
@@ -1111,10 +1119,11 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
     overlay.style.cssText = [
         'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10001',
         'background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:1rem',
+        'animation:fd-fade-in .18s ease',
     ].join(';');
 
     overlay.innerHTML = `
-        <div style="background:#fff;border-radius:1rem;width:100%;max-width:720px;
+        <div class="fd-modal-panel-in" style="background:#fff;border-radius:1rem;width:100%;max-width:720px;
                     max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
                     box-shadow:0 24px 48px rgba(0,0,0,.4)">
             <div style="padding:1.25rem 1.5rem;background:#eff6ff;border-bottom:1px solid #bfdbfe;
@@ -1176,12 +1185,12 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
         try {
             await withMinDelay(apiCall('/api/v1/policy/accept', 'POST', { [type]: version }), 1000);
             _paDismiss();
-            overlay.remove();
+            window.fdCloseOverlay(overlay);
             onAccepted();
         } catch (err) {
             _paDismiss();
             if (err.message === 'SESSION_EXPIRED') {
-                overlay.remove();
+                window.fdCloseOverlay(overlay);
                 return;
             }
             agreeBtn.disabled = false;
@@ -1192,7 +1201,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
 
     const declineBtn = overlay.querySelector('#pam-decline-btn');
     declineBtn.addEventListener('click', () => {
-        overlay.remove();
+        window.fdCloseOverlay(overlay);
         showMessage(t('policy_not_accepted'),
             t('policy_logout_msg'));
         handleLogout();
@@ -7359,10 +7368,15 @@ function _apInjectStyle() {
     document.head.appendChild(st);
 }
 
+let _apUsagePollTimer = null;
+
 async function _apLoadUsers() {
     const body = document.getElementById('ap-body');
     const statsBar = document.getElementById('ap-stats');
     if (!body) return;
+    // Re-renders (usage polling) replace the list — keep the scroll position.
+    const scroller = body.parentElement;
+    const keepScroll = scroller ? scroller.scrollTop : 0;
 
     try {
         const data = await apiCall('/api/v1/admin/users', 'GET');
@@ -7389,6 +7403,7 @@ async function _apLoadUsers() {
                 <span>${t('admin_col_user')}</span><span>${t('admin_col_usage')}</span><span>${t('admin_col_quota')}</span>
                 <span style="text-align:right">${t('fluxdrop_file_manager_actions')}</span>
             </div>` + users.map(u => _apRenderRow(u)).join('');
+        if (scroller) scroller.scrollTop = keepScroll;
 
         body.querySelectorAll('.ap-edit-btn').forEach(btn => {
             btn.addEventListener('click', () => _apOpenEditModal(+btn.dataset.id, users));
@@ -7396,6 +7411,17 @@ async function _apLoadUsers() {
         body.querySelectorAll('.ap-del-btn').forEach(btn => {
             btn.addEventListener('click', () => _apDeleteUser(+btn.dataset.id, btn.dataset.name));
         });
+
+        // Some sizes are still being measured in the background (the server
+        // no longer blocks on that) — refresh until they're all in, as long as
+        // the panel is still open on the Users tab.
+        clearTimeout(_apUsagePollTimer);
+        if (users.some(u => u.usage_bytes == null)) {
+            _apUsagePollTimer = setTimeout(() => {
+                const tab = document.querySelector('#ap-tabs .ap-tab-active');
+                if (tab && tab.dataset.tab === 'users') _apLoadUsers();
+            }, 4000);
+        }
 
     } catch (err) {
         const b = document.getElementById('ap-body');
@@ -7515,7 +7541,8 @@ function _apFmtBytes(b) {
 }
 
 function _apRenderRow(u) {
-    const pct = u.quota_bytes > 0 ? Math.min(100, (u.usage_bytes / u.quota_bytes) * 100) : 0;
+    const pending = u.usage_bytes == null;   // size not cached yet — see _apLoadUsers
+    const pct = !pending && u.quota_bytes > 0 ? Math.min(100, (u.usage_bytes / u.quota_bytes) * 100) : 0;
     const barColor = pct >= 95 ? '#ef4444' : pct >= 75 ? '#f59e0b' : '#22c55e';
     const adminBadge = u.is_admin
         ? `<span class="ap-badge" style="background:#fef3c7;color:#92400e">${t('profile_info_admin_badge')}</span> ` : '';
@@ -7526,9 +7553,9 @@ function _apRenderRow(u) {
             <div style="font-size:11px;color:#cbd5e1;margin-top:1px">${t('admin_row_id_joined', { id: u.id, date: (u.created_at||'').slice(0,10) })}</div>
         </div>
         <div>
-            <div style="font-size:12px;color:#475569;margin-bottom:3px">${_apFmtBytes(u.usage_bytes||0)}</div>
+            <div style="font-size:12px;color:#475569;margin-bottom:3px">${pending ? t('admin_usage_calculating') : _apFmtBytes(u.usage_bytes)}</div>
             <div class="ap-bar-wrap"><div class="ap-bar-fill" style="width:${pct.toFixed(1)}%;background:${barColor}"></div></div>
-            <div style="font-size:10px;color:#94a3b8;margin-top:2px">${pct.toFixed(0)}%</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:2px">${pending ? '…' : pct.toFixed(0) + '%'}</div>
         </div>
         <div>
             <div style="font-size:12px;color:#475569">${_apFmtBytes(u.quota_bytes||0)}</div>
@@ -8618,7 +8645,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         try {
-            const cache = await caches.open('fluxdrop-v-561c8690'); // replaced by build.sh — do not edit manually
+            const cache = await caches.open('fluxdrop-v-10d3b357'); // replaced by build.sh — do not edit manually
 
             const stalenessChecks = await Promise.all(
                 TRACKED.map(async (url) => {

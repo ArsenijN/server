@@ -3284,9 +3284,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
             for r in rows:
                 uid, uname, nick, email, adm, quota, qover, created = r
                 eff_quota = quota if quota else _compute_dynamic_quota()
+                # Never walk the disk here: a cold cache used to mean one full
+                # tree walk per user inside this request, which ran past the
+                # reverse proxy's timeout. Cold users come back as null and
+                # the panel re-polls while the background scan catches up.
                 out.append({'id': uid, 'username': uname, 'nickname': nick, 'email': email,
                             'is_admin': bool(adm), 'quota_bytes': eff_quota, 'quota_override': bool(qover),
-                            'usage_bytes': _get_user_disk_usage(uid), 'created_at': created})
+                            'usage_bytes': _get_user_disk_usage_nowait(uid), 'created_at': created})
             return self._send_response(200, json.dumps({'users': out}))
 
         # Beacon IP lookup (JSON API)
@@ -7430,6 +7434,16 @@ def _get_user_disk_usage(user_id: int) -> int:
     # visits every subdirectory independently). If trash is itself cold, treat
     # it as 0 for now; it self-corrects on the next call once scanned.
     _tr_cnt, trash_bytes, _tr_warm = _dir_cache_get_ex(os.path.normpath(trash_dir))
+    return max(0, total - trash_bytes)
+
+def _get_user_disk_usage_nowait(user_id: int) -> int | None:
+    """Like _get_user_disk_usage, but returns None instead of walking the
+    tree when the cache is cold (the background scan is queued either way)."""
+    user_dir = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+    _cnt, total, warm = _dir_cache_get_ex(user_dir)
+    if not warm:
+        return None
+    _tr_cnt, trash_bytes, _tr_warm = _dir_cache_get_ex(os.path.normpath(_user_trash_root(user_id)))
     return max(0, total - trash_bytes)
 
 if __name__ == '__main__':

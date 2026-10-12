@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.21.1.19`
+# FluxDrop & server `v0.21.1.20`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -40,6 +40,12 @@ repo. Anyone can use it.
 - Faster first load: the Latin Inter font is preloaded instead of waiting for
   `Inter.css`, the landing logo is a 3 KB WebP instead of an 11 KB PNG, and the
   loading bar animates with `transform` (no layout work per frame)
+- The HTTPS server accepts bursts of new connections better: the listen
+  backlog is 1024 instead of the default 5, and the worker pool is 400 threads
+  instead of 100 (`HTTPS_MAX_WORKERS` to change it; threads are only created
+  when needed). Every keep-alive connection occupies one worker for up to 45 s,
+  and Immich's timeline opens about 60 parallel connections while scrolling, so
+  a busy moment could leave new connections waiting until a worker was free
 
 **Fixed**
 - I18n in the profile panel: title, avatar statuses, password messages,
@@ -80,6 +86,18 @@ repo. Anyone can use it.
   The policy "could not load" / "Retry" messages are translated too
 - The Terms of Service and Privacy Policy pop-ups open and close with the same
   animation as the other dialogs (the viewer also closes with `Esc`)
+- Immich timeline thumbnails sometimes didn't load while scrolling (a blurred
+  thumb until you opened the photo and went back): the reverse proxy answered
+  `204 No Content` responses (Immich's sync acknowledgements and asset
+  `PUT` / `DELETE`) as `Transfer-Encoding: chunked` followed by a `0` chunk
+  terminator. A 204 has no body, so strict HTTP clients read those stray bytes
+  as the start of the next response on the same keep-alive connection, and the
+  next request on it, often a thumbnail, failed. The proxy now sends 204, 205,
+  304, 1xx and `HEAD` responses with headers only
+- The reverse proxy followed `3xx` redirects itself instead of passing them to
+  the client, which turned `POST` into `GET` on 301 / 302 / 303, dropped the
+  request body, and could send the server out to the public address to fetch
+  the `Location`. Redirects now reach the client unchanged
 
 ### Server (backend)
 **Added**

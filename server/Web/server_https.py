@@ -134,6 +134,29 @@ def _get_host_proxy(headers) -> dict | None:
         return entry
     return None
 
+class _NoRedirect(_urllib_req.HTTPRedirectHandler):
+    """Never follow 3xx inside the proxy.
+
+    urllib follows redirects by default, which is wrong for a reverse proxy:
+    the *client* has to see the 3xx + Location and decide for itself.
+    Following it here silently turns POST->GET on 301/302/303, drops the body,
+    and can send the proxy out over the public internet to fetch the Location.
+    With redirection disabled urllib raises HTTPError for 3xx, which the
+    HTTPError branch in _proxy_to_host already forwards verbatim.
+    """
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+_PROXY_OPENER = _urllib_req.build_opener(_NoRedirect)
+
+
+def _response_has_no_body(method: str, status: int) -> bool:
+    """RFC 9110 6.4.1: these responses never carry a message body, so the
+    proxy must not add Transfer-Encoding/Content-Length framing or write a
+    chunk terminator for them."""
+    return method == 'HEAD' or status in (204, 205, 304) or 100 <= status < 200
+
+
 def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     """Forward the current request to an arbitrary backend origin.
 
@@ -297,7 +320,7 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     _PROXY_BUF = 256 * 1024
     _headers_sent = False  # once True, we can no longer fall back to an error response
     try:
-        with _urllib_req.urlopen(req, timeout=timeout) as resp:
+        with _PROXY_OPENER.open(req, timeout=timeout) as resp:
             handler.send_response(resp.status)
             
             _cl = resp.headers.get('Content-Length')
@@ -309,7 +332,21 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
                     except Exception:
                         pass
             
-            if not _cl:
+            if _response_has_no_body(method, resp.status):
+                # BUGFIX: a 204 (Immich answers every POST /api/sync/ack,
+                # DELETE /api/assets, PUT /api/assets with one) has no
+                # Content-Length, so it used to fall into the chunked branch
+                # below and went out as "204 + Transfer-Encoding: chunked" followed
+                # by a "0\r\n\r\n" terminator. A 204 has no body, so strict
+                # HTTP clients treat those 5 bytes as the start of the NEXT
+                # response on the same keep-alive connection - and the next
+                # request on it (e.g. a timeline thumbnail) fails to parse.
+                # Send the headers exactly as received and nothing else.
+                handler._proxying = True
+                handler.end_headers()
+                handler._proxying = False
+                _headers_sent = True
+            elif not _cl:
                 # BUGFIX: this used to do `body = resp.read()` — buffering the
                 # ENTIRE response into RAM before writing anything back, which
                 # is exactly wrong for something like Immich's
@@ -1452,9 +1489,21 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 #     workers is a safe ceiling for the i5-6006U (2C/4T) while still serving
 #     many more than 100 simultaneous connections (extras just queue briefly).
 # ---------------------------------------------------------------------------
-_MAX_WORKERS = 100  # active worker threads; tune up if you see high queue latency
+# Every keep-alive connection pins one worker for its whole life (up to the 45 s
+# idle timeout), and the Immich app opens ~60 parallel connections when the
+# timeline is scrolled (the log shows worker ids up to 0_81 on a 100-worker
+# pool). Once the pool is exhausted new connections are accepted by the kernel
+# but their TLS handshake - deferred to a worker - doesn't even start until a
+# worker frees up, so thumbnails just stall. Threads are created lazily, so a
+# higher ceiling costs nothing until it is actually needed.
+_MAX_WORKERS = int(os.getenv('HTTPS_MAX_WORKERS', '400'))
 
 class _QuietPooledHTTPServer(http.server.HTTPServer):
+    # socketserver's default listen() backlog is 5. A burst of dozens of new
+    # connections (timeline scroll) overflows that while the accept loop is
+    # waiting for the GIL, and Linux then drops the SYN/ACK: the client only
+    # retries after 1 s, 3 s, 7 s ... which looks like thumbnails never loading.
+    request_queue_size = 1024
     """HTTPServer backed by a fixed-size thread pool.
     Connections are never dropped — they queue until a worker is free.
     """

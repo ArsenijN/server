@@ -13,7 +13,7 @@ from werkzeug.formparser import parse_form_data # For parsing multipart/form-dat
 from urllib.parse import quote_plus
 import random # For generating CAPTCHA challenges
 import shutil # For securely moving uploaded files
-from shared import serve_compressed_static, send_body_compressed
+from shared import serve_compressed_static, send_body_compressed, fluxdrop_legacy_redirect
 from shared import PrefetchReader, CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_https, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
@@ -946,6 +946,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # not turned into an SPA navigation URL.
         if _try_path_proxy(self, 'GET'):
             return
+        # FluxDrop on an old host (arseniusgen.*) → fluxdrop.me (shared.py)
+        if fluxdrop_legacy_redirect(self):
+            return
 
         client_ip = self.client_address[0]
         requested_path = self.path
@@ -1174,6 +1177,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # Per-host path-prefix proxy — see do_GET for rationale.
         if _try_path_proxy(self, 'HEAD'):
             return
+        if fluxdrop_legacy_redirect(self):
+            return
 
         # --- Proxy CDN-owned paths to server_cdn.py internally (mirrors do_GET) ---
         # This check was missing here specifically — do_GET/do_POST/do_DELETE/
@@ -1288,6 +1293,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # Per-host path-prefix proxy — see do_GET for rationale.
         if _try_path_proxy(self, 'POST'):
             return
+        if fluxdrop_legacy_redirect(self):
+            return
 
         client_ip = self.client_address[0]
         print(f"POST request from: {client_ip} -> {self.path}")
@@ -1398,6 +1405,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return _proxy_to_host(self, 'DELETE', _hp['target'], _hp.get('timeout', 60))
         if _try_path_proxy(self, 'DELETE'):
             return
+        if fluxdrop_legacy_redirect(self):
+            return
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'DELETE')
@@ -1411,6 +1420,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return _proxy_to_host(self, 'PUT', _hp['target'], _hp.get('timeout', 60))
         if _try_path_proxy(self, 'PUT'):
             return
+        if fluxdrop_legacy_redirect(self):
+            return
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):
             return _proxy_to_cdn(self, 'PUT')
@@ -1423,6 +1434,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if _hp:
             return _proxy_to_host(self, 'PATCH', _hp['target'], _hp.get('timeout', 60))
         if _try_path_proxy(self, 'PATCH'):
+            return
+        if fluxdrop_legacy_redirect(self):
             return
         _p = self.path.split('?')[0]
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _CDN_PROXY_PREFIXES):

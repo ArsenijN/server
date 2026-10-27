@@ -122,6 +122,9 @@ background -- specifiable time period in server config
 - [ ] Fix CSP for used domain other than `PUBLIC_DOMAIN` (e.g. accessing
 FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to
 as specified in `PUBLIC_DOMAIN`)
+  - Done, needs testing: FluxDrop lives on `PUBLIC_BASE_URL` (fluxdrop.me);
+  on `FLUXDROP_LEGACY_HOSTS` (arseniusgen.*) its pages, shares and API are
+  308-redirected there (plain HTTP: app pages only; `/beacon` never)
 - [ ] Port settings clash: `server_cdn.py` and the front servers
 (`server_http.py`, `server_https.py`) read the same `HTTP_PORT` /
 `HTTPS_PORT` names, and all of them load `vars.env` -- setting them there

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit as _urlsplit
 _PUBLIC_DOMAIN = _urlsplit(_PUBLIC_BASE_URL).hostname
 _HTTPS_PORT    = _urlsplit(_PUBLIC_BASE_URL).port or 443
 from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
-from shared import serve_compressed_static, send_body_compressed
+from shared import serve_compressed_static, send_body_compressed, fluxdrop_legacy_redirect
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, raise_fd_limit, \
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 import datetime
@@ -383,6 +383,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # below, which would otherwise send '/api/' to _PUBLIC_DOMAIN (wrong host).
         if _path_proxy_https_redirect(self):
             return
+        # FluxDrop app pages on an old host (arseniusgen.*) → fluxdrop.me over
+        # HTTPS. Only the app: CDN paths stay reachable over plain HTTP here.
+        if fluxdrop_legacy_redirect(self, ('/fluxdrop_pp',)):
+            return
 
         # --- Redirect auth/API to HTTPS — never proxy credentials in plaintext ---
         # /auth/ and /api/ carry session tokens and passwords; sending them over
@@ -554,6 +558,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # /api/v1/upload_session/config (the client's connectivity probe) that
         # meant a guaranteed 404 from this server's own static-file handler.
         if _path_proxy_https_redirect(self):
+            return
+        if fluxdrop_legacy_redirect(self, ('/fluxdrop_pp',)):
             return
         _clean = requested_path.split('?')[0]
         _host_bare = self.headers.get('Host', '').split(':')[0].lower()

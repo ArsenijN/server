@@ -415,3 +415,49 @@ def send_body_compressed(handler, body: bytes, content_type: str,
     handler.end_headers()
     if handler.command != 'HEAD':
         handler.wfile.write(body)
+
+
+# --- FluxDrop on its own domain ----------------------------------------------
+# FluxDrop used to be served from the main domains too (as /fluxdrop_pp/).
+# It now lives on PUBLIC_BASE_URL (fluxdrop.me); its pages and API on these old
+# hosts are 308-redirected there, so old links keep working and every page
+# talks to one origin (CSP connect-src 'self').
+FLUXDROP_LEGACY_HOSTS = frozenset(
+    h.strip().lower() for h in os.getenv(
+        'FLUXDROP_LEGACY_HOSTS',
+        'arseniusgen.uk.to,www.arseniusgen.uk.to,arseniusgen.dev,www.arseniusgen.dev',
+    ).split(',') if h.strip()
+)
+# /beacon is left out on purpose: ip_beacon clients don't follow redirects on POST.
+FLUXDROP_LEGACY_PREFIXES = ('/fluxdrop_pp', '/api/', '/auth/', '/share/', '/status',
+                            '/report', '/FluxDrop/', '/cdn/', '/CB_uploads/')
+_APP_SUBPATH = '/fluxdrop_pp'
+
+
+def fluxdrop_legacy_redirect(handler, prefixes=FLUXDROP_LEGACY_PREFIXES) -> bool:
+    """308-redirect a FluxDrop request on an old host to PUBLIC_BASE_URL.
+    Returns True when a redirect was sent. /fluxdrop_pp/<x> becomes <x>, since
+    the FluxDrop domain serves the app at its root."""
+    host = handler.headers.get('Host', '').split(':')[0].lower()
+    if host not in FLUXDROP_LEGACY_HOSTS:
+        return False
+    from config import PUBLIC_BASE_URL
+    base = PUBLIC_BASE_URL.rstrip('/')
+    from urllib.parse import urlsplit
+    if (urlsplit(base).hostname or '').lower() in FLUXDROP_LEGACY_HOSTS:
+        return False   # FluxDrop still lives on an old host — nowhere to go
+    path  = handler.path
+    clean = path.split('?')[0]
+    if not any(clean == p.rstrip('/') or clean.startswith(p.rstrip('/') + '/')
+               for p in prefixes):
+        return False
+    if clean == _APP_SUBPATH or clean.startswith(_APP_SUBPATH + '/'):
+        path = path[len(_APP_SUBPATH):] or '/'
+        if not path.startswith('/'):
+            path = '/' + path
+    handler.send_response(308)
+    handler.send_header('Location', base + path)
+    handler.send_header('Content-Length', '0')
+    handler.send_header('Cache-Control', 'no-store')
+    handler.end_headers()
+    return True

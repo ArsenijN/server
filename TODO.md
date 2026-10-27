@@ -59,6 +59,9 @@ Not related to internet conditions AFAIK; recheck after the recent proxy fixes
 - [ ] Trash bin: file preview inside trashed folders (`/api/v1/trash/<id>/list`
 exists, but `/api/v1/trash/<id>/file` rejects folders -- needs a sub-path
 parameter with the `_is_within()` containment check)
+  - Done, needs testing: `/trash/<id>/file?path=<sub/path>` (checked with
+  `_is_within()`); files in the "Browse" tree are clickable and open the
+  preview. The tree is now nested properly and escapes file names
 - [ ] ZIP download:
   - [ ] Cancel the file hashing, or avoid the multithreaded file hash after
   canceling the ZIP download, or do it only if server is unused or via `nice`

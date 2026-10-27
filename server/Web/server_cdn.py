@@ -3160,7 +3160,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # GET /api/v1/trash/<id>/file  — stream trashed file for preview
         trash_item_pattern_preview = re.match(r'^/api/v\d/trash/(\d+)/file$', parsed_url.path)
         if trash_item_pattern_preview:
-            return self._handle_trash_file_stream(int(trash_item_pattern_preview.group(1)))
+            _sub = parse_qs(parsed_url.query).get('path', [''])[0]
+            return self._handle_trash_file_stream(int(trash_item_pattern_preview.group(1)), _sub)
 
         # GET /api/v1/trash/<id>/list  — list contents of a trashed folder
         trash_folder_list_m = re.match(r'^/api/v\d/trash/(\d+)/list$', parsed_url.path)
@@ -4952,10 +4953,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
             'retention_days': retention,
         }))
 
-    def _handle_trash_file_stream(self, item_id: int):
-        """GET /api/v1/trash/<id>/file  — stream a trashed file for preview.
+    def _handle_trash_file_stream(self, item_id: int, sub_path: str = ''):
+        """GET /api/v1/trash/<id>/file[?path=<sub/path>]  — stream a trashed file for preview.
         Uses session-token auth (same as all other authenticated endpoints).
         Only the owning user can access their own trash items.
+        For a trashed folder, ?path= picks a file inside it (the "path" values
+        returned by /trash/<id>/list); it must stay inside the folder.
         """
         user_id = self._check_token_auth()
         if not user_id:
@@ -4972,13 +4975,23 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(500, json.dumps({'error': str(exc)}))
         if not row:
             return self._send_response(404, json.dumps({'error': 'Trash item not found'}))
-        if row['is_dir']:
-            return self._send_response(400, json.dumps({'error': 'Cannot stream a directory'}))
         trash_path = row['trash_path']
+        if row['is_dir']:
+            sub_path = sub_path.strip().lstrip('/')
+            if not sub_path:
+                return self._send_response(400, json.dumps({'error': 'Cannot stream a directory (pass ?path= for a file inside it)'}))
+            folder     = trash_path
+            trash_path = os.path.join(folder, sub_path)
+            if not _is_within(folder, trash_path) or os.path.realpath(trash_path) == os.path.realpath(folder):
+                return self._send_response(403, json.dumps({'error': 'Path outside the trashed folder'}))
+            filename = os.path.basename(trash_path)
+        elif sub_path:
+            return self._send_response(400, json.dumps({'error': 'path is only valid for trashed folders'}))
+        else:
+            filename = os.path.basename(trash_path).split('__')[0]  # strip __<uid> suffix
         if not os.path.isfile(trash_path):
             return self._send_response(404, json.dumps({'error': 'Trashed file missing from disk'}))
 
-        filename  = os.path.basename(trash_path).split('__')[0]  # strip __<uid> suffix
         mime_type, _ = mimetypes.guess_type(filename)
         mime_type = mime_type or 'application/octet-stream'
         file_size = os.path.getsize(trash_path)

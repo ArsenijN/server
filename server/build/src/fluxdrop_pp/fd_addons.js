@@ -730,7 +730,7 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data  = await r.json();
       const items = data.items || [];
-      panel.innerHTML = items.length ? _treeHtml(items) :
+      panel.innerHTML = items.length ? _treeHtml(items, id) :
         '<em style="color:#94a3b8">📂 Folder is empty.</em>';
     } catch (err) {
       panel.innerHTML = err.message.includes('404')
@@ -744,19 +744,46 @@
     btn.disabled    = false;
   }, true);
 
-  function _treeHtml(items) {
-    const sorted = [...items].sort((a,b) =>
-      a.is_dir !== b.is_dir ? (a.is_dir ? -1 : 1) : a.name.localeCompare(b.name)
-    );
+  // Files in the tree open the normal trash preview for a file inside the
+  // folder (?path=). Video/audio clicks are taken by section 7 first.
+  document.addEventListener('click', function _fdTrashTreePreview(e) {
+    const el = e.target.closest('.trash-preview-btn[data-path]');
+    if (!el || typeof _previewTrashFile !== 'function') return;
+    _previewTrashFile(+el.dataset.id, el.dataset.name, el.dataset.path);
+  });
+
+  function _esc(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
+  }
+
+  function _treeHtml(items, id) {
+    // Sort by path so each folder's children follow it (folders first at each
+    // level); sorting the flat list by name alone detached files from their
+    // folders.
+    const key = it => {
+      const segs = String(it.path || it.name).split('/');
+      return segs.map((s, i) => (i < segs.length - 1 || it.is_dir ? '0' : '1') + s.toLowerCase());
+    };
+    const sorted = [...items].sort((a, b) => {
+      const ka = key(a), kb = key(b);
+      for (let i = 0; i < Math.min(ka.length, kb.length); i++) {
+        if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
+      }
+      return ka.length - kb.length;
+    });
     return sorted.map(item => {
       const icon = item.is_dir ? '📁' : '📄';
       const sz   = item.is_dir ? '' :
         `<span style="margin-left:auto;color:#94a3b8;font-size:11px">${_fmt(item.size_bytes)}</span>`;
+      const fileAttrs = item.is_dir ? '' :
+        ` class="trash-preview-btn" data-id="${id}" data-name="${_esc(item.name)}"` +
+        ` data-path="${_esc(item.path || item.name)}" style="cursor:pointer;text-decoration:underline dotted"`;
       return `<div style="display:flex;align-items:center;gap:5px;padding:2px 0;
           padding-left:${(item.depth||1)*12}px">
         <span>${icon}</span>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"
-              title="${item.path||item.name}">${item.name}</span>${sz}
+              title="${_esc(item.path||item.name)}"><span${fileAttrs}>${_esc(item.name)}</span></span>${sz}
       </div>`;
     }).join('');
   }
@@ -791,7 +818,10 @@
 
     const id    = +btn.dataset.id;
     const token = localStorage.getItem('fluxdrop_token') || '';
-    const url   = `/api/v1/trash/${id}/file` + (token ? `?token=${encodeURIComponent(token)}` : '');
+    const qs    = new URLSearchParams();
+    if (token) qs.set('token', token);
+    if (btn.dataset.path) qs.set('path', btn.dataset.path);   // file inside a trashed folder
+    const url   = `/api/v1/trash/${id}/file` + (qs.toString() ? `?${qs}` : '');
 
     const modal   = document.getElementById('preview-modal');
     const titleEl = document.getElementById('preview-title');
@@ -810,7 +840,7 @@
          </video>`
       : `<div style="padding:2rem 1rem;text-align:center">
            <div style="font-size:4rem;margin-bottom:1rem">🎵</div>
-           <div style="color:#94a3b8;margin-bottom:1.5rem;font-size:15px">${filename}</div>
+           <div style="color:#94a3b8;margin-bottom:1.5rem;font-size:15px">${String(filename).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c])}</div>
            <audio controls autoplay style="width:100%"><source src="${url}"></audio>
          </div>`;
   }, true);

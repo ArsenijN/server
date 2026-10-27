@@ -3489,7 +3489,8 @@ async function _fetchBlobWithProgress(resp, signal, bodyEl) {
 // Preview a trashed file by streaming it directly from the trash endpoint.
 // This bypasses the normal download-token flow because trashed files live
 // outside the user's regular file tree.
-async function _previewTrashFile(trashId, filename) {
+// subPath: a file inside a trashed folder (a "path" from /trash/<id>/list).
+async function _previewTrashFile(trashId, filename, subPath) {
     // Cancel any previous in-flight preview fetch.
     if (_previewAbortCtrl) { _previewAbortCtrl.abort(); }
     _previewAbortCtrl = new AbortController();
@@ -3505,7 +3506,8 @@ async function _previewTrashFile(trashId, filename) {
     dlBtn.style.display = 'none';
     modal.classList.remove('hidden');
 
-    const streamUrl = `${API_BASE_URL}/api/v1/trash/${trashId}/file`;
+    const streamUrl = `${API_BASE_URL}/api/v1/trash/${trashId}/file`
+        + (subPath ? `?path=${encodeURIComponent(subPath)}` : '');
 
     try {
         const cat = fileCategory(filename);

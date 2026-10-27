@@ -5437,6 +5437,10 @@ function _concurrencyForSpeed(bytesPerSec) {
     return 6; // CONCURRENCY_MAX
 }
 
+// Speed measured by the last finished chunk run ({bps, at}); lets small
+// files skip the speed probe. See SMALL_FILE_NO_PROBE in uploadChunked.
+let _lastUploadSpeed = null;
+
 async function uploadChunked(file, destRel, opts = {}) {
     const ownerType  = opts.ownerType  || 'user';
     const shareToken = opts.shareToken  || '';
@@ -5464,6 +5468,14 @@ async function uploadChunked(file, destRel, opts = {}) {
         // Config fetch: get server chunk size.
         // Both fire simultaneously so total wait ≈ max(config_rtt, probe_rtt).
         const PROBE_SIZE = 512 * 1024; // 512 KB
+        // Small files skip the probe (it would be a big share of the upload):
+        // they reuse a speed measured in the last 10 min, or else use small
+        // 1 MB chunks that stay inside the 90 s chunk timeout even on a bad
+        // connection.
+        const SMALL_FILE_NO_PROBE = 25 * 1024 * 1024;
+        const skipProbe  = file.size < SMALL_FILE_NO_PROBE;
+        const knownSpeed = (_lastUploadSpeed && Date.now() - _lastUploadSpeed.at < 10 * 60_000)
+            ? _lastUploadSpeed.bps : null;
 
         const [cfgResult, probeResult] = await Promise.allSettled([
             fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/config`, {
@@ -5471,6 +5483,7 @@ async function uploadChunked(file, destRel, opts = {}) {
             }).then(r => r.ok ? r.json() : null).catch(() => null),
 
             (async () => {
+                if (skipProbe) return knownSpeed;
                 const probeData = new Uint8Array(PROBE_SIZE); // zeros, no disk read
                 const t0 = performance.now();
                 const res = await fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/speed_probe`, {
@@ -5517,6 +5530,9 @@ async function uploadChunked(file, destRel, opts = {}) {
             preferredChunkSize = Math.round(
                 Math.max(MIN_CHUNK_SIZE, Math.min(perStreamSpeed * TARGET_CHUNK_SECONDS, maxChunkSize))
             );
+        }
+        if (!preferredChunkSize && skipProbe) {
+            preferredChunkSize = Math.min(1 * 1024 * 1024, maxChunkSize);
         }
         const effectiveChunkSize = preferredChunkSize || serverChunkSize;
 
@@ -6028,6 +6044,7 @@ async function uploadChunked(file, destRel, opts = {}) {
     }
 
     // ── Complete ────────────────────────────────────────────────────
+    if (ul.speed > 0) _lastUploadSpeed = { bps: ul.speed, at: Date.now() };
     ul.status        = 'verifying';
     ul.speed         = null;
     ul.eta           = null;

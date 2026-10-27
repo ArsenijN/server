@@ -77,6 +77,9 @@ parameter with the `_is_within()` containment check)
 - [ ] Do not make speed probe for small files (e.g. less than 25 MB) -- not if
 internet is bad -- if so, needs changes in how the chunks are calculated, maybe
 a dynamic chunk size based on the upload speed
+  - Done, needs testing: files under 25 MB skip the probe; they reuse the
+  speed of an upload finished in the last 10 min, or else use 1 MB chunks
+  (safe for the 90 s chunk timeout on a bad connection)
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Publish Privacy Policy and Terms of Service v0.1.0: set up
 `privacy@fluxdrop.me`, fill in `[CONTACT EMAIL]`, the email provider and the

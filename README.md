@@ -1,9 +1,14 @@
-# FluxDrop & server `v0.21.1.20`
+# FluxDrop & server `v0.21.1.21`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
 ## What's new
-> **In short:** ...
+> **In short:** content reports and an admin Reports tab, a safer account
+> verification flow, fairer storage quotas with a disk-full guard, much faster
+> first load (compressed and minified assets, lighter fonts and icons), more
+> of the UI translated, and reverse-proxy fixes for Immich. Two breaking
+> changes: account verification is now a `POST`, and IP Beacon registration
+> needs a FluxDrop login.
 
 ### FluxDrop (UI)
 **Added**
@@ -162,19 +167,33 @@ repo. Anyone can use it.
   verified accounts nobody had confirmed
 
 ### Known issues
-- ...
+- Pausing an upload can sometimes lose a chunk the server had already
+  received, so less data shows as uploaded after resuming
+- "Cancelling…" on an upload sometimes stays forever without cancelling
+- Files inside a folder in the trash can't be previewed yet (the folder's
+  contents can be browsed)
+- After a ZIP download is cancelled, the server keeps hashing its files in the
+  background
+- The Privacy Policy and Terms of Service v0.1.0 are drafted but not published
+  yet
 
 ### Housekeeping
 - Moved the finished "Background hashsums" entry to the Done part of `TODO.md`
-- Updated the `README.md` layout
+- Reorganised `TODO.md` into phases (priority fixes → backend → API V2 →
+  frontend V2), with the project rules in their own section
+- Updated the `README.md` layout; installation instructions moved to the
+  [Wiki](https://github.com/ArsenijN/server/wiki), which was updated to match
+  the current code
 - Drafted Privacy Policy and Terms of Service v0.1.0 (English and Ukrainian)
   in `policies/`; not active until `versions.json` is bumped
 
 <details>
 <summary>Older releases</summary>
 
-Short one-line summaries of previous versions, or a link to CHANGELOG.md /
-git tags — optional.
+Each commit is one version (`V0.21.1.1`, `V0.21.1.2`, …), and the README at
+that commit holds its notes, so `git log -p README.md` shows the history.
+[CHANGELOG.md](./CHANGELOG.md) has older, more detailed notes, but isn't kept
+up to date.
 
 </details>
 
@@ -252,103 +271,33 @@ They are what got me into running my own internet projects in 2023.
 
 ## Installation
 
-### Prerequisites
-- Python 3.14+ (developed and tested on 3.14.3)
-- `pip`
-- ImageMagick (`sudo apt install imagemagick libmagickwand-dev`) — for email
-  icon embedding
-- Node.js + npm — for rebuilding Tailwind CSS and the locale bundle if you
-  change the frontend
+Full instructions are in the **[Wiki](https://github.com/ArsenijN/server/wiki)**:
+[Prerequisites](https://github.com/ArsenijN/server/wiki/Prerequisites) ·
+[Installation](https://github.com/ArsenijN/server/wiki/Installation) ·
+[Configuration](https://github.com/ArsenijN/server/wiki/Configuration) (every
+setting) ·
+[Deployment](https://github.com/ArsenijN/server/wiki/Deployment) ·
+[Admin & Helpers](https://github.com/ArsenijN/server/wiki/Admin-and-Helpers) ·
+[Troubleshooting](https://github.com/ArsenijN/server/wiki/Troubleshooting)
 
-### 1. Clone the repository (on your build machine)
-```bash
-git clone https://github.com/ArsenijN/server
-cd server
-```
+Short version:
 
-### 2. Build the frontend
-```bash
-./build.sh
-```
-Checks the locale files, regenerates the locale bundle, builds Tailwind CSS
-and syncs `server/build/src` → `server/TestWeb`.
-
-### 3. Create a virtual environment (on the server)
-```bash
-python3.14 -m venv /opt/venvs/site_web   # matches the path in the .service files
-source /opt/venvs/site_web/bin/activate
-pip install -r requirements.txt           # from the deployed Web/ directory
-```
-Any path works — just update `ExecStart=` in the `.service` files to match.
-
-### 4. Configure secrets
-
-Sensitive data (database, SMTP credentials, TLS keys, blacklist) lives in
-`server/Web/secrets/`, which git **ignores** and deploys never overwrite.
-Samples are in `server/Web/secrets_samples/`:
-```bash
-cp secrets_samples/credentials_local.env.sample secrets/credentials_local.env
-cp secrets_samples/smtp.env.sample               secrets/smtp.env
-cp secrets_samples/myCA.pem.sample               secrets/myCA.pem   # replace with real cert
-cp secrets_samples/myCA.key.sample               secrets/myCA.key   # replace with real key
-cp secrets_samples/blklst.txt.sample             secrets/blklst.txt
-```
-`config.py` loads `KEY=VALUE` pairs from these files automatically.
-
-Key variables (in `secrets/vars.env`):
-
-| Variable | Description | Example |
-|---|---|---|
-| `PUBLIC_DOMAIN` | Your public hostname | `example.com` |
-| `SERVE_ROOT` | Root of the CDN/media volume | `/srv/fluxdrop/cdn` |
-| `SERVE_DIRECTORY` | Root of the static web files | `/srv/fluxdrop/site/TestWeb` |
-| `UPLOAD_TMP_DIR` | Temp dir for upload chunks — put it on a **different drive** than `SERVE_ROOT` (ideally an SSD), see below | `/mnt/ssd/fluxdrop_upload_sessions` |
-| `HTTP_PORT` | HTTP listen port | `63512` |
-| `HTTPS_PORT` | HTTPS listen port | `64800` |
-
-The background hash scanner has its own settings (`BG_SCAN_*`); see the
-comments above `_bg_crc32_scanner` in `server_cdn.py`.
-
-### 5. Install the systemd services
-
-The `.service` files in `server/services/` use the author's user and paths
-(`User=arsen`, `WorkingDirectory=/home/arsen/...`). Edit `User=`,
-`WorkingDirectory=` and `ExecStart=` to match your setup first, then:
-```bash
-sudo cp ../services/webserver-*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now webserver-http webserver-https webserver-cdn
-```
-
-### 6. Check the logs
-```bash
-journalctl -u webserver-cdn -f
-journalctl -u webserver-https -f
-```
-
----
-
-## Keeping the server up to date
-
-`sync_to_server.sh` mirrors your local `./server` tree to the host and
-restarts all three services:
-```bash
-./sync_to_server.sh
-```
-
-- SSH `ControlMaster` multiplexing means your passphrase is asked only once.
-- `secrets/` is **always excluded**, so live credentials and the SQLite
-  database are never overwritten.
-- To avoid a sudo prompt each time, either allow passwordless sudo for
-  `systemctl restart` on the remote, or set `NO_SUDO_PROMPT=1` (uses `sudo`
-  without `-S`, so you need an active sudo session there already).
-
-Check the deployed version on the status page: `https://<your-domain>/status`.
-
-Over time, old files from earlier versions can pile up in `Web/`. To clean up,
-wipe the `Web/` folder **except `secrets/`** and deploy again. Be careful with
-`rm -rf` here — deleting `secrets/` loses all credentials and the user
-database.
+- **Needs:** Python 3.14+ (developed on 3.14.3) on the server; Node.js + npm,
+  `rsync` and `ssh` on your build machine.
+- **Build** on your machine: `npm install` once, then `./build.sh`. Edit the
+  frontend in `server/build/src`; `server/TestWeb` is regenerated on every
+  build.
+- **Deploy** with `./sync_to_server.sh` (set up `deploy.env` from
+  `deploy.env.sample` first). It mirrors `server/` to the host, never touches
+  `Web/secrets/`, and restarts the three services.
+- **Configure** on the server: copy the samples from `Web/secrets_samples/`
+  into `Web/secrets/` (git-ignored) and fill in `vars.env` and `smtp.env`.
+  Don't set `HTTP_PORT` / `HTTPS_PORT` there — the CDN and the front servers
+  read the same names (see the Configuration page).
+- **Services:** edit `User=`, `WorkingDirectory=` and `ExecStart=` in
+  `server/services/webserver-*.service`, copy them to `/etc/systemd/system/`
+  and enable them.
+- Check `https://<your-domain>/status` — it also shows the deployed version.
 
 ---
 

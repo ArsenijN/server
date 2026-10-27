@@ -4,5 +4,9 @@ This directory holds sensitive artifacts that MUST NOT be committed to source co
 - Place the SQLite DB as `fluxdrop_users.db`.
 - Place a blacklist file as `blklst.txt`.
 - Place audit logs as `audit.log`.
+- Copy `vars.env.sample` to `vars.env` (domain, paths, ports and other
+  settings) and `smtp.env.sample` to `smtp.env` (outgoing mail).
+  `credentials_local.env` holds local credentials. `config.py` loads all
+  three at startup.
 
 When deploying, ensure this directory is owned by the service user and is not world-readable.

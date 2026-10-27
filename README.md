@@ -1,24 +1,51 @@
-# FluxDrop & server `v0.22.0.10`
+# FluxDrop & server `v0.22.0.11`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
 ## What's new
-> **In short:** 
+> **In short:** fixes for pausing, resuming and cancelling uploads; previews
+> for big `.tar.gz` archives and for files inside trashed folders; ZIP
+> downloads stop hashing when cancelled; FluxDrop now lives only on
+> fluxdrop.me (old domains redirect there).
 
 ### FluxDrop (UI)
 **Added**
-- 
+- Files inside a trashed folder can be previewed: click a file in the
+  folder's "Browse" list
+- Previewing a large `.tar`/`.tar.gz` shows progress while the server reads
+  it, and a note when the list was cut short
 
 **Changed**
-- 
+- Files under 25 MB skip the upload speed test: they reuse the speed of a
+  recent upload, or use small 1 MB chunks that are safe on slow connections
+- Cancelling a ZIP download that is still being prepared tells the server to
+  stop
+- The trash "Browse" list shows files under their folders
 
 **Fixed**
-- 
+- Pausing and resuming an upload could skip chunks, so it failed with
+  "Missing chunks". Resume now asks the server which chunks it is missing and
+  sends only those, and checks again before finishing
+- Cancelling a paused upload stayed on "Cancelling…" forever
+- Pausing while a chunk was being retried cancelled the whole upload
+- The loading spinner could keep running hidden behind the app
+- File names in the trash "Browse" list, the ZIP "skipped files" list and
+  the audio preview weren't escaped
 
 ### Server (backend)
 **Added**
 - `CATBOX_API_ENABLED` — set to 0 to switch the CatBox API off; uploaded
   files stay downloadable
+- `/api/v1/trash/<id>/file?path=<sub/path>` streams a file inside a trashed
+  folder (checked to stay inside it)
+- `DELETE /api/v1/zip_status/<job>` cancels a ZIP job
+- Archive listings (`/api/v1/archive_tree`) are cached on disk. `.tar(.gz)`
+  is read by a low-priority background worker (202 + progress until ready),
+  also right after it's uploaded. Zip-bomb limits: max entries, time and
+  compression ratio (`ARCHIVE_TREE_*` settings)
+- `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` for the front servers
+- `FLUXDROP_LEGACY_HOSTS`: FluxDrop pages, shares and API on the old
+  domains (arseniusgen.uk.to, arseniusgen.dev) redirect to `PUBLIC_BASE_URL`
 
 **Changed**
 - CatBox `urlupload` fetched any URL for anyone, without a login, and
@@ -28,21 +55,26 @@ repo. Anyone can use it.
 - The build no longer makes a new cache version when nothing changed: the
   locale bundle's "Generated" timestamp alone changed the hash, so every
   build made visitors re-download the app
+- ZIP downloads: one job per folder (a second request or Resume joins it); a
+  job stops when its page stops polling for `ZIP_JOB_IDLE_STOP` seconds (20),
+  even in the middle of a file, keeps the hashes done so far and continues
+  when polled again
+- HTTP→HTTPS redirects go to the host and port of `PUBLIC_BASE_URL`; they
+  used the CDN's port (64800) and sent `/api/` to the main domain
+- `wand` and `requests` removed from `requirements.txt` (nothing uses them)
 
 **Changed (breaking)**
 - 
 
 **Fixed**
-- 
+- Unfinished upload sessions were purged 2-3 hours early (local time
+  compared with UTC)
+- Previewing a 1.6 GB `.tar.gz` failed with HTTP 502 (the proxy gave up
+  while the whole archive was decompressed)
 
 ### Known issues
-- Pausing an upload can sometimes lose a chunk the server had already
-  received, so less data shows as uploaded after resuming
-- "Cancelling…" on an upload sometimes stays forever without cancelling
-- Files inside a folder in the trash can't be previewed yet (the folder's
-  contents can be browsed)
-- After a ZIP download is cancelled, the server keeps hashing its files in the
-  background
+- The upload, ZIP, archive and trash fixes above still need testing on the
+  live server
 - The Privacy Policy and Terms of Service v0.1.0 are drafted but not published
   yet
 

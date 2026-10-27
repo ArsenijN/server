@@ -46,8 +46,16 @@ variables, tables, etc.)
 upload, a chunk that was successfully sent may not be saved (unACK issue?).
 Not related to internet conditions AFAIK; recheck after the recent proxy fixes
 (may affect only Immich over WebSocket, or regular HTTP too)
+  - Cause found in the client, fixed, needs testing: on pause, workers
+  that weren't mid-send waited instead of exiting, so Resume started a
+  second run from the highest chunk taken while the old run woke up too;
+  chunks in between could be skipped ("Missing chunks" on complete). Now
+  chunks come from a queue, Resume asks `/status` for the missing ones, and
+  the client re-checks `/status` before `/complete`
 - [ ] Not always UI cancels the upload (says "Cancelling..." and does nothing)
--- needs a repro to find at which stage it hangs
+  - Cause found, fixed, needs testing: Cancel on a *paused* upload never
+  sent the DELETE or left the "cancelling" state, since the paused run had
+  already ended. Also, pausing during a chunk retry cancelled the upload
 - [ ] Trash bin: file preview inside trashed folders (`/api/v1/trash/<id>/list`
 exists, but `/api/v1/trash/<id>/file` rejects folders -- needs a sub-path
 parameter with the `_is_within()` containment check)

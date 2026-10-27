@@ -5542,13 +5542,37 @@ async function uploadChunked(file, destRel, opts = {}) {
         measuredSpeed   = probeSpeed; // carry real measured speed into ul for ETA seed
     }
 
+    // ── Chunks still to send (kept sorted) ──────────────────────────
+    // A resumed session asks the server which chunks it actually has, so
+    // chunks that were in flight when the upload was paused (or the page
+    // closed) are sent again instead of being skipped by a plain
+    // "start from index N" resume.
+    let pending = [];
+    for (let i = startIdx; i < totalChunks; i++) pending.push(i);
+    if (opts.resumeToken) {
+        try {
+            const stRes = await fetchWithFallback(
+                `${API_BASE_URL}/api/v1/upload_session/${uploadToken}/status`,
+                { headers: authHeaders(anonDeviceToken) }
+            );
+            if (stRes.ok) {
+                const st = await stRes.json();
+                if (Array.isArray(st.missing_chunks)) {
+                    pending = st.missing_chunks.filter(i => i < totalChunks).sort((a, b) => a - b);
+                }
+            }
+        } catch (_) { /* keep startIdx..end */ }
+    }
+    const chunkLen = (i) => Math.max(0, Math.min(chunkSize, file.size - i * chunkSize));
+    const confirmedBytes = file.size - pending.reduce((s, i) => s + chunkLen(i), 0);
+
     // ── Register in active uploads map ──────────────────────────────
     // On resume, reuseId lets us update the existing tray row in-place
     // instead of creating a duplicate entry with a new id.
     const id = (opts.reuseId != null) ? opts.reuseId : ++uploadIdCounter;
     const ul = activeUploads.get(id) || {
         filename: file.name,
-        loaded: startIdx * chunkSize,
+        loaded: confirmedBytes,
         total: file.size,
         status: 'uploading',
         speed: null, eta: null, error: null,
@@ -5574,15 +5598,22 @@ async function uploadChunked(file, destRel, opts = {}) {
     ul.anonDeviceToken = anonDeviceToken;
     ul.chunkSize  = chunkSize;
     ul.totalChunks = totalChunks;
-    ul.nextChunk  = startIdx;
+    ul.nextChunk  = pending.length ? pending[0] : totalChunks;
+    ul.loaded     = confirmedBytes;
     if (measuredSpeed) ul.measuredSpeed = measuredSpeed;
     activeUploads.set(id, ul);
+
+    // Each call is one "run" of this upload. Resume starts a new run; a run
+    // that is no longer the latest stops taking chunks, so two runs never
+    // upload the same session side by side.
+    const runId = ul.runId = (ul.runId || 0) + 1;
+    const superseded = () => ul.runId !== runId;
 
     // Persist to localStorage so page reloads can offer recovery (user uploads only)
     if (ownerType === 'user') {
         saveInterruptedUpload(uploadToken, {
             uploadToken, filename: file.name, destRel, totalChunks,
-            chunkSize, nextChunkIdx: startIdx, ownerType, shareToken,
+            chunkSize, nextChunkIdx: ul.nextChunk, ownerType, shareToken,
             anonDeviceToken: null, total: file.size,
         });
     }
@@ -5627,7 +5658,7 @@ async function uploadChunked(file, destRel, opts = {}) {
                     concurrency = Math.max(CONCURRENCY_MIN, concurrency - 1);
                 } else if (ratio >= 0.95 && concurrency < CONCURRENCY_MAX
                            && _activeWorkerCount < concurrency + 1
-                           && nextIdx < totalChunks) {
+                           && pending.length > 0) {
                     // Speed stable/rising — try adding one more worker
                     concurrency++;
                     if (_workerLaunchFn) _workerLaunchFn();
@@ -5644,7 +5675,7 @@ async function uploadChunked(file, destRel, opts = {}) {
     // All concurrent XHR progress events feed raw bytes into one sampler
     // that emits a smoothed speed (exponential weighted average) every 800ms.
     // This eliminates per-chunk speed jitter from concurrent uploads.
-    let samplerLoaded   = startIdx * chunkSize; // bytes confirmed sent at start
+    let samplerLoaded   = confirmedBytes; // bytes confirmed sent at start
     let samplerLastTime = Date.now();
     let samplerLastSnap = samplerLoaded;
     const EWA_ALPHA     = 0.25; // smoothing factor: lower = smoother but slower to react
@@ -5694,6 +5725,14 @@ async function uploadChunked(file, destRel, opts = {}) {
         // the previous chunk's XHR, so it adds no measurable latency.
         let chunkHash = null;
         try { chunkHash = await chunkSha256(blob); } catch (_) { /* non-fatal */ }
+
+        // Paused, cancelled or resumed while hashing: the XHR wasn't
+        // registered yet, so abort() couldn't reach it — don't send.
+        if (ul.paused || ul.cancelled || superseded()) {
+            const e = new Error('Upload cancelled');
+            e.name  = 'AbortError';
+            throw e;
+        }
 
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -5778,43 +5817,63 @@ async function uploadChunked(file, destRel, opts = {}) {
         });
     }
 
-    // Run chunks with a concurrency pool
-    let nextIdx = startIdx;
+    // Run chunks with a concurrency pool. Workers take chunks from `pending`;
+    // a chunk stopped by pause/resume goes back into it, so nothing is
+    // skipped. A worker exits (instead of waiting) as soon as the upload is
+    // paused, so the pool settles and Resume can start a clean new run.
     let uploadError = null;
+    const inFlight = new Set();
+
+    function requeue(idx) {
+        inFlight.delete(idx);
+        if (!pending.includes(idx)) {
+            pending.push(idx);
+            pending.sort((a, b) => a - b);
+        }
+    }
+    // Lowest chunk not confirmed by the server yet — where a resume must start.
+    function lowestUnconfirmed() {
+        let lo = pending.length ? pending[0] : totalChunks;
+        inFlight.forEach(i => { if (i < lo) lo = i; });
+        return lo;
+    }
+    function saveProgress() {
+        ul.nextChunk = lowestUnconfirmed();
+        // Keep localStorage in sync so recovery knows the right restart point
+        if (ownerType === 'user') {
+            saveInterruptedUpload(uploadToken, {
+                uploadToken, filename: file.name, destRel, totalChunks,
+                chunkSize, nextChunkIdx: ul.nextChunk, ownerType, shareToken,
+                anonDeviceToken: null, total: file.size,
+            });
+        }
+    }
+    // Pause or a newer run (resume) stopped this chunk: put it back and exit.
+    function stopRequested(idx) {
+        if (!ul.paused && !superseded()) return false;
+        requeue(idx);
+        return true;
+    }
 
     async function worker() {
         while (true) {
-            // Pause: spin-wait until resumed or cancelled
-            while (ul.paused && !ul.cancelled) {
-                await new Promise(r => setTimeout(r, 200));
-            }
-            if (ul.cancelled || uploadError) return;
+            if (ul.cancelled || ul.paused || uploadError || superseded()) return;
+            if (!pending.length) return;
 
-            const idx = nextIdx++;
-            if (idx >= totalChunks) return;
-
-            ul.nextChunk = idx;
-            // Keep localStorage in sync so recovery knows the right restart point
-            if (ownerType === 'user') {
-                saveInterruptedUpload(uploadToken, {
-                    uploadToken, filename: file.name, destRel, totalChunks,
-                    chunkSize, nextChunkIdx: idx, ownerType, shareToken,
-                    anonDeviceToken: null, total: file.size,
-                });
-            }
+            const idx = pending.shift();
+            inFlight.add(idx);
+            saveProgress();
 
             try {
                 await uploadChunk(idx);
+                inFlight.delete(idx);
             } catch (err) {
                 if (err.name === 'AbortError') {
-                    if (ul.paused && !ul.cancelled) {
-                        if (idx < nextIdx) nextIdx = idx;
-                        return;
-                    }
-                    ul.cancelled = true;
+                    if (!stopRequested(idx)) ul.cancelled = true;
                     return;
                 }
                 if (ul.cancelled) return;
+                if (stopRequested(idx)) return;
                 // ── Retry loop: up to 3 retries with back-off, resuming from the
                 // exact failed chunk index.  No page reload needed.
                 const MAX_CHUNK_RETRIES = 3;
@@ -5827,21 +5886,28 @@ async function uploadChunked(file, destRel, opts = {}) {
                     // Per-second countdown
                     for (let s = Math.round(backoff / 1000); s > 0; s--) {
                         if (ul.cancelled) return;
+                        if (stopRequested(idx)) { ul._retrying = false; ul.error = null; return; }
                         ul.error = `Chunk ${idx} failed. Retry ${attempt}/${MAX_CHUNK_RETRIES} in ${s}s…`;
                         renderUploadTray();
                         await new Promise(r => setTimeout(r, 1000));
                     }
                     ul._retrying = false;
                     if (ul.cancelled) return;
+                    if (stopRequested(idx)) { ul.error = null; return; }
                     try {
                         await uploadChunk(idx);
+                        inFlight.delete(idx);
                         retryErr     = null;
                         ul.error     = null;
                         ul._retrying = false;
                         break;
                     } catch (e2) {
                         retryErr = e2;
-                        if (e2.name === 'AbortError') { ul.cancelled = true; return; }
+                        if (e2.name === 'AbortError') {
+                            // Pausing during a retry used to cancel the whole upload.
+                            if (!stopRequested(idx)) ul.cancelled = true;
+                            return;
+                        }
                     }
                 }
                 if (retryErr) {
@@ -5849,13 +5915,7 @@ async function uploadChunked(file, destRel, opts = {}) {
                     ul.error   = retryErr.message;
                     // Persist the exact failed chunk so the interrupted-upload
                     // manager can offer resuming from here — not from chunk 0.
-                    if (ownerType === 'user') {
-                        saveInterruptedUpload(uploadToken, {
-                            uploadToken, filename: file.name, destRel, totalChunks,
-                            chunkSize, nextChunkIdx: idx, ownerType, shareToken,
-                            anonDeviceToken: null, total: file.size,
-                        });
-                    }
+                    saveProgress();
                     return;
                 }
             }
@@ -5863,31 +5923,65 @@ async function uploadChunked(file, destRel, opts = {}) {
     }
 
     // Launch adaptive worker pool and wait for all chunks to finish.
-    _startConcurrencyTuner();
-    await new Promise((resolvePool) => {
-        let _poolDone = false;
-        function _checkDone() {
-            if (!_poolDone && _activeWorkerCount === 0) {
-                _poolDone = true;
-                clearInterval(_tunerTimer);
-                _tunerTimer = null;
-                resolvePool();
+    function runPool() {
+        _startConcurrencyTuner();
+        return new Promise((resolvePool) => {
+            let _poolDone = false;
+            function _checkDone() {
+                if (!_poolDone && _activeWorkerCount === 0) {
+                    _poolDone = true;
+                    clearInterval(_tunerTimer);
+                    _tunerTimer = null;
+                    resolvePool();
+                }
             }
-        }
-        _workerLaunchFn = function _spawnWorker() {
-            if (ul.cancelled || uploadError || nextIdx >= totalChunks) { _checkDone(); return; }
-            _activeWorkerCount++;
-            worker().finally(() => { _activeWorkerCount--; _checkDone(); });
-        };
-        const initial = Math.min(concurrency, Math.max(0, totalChunks - startIdx));
-        for (let i = 0; i < initial; i++) _workerLaunchFn();
-        if (initial === 0) resolvePool(); // zero-chunk (empty) file
-    });
+            _workerLaunchFn = function _spawnWorker() {
+                if (ul.cancelled || uploadError || !pending.length) { _checkDone(); return; }
+                _activeWorkerCount++;
+                worker().finally(() => { _activeWorkerCount--; _checkDone(); });
+            };
+            const initial = Math.min(concurrency, pending.length);
+            for (let i = 0; i < initial; i++) _workerLaunchFn();
+            if (initial === 0) _checkDone(); // nothing left (or zero-chunk file)
+        });
+    }
 
+    // Before /complete, ask the server which chunks it really has and send
+    // any that are missing (at most 2 extra passes; /complete reports the
+    // rest).
+    for (let pass = 0; ; pass++) {
+        await runPool();
+        if (superseded() || ul.paused || ul.cancelled || uploadError) break;
+        if (pass >= 2 || totalChunks === 0) break;
+        let missing = [];
+        try {
+            const stRes = await fetchWithFallback(
+                `${API_BASE_URL}/api/v1/upload_session/${uploadToken}/status`,
+                { headers: authHeaders(anonDeviceToken) }
+            );
+            if (stRes.ok) {
+                const st = await stRes.json();
+                if (Array.isArray(st.missing_chunks)) missing = st.missing_chunks;
+            }
+        } catch (_) { /* /complete will report missing chunks */ }
+        if (!missing.length) break;
+        console.warn(`Upload ${uploadToken.slice(0, 12)}…: server is missing chunks ${missing.slice(0, 10)}, re-sending`);
+        pending = missing.filter(i => i < totalChunks).sort((a, b) => a - b);
+        inFlight.clear();
+        samplerLoaded = Math.max(0, samplerLoaded - pending.reduce((s, i) => s + chunkLen(i), 0));
+        ul.loaded = samplerLoaded;
+    }
+
+    if (superseded()) {
+        // A newer run (Resume clicked) took over this upload; this one only
+        // stops. Reported as a pause so callers keep the queue parked.
+        const e = new Error('Upload paused');
+        e.name = 'PauseSignal';
+        throw e;
+    }
     if (ul.paused && !ul.cancelled) {
         // Workers exited due to pause — don't complete, just leave state as paused.
-        // nextIdx was backed up to the lowest aborted chunk index by the workers.
-        ul.nextChunk = nextIdx;
+        saveProgress();
         const e = new Error('Upload paused');
         e.name = 'PauseSignal';
         throw e;
@@ -6290,10 +6384,25 @@ function renderUploadTray() {
                 ul.cancelled = true;
                 ul.paused = false;
                 if (ul.abortController) ul.abortController.abort();
-                // If this item was paused, its uploadChunked() promise already
-                // settled (PauseSignal) — nothing will fire _pausedQueueDrain
-                // for us, so release any parked queue here.
-                if (wasPaused && _pausedQueueDrain) _pausedQueueDrain();
+                if (!wasPaused) return;
+                // This item was paused, so its uploadChunked() run already
+                // settled (PauseSignal): nothing else will tell the server,
+                // finish the "cancelling" state or fire _pausedQueueDrain —
+                // which left the row stuck at "Cancelling…".
+                const headers = {};
+                if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+                if (ul.anonDeviceToken) headers['X-Anon-Device-Token'] = ul.anonDeviceToken;
+                Promise.race([
+                    fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/${ul.uploadToken}/cancel`,
+                        { method: 'DELETE', headers }),
+                    new Promise(r => setTimeout(r, 5000)),
+                ]).catch(() => { /* best-effort */ }).finally(() => {
+                    ul.status = 'cancelled';
+                    removeInterruptedUpload(ul.uploadToken);
+                    if (ul.anonDeviceToken) removeAnonDeviceToken(ul.uploadToken);
+                    renderUploadTray();
+                    if (_pausedQueueDrain) _pausedQueueDrain();
+                });
             });
 
             // Pre-attach all buttons; visibility is toggled via display — never detached

@@ -2795,6 +2795,13 @@ window.cancelDownload = function(path) {
     if (dl) {
         dl._userCancelled = true;
         dl._abort?.abort();
+        // ZIP still being built: tell the server to stop hashing for it
+        // (it would also stop by itself once polls stop, ZIP_JOB_IDLE_STOP).
+        if (dl._isZip && dl._jobId && !dl._dlUrl) {
+            fetchWithFallback(`${API_BASE_URL}/api/v1/zip_status/${dl._jobId}`, {
+                method: 'DELETE', headers: dl._authHeader || {},
+            }).catch(() => { /* best-effort */ });
+        }
         if (dl._writer) {
             dl._writer.abort?.().catch(() => {});
             dl._writer = null;
@@ -2944,7 +2951,7 @@ window.downloadFolderZip = async function(path) {
     a.style.display = 'none';
     document.body.appendChild(a);
     if (metaData.missing && metaData.missing.length > 0) {
-        const list = metaData.missing.map(f => `<li style="font-family:monospace;font-size:12px">${f}</li>`).join('');
+        const list = metaData.missing.map(f => `<li style="font-family:monospace;font-size:12px">${escapeHtml(f)}</li>`).join('');
         const mo = document.createElement('div');
         mo.className = 'modal-overlay';
         mo.innerHTML = `<div class="modal-content" style="max-width:480px">

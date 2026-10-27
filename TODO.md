@@ -69,6 +69,11 @@ parameter with the `_is_within()` containment check)
   worker is spawned for the same job
   - [ ] If the client ping is missing for 3+ seconds or the client cancels:
   stop the worker, put the files to a pending list, keep computed hashes
+  - Done, needs testing: one job per folder+user (a 2nd request or Resume
+  joins it); Cancel sends `DELETE /api/v1/zip_status/<job>`; no poll for
+  `ZIP_JOB_IDLE_STOP` (20 s, not 3 -- background tabs throttle timers) stops
+  the job, even mid-file; hashes done so far stay stored, and polling the job
+  again continues from the file it stopped at
 - [ ] Do not make speed probe for small files (e.g. less than 25 MB) -- not if
 internet is bad -- if so, needs changes in how the chunks are calculated, maybe
 a dynamic chunk size based on the upload speed

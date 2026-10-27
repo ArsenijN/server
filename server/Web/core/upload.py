@@ -43,15 +43,24 @@ _crc32_upload_queue: _queue.Queue = _queue.Queue()
 _CRC32_READ_BUF = 4 * 1024 * 1024  # 4 MB read buffer
 
 
+class HashCancelled(Exception):
+    """Raised by compute_and_store_crc32 when should_stop() asks it to stop."""
+
+
 def compute_and_store_crc32(abs_path: str, relative_path: str,
-                             user_id, scan_source: str = 'on_demand') -> int:
+                             user_id, scan_source: str = 'on_demand',
+                             should_stop=None) -> int:
     """Read abs_path, compute CRC-32 + SHA-256 in one pass, persist both.
-    Raises OSError if the file cannot be read.  Returns the CRC-32 value."""
+    Raises OSError if the file cannot be read.  Returns the CRC-32 value.
+    should_stop: optional callable checked between reads; when it returns
+    True the hash is abandoned (nothing stored) and HashCancelled is raised."""
     st  = os.stat(abs_path)
     crc = 0
     h   = hashlib.sha256()
     with open(abs_path, 'rb') as fh:
         while True:
+            if should_stop is not None and should_stop():
+                raise HashCancelled(abs_path)
             chunk = fh.read(_CRC32_READ_BUF)
             if not chunk:
                 break

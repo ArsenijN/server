@@ -135,7 +135,7 @@ from core.rate_limit import _rate_limit
 from core.notifications import _fire_upload_notification, _is_safe_webhook_url, _EMAIL_RE
 from core.upload import MAX_JSON_BODY, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, _upload_init, _upload_get, _upload_receive_chunk, \
     _upload_session_status, _upload_assemble, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, _purge_abandoned_upload_sessions, UPLOAD_TMP_DIR, \
-    _cancel_upload_session, compute_and_store_crc32, dispatch_checksum_job
+    _cancel_upload_session, compute_and_store_crc32, HashCancelled, dispatch_checksum_job
 from core.shares import _get_share, _get_shares_for_user, _create_share, _update_share, _delete_share, _get_share_stats, _get_share_raw, \
     _is_share_expired, _log_share_access, _parse_expiry
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
@@ -324,6 +324,10 @@ ZIP_SESSION_TTL     = int(os.getenv('ZIP_SESSION_TTL', str(20 * 60)))   # 20 min
 _zip_jobs: dict        = {}
 _zip_jobs_lock         = threading.Lock()
 ZIP_JOB_TTL            = int(os.getenv('ZIP_JOB_TTL', str(30 * 60)))    # 30 min
+# A scanning job stops (keeping the hashes done so far) when its client hasn't
+# polled zip_status for this long; the client polls every second. Polling the
+# job again, or a new zip_meta for the same folder, continues it.
+ZIP_JOB_IDLE_STOP      = int(os.getenv('ZIP_JOB_IDLE_STOP', '20'))
 
 def _zip_sessions_cleanup():
     while True:
@@ -672,43 +676,68 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
             if job_id in _zip_jobs:
                 _zip_jobs[job_id].update(kw)
 
+    def _should_stop() -> bool:
+        # Stop when the job was cancelled/removed, or the client stopped
+        # polling (closed tab, paused download). Checked between files and
+        # between reads while hashing, so a big file doesn't keep hashing.
+        with _zip_jobs_lock:
+            job = _zip_jobs.get(job_id)
+            if job is None or job.get('cancelled'):
+                return True
+            return time.time() - job.get('last_poll', 0) > ZIP_JOB_IDLE_STOP
+
     try:
-        # Pre-walk
-        raw_files = []
-        missing   = []
+        # Walk and hash progress lives on the job, so a stopped job that is
+        # polled again continues where it stopped instead of re-walking.
+        with _zip_jobs_lock:
+            state = (_zip_jobs.get(job_id) or {}).get('_state')
+        if state is None:
+            # Pre-walk
+            raw_files = []
+            missing   = []
 
-        def _on_walk_error(exc: OSError) -> None:
-            # os.walk() silently skips any directory it can't list (permission
-            # denied, or the folder got deleted out from under the scan by a
-            # concurrent operation — this job can run for a while on large
-            # folders) unless given an onerror callback. Without one, every
-            # file inside that subtree would vanish from the ZIP with no
-            # record anywhere — not even in `missing` — which is a strictly
-            # worse and silent version of the per-file skip case below.
-            # Record the directory itself so it surfaces through the same
-            # missing-files list/modal the client already shows.
-            try:
-                rel = os.path.relpath(exc.filename, base_fs).replace(os.sep, '/')
-            except (TypeError, ValueError):
-                rel = exc.filename or '?'
-            missing.append(rel + '/ (folder unreadable — skipped)')
-
-        for dirpath, _dirs, filenames in os.walk(base_fs, onerror=_on_walk_error):
-            for fname in sorted(filenames):
-                if fname in ('.placeholder', '.create_marker'):
-                    continue
-                abs_path = os.path.join(dirpath, fname)
-                arcname  = os.path.relpath(abs_path, base_fs).replace(os.sep, '/')
+            def _on_walk_error(exc: OSError) -> None:
+                # os.walk() silently skips any directory it can't list (permission
+                # denied, or the folder got deleted out from under the scan by a
+                # concurrent operation — this job can run for a while on large
+                # folders) unless given an onerror callback. Without one, every
+                # file inside that subtree would vanish from the ZIP with no
+                # record anywhere — not even in `missing` — which is a strictly
+                # worse and silent version of the per-file skip case below.
+                # Record the directory itself so it surfaces through the same
+                # missing-files list/modal the client already shows.
                 try:
-                    st      = os.stat(abs_path)
-                    lt      = time.localtime(st.st_mtime)
-                    dos_t   = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
-                    dos_d   = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
-                    raw_files.append((abs_path, arcname, arcname.encode('utf-8'),
-                                      st.st_size, dos_t, dos_d))
-                except OSError:
-                    missing.append(arcname)
-        _upd(total=len(raw_files))
+                    rel = os.path.relpath(exc.filename, base_fs).replace(os.sep, '/')
+                except (TypeError, ValueError):
+                    rel = exc.filename or '?'
+                missing.append(rel + '/ (folder unreadable — skipped)')
+
+            for dirpath, _dirs, filenames in os.walk(base_fs, onerror=_on_walk_error):
+                if _should_stop():
+                    _upd(status='stopped')
+                    return
+                for fname in sorted(filenames):
+                    if fname in ('.placeholder', '.create_marker'):
+                        continue
+                    abs_path = os.path.join(dirpath, fname)
+                    arcname  = os.path.relpath(abs_path, base_fs).replace(os.sep, '/')
+                    try:
+                        st      = os.stat(abs_path)
+                        lt      = time.localtime(st.st_mtime)
+                        dos_t   = (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec >> 1)
+                        dos_d   = ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday
+                        raw_files.append((abs_path, arcname, arcname.encode('utf-8'),
+                                          st.st_size, dos_t, dos_d))
+                    except OSError:
+                        missing.append(arcname)
+            state = {'raw_files': raw_files, 'missing': missing, 'scanned': [],
+                     'actual_missing': [], 'needs_hashing': False}
+            _upd(_state=state, total=len(raw_files))
+
+        raw_files      = state['raw_files']
+        missing        = state['missing']
+        scanned        = state['scanned']
+        actual_missing = state['actual_missing']
 
         # CRC32 scan (checksum cache + on-demand)
         _is_share  = user_id == 'share' or user_id is None
@@ -716,10 +745,11 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
         _cs_root   = None if _is_share else os.path.normpath(
             os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
         )
-        scanned        = []
-        actual_missing = []
-        needs_hashing  = False
-        for i, (abs_path, arcname, arcname_bytes, fsz, dos_t, dos_d) in enumerate(raw_files):
+        for i in range(len(scanned), len(raw_files)):
+            abs_path, arcname, arcname_bytes, fsz, dos_t, dos_d = raw_files[i]
+            if _should_stop():
+                _upd(status='stopped')
+                return
             crc = None
             # Key must match what the background scanner stored:
             # relative to the user root, not to base_fs.
@@ -732,15 +762,21 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
                 crc = stored['crc32']
                 fsz = stored['file_size']
             if crc is None:
-                needs_hashing = True
+                state['needs_hashing'] = True
                 try:
-                    crc = compute_and_store_crc32(abs_path, cs_key, _cs_uid, 'on_demand')
+                    crc = compute_and_store_crc32(abs_path, cs_key, _cs_uid, 'on_demand',
+                                                  should_stop=_should_stop)
                     fsz = os.stat(abs_path).st_size
+                except HashCancelled:
+                    # Files hashed before this one are already stored.
+                    _upd(status='stopped')
+                    return
                 except OSError:
                     logging.warning('zip_build: CRC failed %r', abs_path)
                     actual_missing.append(arcname); crc = 0; fsz = 0
             scanned.append((abs_path, arcname, arcname_bytes, fsz, crc, dos_t, dos_d))
             _upd(progress=i + 1)
+        needs_hashing = state['needs_hashing']
 
         # Build offset table and pre-render headers
         LFH_SIG            = b'PK\x03\x04'
@@ -804,7 +840,7 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
             filename, len(files_built), offset, len(all_missing),
             needs_hashing, session_id[:8],
         )
-        _upd(status='ready', session=session_id, filename=filename,
+        _upd(status='ready', session=session_id, filename=filename, _state=None,
              size=offset, missing=all_missing, needs_hashing=needs_hashing,
              expires=time.time() + ZIP_JOB_TTL)
 
@@ -812,6 +848,17 @@ def _zip_build_job(job_id: str, base_fs: str, folder_name: str, user_id) -> None
         logging.error('zip_build job %s failed: %s', job_id[:8], e)
         _upd(status='error', error=str(e))
 
+
+
+def _zip_job_launch(job_id: str) -> None:
+    """Start (or continue) the background worker of a job in _zip_jobs."""
+    with _zip_jobs_lock:
+        job = _zip_jobs.get(job_id)
+        if not job:
+            return
+        args = (job_id, job['base_fs'], job['folder_name'], job['user_id'])
+    threading.Thread(target=_zip_build_job, args=args, daemon=True,
+                     name=f'ZipBuild-{job_id[:8]}').start()
 
 
 def _get_policy_versions() -> dict:
@@ -3805,6 +3852,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         us_cancel = self.upload_session_cancel_pattern.match(parsed_url.path)
         if us_cancel:
             return self.handle_upload_session_cancel(us_cancel.group(2))
+        _zip_cancel = self.zip_status_pattern.match(parsed_url.path)
+        if _zip_cancel:
+            return self._handle_zip_cancel(_zip_cancel.group(2))
         item_match = self.shares_item_pattern.match(parsed_url.path)
         if item_match:
             return self.handle_share_delete(item_match.group(2))
@@ -5645,40 +5695,76 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not os.path.isdir(base_fs):
             return self._send_response(404, json.dumps({'error': 'Not a directory.'}))
 
-        # Create job entry immediately so the client can start polling
-        job_id = str(_uuid_mod.uuid4())
-        with _zip_jobs_lock:
-            _zip_jobs[job_id] = {
-                'status':   'scanning',
-                'progress': 0,      # files scanned so far
-                'total':    None,   # total files (set after pre-walk)
-                'error':    None,
-                'expires':  time.time() + ZIP_JOB_TTL,
-                'user_id':  user_id,  # 'share' for share-initiated jobs — used by zip_status auth
-                # session payload set when scan completes:
-                'session':  None,
-                'filename': None,
-                'size':     None,
-                'missing':  None,
-                'needs_hashing': False,
-            }
-
         folder_name = os.path.basename(base_fs.rstrip('/')) or 'download'
+        job_key     = (os.path.realpath(base_fs), str(user_id))
 
-        # Launch the heavy scan in a background thread so this request returns fast
-        threading.Thread(
-            target=_zip_build_job,
-            args=(job_id, base_fs, folder_name, user_id),
-            daemon=True,
-            name=f'ZipBuild-{job_id[:8]}',
-        ).start()
+        # One job per folder and user: a second request (another tab, a
+        # resumed download) joins the running job instead of starting another
+        # worker that would read and hash the same folder again. A stopped
+        # job (client went away) is continued from where it stopped.
+        relaunch = False
+        with _zip_jobs_lock:
+            job_id = next((k for k, v in _zip_jobs.items()
+                           if v.get('key') == job_key and not v.get('cancelled')
+                           and v['status'] in ('scanning', 'stopped')), None)
+            if job_id:
+                job = _zip_jobs[job_id]
+                job['last_poll'] = time.time()
+                job['expires']   = time.time() + ZIP_JOB_TTL
+                if job['status'] == 'stopped':
+                    job['status'] = 'scanning'
+                    relaunch = True
+            else:
+                # Create job entry immediately so the client can start polling
+                job_id = str(_uuid_mod.uuid4())
+                _zip_jobs[job_id] = {
+                    'status':   'scanning',
+                    'progress': 0,      # files scanned so far
+                    'total':    None,   # total files (set after pre-walk)
+                    'error':    None,
+                    'expires':  time.time() + ZIP_JOB_TTL,
+                    'user_id':  user_id,  # 'share' for share-initiated jobs — used by zip_status auth
+                    'key':      job_key,
+                    'base_fs':  base_fs,
+                    'folder_name': folder_name,
+                    'last_poll': time.time(),
+                    # session payload set when scan completes:
+                    'session':  None,
+                    'filename': None,
+                    'size':     None,
+                    'missing':  None,
+                    'needs_hashing': False,
+                }
+                relaunch = True
 
-        logging.info('zip_meta: job %s started for %r user=%s', job_id[:8], base_fs, user_id)
+        if relaunch:
+            _zip_job_launch(job_id)
+            logging.info('zip_meta: job %s started for %r user=%s', job_id[:8], base_fs, user_id)
+        else:
+            logging.info('zip_meta: joined running job %s for %r', job_id[:8], base_fs)
         return self._send_response(202, json.dumps({
             'job_id':  job_id,
             'status':  'scanning',
             'poll_url': f'/api/v1/zip_status/{job_id}',
         }))
+
+    def _handle_zip_cancel(self, job_id: str):
+        """DELETE /api/v1/zip_status/<job_id> — stop a ZIP job (download
+        cancelled). Hashes finished so far stay stored. Same auth as GET."""
+        with _zip_jobs_lock:
+            job = _zip_jobs.get(job_id)
+        if not job:
+            return self._send_response(404, json.dumps({'error': 'Job not found or expired'}))
+        if job.get('user_id') != 'share':
+            user_id = self._check_token_auth()
+            if not user_id or str(user_id) != str(job.get('user_id')):
+                return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
+        with _zip_jobs_lock:
+            job = _zip_jobs.pop(job_id, None)
+            if job:
+                job['cancelled'] = True
+        logging.info('zip_cancel: job %s cancelled', job_id[:8])
+        return self._send_response(200, json.dumps({'ok': True}))
 
     def _handle_zip_status(self, job_id: str):
         """GET /api/v1/zip_status/<job_id>
@@ -5706,12 +5792,24 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not job:
             return self._send_response(404, json.dumps({'error': 'Job not found or expired'}))
 
-        # Refresh TTL on poll so active clients keep the job alive
+        # Refresh TTL on poll so active clients keep the job alive; the poll
+        # time also keeps the worker running (see ZIP_JOB_IDLE_STOP). A job
+        # that stopped because polls paused (e.g. a throttled background
+        # tab) is continued.
+        relaunch = False
         with _zip_jobs_lock:
             if job_id in _zip_jobs:
-                _zip_jobs[job_id]['expires'] = time.time() + ZIP_JOB_TTL
+                _zip_jobs[job_id]['expires']   = time.time() + ZIP_JOB_TTL
+                _zip_jobs[job_id]['last_poll'] = time.time()
+                if _zip_jobs[job_id]['status'] == 'stopped':
+                    _zip_jobs[job_id]['status'] = 'scanning'
+                    relaunch = True
+        if relaunch:
+            _zip_job_launch(job_id)
 
         status = job['status']
+        if status == 'stopped':
+            status = 'scanning'   # relaunched above
         resp   = {'job_id': job_id, 'status': status}
 
         if status == 'scanning':

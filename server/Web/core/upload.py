@@ -1,5 +1,5 @@
 import os, json, shutil, secrets, hashlib, time, logging, threading, zlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from core.db import _db_connect, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_clear, \
                     checksum_put, checksum_is_fresh, checksum_get, \
@@ -888,7 +888,9 @@ def _purge_abandoned_upload_sessions() -> bool:
     before.
     """
     try:
-        cutoff     = datetime.now() - timedelta(seconds=UPLOAD_SESSION_TTL)
+        # last_activity is SQLite CURRENT_TIMESTAMP, i.e. UTC — compare in UTC.
+        # (Local time here purged sessions 2-3 h early on a UTC+2/+3 server.)
+        cutoff     = datetime.now(timezone.utc) - timedelta(seconds=UPLOAD_SESSION_TTL)
         cutoff_str = cutoff.strftime('%Y-%m-%d %H:%M:%S')
         with _db_connect() as conn:
             rows = conn.execute(

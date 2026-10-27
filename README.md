@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.5`
+# FluxDrop & server `v0.22.0.6`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -161,8 +161,9 @@ Short version:
   `Web/secrets/`, and restarts the three services.
 - **Configure** on the server: copy the samples from `Web/secrets_samples/`
   into `Web/secrets/` (git-ignored) and fill in `vars.env` and `smtp.env`.
-  Don't set `HTTP_PORT` / `HTTPS_PORT` there — the CDN and the front servers
-  read the same names (see the Configuration page).
+  For the front servers' ports use `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT`;
+  `HTTP_PORT` / `HTTPS_PORT` there would reach the CDN too (see the
+  Configuration page).
 - **Services:** edit `User=`, `WorkingDirectory=` and `ExecStart=` in
   `server/services/webserver-*.service`, copy them to `/etc/systemd/system/`
   and enable them.

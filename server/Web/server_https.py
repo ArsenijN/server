@@ -34,7 +34,10 @@ _GZIP_MAX_INLINE = 16 * 1024 * 1024   # 16 MB — avoid buffering huge files in 
 
 # --- Configuration ---
 # Read bind IP and SSL port from environment. Default to 0.0.0.0 and non-privileged 8443.
-HTTPS_PORT = int(os.getenv('HTTPS_PORT', os.getenv('SSL_PORT', os.getenv('SERVER_PORT', '8443'))))
+# FRONT_HTTPS_PORT comes first: HTTPS_PORT is also the CDN's port and vars.env
+# is loaded by every server, so setting HTTPS_PORT there made both bind it.
+# The old names stay as fallbacks.
+HTTPS_PORT = int(os.getenv('FRONT_HTTPS_PORT') or os.getenv('HTTPS_PORT', os.getenv('SSL_PORT', os.getenv('SERVER_PORT', '8443'))))
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
 BLACKLIST_UPDATE_INTERVAL = 60 # seconds
 

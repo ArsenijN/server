@@ -26,7 +26,9 @@ from email.utils import formatdate as _formatdate
 _GZIP_MIN_SIZE   = 512
 _GZIP_MAX_INLINE = 16 * 1024 * 1024
 
-HTTP_PORT = int(os.getenv('HTTP_PORT', os.getenv('SERVER_PORT', '8080')))
+# FRONT_HTTP_PORT comes first: HTTP_PORT is also the CDN's port and vars.env
+# is loaded by every server (see server_https.py). Old names stay as fallbacks.
+HTTP_PORT = int(os.getenv('FRONT_HTTP_PORT') or os.getenv('HTTP_PORT', os.getenv('SERVER_PORT', '8080')))
 SERVER_IP = os.getenv('SERVER_IP', '0.0.0.0')
 BLACKLIST_UPDATE_INTERVAL = 60 # seconds
 

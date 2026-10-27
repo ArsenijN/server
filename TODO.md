@@ -124,9 +124,15 @@ as specified in `PUBLIC_DOMAIN`)
 `HTTPS_PORT` names, and all of them load `vars.env` -- setting them there
 makes two servers bind one port. Give the front servers their own names
 (e.g. `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT`, keeping the old fallbacks)
+  - Done: `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` are read first (sample,
+  README and wiki updated). Still open: `server_http.py` builds its HTTPS
+  redirects from config's `HTTPS_PORT` (the CDN's, 64800 by default) --
+  check that this is intended
 - [ ] Remove `wand` and `requests` from `requirements.txt` (nothing imports
 `wand` since the email icon moved to Pillow, so ImageMagick isn't needed;
 `requests` was only used by the CatBox `urlupload`, now disabled)
+  - Done (`bcrypt` comment fixed too); the server venv can drop them with
+  `pip uninstall wand requests`
 - [ ] CatBox API: better limits before it's used for real (per-IP rate limit
 and daily volume for anonymous uploads, retention/expiry for anonymous files,
 counting against quota for signed-in users); kill switch
@@ -143,6 +149,7 @@ the proxy gives `/api/` 10 s; the CDN keeps working after the proxy gave up.
 - [ ] Upload session purge (`core/upload.py`) compares naive local
 `datetime.now()` with the UTC `last_activity` -- sessions are purged 2-3 h
 early (same class of bug as audit B14)
+  - Done: compares in UTC
 - [ ] Use separate email for FluxDrop
 - [ ] Send emails in the user's locale
 - [ ] Update the services (and exclude the entry in the `.gitignore`)

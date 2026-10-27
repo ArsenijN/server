@@ -92,6 +92,9 @@ loads/decodes
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
 - [ ] `ap-body`'s spinning wheel is still spinning in background (not visible
 but Animations debugger sees it)
+  - It's the boot loader (`fd-boot-spin`) left in `#app-root`. Safety net
+  added (removed once anything else appears in `#app-root`); the render path
+  that skipped it is still unknown -- needs testing
 - [ ] Hide file selector (`fd-sel-bar`) for the mobile version if no keyboard
 is present
 - [ ] Add animation for file copy when task is executed (button pressed)

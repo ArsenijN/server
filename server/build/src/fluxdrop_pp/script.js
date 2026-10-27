@@ -135,6 +135,22 @@ async function _fdHardReload() {
 const appRoot = document.getElementById('app-root');
 const authControls = document.getElementById('auth-controls');
 
+// Safety net for the boot loader: renders normally replace #app-root (and the
+// loader with it), but any path that only adds to it left the infinite
+// fd-boot-spin animation running behind the app. Remove the loader as soon as
+// anything else shows up in #app-root.
+(function _fdWatchBootLoader() {
+    if (!appRoot || !document.getElementById('fd-boot-loading')) return;
+    const obs = new MutationObserver(() => {
+        const boot = document.getElementById('fd-boot-loading');
+        if (!boot) { obs.disconnect(); return; }
+        for (const el of appRoot.children) {
+            if (el !== boot) { boot.remove(); obs.disconnect(); return; }
+        }
+    });
+    obs.observe(appRoot, { childList: true });
+})();
+
 let authToken = localStorage.getItem('fluxdrop_token');
 let currentUsername = localStorage.getItem('fluxdrop_username');
 let isAdmin = localStorage.getItem('fluxdrop_is_admin') === '1';

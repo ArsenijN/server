@@ -88,7 +88,6 @@ import logging
 import re
 import shutil
 import secrets
-import requests
 import hashlib
 import bcrypt
 import sqlite3
@@ -111,6 +110,7 @@ import urllib.parse as _up
 from shared import PrefetchReader, CustomLogger, current_blacklist, blacklist_lock, load_blacklist_safely, update_blacklist, stop_update_event
 from config import SERVE_DIRECTORY, DB_FILE, CERT_FILE, KEY_FILE, LOG_FILE_CDN, CDN_UPLOAD_DIR, BLACKLIST_FILE, PUBLIC_DOMAIN as _CONFIG_PUBLIC_DOMAIN
 from config import SERVE_ROOT, HTTP_PORT, HTTPS_PORT, CATBOX_UPLOAD_DIR, HOST, SECRETS_DIR
+from config import CATBOX_API_ENABLED
 from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
 from config import PUBLIC_BASE_URL
 from config import CONTACT_EMAIL, LOG_RETENTION_DAYS, DELETED_ACCOUNT_PURGE_DAYS
@@ -7033,6 +7033,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
     # --- CatBox API Handler ---
     def handle_catbox_api(self):
         """Handles all requests to the CatBox API endpoint."""
+        if not CATBOX_API_ENABLED:
+            # The body is left unread, so don't reuse this connection for
+            # another request — the leftover bytes would be parsed as one.
+            self.close_connection = True
+            return self._send_response(503, "Service Unavailable: the CatBox API is disabled on this server.", "text/plain")
+
         user_id = self._check_token_auth() # Returns user_id or None
 
         # Parse the form data using werkzeug (cgi module was removed in Python 3.13+)
@@ -7157,36 +7163,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(500, f"Internal Server Error: {e}", "text/plain")
 
     def handle_catbox_urlupload(self, files, form, auth_user_display):
-        """Handles CatBox urlupload."""
-        url_to_upload = form.get('url')
-        if not url_to_upload:
-            return self._send_response(400, "Bad Request: Missing 'url' parameter.", "text/plain")
+        """Handles CatBox urlupload — disabled.
 
-        try:
-            with requests.get(url_to_upload, stream=True) as r:
-                r.raise_for_status()
-
-                original_filename = os.path.basename(urlparse(url_to_upload).path)
-                file_ext = os.path.splitext(original_filename)[1] if original_filename else ''
-
-                random_name = secrets.token_urlsafe(6).lower().replace('-', '').replace('_', '')
-                new_filename = f"{random_name}{file_ext}"
-
-                save_path = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR, new_filename))
-                if not _is_within(SERVE_ROOT, save_path):
-                    return self._send_response(400, "Bad Request: Invalid path.", "text/plain")
-
-                with open(save_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-
-            file_url = f"{PUBLIC_BASE_URL}/{CATBOX_UPLOAD_DIR}/{new_filename}"
-            logging.info(f"CatBox user '{auth_user_display}' uploaded URL '{url_to_upload}' to '{save_path}'")
-            self._send_response(200, file_url, "text/plain")
-
-        except Exception as e:
-            logging.exception("CatBox urlupload failed.")
-            self._send_response(500, f"Internal Server Error: {e}", "text/plain")
+        It fetched any URL anonymously (no host/IP checks, no size cap, no
+        timeout) and published the response: an SSRF into the LAN and the
+        CDN's loopback port. Downloading external URLs is planned as its own
+        service (cRes) with the safe opener from core/notifications.py.
+        """
+        logging.warning(f"CatBox urlupload refused (disabled) for '{auth_user_display}'")
+        return self._send_response(403, "Forbidden: urlupload is disabled on this server.", "text/plain")
 
     def handle_catbox_deletefiles(self, files, form, auth_user_display):
         """Handles CatBox deletefiles."""

@@ -15,6 +15,7 @@ race condition where t('key') returned the bare key string.
 """
 import json
 import pathlib
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -55,6 +56,15 @@ def build(locale_dir: pathlib.Path, output: pathlib.Path):
 
 window._FD_LOCALES = {out};
 """
+    # Keep the old file when only the "Generated:" line would change.
+    # build.sh hashes build/src for the service-worker cache version, so a
+    # fresh timestamp alone forced every client to re-download the app.
+    if output.exists():
+        def _strip_ts(text):
+            return re.sub(r'^// Generated: .*$', '', text, count=1, flags=re.M)
+        if _strip_ts(output.read_text(encoding='utf-8')) == _strip_ts(bundle):
+            print(f'  {output} unchanged')
+            return
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, 'w', encoding='utf-8') as f:
         f.write(bundle)

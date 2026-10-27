@@ -105,8 +105,22 @@ as specified in `PUBLIC_DOMAIN`)
 `HTTPS_PORT` names, and all of them load `vars.env` -- setting them there
 makes two servers bind one port. Give the front servers their own names
 (e.g. `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT`, keeping the old fallbacks)
-- [ ] Remove `wand` from `requirements.txt` (nothing imports it since the
-email icon moved to Pillow; ImageMagick is no longer needed)
+- [ ] Remove `wand` and `requests` from `requirements.txt` (nothing imports
+`wand` since the email icon moved to Pillow, so ImageMagick isn't needed;
+`requests` was only used by the CatBox `urlupload`, now disabled)
+- [ ] CatBox API: better limits before it's used for real (per-IP rate limit
+and daily volume for anonymous uploads, retention/expiry for anonymous files,
+counting against quota for signed-in users); kill switch
+`CATBOX_API_ENABLED` exists
+- [ ] Archive preview (`/api/v1/archive_tree`): a 1.6 GB `.tar.gz` gives
+HTTP 502 -- gzip has no index, so listing decompresses the whole file, and
+the proxy gives `/api/` 10 s; the CDN keeps working after the proxy gave up.
+  - [ ] Cache the listing (key: path + size + mtime), outside the quota
+  - [ ] Build it in a single low-priority background worker; return
+  `202 pending` with progress, the UI polls; pre-warm after upload completes
+  - [ ] Zip-bomb limits: stream headers with `tarfile` `r|gz` + `next()`
+  instead of `getmembers()`, cap entries (mark as truncated), cap the
+  decompressed/compressed ratio and the time per job; cap ZIP entries too
 - [ ] Upload session purge (`core/upload.py`) compares naive local
 `datetime.now()` with the UTC `last_activity` -- sessions are purged 2-3 h
 early (same class of bug as audit B14)
@@ -179,6 +193,12 @@ API usage" page
 
 ## Phase 4 -- Long-term
 
+- [ ] cRes ("Access cached resources for fast!") as a separate service on top
+of the FluxDrop API: download an external URL into the user's storage, so it
+uses the server's bandwidth. Replaces the disabled CatBox `urlupload`. Must
+use an SSRF-safe fetch (public IPs only, re-checked on every redirect -- see
+`core/notifications.py`), a timeout, a size cap and quota, and no automatic
+Brotli decoding of untrusted responses (HTTP2Shell, CVE-2026-111497)
 - [ ] "Enhanced" previews: background FFmpeg thumbs for any supported file
 type (incl. JPEG/WebP versions of AVIF, HEIF, etc.), thumbs can be included
 into the quota, or excluded from quota

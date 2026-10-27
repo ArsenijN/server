@@ -156,6 +156,10 @@ QUOTA_MAX_BYTES     = 100 * 1024 ** 3 # ceiling: never exceed 100 GB
 
 
 CATBOX_MAX_UPLOAD_BYTES = int(os.getenv('CATBOX_MAX_UPLOAD_BYTES', str(2 * 1024 ** 3)))  # 2 GB default
+# Kill switch for the CatBox-compatible API (/user/api.php). 0 = every API
+# request (upload, delete) is refused without reading its body; files already
+# uploaded to CATBOX_UPLOAD_DIR stay downloadable.
+CATBOX_API_ENABLED = os.getenv('CATBOX_API_ENABLED', '1').strip().lower() not in ('0', 'false', 'no', 'off')
 
 # When False (production default), routine static-file access logs are suppressed
 # to reduce per-request log I/O overhead on the CDN path.  API, auth, and share

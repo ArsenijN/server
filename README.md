@@ -1,170 +1,39 @@
-# FluxDrop & server `v0.22.0`
+# FluxDrop & server `v0.22.0.1`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
 ## What's new
-> **In short:** content reports and an admin Reports tab, a safer account
-> verification flow, fairer storage quotas with a disk-full guard, much faster
-> first load (compressed and minified assets, lighter fonts and icons), more
-> of the UI translated, and reverse-proxy fixes for Immich. Two breaking
-> changes: account verification is now a `POST`, and IP Beacon registration
-> needs a FluxDrop login.
+> **In short:** 
 
 ### FluxDrop (UI)
 **Added**
-- Content reports: a 🚩 Report link on shared folder pages, and a report form
-  at `/report` for single-file links and CDN / CatBox files (English and
-  Ukrainian). Reports can be sent anonymously; an email for a reply is optional
-- Admin panel: a **Reports** tab with an open-report counter, filters, and
-  actions — disable the share link, delete the CDN file, mark resolved,
-  dismiss, reopen
-- Account verification page: the email link now opens a "You're almost set!"
-  page with a **Verify my account** button, the address / username / nickname
-  it was sent for, when the link expires (in the visitor's time zone), and a
-  **Report** button that cancels a registration you didn't make (English and
-  Ukrainian)
-- Version picker in the Terms of Service / Privacy Policy viewer: read any
-  earlier published version, with a note when it's no longer in effect
-- Full-screen "Creating your account…" spinner while registering
-- Loading screen shows what it's doing ("Loading the app… / translations… /
-  extras… / Starting…") with a progress bar, and after 8 s explains that the
-  connection seems slow and that later visits load from the device
+- 
 
 **Changed**
-- The offline page loads the Inter font from FluxDrop itself instead of Google
-  Fonts, so visitors' IPs are no longer sent to Google
-- Verification email: explains what happens after confirming, why it was
-  sent, and where to get help (`support@fluxdrop.me`). The extra text also
-  cleared a spam-filter penalty for image-heavy mail — mail-tester now scores
-  it 10/10. Username and address are HTML-escaped in the email
-- The report page has an EN / УКР switch (shared with the app's language
-  setting), and "FluxDrop" links on share / report / status pages go to `/` on
-  fluxdrop.me instead of the legacy `/fluxdrop_pp/index.html`
-- Better contrast for the blue and green buttons and the grey footer text
-  (they were below the WCAG 4.5 : 1 minimum)
-- Faster first load: the Latin Inter font is preloaded instead of waiting for
-  `Inter.css`, the landing logo is a 3 KB WebP instead of an 11 KB PNG, and the
-  loading bar animates with `transform` (no layout work per frame)
-- The HTTPS server accepts bursts of new connections better: the listen
-  backlog is 1024 instead of the default 5, and the worker pool is 400 threads
-  instead of 100 (`HTTPS_MAX_WORKERS` to change it; threads are only created
-  when needed). Every keep-alive connection occupies one worker for up to 45 s,
-  and Immich's timeline opens about 60 parallel connections while scrolling, so
-  a busy moment could leave new connections waiting until a worker was free
+- 
 
 **Fixed**
-- I18n in the profile panel: title, avatar statuses, password messages,
-  button states and Space Analyzer tooltips now follow the selected language
-- I18n in pop-up messages: "Upload successful" and every other message dialog
-  that still had hardcoded English text (upload/download errors, session
-  expired, login failed, share updates, account verification), plus the
-  desktop notification shown when an upload finishes in the background
-- Ukrainian UI now tells uploads and downloads apart: upload is
-  «вивантажити / вивантаження», download is «завантажити / завантаження».
-  Previously both buttons read «Завантажити»
-- Admin panel dark mode: hovered user rows turned white, row dividers, usage
-  bars, the active tab and report cards kept their light colours
-- Admin panel user list could fail with "proxy error: timed out" after a
-  restart: it measured every account's folder size inside the request when the
-  size cache was cold. Sizes not cached yet now show "calculating…" and fill
-  in automatically (the list refreshes every few seconds until they're in)
-- Page could hang on "Loading FluxDrop…" right after a deploy, with a huge
-  logo, stray "OK" buttons and a false "FluxDrop failed to load ()" banner: the
-  new service worker downloaded ~5 MB of assets all at once while the page was
-  loading, so the page's own CSS/JS sat pending behind them. The service
-  worker now precaches only the app shell, 3 files at a time; on-demand
-  libraries (heic2any, jszip, marked, untar, StreamSaver) are cached on first
-  use; registration waits for the page's `load` event; and `index.html` keeps
-  `.hidden` elements hidden and the logo at 32 px even before the stylesheets
-  arrive
-- Slow first paint on slow connections (tested on simulated GPRS): removed the
-  unused Font Awesome stylesheet (84 KB, render-blocking, its fonts weren't even
-  deployed); `Inter.css` now declares one face per character subset with a
-  weight range (the font is variable) instead of 35 faces, which made Firefox
-  request the same font file up to 5 times; the 176 KB `icon.svg` (a PNG wrapped
-  in SVG) is replaced in the app and page favicons by `icon-64.png` (4.5 KB) and
-  `icon-128.png` (11 KB)
-- "Loading FluxDrop…" and the "failed to load" banner in `index.html` were
-  always English; they now follow the saved language
-- "Loading…" in the Terms / Privacy Policy viewer, trash, move dialog and
-  Markdown preview was hardcoded English; it's now translated, with a spinner.
-  The policy "could not load" / "Retry" messages are translated too
-- The Terms of Service and Privacy Policy pop-ups open and close with the same
-  animation as the other dialogs (the viewer also closes with `Esc`)
-- Immich timeline thumbnails sometimes didn't load while scrolling (a blurred
-  thumb until you opened the photo and went back): the reverse proxy answered
-  `204 No Content` responses (Immich's sync acknowledgements and asset
-  `PUT` / `DELETE`) as `Transfer-Encoding: chunked` followed by a `0` chunk
-  terminator. A 204 has no body, so strict HTTP clients read those stray bytes
-  as the start of the next response on the same keep-alive connection, and the
-  next request on it, often a thumbnail, failed. The proxy now sends 204, 205,
-  304, 1xx and `HEAD` responses with headers only
-- The reverse proxy followed `3xx` redirects itself instead of passing them to
-  the client, which turned `POST` into `GET` on 301 / 302 / 303, dropped the
-  request body, and could send the server out to the public address to fetch
-  the `Location`. Redirects now reach the client unchanged
+- 
 
 ### Server (backend)
 **Added**
-- `content_reports` table and `POST /api/v1/report` (3 reports per minute per
-  IP), `GET /api/v1/admin/reports`, `POST /api/v1/admin/reports/<id>`. New
-  reports are emailed to `REPORT_NOTIFY_EMAIL` (defaults to `CONTACT_EMAIL`);
-  closed reports are pruned after 1 year
-- Server logs rotate daily and are kept for `LOG_RETENTION_DAYS` (90);
-  `maintenance.log` is split per day with the same limit
-- Deleting an account moves its files to `FluxDrop/.deleted_accounts/` and
-  purges them after `DELETED_ACCOUNT_PURGE_DAYS` (30); its share links,
-  tokens and IP Beacon devices are removed right away
-- One mail module (`core/mailer.py`) for all outgoing email, with port 465
-  support and new `SMTP_USERNAME`, `SMTP_SENDER_NAME`, `SMTP_REPLY_TO`
-  settings — needed for transactional providers when sending from
-  `@fluxdrop.me`
+- `CATBOX_API_ENABLED` — set to 0 to switch the CatBox API off; uploaded
+  files stay downloadable
 
 **Changed**
-- Dynamic quotas are now a fair share of the real available space
-  (`free − reserve + what non-pinned users store − headroom promised to pinned
-  users`, split between non-pinned users, 10–100 GB) instead of free-space
-  tiers. One user uploading no longer shrinks everyone else's quota, and the
-  quotas together can't promise more space than the disk has
-- Disk-full guard: uploads, copies and tar streams are refused up front with a
-  readable "server is out of storage space" message once only the reserve
-  (`QUOTA_RESERVE_GB`, default 20, or `QUOTA_RESERVE_PCT` of the disk, default
-  2 %) is left — instead of failing with "No space left on device" mid-transfer
-- Static text files (JS, CSS, HTML, SVG, JSON, Markdown) are now sent
-  compressed: the web servers serve the pre-built `.br` / `.gz` copy when the
-  browser accepts it, and gzip on the fly (cached in memory) otherwise. Before,
-  only `.md` was compressed — `script.js` went out as 456 KB, now ~63 KB
-- The app page itself is compressed too (13.8 KB → 4.9 KB): the `fluxdrop.me/`
-  rewrite and folder URLs like `/fluxdrop_pp/` sent it uncompressed
-- The landing page at `fluxdrop.me/` can be indexed by search engines
-  (`index, follow` plus a canonical link). Every other URL that serves the app
-  (`/files/…`, `/fluxdrop_pp/`, other domains) stays `noindex`
-- `build.sh` minifies the TestWeb copies of the JS/CSS with esbuild (source
-  maps included, `build/src` stays readable; `--no-minify` to skip) and
-  pre-compresses text assets. esbuild is a new dev dependency — run
-  `npm install` once
-- `GET /api/v1/policy/history`: published versions of each policy per
-  language (never anything newer than `versions.json`, so drafts stay hidden)
+- CatBox `urlupload` fetched any URL for anyone, without a login, and
+  published the response — a way to reach internal addresses (the LAN, the
+  CDN's loopback port) through the server. It's disabled; downloading
+  external URLs will come back as a separate service
+- The build no longer makes a new cache version when nothing changed: the
+  locale bundle's "Generated" timestamp alone changed the hash, so every
+  build made visitors re-download the app
 
 **Changed (breaking)**
-- `/auth/verify` no longer activates the account on GET; activation is
-  `POST /auth/verify {token}` (the page's button), and
-  `POST /auth/verify_cancel {token}` cancels the registration and files a
-  content report
-- `POST /beacon/register` now requires a FluxDrop login and records the
-  owning account. `ip_beacon.py --register` needs `--fluxdrop-token` (or
-  `FLUXDROP_TOKEN`); devices registered on the web page can be handed over
-  with `--primary-token`. Older daemons keep pinging, only new registrations
-  change
+- 
 
 **Fixed**
-- Deleting a user from the admin panel failed with a database constraint
-  error when the user had share links, download tokens or protected files
-- `/beacon/register` accepted registrations without any login, despite the
-  code comments calling it session-gated
-- Accounts were verified by anything that opened the email link — mail
-  scanners (Outlook Safe Links, antivirus gateways, mail-tester's link check)
-  verified accounts nobody had confirmed
+- 
 
 ### Known issues
 - Pausing an upload can sometimes lose a chunk the server had already

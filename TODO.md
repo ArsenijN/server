@@ -146,6 +146,10 @@ the proxy gives `/api/` 10 s; the CDN keeps working after the proxy gave up.
   - [ ] Zip-bomb limits: stream headers with `tarfile` `r|gz` + `next()`
   instead of `getmembers()`, cap entries (mark as truncated), cap the
   decompressed/compressed ratio and the time per job; cap ZIP entries too
+  - Done, needs testing (`core/archive_tree.py`): all of the above, with
+  the cache in `secrets/archive_tree_cache`; the preview shows progress and
+  a "truncated" note. Tested locally with tar.gz, zip, a plain .gz and two
+  gzip bombs
 - [ ] Upload session purge (`core/upload.py`) compares naive local
 `datetime.now()` with the UTC `last_activity` -- sessions are purged 2-3 h
 early (same class of bug as audit B14)

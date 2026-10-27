@@ -148,6 +148,7 @@ from core.auth import _hash_session_token, _prepare_password, hash_password, sen
 from core.meta import _SERVER_START_TIME, SERVER_VERSION
 from config import DEBUG_LOGGING
 from core.snippets import _render_snippet
+from core.archive_tree import archive_tree_get, archive_tree_prewarm
 
 # Content-types that benefit from gzip (text-based, not already compressed).
 # Binary / already-compressed types are explicitly excluded so we never waste
@@ -2623,6 +2624,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             logging.exception('Upload assembly failed')
             return self._send_response(500, json.dumps({'error': str(e)}))
+
+        # A .tar(.gz) gets its preview listing built in the background now,
+        # so opening the preview later doesn't wait for decompression.
+        archive_tree_prewarm(dest_path)
 
         # Build public URL
         owner_type = session['owner_type']
@@ -6061,10 +6066,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
         downloading the whole file.
 
         For ZIP files this reads only the central directory (last ~1% of the file),
-        which is extremely fast even for multi-GB archives.  For .tar.gz/.tgz a
-        lightweight streaming header scan is used so we never buffer the full payload.
+        which is extremely fast even for multi-GB archives.  .tar/.tar.gz/.tgz
+        must be decompressed to be listed, so that runs in the background.
 
-        Returns JSON: { entries: [{name, size, is_dir}], format: 'zip'|'tar' }
+        Returns JSON: { entries: [{name, size, is_dir}], format: 'zip'|'tar',
+                        truncated, truncated_reason }  (200), or
+                      { status: 'pending', done, total }  (202, poll again)
         Requires a valid session + download token (same auth as /api/v1/download).
         """
         user_id = self._check_token_auth()
@@ -6102,42 +6109,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if token_meta is None:
             return self._send_response(403, json.dumps({'error': 'Invalid or expired dl_token.'}))
 
-        ext = (base_fs.rsplit('.', 1)[-1] if '.' in base_fs else '').lower()
-
+        # Listing is cached on disk; tar(.gz) listings are built by a background
+        # worker (202 + progress until ready, the client polls) — see
+        # core/archive_tree.py for the cache and the zip-bomb limits.
         try:
-            if ext == 'zip':
-                # Python's zipfile reads only the End-of-Central-Directory record and
-                # the Central Directory — it never reads compressed file data, so
-                # this is O(number_of_entries), not O(file_size).
-                entries = []
-                with _zf.ZipFile(base_fs, 'r') as zf:
-                    for info in zf.infolist():
-                        entries.append({
-                            'name':   info.filename,
-                            'size':   info.file_size if not info.is_dir() else None,
-                            'is_dir': info.is_dir(),
-                        })
-                return self._send_response(200, json.dumps({'format': 'zip', 'entries': entries}))
-
-            elif ext in ('tar', 'gz', 'tgz'):
-                # Stream tar headers only — skip over file data without reading it.
-                entries = []
-                mode = 'r:gz' if ext in ('gz', 'tgz') else 'r:'
-                with _tf.open(base_fs, mode) as tf:
-                    for member in tf.getmembers():
-                        entries.append({
-                            'name':   member.name,
-                            'size':   member.size if not member.isdir() else None,
-                            'is_dir': member.isdir(),
-                        })
-                return self._send_response(200, json.dumps({'format': 'tar', 'entries': entries}))
-
-            else:
-                return self._send_response(415, json.dumps({'error': f'.{ext} archive tree not supported.'}))
-
+            code, body = archive_tree_get(base_fs)
         except Exception as exc:
             logging.exception('archive_tree failed')
             return self._send_response(500, json.dumps({'error': str(exc)}))
+        return self._send_response(code, json.dumps(body))
 
     def handle_public_share_upload(self, token: str):
         """POST /share/<token>/upload[?subpath=<relative>] — upload into a shared folder or subfolder."""

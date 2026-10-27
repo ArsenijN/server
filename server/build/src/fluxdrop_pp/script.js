@@ -3860,12 +3860,34 @@ window.previewFile = async function(path) {
 
                     const encodedPath = path.split('/').map(encodeURIComponent).join('/');
                     const treeUrl = `${API_BASE_URL}/api/v1/archive_tree${encodedPath}?dl_token=${encodeURIComponent(dlToken)}`;
-                    const treeResp = await fetchWithFallback(treeUrl, {
-                        signal: _previewSignal,
-                        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
-                    });
-                    if (!treeResp.ok) throw new Error(`HTTP ${treeResp.status}`);
-                    const treeData = await treeResp.json();
+                    // .tar/.tar.gz have no index: the server lists them in the
+                    // background and answers 202 with progress until it's
+                    // cached — poll until the listing is ready.
+                    let treeData;
+                    while (true) {
+                        const treeResp = await fetchWithFallback(treeUrl, {
+                            signal: _previewSignal,
+                            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+                        });
+                        if (treeResp.status === 202) {
+                            const p = await treeResp.json().catch(() => ({}));
+                            const pct = p.total ? Math.min(99, Math.floor(p.done / p.total * 100)) : 0;
+                            bodyEl.innerHTML = _loadingHtml('2rem') +
+                                `<p style="text-align:center;color:#94a3b8;font-size:13px;margin-top:-8px">
+                                    ${p.queued ? 'Waiting for another archive to finish…'
+                                               : `Reading the archive… ${pct}%`}<br>
+                                    <span style="font-size:12px">Large .tar.gz files have no index, so they are read once and then remembered.</span></p>`;
+                            await new Promise(r => setTimeout(r, 1500));
+                            if (_previewSignal.aborted) return;
+                            continue;
+                        }
+                        if (!treeResp.ok) {
+                            const j = await treeResp.json().catch(() => ({}));
+                            throw new Error(j.error || `HTTP ${treeResp.status}`);
+                        }
+                        treeData = await treeResp.json();
+                        break;
+                    }
                     // Server uses snake_case (is_dir); _renderArchiveTree expects isDir
                     const entries = treeData.entries.map(e => ({
                         name:  e.name,
@@ -3873,6 +3895,11 @@ window.previewFile = async function(path) {
                         isDir: e.is_dir,
                     }));
                     _renderArchiveTree(bodyEl, entries, filename);
+                    if (treeData.truncated) {
+                        bodyEl.insertAdjacentHTML('afterbegin',
+                            `<p style="margin:0 0 8px;padding:6px 10px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:12px">
+                                ⚠ Showing the first ${entries.length} entries only (${escapeHtml(treeData.truncated_reason || 'limit reached')}).</p>`);
+                    }
                 } catch (treeErr) {
                     bodyEl.innerHTML = `<p style="color:#ef4444;padding:2rem;text-align:center">
                         Archive preview failed: ${escapeHtml(String(treeErr))}</p>`;

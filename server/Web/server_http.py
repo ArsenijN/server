@@ -6,8 +6,15 @@ import time
 import os
 import sys
 from config import SERVE_DIRECTORY, LOG_FILE_HTTP, BLACKLIST_FILE
-from config import PUBLIC_DOMAIN as _PUBLIC_DOMAIN
-from config import HTTPS_PORT as _HTTPS_PORT
+from config import PUBLIC_BASE_URL as _PUBLIC_BASE_URL
+from urllib.parse import urlsplit as _urlsplit
+# HTTP→HTTPS redirects go where browsers reach FluxDrop over HTTPS: the host
+# and port of PUBLIC_BASE_URL (e.g. https://fluxdrop.me → fluxdrop.me:443).
+# These used to be PUBLIC_DOMAIN and config.HTTPS_PORT — the CDN's own
+# listener (64800 by default) — so redirects skipped the HTTPS front server
+# and sent /api/ to the main domain instead of fluxdrop.me.
+_PUBLIC_DOMAIN = _urlsplit(_PUBLIC_BASE_URL).hostname
+_HTTPS_PORT    = _urlsplit(_PUBLIC_BASE_URL).port or 443
 from config import HSTS_HEADER_VALUE as _HSTS_HEADER_VALUE
 from shared import serve_compressed_static, send_body_compressed
 from shared import CustomLogger, load_blacklist_safely, update_blacklist, health_check_self_ping_http, restart_server, raise_fd_limit, \

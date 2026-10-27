@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.8`
+# FluxDrop & server `v0.22.0.9`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 

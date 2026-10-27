@@ -131,6 +131,8 @@ makes two servers bind one port. Give the front servers their own names
   README and wiki updated). Still open: `server_http.py` builds its HTTPS
   redirects from config's `HTTPS_PORT` (the CDN's, 64800 by default) --
   check that this is intended
+    - Fixed (V0.22.0.9): redirects use the host and port of
+    `PUBLIC_BASE_URL` (prod: fluxdrop.me:443), also for `/api/` and `/auth/`
 - [ ] Remove `wand` and `requests` from `requirements.txt` (nothing imports
 `wand` since the email icon moved to Pillow, so ImageMagick isn't needed;
 `requests` was only used by the CatBox `urlupload`, now disabled)

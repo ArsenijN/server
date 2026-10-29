@@ -7,6 +7,9 @@ Work is ordered by phase: priority fixes first, then backend, then the API V2
 groundwork, then the frontend V2 (FE V2) rewrite.  Items inside a phase are
 roughly ordered by priority (top = first).
 
+Items marked "needs testing" are collected as a checklist in
+[TESTING.md](./TESTING.md).
+
 ---
 
 ## Rules

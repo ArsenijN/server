@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.11`
+# FluxDrop & server `v0.22.0.12`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -6,7 +6,8 @@ repo. Anyone can use it.
 > **In short:** fixes for pausing, resuming and cancelling uploads; previews
 > for big `.tar.gz` archives and for files inside trashed folders; ZIP
 > downloads stop hashing when cancelled; FluxDrop now lives only on
-> fluxdrop.me (old domains redirect there).
+> fluxdrop.me (old domains redirect there); uploading a file with a name
+> that already exists no longer destroys the old file.
 
 ### FluxDrop (UI)
 **Added**
@@ -21,6 +22,11 @@ repo. Anyone can use it.
 - Cancelling a ZIP download that is still being prepared tells the server to
   stop
 - The trash "Browse" list shows files under their folders
+- More of the UI is translated: the Uploads/Downloads trays, the Info
+  panel, the Move/Rename/Copy dialog, the copy toast and archive preview
+- A ZIP that the server is still preparing shows "Building archive…"
+  instead of "Downloading via browser…"
+- See [TESTING.md](./TESTING.md) for what still needs checking
 
 **Fixed**
 - Pausing and resuming an upload could skip chunks, so it failed with
@@ -29,6 +35,11 @@ repo. Anyone can use it.
 - Cancelling a paused upload stayed on "Cancelling…" forever
 - Pausing while a chunk was being retried cancelled the whole upload
 - The loading spinner could keep running hidden behind the app
+- Resuming the same upload twice from "Interrupted" left a second tray row;
+  its Cancel then failed with 409 and showed "Cancelled" for a finished
+  upload
+- Esc didn't close the Trash
+- The archive preview spinner restarted on every progress update
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
   the audio preview weren't escaped
 
@@ -67,6 +78,10 @@ repo. Anyone can use it.
 - 
 
 **Fixed**
+- Uploading a file with the same name as an existing one wrote over it
+  from the first byte, and cancelling deleted it, so both were lost. The
+  new file is now saved as `name (1).ext` (also when another unfinished
+  upload uses that name)
 - Unfinished upload sessions were purged 2-3 hours early (local time
   compared with UTC)
 - Previewing a 1.6 GB `.tar.gz` failed with HTTP 502 (the proxy gave up

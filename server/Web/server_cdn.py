@@ -990,6 +990,40 @@ def _pending_dest_paths(user_id: int) -> set:
         logging.exception('_pending_dest_paths failed')
         return set()
 
+
+def _free_upload_dest(dest_path: str) -> str:
+    """Return *dest_path*, or "name (1).ext", "name (2).ext", … when that
+    name is already taken by a file/folder on disk or by another unfinished
+    upload session.
+
+    A direct-write session pre-allocates (O_TRUNC) its dest_path and a
+    cancelled one deletes it, so uploading onto an existing name used to
+    wipe the old file. Keeping both is the safe default.
+    """
+    try:
+        with _db_connect() as conn:
+            pending = {r[0] for r in conn.execute(
+                'SELECT dest_path FROM upload_sessions WHERE completed = 0'
+            ).fetchall()}
+    except Exception:
+        logging.exception('_free_upload_dest: pending lookup failed')
+        pending = set()
+
+    def _taken(p):
+        return os.path.lexists(p) or p in pending
+
+    if not _taken(dest_path):
+        return dest_path
+    folder, name = os.path.split(dest_path)
+    stem, ext = os.path.splitext(name)
+    if stem.endswith('.tar'):              # "a.tar.gz" → "a (1).tar.gz"
+        stem, ext = stem[:-4], '.tar' + ext
+    for n in range(1, 10000):
+        cand = os.path.join(folder, f'{stem} ({n}){ext}')
+        if not _taken(cand):
+            return cand
+    raise ValueError(f'Too many files named "{name}" in this folder.')
+
 # ==============================================================================
 # --- MAIN REQUEST HANDLER ---
 # ==============================================================================
@@ -2486,6 +2520,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass   # non-fatal: let _upload_init surface the OS error below
 
+        # Never write over an existing file (see _free_upload_dest).
+        # CatBox names are random, so this only matters for user/share.
+        if owner_type in ('user', 'share'):
+            try:
+                dest_path = _free_upload_dest(dest_path)
+            except ValueError as e:
+                return self._send_response(409, json.dumps({'error': str(e)}))
+            filename = os.path.basename(dest_path)
+
         try:
             session = _upload_init(
                 filename=os.path.basename(filename),
@@ -2504,6 +2547,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 'upload_token': session['upload_token'],
                 'chunk_size':   session['chunk_size'],
                 'total_chunks': total_chunks,
+                'filename':     os.path.basename(filename),
             }
             if anon_device_token:
                 resp['anon_device_token'] = anon_device_token

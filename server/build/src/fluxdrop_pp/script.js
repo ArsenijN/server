@@ -608,16 +608,16 @@ function _startCopyJobTracking(jobId, fname) {
     let stopped = false;
     let cancelRequested = false;
 
-    const progress = showToast(`Copying "${fname}"…`, {
+    const progress = showToast(t('copy_progress', { name: fname }), {
         type: 'progress',
         sticky: true,
         actions: [
             {
-                label: 'Cancel',
+                label: t('cancel'),
                 onClick: async () => {
                     if (cancelRequested) return;
                     cancelRequested = true;
-                    progress.setMessage(`Cancelling "${fname}"…`);
+                    progress.setMessage(t('copy_cancelling', { name: fname }));
                     try {
                         await apiCall(`/api/v1/copy/cancel/${jobId}`, 'POST');
                     } catch (err) {
@@ -630,7 +630,7 @@ function _startCopyJobTracking(jobId, fname) {
                 },
             },
             {
-                label: 'Hide',
+                label: t('toast_hide'),
                 onClick: (dismiss) => {
                     stopped = true;
                     dismiss();
@@ -3080,7 +3080,7 @@ function renderDownloadTray() {
             tray.innerHTML = '';
         });
     }
-    header.querySelector('.dl-count').textContent = `📥 Downloads (${activeDownloads.size})`;
+    header.querySelector('.dl-count').textContent = t('tray_downloads', { n: activeDownloads.size });
 
     // Remove rows for entries no longer in the map
     tray.querySelectorAll('.dl-row').forEach(row => {
@@ -3167,32 +3167,33 @@ function renderDownloadTray() {
         if (dl.status === 'downloading') {
             const parts = [];
             if (dl.speed != null) parts.push(formatSpeed(dl.speed));
-            if (dl.eta   != null) parts.push('ETA ' + formatEta(dl.eta));
+            if (dl.eta   != null) parts.push(t('tray_eta', { t: formatEta(dl.eta) }));
             if (parts.length) {
                 statusText = parts.join(' · ');
             } else if (dl._retrying && dl.error) {
                 statusText = '🔄 ' + dl.error; // live retry countdown
-            } else if (dl._mode === 'native') {
-                // Both ZIP and regular files in native mode — browser owns the download
-                statusText = 'Downloading via browser\u2026';
             } else if (dl._isZip && !dl._dlUrl) {
-                // Polling: show scan progress if available
+                // Polling (checked before 'native': the server is still
+                // building the ZIP, the browser hasn't got anything yet).
                 const sp = dl._scanProgress;
                 const hint = sp && sp.total
-                    ? ` (${sp.prog}/${sp.total} files)`
+                    ? t('dl_scan_hint', { done: sp.prog, total: sp.total })
                     : '';
-                statusText = (dl._needsHashing
-                    ? 'Hashing files on demand\u2026'
-                    : 'Building archive\u2026') + hint;
+                statusText = (dl._needsHashing ? t('dl_hashing') : t('dl_building')) + hint;
+            } else if (dl._mode === 'native') {
+                // Both ZIP and regular files in native mode — browser owns the download
+                statusText = t('dl_via_browser');
             } else {
                 statusText = '';
             }
         } else if (dl.status === 'error') {
-            statusText = '\u26a0 ' + (dl.error || 'failed');
+            statusText = '\u26a0 ' + (dl.error || t('tray_failed'));
         } else if (dl.status === 'cancelled') {
-            statusText = dl.error || 'Cancelled';
+            statusText = dl.error || t('dl_cancelled');
         } else if (dl.status === 'paused') {
-            statusText = 'Paused';
+            statusText = t('dl_paused');
+        } else if (dl.status === 'done') {
+            statusText = t('tray_done');
         }
         row.querySelector('.dl-status').textContent = statusText;
 
@@ -3888,11 +3889,17 @@ window.previewFile = async function(path) {
                         if (treeResp.status === 202) {
                             const p = await treeResp.json().catch(() => ({}));
                             const pct = p.total ? Math.min(99, Math.floor(p.done / p.total * 100)) : 0;
-                            bodyEl.innerHTML = _loadingHtml('2rem') +
-                                `<p style="text-align:center;color:#94a3b8;font-size:13px;margin-top:-8px">
-                                    ${p.queued ? 'Waiting for another archive to finish…'
-                                               : `Reading the archive… ${pct}%`}<br>
-                                    <span style="font-size:12px">Large .tar.gz files have no index, so they are read once and then remembered.</span></p>`;
+                            // Build the spinner once and only update the text,
+                            // or the spinner restarts from the top every poll.
+                            let progEl = bodyEl.querySelector('#fd-arc-progress');
+                            if (!progEl) {
+                                bodyEl.innerHTML = _loadingHtml('2rem') +
+                                    `<p style="text-align:center;color:#94a3b8;font-size:13px;margin-top:-8px">
+                                        <span id="fd-arc-progress"></span><br>
+                                        <span style="font-size:12px">${escapeHtml(t('arc_reading_hint'))}</span></p>`;
+                                progEl = bodyEl.querySelector('#fd-arc-progress');
+                            }
+                            progEl.textContent = p.queued ? t('arc_waiting') : t('arc_reading', { pct });
                             await new Promise(r => setTimeout(r, 1500));
                             if (_previewSignal.aborted) return;
                             continue;
@@ -3914,7 +3921,7 @@ window.previewFile = async function(path) {
                     if (treeData.truncated) {
                         bodyEl.insertAdjacentHTML('afterbegin',
                             `<p style="margin:0 0 8px;padding:6px 10px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:12px">
-                                ⚠ Showing the first ${entries.length} entries only (${escapeHtml(treeData.truncated_reason || 'limit reached')}).</p>`);
+                                ${escapeHtml(t('arc_truncated', { n: entries.length, reason: treeData.truncated_reason || t('arc_limit_reached') }))}</p>`);
                     }
                 } catch (treeErr) {
                     bodyEl.innerHTML = `<p style="color:#ef4444;padding:2rem;text-align:center">
@@ -4493,31 +4500,31 @@ function _showFileInfo(row) {
                      display:flex;justify-content:space-between;align-items:center;
                      border-bottom:1px solid var(--fd-border,#e2e8f0)">
             <span style="font-weight:600;color:var(--fd-text,#1e293b);font-size:14px">
-                ${isDir ? '📁' : '📄'} Info
+                ${isDir ? '📁' : '📄'} ${escapeHtml(t('file_info_title'))}
             </span>
             <button id="fd-info-close" style="background:none;border:none;cursor:pointer;
                 font-size:18px;color:var(--fd-muted,#64748b);padding:0 2px;line-height:1">✕</button>
         </div>` +
-        row2('Name',     name) +
-        row2('Path',     path) +
-        row2('Type',     typeStr) +
-        row2('Size',     sizeStr) +
-        row2('Modified', mtime ? formatMtime(mtime) : '—') +
-        (uploader ? row2('Uploaded by', uploader) : '') +
+        row2(t('file_info_name'),     name) +
+        row2(t('file_info_path'),     path) +
+        row2(t('file_info_type'),     typeStr) +
+        row2(t('file_info_size'),     sizeStr) +
+        row2(t('file_info_modified'), mtime ? formatMtime(mtime) : '—') +
+        (uploader ? row2(t('file_info_uploaded_by'), uploader) : '') +
         (!isDir ? `<div id="fd-info-cs-wrap">
             <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 14px;border-bottom:1px solid var(--fd-border,#e2e8f0);gap:8px">
                 <span style="color:var(--fd-muted,#64748b);flex-shrink:0;white-space:nowrap">CRC-32</span>
-                <span id="fd-cs-val-crc32" style="display:flex;align-items:center;gap:4px;min-width:0"><span style="color:#94a3b8;font-size:12px">Loading\u2026</span></span>
+                <span id="fd-cs-val-crc32" style="display:flex;align-items:center;gap:4px;min-width:0"><span style="color:#94a3b8;font-size:12px">${escapeHtml(t('loading'))}</span></span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 14px;border-bottom:1px solid var(--fd-border,#e2e8f0);gap:8px">
                 <span style="color:var(--fd-muted,#64748b);flex-shrink:0;white-space:nowrap">SHA-256</span>
-                <span id="fd-cs-val-sha256" style="display:flex;align-items:center;gap:4px;min-width:0"><span style="color:#94a3b8;font-size:12px">Loading\u2026</span></span>
+                <span id="fd-cs-val-sha256" style="display:flex;align-items:center;gap:4px;min-width:0"><span style="color:#94a3b8;font-size:12px">${escapeHtml(t('loading'))}</span></span>
             </div>
         </div>` : '') +
         (!isDir ? `<div style="padding:8px 14px;border-bottom:1px solid var(--fd-border,#e2e8f0)">
             <button id="fd-info-dl" class="btn"
                 style="width:100%;padding:5px;font-size:12px;text-align:center">
-                ⬇ Download
+                ⬇ ${escapeHtml(t('download'))}
             </button></div>` : '');
 
     document.body.appendChild(panel);
@@ -5040,7 +5047,7 @@ async function openMoveDialog(srcPath) {
             <!-- Header -->
             <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
                 <div>
-                    <div style="color:white;font-weight:700;font-size:16px">📁 Move / Rename / Copy</div>
+                    <div style="color:white;font-weight:700;font-size:16px">📁 ${escapeHtml(t('move_rename_copy'))}</div>
                     <div style="color:rgba(255,255,255,.75);font-size:12px;margin-top:2px;max-width:380px;
                         overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtmlAttr(srcPath)}">${escapeHtml(srcPath)}</div>
                 </div>
@@ -5050,41 +5057,41 @@ async function openMoveDialog(srcPath) {
 
             <!-- Tabs -->
             <div style="display:flex;gap:6px;padding:14px 20px 0">
-                <button class="mv-tab mv-active" data-tab="move">✂️ Move</button>
-                <button class="mv-tab" data-tab="rename">✏️ Rename</button>
-                <button class="mv-tab" data-tab="copy">📋 Copy</button>
+                <button class="mv-tab mv-active" data-tab="move">✂️ ${escapeHtml(t('move'))}</button>
+                <button class="mv-tab" data-tab="rename">✏️ ${escapeHtml(t('rename'))}</button>
+                <button class="mv-tab" data-tab="copy">📋 ${escapeHtml(t('copy'))}</button>
             </div>
 
             <!-- Move/Copy tab body -->
             <div id="mv-tab-move" style="padding:14px 20px 20px">
                 <div style="font-size:13px;color:#64748b;margin-bottom:8px">
-                    Select destination folder — then confirm below.
+                    ${escapeHtml(t('mv_select_dest'))}
                 </div>
                 <!-- New folder shortcut -->
                 <div style="display:flex;gap:6px;margin-bottom:8px">
-                    <input id="mv-new-folder-input" placeholder="New subfolder name…" style="flex:1;padding:5px 9px;border:1px solid #e2e8f0;border-radius:7px;font-size:13px;font-family:Inter,sans-serif;outline:none">
-                    <button id="mv-new-folder-btn" style="background:#0ea5e9;color:white;border:none;border-radius:7px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">+ Folder</button>
+                    <input id="mv-new-folder-input" placeholder="${escapeHtmlAttr(t('mv_new_subfolder_ph'))}" style="flex:1;padding:5px 9px;border:1px solid #e2e8f0;border-radius:7px;font-size:13px;font-family:Inter,sans-serif;outline:none">
+                    <button id="mv-new-folder-btn" style="background:#0ea5e9;color:white;border:none;border-radius:7px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">${escapeHtml(t('mv_new_folder_btn'))}</button>
                 </div>
                 <!-- Tree -->
                 <div id="mv-tree" style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;
                     height:240px;overflow-y:auto;padding:6px 4px"></div>
                 <!-- Selected path display -->
                 <div style="margin-top:8px;font-size:12px;color:#64748b">
-                    Destination: <span id="mv-dest-label" style="font-weight:600;color:#1e293b">/</span>
+                    ${escapeHtml(t('destination'))} <span id="mv-dest-label" style="font-weight:600;color:#1e293b">/</span>
                 </div>
             </div>
 
             <!-- Rename tab body -->
             <div id="mv-tab-rename" style="display:none;padding:14px 20px 20px">
-                <label style="display:block;font-size:13px;color:#64748b;margin-bottom:6px">New name (filename only, no slashes):</label>
+                <label style="display:block;font-size:13px;color:#64748b;margin-bottom:6px">${escapeHtml(t('mv_new_name_label'))}</label>
                 <input id="mv-name-input" type="text" value="${escapeHtmlAttr(srcName)}" spellcheck="false" autocomplete="off">
-                <div style="font-size:12px;color:#94a3b8;margin-top:6px">The file stays in its current folder. To also move it, use the Move tab.</div>
+                <div style="font-size:12px;color:#94a3b8;margin-top:6px">${escapeHtml(t('mv_rename_hint'))}</div>
             </div>
 
             <!-- Footer -->
             <div style="padding:12px 20px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #f1f5f9">
-                <button id="mv-cancel-btn" class="btn" style="background:#e2e8f0;color:#1e293b">Cancel</button>
-                <button id="mv-confirm-btn" class="btn" style="background:#3b82f6;min-width:110px">Move here</button>
+                <button id="mv-cancel-btn" class="btn" style="background:#e2e8f0;color:#1e293b">${escapeHtml(t('cancel'))}</button>
+                <button id="mv-confirm-btn" class="btn" style="background:#3b82f6;min-width:110px">${escapeHtml(t('mv_move_here'))}</button>
             </div>
         </div>`;
     document.body.appendChild(overlay);
@@ -5497,6 +5504,7 @@ async function uploadChunked(file, destRel, opts = {}) {
     }
 
     let uploadToken, anonDeviceToken, chunkSize, totalChunks, startIdx, measuredSpeed = null;
+    let savedName = null;   // server's name when the original was taken ("a (1).txt")
 
     if (opts.resumeToken) {
         // ── Resuming an existing session ────────────────────────────
@@ -5602,6 +5610,7 @@ async function uploadChunked(file, destRel, opts = {}) {
         }
         const initData = await initRes.json();
         uploadToken     = initData.upload_token;
+        savedName       = initData.filename || null;
         chunkSize       = initData.chunk_size || serverChunkSize;
         totalChunks     = file.size === 0 ? 0 : (Math.ceil(file.size / chunkSize) || 1);
         startIdx        = 0;
@@ -5637,9 +5646,18 @@ async function uploadChunked(file, destRel, opts = {}) {
     // ── Register in active uploads map ──────────────────────────────
     // On resume, reuseId lets us update the existing tray row in-place
     // instead of creating a duplicate entry with a new id.
-    const id = (opts.reuseId != null) ? opts.reuseId : ++uploadIdCounter;
+    // Resuming from the Interrupted panel has no reuseId, but the same
+    // session may still have a (paused) row in the tray — reuse it, or a
+    // second row is left behind whose Cancel hits a finished session (409).
+    let reuseId = opts.reuseId;
+    if (reuseId == null && opts.resumeToken) {
+        for (const [k, v] of activeUploads) {
+            if (v.uploadToken === opts.resumeToken) { reuseId = k; break; }
+        }
+    }
+    const id = (reuseId != null) ? reuseId : ++uploadIdCounter;
     const ul = activeUploads.get(id) || {
-        filename: file.name,
+        filename: savedName || file.name,
         loaded: confirmedBytes,
         total: file.size,
         status: 'uploading',
@@ -6363,7 +6381,7 @@ function renderUploadTray() {
             tray.innerHTML = '';
         });
     }
-    header.querySelector('.ul-count').textContent = `📤 Uploads (${activeUploads.size})`;
+    header.querySelector('.ul-count').textContent = t('tray_uploads', { n: activeUploads.size });
 
     // Remove dismissed rows
     tray.querySelectorAll('.ul-row').forEach(row => {
@@ -6465,8 +6483,10 @@ function renderUploadTray() {
                     fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/${ul.uploadToken}/cancel`,
                         { method: 'DELETE', headers }),
                     new Promise(r => setTimeout(r, 5000)),
-                ]).catch(() => { /* best-effort */ }).finally(() => {
-                    ul.status = 'cancelled';
+                ]).catch(() => { /* best-effort */ }).then(res => {
+                    // 409 = the session had already completed: the file is
+                    // there, so don't report it as cancelled.
+                    ul.status = (res && res.status === 409) ? 'done' : 'cancelled';
                     removeInterruptedUpload(ul.uploadToken);
                     if (ul.anonDeviceToken) removeAnonDeviceToken(ul.uploadToken);
                     renderUploadTray();
@@ -6503,7 +6523,7 @@ function renderUploadTray() {
         if (ul.status === 'uploading') {
             const parts = [];
             if (ul.speed != null) parts.push(formatSpeed(ul.speed));
-            if (ul.eta != null) parts.push('ETA ' + formatEta(ul.eta));
+            if (ul.eta != null) parts.push(t('tray_eta', { t: formatEta(ul.eta) }));
             if (parts.length) {
                 statusText = parts.join(' · ');
             } else if (ul._retrying && ul.error) {
@@ -6512,23 +6532,25 @@ function renderUploadTray() {
         } else if (ul.status === 'verifying') {
             // Show real progress if the poller has data, otherwise generic label
             if (ul.verifyPct != null && ul.verifyPct > 0) {
-                const vParts = [`🔍 Verifying… ${ul.verifyPct.toFixed(0)}%`];
-                if (ul.verifyEta != null) vParts.push('ETA ' + formatEta(ul.verifyEta));
+                const vParts = [t('ul_verifying_pct', { pct: ul.verifyPct.toFixed(0) })];
+                if (ul.verifyEta != null) vParts.push(t('tray_eta', { t: formatEta(ul.verifyEta) }));
                 if (ul.verifyBytes && ul.verifyTotal) {
                     vParts.push(`${formatBytes(ul.verifyBytes)} / ${formatBytes(ul.verifyTotal)}`);
                 }
                 statusText = vParts.join(' · ');
             } else {
-                statusText = '🔍 Verifying integrity…';
+                statusText = t('ul_verifying');
             }
         } else if (ul.status === 'paused') {
-            statusText = '⏸ Paused — click Resume to continue';
+            statusText = t('ul_paused_hint');
         } else if (ul.status === 'cancelling') {
-            statusText = '⏳ Cancelling…';
+            statusText = t('ul_cancelling');
         } else if (ul.status === 'error') {
-            statusText = '⚠ ' + (ul.error || 'failed');
+            statusText = '⚠ ' + (ul.error || t('tray_failed'));
         } else if (ul.status === 'cancelled') {
-            statusText = '🚫 Cancelled';
+            statusText = t('ul_cancelled');
+        } else if (ul.status === 'done') {
+            statusText = t('tray_done');
         }
         row.querySelector('.ul-status').textContent = statusText;
 
@@ -8574,6 +8596,17 @@ function openInterruptedManager(onClose) {
             }
         } catch { /* proceed with stored chunk index */ }
 
+        // Still uploading in the tray (paused rows are fine: resuming here
+        // takes over that row).
+        for (const v of activeUploads.values()) {
+            if (v.uploadToken === meta.uploadToken && !v.paused
+                && ['uploading', 'verifying'].includes(v.status)) {
+                showMessage(t('im_already_running_title'),
+                            t('im_already_running_body', { name: meta.filename }));
+                return;
+            }
+        }
+
         // Open file picker for just this file
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -8798,6 +8831,8 @@ document.addEventListener('DOMContentLoaded', () => {
             window.fdCloseOverlay(document.getElementById('profile-menu-modal'));
         } else if (!document.getElementById('message-modal').classList.contains('hidden')) {
             hideModal('message-modal');
+        } else if (document.getElementById('trash-overlay')) {
+            window.fdCloseOverlay(document.getElementById('trash-overlay'));
         } else if (document.getElementById('fd-ctx-menu')) {
             _dismissContextMenu();
         } else if (_selectedPaths.size > 0 && !document.getElementById('trash-overlay')) {

@@ -722,6 +722,7 @@ function _requestNotificationPermission() {
 }
 
 function _notifyUploadDone(okCount, failCount = 0) {
+    _conflictBatchChoice = null;   // "do the same for the rest" ends with the batch
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     if (document.hasFocus()) return; // user is watching — no need for OS notification
     let title, body;
@@ -3710,9 +3711,9 @@ function _renderArchiveTree(bodyEl, entries, archiveName) {
         <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);
                     display:flex;align-items:center;justify-content:space-between">
             <span style="font-size:12px;color:#94a3b8">
-                ${totalFiles} file${totalFiles!==1?'s':''} · ${totalDirs} folder${totalDirs!==1?'s':''}
+                ${escapeHtml(t('arc_counts', { files: totalFiles, dirs: totalDirs }))}
             </span>
-            <span style="font-size:11px;color:#475569">read-only preview</span>
+            <span style="font-size:11px;color:#475569">${escapeHtml(t('file_modal_info_archive_file_table'))}</span>
         </div>
         <div style="overflow:auto;max-height:60vh;padding:6px 4px;font-family:ui-monospace,monospace">
             ${renderNode(tree, 0)}
@@ -5489,6 +5490,183 @@ function _concurrencyForSpeed(bytesPerSec) {
 
 // Speed measured by the last finished chunk run ({bps, at}); lets small
 // files skip the speed probe. See SMALL_FILE_NO_PROBE in uploadChunked.
+// Incremental SHA-256 (SubtleCrypto can only hash a whole buffer at once,
+// which doesn't work for multi-GB files). ~100-200 MB/s in a modern browser.
+function _Sha256() {
+    const K = _Sha256.K || (_Sha256.K = new Uint32Array([
+        0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+        0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+        0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+        0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+        0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+        0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+        0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+        0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]));
+    const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,
+                               0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+    const W = new Uint32Array(64), buf = new Uint8Array(64);
+    let bufLen = 0, total = 0;
+    function block(b, o) {
+        for (let i = 0; i < 16; i++, o += 4) W[i] = (b[o] << 24) | (b[o+1] << 16) | (b[o+2] << 8) | b[o+3];
+        for (let i = 16; i < 64; i++) {
+            const x = W[i-15], y = W[i-2];
+            W[i] = (((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3))
+                 + (((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10))
+                 + W[i-7] + W[i-16];
+        }
+        let a = H[0], bb = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+        for (let i = 0; i < 64; i++) {
+            const t1 = (h + (((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7)))
+                      + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0;
+            const t2 = ((((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10)))
+                      + ((a & bb) ^ (a & c) ^ (bb & c))) | 0;
+            h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = bb; bb = a; a = (t1 + t2) | 0;
+        }
+        H[0] += a; H[1] += bb; H[2] += c; H[3] += d; H[4] += e; H[5] += f; H[6] += g; H[7] += h;
+    }
+    return {
+        update(data) {
+            let i = 0;
+            total += data.length;
+            if (bufLen) {
+                while (bufLen < 64 && i < data.length) buf[bufLen++] = data[i++];
+                if (bufLen < 64) return;
+                block(buf, 0); bufLen = 0;
+            }
+            for (; i + 64 <= data.length; i += 64) block(data, i);
+            while (i < data.length) buf[bufLen++] = data[i++];
+        },
+        hex() {
+            const bits = total * 8;
+            const pad = new Uint8Array(((bufLen < 56) ? 56 : 120) - bufLen + 8);
+            pad[0] = 0x80;
+            const hi = Math.floor(bits / 0x100000000), lo = bits >>> 0;
+            const n = pad.length;
+            pad[n-8] = hi >>> 24; pad[n-7] = hi >>> 16; pad[n-6] = hi >>> 8; pad[n-5] = hi;
+            pad[n-4] = lo >>> 24; pad[n-3] = lo >>> 16; pad[n-2] = lo >>> 8; pad[n-1] = lo;
+            this.update(pad);
+            return Array.from(H, v => v.toString(16).padStart(8, '0')).join('');
+        },
+    };
+}
+
+// ── Name clash on upload ─────────────────────────────────────────────────────
+// Settings → "When a file with the same name exists": ask (default) / keep
+// both / replace. "Ask" shows _askUploadConflict per file; its "do the same
+// for the rest" choice lasts until the batch ends (_notifyUploadDone).
+const _CONFLICT_PREF_KEY = 'fluxdrop_upload_conflict';
+let _conflictBatchChoice = null;
+
+function _uploadConflictPref() {
+    const v = localStorage.getItem(_CONFLICT_PREF_KEY);
+    return (v === 'rename' || v === 'replace') ? v : 'ask';
+}
+
+// Local file hash for "Compare contents", read in 4 MB slices.
+async function _sha256OfFile(file, onProgress, isStopped) {
+    const h = _Sha256(), STEP = 4 * 1024 * 1024;
+    for (let off = 0; off < file.size; off += STEP) {
+        if (isStopped && isStopped()) return null;
+        h.update(new Uint8Array(await file.slice(off, off + STEP).arrayBuffer()));
+        if (onProgress) onProgress(Math.min(off + STEP, file.size) / file.size);
+    }
+    return h.hex();
+}
+
+// Server's SHA-256 of a file: the stored one, else ask for it and poll.
+async function _serverSha256(path, isStopped) {
+    let asked = false;
+    for (let i = 0; i < 400; i++) {
+        if (isStopped && isStopped()) return null;
+        const info = await apiCall(`/api/v1/fileinfo${encodePath(path)}`, 'GET', null, true);
+        if (info.sha256) return info.sha256.toLowerCase();
+        const job = info.job;
+        if (job && job.status === 'error') throw new Error(job.error || 'checksum failed');
+        if (!asked && !(job && (job.status === 'pending' || job.status === 'running'))) {
+            await apiCall('/api/v1/checksums/compute', 'POST', { path, algos: ['sha256'] }, true);
+            asked = true;
+        }
+        await new Promise(r => setTimeout(r, 1500));
+    }
+    throw new Error('timed out');
+}
+
+// Resolves to { choice: 'replace' | 'rename' | 'skip', all: bool }.
+function _askUploadConflict(file, destRel, info) {
+    return new Promise(resolve => {
+        const ex = info.existing || {};
+        const queued = (window._uploadQueue || []).length;
+        let stopped = false;
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.id = 'fd-conflict-overlay';
+        const cell = 'padding:6px 10px;border-bottom:1px solid var(--fd-border,#e2e8f0)';
+        const sameSize = ex.size === file.size;
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width:520px;width:95vw">
+                <h3 style="margin:0 0 6px;font-size:17px">${escapeHtml(t('conflict_title'))}</h3>
+                <p style="margin:0 0 12px;font-size:13px;color:#64748b">${escapeHtml(t('conflict_body', { name: ex.name || file.name }))}</p>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px">
+                    <tr><th style="${cell}"></th>
+                        <th style="${cell};text-align:left">${escapeHtml(t('conflict_existing'))}</th>
+                        <th style="${cell};text-align:left">${escapeHtml(t('conflict_new'))}</th></tr>
+                    <tr><td style="${cell};color:#64748b">${escapeHtml(t('file_info_size'))}</td>
+                        <td style="${cell}">${formatBytes(ex.size || 0)}</td>
+                        <td style="${cell}${sameSize ? '' : ';font-weight:600'}">${formatBytes(file.size)}</td></tr>
+                    <tr><td style="${cell};color:#64748b">${escapeHtml(t('file_info_modified'))}</td>
+                        <td style="${cell}">${escapeHtml(formatMtime(ex.mtime ? ex.mtime * 1000 : 0))}</td>
+                        <td style="${cell}">${escapeHtml(formatMtime(file.lastModified))}</td></tr>
+                </table>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px">
+                    <button id="fd-cf-compare" class="btn" style="background:#e2e8f0;color:#1e293b;padding:4px 10px;font-size:12px">${escapeHtml(t('conflict_compare'))}</button>
+                    <span id="fd-cf-result" style="color:#64748b"></span>
+                </div>
+                ${queued ? `<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:12px">
+                    <input type="checkbox" id="fd-cf-all"> ${escapeHtml(t('conflict_apply_all', { n: queued }))}</label>` : ''}
+                <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end">
+                    <button id="fd-cf-skip" class="btn" style="background:#e2e8f0;color:#1e293b">${escapeHtml(t('conflict_skip'))}</button>
+                    <button id="fd-cf-rename" class="btn" style="background:#0ea5e9"
+                        title="${escapeHtmlAttr(info.suggested_name || '')}">${escapeHtml(t('conflict_keep_both'))}</button>
+                    <button id="fd-cf-replace" class="btn" style="background:#f59e0b"
+                        title="${escapeHtmlAttr(t('conflict_replace_hint'))}">${escapeHtml(t('conflict_replace'))}</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const finish = choice => {
+            stopped = true;
+            _detachModalKeys();
+            const all = !!overlay.querySelector('#fd-cf-all')?.checked;
+            window.fdCloseOverlay ? window.fdCloseOverlay(overlay) : overlay.remove();
+            resolve({ choice, all });
+        };
+        overlay.querySelector('#fd-cf-skip').addEventListener('click', () => finish('skip'));
+        overlay.querySelector('#fd-cf-rename').addEventListener('click', () => finish('rename'));
+        overlay.querySelector('#fd-cf-replace').addEventListener('click', () => finish('replace'));
+        _attachModalKeys(() => finish('rename'), () => finish('skip'));   // Enter = Keep both (safe), Esc = Skip
+
+        const resEl = overlay.querySelector('#fd-cf-result');
+        overlay.querySelector('#fd-cf-compare').addEventListener('click', async e => {
+            e.currentTarget.disabled = true;
+            if (!sameSize) { resEl.textContent = t('conflict_differ_size'); return; }
+            try {
+                resEl.textContent = t('conflict_hashing', { pct: 0 });
+                const [mine, theirs] = await Promise.all([
+                    _sha256OfFile(file,
+                        p => { if (!stopped) resEl.textContent = t('conflict_hashing', { pct: Math.floor(p * 100) }); },
+                        () => stopped),
+                    _serverSha256(destRel, () => stopped),
+                ]);
+                if (stopped || !mine || !theirs) return;
+                resEl.textContent = mine === theirs ? t('conflict_identical') : t('conflict_differ');
+                resEl.style.color = mine === theirs ? '#16a34a' : '#dc2626';
+            } catch (err) {
+                if (!stopped) resEl.textContent = t('conflict_compare_failed', { error: err.message || String(err) });
+            }
+        });
+    });
+}
+
 let _lastUploadSpeed = null;
 
 async function uploadChunked(file, destRel, opts = {}) {
@@ -5598,12 +5776,31 @@ async function uploadChunked(file, destRel, opts = {}) {
             sha256:               null,
             owner_type:           ownerType,
             share_token:          shareToken,
+            // "Skip the rest" must still ask the server (it only knows
+            // ask/rename/replace) and is then answered here without a dialog.
+            on_conflict:          _conflictBatchChoice === 'skip' ? 'ask'
+                                  : (_conflictBatchChoice || _uploadConflictPref()),
         };
-        const initRes = await fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/init`, {
+        const postInit = () => fetchWithFallback(`${API_BASE_URL}/api/v1/upload_session/init`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders(null) },
             body: JSON.stringify(initBody),
         });
+        let initRes = await postInit();
+        if (initRes.status === 409) {
+            const err = await initRes.clone().json().catch(() => ({}));
+            if (err.conflict) {
+                const { choice, all } = _conflictBatchChoice === 'skip'
+                    ? { choice: 'skip', all: true }
+                    : await _askUploadConflict(file, destRel, err);
+                if (all) _conflictBatchChoice = choice;
+                if (choice === 'skip') {
+                    throw new Error('Upload cancelled');   // callers treat this as a silent stop
+                }
+                initBody.on_conflict = choice;
+                initRes = await postInit();
+            }
+        }
         if (!initRes.ok) {
             const err = await initRes.json().catch(() => ({}));
             throw new Error(err.error || `Init failed: HTTP ${initRes.status}`);
@@ -5627,10 +5824,15 @@ async function uploadChunked(file, destRel, opts = {}) {
     let pending = [];
     for (let i = startIdx; i < totalChunks; i++) pending.push(i);
     if (opts.resumeToken) {
+        // Tell the user why nothing moves yet; the bytes then drop to what
+        // the server confirms (chunks cut off by the pause are sent again).
+        for (const v of activeUploads.values()) {
+            if (v.uploadToken === uploadToken) { v.status = 'connecting'; renderUploadTray(); break; }
+        }
         try {
             const stRes = await fetchWithFallback(
                 `${API_BASE_URL}/api/v1/upload_session/${uploadToken}/status`,
-                { headers: authHeaders(anonDeviceToken) }
+                { headers: authHeaders(anonDeviceToken), signal: AbortSignal.timeout(15000) }
             );
             if (stRes.ok) {
                 const st = await stRes.json();
@@ -6507,7 +6709,7 @@ function renderUploadTray() {
             row._actionsDiv = actionsDiv;
         }
 
-        const statusMap = { uploading: '⬆', verifying: '🔍', done: '✅', error: '⚠', paused: '⏸', cancelling: '⏳', cancelled: '🚫' };
+        const statusMap = { uploading: '⬆', connecting: '⏳', verifying: '🔍', done: '✅', error: '⚠', paused: '⏸', cancelling: '⏳', cancelled: '🚫' };
         row.querySelector('.ul-name').textContent = (statusMap[ul.status] || '') + ' ' + ul.filename;
         row.querySelector('.ul-bytes').textContent = `${sent} / ${total}`;
         const bar = row.querySelector('.ul-bar');
@@ -6541,6 +6743,8 @@ function renderUploadTray() {
             } else {
                 statusText = t('ul_verifying');
             }
+        } else if (ul.status === 'connecting') {
+            statusText = t('ul_connecting');
         } else if (ul.status === 'paused') {
             statusText = t('ul_paused_hint');
         } else if (ul.status === 'cancelling') {
@@ -7297,6 +7501,15 @@ async function openProfilePanel() {
                             <option value="30000">${t('profile_info_info_modal_message_autoclose_selector_30s')}</option>
                         </select>
                     </label>
+                    <label style="display:block;margin-top:12px;font-size:13px;font-weight:600;color:#374151">
+                        ${t('conflict_setting')}
+                        <select id="pp-upload-conflict" style="display:block;width:100%;margin-top:4px;padding:7px 10px;
+                            border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:Inter,sans-serif">
+                            <option value="ask">${t('conflict_setting_ask')}</option>
+                            <option value="rename">${t('conflict_setting_rename')}</option>
+                            <option value="replace">${t('conflict_setting_replace')}</option>
+                        </select>
+                    </label>
                 </div>
 
                 <!-- Account info footer -->
@@ -7522,6 +7735,13 @@ async function openProfilePanel() {
         dismissSel.value = localStorage.getItem('fluxdrop_tray_dismiss_ms') || '0';
         dismissSel.addEventListener('change', () => {
             localStorage.setItem('fluxdrop_tray_dismiss_ms', dismissSel.value);
+        });
+    }
+    const conflictSel = overlay.querySelector('#pp-upload-conflict');
+    if (conflictSel) {
+        conflictSel.value = _uploadConflictPref();
+        conflictSel.addEventListener('change', () => {
+            localStorage.setItem(_CONFLICT_PREF_KEY, conflictSel.value);
         });
     }
 }
@@ -8858,7 +9078,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (document.getElementById('mv-dialog-overlay') || document.getElementById('share-dialog-overlay') ||
             document.getElementById('ap-edit-overlay') || document.getElementById('admin-panel-overlay') ||
             document.getElementById('profile-panel-overlay') || document.getElementById('share-manager-overlay') ||
-            document.getElementById('profile-menu-modal') || document.getElementById('trash-overlay')) return;
+            document.getElementById('profile-menu-modal') || document.getElementById('trash-overlay') ||
+            document.getElementById('fd-conflict-overlay')) return;
         if (_selectedPaths.size === 0) return;
         e.preventDefault();
         _trashSelectedPaths([..._selectedPaths]);

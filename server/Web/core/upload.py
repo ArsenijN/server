@@ -223,6 +223,50 @@ def _rel_path_for(dest_path: str, session: dict) -> str | None:
     except Exception:
         return None
 
+
+# Name used while a "replace" upload is in progress: the old file keeps its
+# name (and stays usable) until the new one is complete. See _finish_replace.
+REPLACE_SUFFIX = '.fdreplace-'
+
+
+def replace_temp_path(target: str) -> str:
+    folder, name = os.path.split(target)
+    return os.path.join(folder, f'.{name}{REPLACE_SUFFIX}{secrets.token_hex(4)}')
+
+
+def _finish_replace(dest_path: str, session: dict) -> str:
+    """For a finished "replace" upload, move the old file to the trash and
+    give the new one its name. Returns the final path (dest_path itself for
+    a normal upload)."""
+    folder, name = os.path.split(dest_path)
+    if not (name.startswith('.') and REPLACE_SUFFIX in name):
+        return dest_path
+    target = os.path.join(folder, name[1:name.rindex(REPLACE_SUFFIX)])
+    if os.path.isdir(target):
+        # A folder took the name meanwhile — keep both.
+        stem, ext = os.path.splitext(os.path.basename(target))
+        n = 1
+        while os.path.lexists(os.path.join(folder, f'{stem} ({n}){ext}')):
+            n += 1
+        target = os.path.join(folder, f'{stem} ({n}){ext}')
+    elif os.path.lexists(target) and session.get('owner_type') == 'user':
+        from core.trash import _move_to_trash
+        user_id = int(session['owner_ref'])
+        row = _move_to_trash(user_id, target, _rel_path_for(target, session))
+        with _db_connect() as conn:
+            conn.execute(
+                'INSERT INTO trash_items (user_id, original_path, trash_path,'
+                ' deleted_at, size_bytes, is_dir, retention_days)'
+                ' VALUES (?,?,?,?,?,?,?)',
+                (row['user_id'], row['original_path'], row['trash_path'],
+                 row['deleted_at'], row['size_bytes'], row['is_dir'],
+                 row['retention_days'])
+            )
+            conn.commit()
+    os.replace(dest_path, target)
+    logging.info(f'Upload replaced {target!r} (old version moved to trash)')
+    return target
+
 def _choose_strategy(dest_path: str) -> str:
     """Return 'direct' or 'buffer' based on device IDs.
 
@@ -647,7 +691,7 @@ def _assemble_direct(session: dict, dest_path: str, total_size: int,
             conn.commit()
         _release_chunk_lock(token)
         _assembly_progress_clear(token)
-        return dest_path, 'e3b0c44298fc1c149afbf4c8996fb924'
+        return _finish_replace(dest_path, session), 'e3b0c44298fc1c149afbf4c8996fb924'
 
     # Optional whole-file SHA-256 verification.
     # Skipped when client didn't declare sha256_final (saves ~3-5s on i3 per GB).
@@ -702,6 +746,7 @@ def _assemble_direct(session: dict, dest_path: str, total_size: int,
         f'Upload assembled (direct): {dest_path} '
         f'({actual_sha256[:12] if actual_sha256 else "no-hash"}…)'
     )
+    dest_path = _finish_replace(dest_path, session)
     rel = _rel_path_for(dest_path, session)
     if rel:
         queue_crc32_after_upload(dest_path, rel, int(session['owner_ref']))
@@ -849,6 +894,7 @@ def _assemble_buffer(session: dict, dest_path: str, total_size: int,
         f'Upload assembled (buffer): {dest_path} '
         f'({actual_sha256[:12] if actual_sha256 else "no-hash"}…)'
     )
+    dest_path = _finish_replace(dest_path, session)
     rel = _rel_path_for(dest_path, session)
     if rel:
         queue_crc32_after_upload(dest_path, rel, int(session['owner_ref']))

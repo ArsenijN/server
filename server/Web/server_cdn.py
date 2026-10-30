@@ -133,6 +133,7 @@ from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, 
                     checksum_jobs_reset_stale, checksum_jobs_get_pending
 from core.rate_limit import _rate_limit
 from core.notifications import _fire_upload_notification, _is_safe_webhook_url, _EMAIL_RE
+from core.upload import replace_temp_path
 from core.upload import MAX_JSON_BODY, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, _upload_init, _upload_get, _upload_receive_chunk, \
     _upload_session_status, _upload_assemble, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, _purge_abandoned_upload_sessions, UPLOAD_TMP_DIR, \
     _cancel_upload_session, compute_and_store_crc32, HashCancelled, dispatch_checksum_job
@@ -2520,14 +2521,37 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass   # non-fatal: let _upload_init surface the OS error below
 
-        # Never write over an existing file (see _free_upload_dest).
-        # CatBox names are random, so this only matters for user/share.
+        # Name already taken. on_conflict (own files only — a share
+        # uploader never replaces the owner's files):
+        #   'rename'  (default) save as "name (1).ext" (see _free_upload_dest)
+        #   'ask'     409 {conflict, existing} so the client can ask the user
+        #   'replace' upload under a hidden temp name; when complete the old
+        #             file goes to the trash and the new one takes its name.
+        # CatBox names are random, so none of this applies there.
         if owner_type in ('user', 'share'):
-            try:
-                dest_path = _free_upload_dest(dest_path)
-            except ValueError as e:
-                return self._send_response(409, json.dumps({'error': str(e)}))
-            filename = os.path.basename(dest_path)
+            on_conflict = data.get('on_conflict', 'rename') if owner_type == 'user' else 'rename'
+            if os.path.isfile(dest_path) and on_conflict == 'ask':
+                st = os.stat(dest_path)
+                try:
+                    suggested = os.path.basename(_free_upload_dest(dest_path))
+                except ValueError:
+                    suggested = None
+                return self._send_response(409, json.dumps({
+                    'error': f'"{os.path.basename(dest_path)}" already exists.',
+                    'conflict': True,
+                    'existing': {'name': os.path.basename(dest_path),
+                                 'size': st.st_size, 'mtime': st.st_mtime},
+                    'suggested_name': suggested,
+                }))
+            if os.path.isfile(dest_path) and on_conflict == 'replace':
+                filename  = os.path.basename(dest_path)
+                dest_path = replace_temp_path(dest_path)
+            else:
+                try:
+                    dest_path = _free_upload_dest(dest_path)
+                except ValueError as e:
+                    return self._send_response(409, json.dumps({'error': str(e)}))
+                filename = os.path.basename(dest_path)
 
         try:
             session = _upload_init(

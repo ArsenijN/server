@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.12`
+# FluxDrop & server `v0.22.0.13`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -7,7 +7,8 @@ repo. Anyone can use it.
 > for big `.tar.gz` archives and for files inside trashed folders; ZIP
 > downloads stop hashing when cancelled; FluxDrop now lives only on
 > fluxdrop.me (old domains redirect there); uploading a file with a name
-> that already exists no longer destroys the old file.
+> that already exists no longer destroys the old file — you choose: keep
+> both, replace or skip, and can compare the two first.
 
 ### FluxDrop (UI)
 **Added**
@@ -26,6 +27,14 @@ repo. Anyone can use it.
   panel, the Move/Rename/Copy dialog, the copy toast and archive preview
 - A ZIP that the server is still preparing shows "Building archive…"
   instead of "Downloading via browser…"
+- When an uploaded file's name already exists, a dialog asks: **Keep
+  both**, **Replace** (the old file goes to the Trash once the new one is
+  uploaded) or **Skip**, with both sizes and dates and a **Compare
+  contents** button (SHA-256 of both). The default is in Settings →
+  Transfer tray
+- Resuming an upload shows "Checking with the server…" while it asks which
+  chunks arrived
+- The archive preview's header and Download button are translated
 - See [TESTING.md](./TESTING.md) for what still needs checking
 
 **Fixed**
@@ -55,6 +64,10 @@ repo. Anyone can use it.
   also right after it's uploaded. Zip-bomb limits: max entries, time and
   compression ratio (`ARCHIVE_TREE_*` settings)
 - `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` for the front servers
+- `on_conflict` for `upload_session/init`: `rename` (default), `ask` (409
+  with the existing file's size and mtime) or `replace` (uploads under a
+  hidden temporary name; on completion the old file goes to the Trash).
+  Share uploads always rename
 - `FLUXDROP_LEGACY_HOSTS`: FluxDrop pages, shares and API on the old
   domains (arseniusgen.uk.to, arseniusgen.dev) redirect to `PUBLIC_BASE_URL`
 
@@ -73,6 +86,9 @@ repo. Anyone can use it.
 - HTTP→HTTPS redirects go to the host and port of `PUBLIC_BASE_URL`; they
   used the CDN's port (64800) and sent `/api/` to the main domain
 - `wand` and `requests` removed from `requirements.txt` (nothing uses them)
+- The archive listing cache is keyed by the file's content (size, mtime,
+  first/last 64 KB) instead of its path, so copies, moves and renames reuse
+  it. Existing cache entries no longer match and are read again once
 
 **Changed (breaking)**
 - 

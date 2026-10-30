@@ -40,9 +40,17 @@ def archive_ext(path: str) -> str:
 
 
 def _cache_key(abs_path: str) -> str:
+    """Keyed on the content, not the path, so a FluxDrop copy (which keeps
+    the mtime), move, rename or trip through the trash reuses the listing:
+    size + mtime + the first and last 64 KB. Any edit changes the mtime."""
     st = os.stat(abs_path)
-    raw = f'{os.path.realpath(abs_path)}\0{st.st_size}\0{st.st_mtime_ns}'
-    return hashlib.sha256(raw.encode('utf-8', 'surrogateescape')).hexdigest()
+    h = hashlib.sha256(f'{st.st_size}\0{st.st_mtime_ns}\0'.encode())
+    with open(abs_path, 'rb') as f:
+        h.update(f.read(65536))
+        if st.st_size > 65536:
+            f.seek(max(65536, st.st_size - 65536))
+            h.update(f.read(65536))
+    return h.hexdigest()
 
 
 def _cache_path(key: str) -> str:

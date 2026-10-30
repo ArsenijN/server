@@ -2524,7 +2524,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # Name already taken. on_conflict (own files only — a share
         # uploader never replaces the owner's files):
         #   'rename'  (default) save as "name (1).ext" (see _free_upload_dest)
-        #   'ask'     409 {conflict, existing} so the client can ask the user
+        #   'ask'     200 {conflict, existing} so the client can ask the user
         #   'replace' upload under a hidden temp name; when complete the old
         #             file goes to the trash and the new one takes its name.
         # CatBox names are random, so none of this applies there.
@@ -2536,8 +2536,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     suggested = os.path.basename(_free_upload_dest(dest_path))
                 except ValueError:
                     suggested = None
-                return self._send_response(409, json.dumps({
-                    'error': f'"{os.path.basename(dest_path)}" already exists.',
+                # 200, not 409: a name clash is a question for the user, not
+                # an error (a 409 shows up red in the browser console).
+                # No upload_token — nothing has been created yet.
+                return self._send_response(200, json.dumps({
                     'conflict': True,
                     'existing': {'name': os.path.basename(dest_path),
                                  'size': st.st_size, 'mtime': st.st_mtime},

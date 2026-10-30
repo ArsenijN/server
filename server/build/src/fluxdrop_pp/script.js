@@ -5787,7 +5787,7 @@ async function uploadChunked(file, destRel, opts = {}) {
             body: JSON.stringify(initBody),
         });
         let initRes = await postInit();
-        if (initRes.status === 409) {
+        if (initRes.ok) {
             const err = await initRes.clone().json().catch(() => ({}));
             if (err.conflict) {
                 const { choice, all } = _conflictBatchChoice === 'skip'

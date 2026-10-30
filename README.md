@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.13`
+# FluxDrop & server `v0.22.0.14`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -64,8 +64,9 @@ repo. Anyone can use it.
   also right after it's uploaded. Zip-bomb limits: max entries, time and
   compression ratio (`ARCHIVE_TREE_*` settings)
 - `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` for the front servers
-- `on_conflict` for `upload_session/init`: `rename` (default), `ask` (409
-  with the existing file's size and mtime) or `replace` (uploads under a
+- `on_conflict` for `upload_session/init`: `rename` (default), `ask` (200
+  with `conflict: true` and the existing file's size and mtime; no
+  session is created) or `replace` (uploads under a
   hidden temporary name; on completion the old file goes to the Trash).
   Share uploads always rename
 - `FLUXDROP_LEGACY_HOSTS`: FluxDrop pages, shares and API on the old

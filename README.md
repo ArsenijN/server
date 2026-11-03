@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.16`
+# FluxDrop & server `v0.22.0.17`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -110,6 +110,8 @@ repo. Anyone can use it.
   trashed-file previews, CatBox (`/CB_uploads/`) and `/cdn/` files — are sent
   with `Content-Security-Policy: sandbox`, so an uploaded `.html`/`.svg`
   can't run script on fluxdrop.me
+- An upload into a folder the server can't write to was received in full
+  and failed only at the end; it's refused at the start now
 - Uploading on a share page wrote over the owner's file with the same name;
   it's saved as `name (1).ext` now
 - Uploading a file with the same name as an existing one wrote over it

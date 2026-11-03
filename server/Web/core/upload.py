@@ -410,6 +410,20 @@ def _upload_init(filename: str, dest_path: str, total_size: int,
         except Exception as exc:
             logging.warning(f'_upload_init: quota pre-check failed, proceeding: {exc}')
 
+    # ── Can the server write there at all? ───────────────────────────────────
+    # Otherwise a failed pre-allocation silently falls back to 'buffer' and
+    # the whole upload is received before the final write fails (EACCES).
+    _probe = os.path.dirname(dest_path)
+    while _probe and not os.path.isdir(_probe):
+        _parent = os.path.dirname(_probe)
+        if _parent == _probe:
+            break
+        _probe = _parent
+    if _probe and os.path.isdir(_probe) and not os.access(_probe, os.W_OK | os.X_OK):
+        logging.error(f'_upload_init: no write permission for {_probe!r} (upload to {dest_path!r})')
+        raise ValueError('The server can\'t write to this folder (permissions). '
+                         'Please tell the administrator.')
+
     # ── Strategy + pre-allocation (unchanged from original) ──────────────────
     if strategy == 'direct':
         try:

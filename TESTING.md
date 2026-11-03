@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.15)
+# To test (V0.22.0.1 – V0.22.0.17)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -132,15 +132,15 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] **Compare contents**: different size → says so at once; same file →
   "Identical"; same size, different content → "differ". Works when the
   server had no SHA-256 yet (it computes it)
-- [ ] Folder upload with several clashes: tick "Do the same for the other N
+- [x] Folder upload with several clashes: tick "Do the same for the other N
   files" → no more dialogs in that upload; the next upload asks again
-- [ ] Settings → Transfer tray → "When a file with the same name exists":
+- [x] Settings → Transfer tray → "When a file with the same name exists":
   Keep both / Replace skip the dialog
-- [ ] Esc in the dialog = Skip, Enter = Keep both; Delete key does nothing
+- [x] Esc in the dialog = Skip, Enter = Keep both; Delete key does nothing
   while it's open
 - [ ] Upload into someone's share with a clashing name: always "(1)", never
   replaces the owner's file
-- [ ] Resume a paused upload: tray shows "Checking with the server…" first,
+- [x] Resume a paused upload: tray shows "Checking with the server…" first,
   then the bytes drop to what the server confirmed and it continues
 - [ ] Archive preview in Ukrainian: "Файлів: 3 · Тек: 0" and "Завантажити"
 - [ ] Copy (or move/rename) a previewed `.tar.gz`, open the copy: instant
@@ -153,3 +153,20 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   the ZIP, and the tray row says so. A file deleted before the ZIP is ready
   still shows the "will be skipped" dialog (now in Ukrainian too)
 - [ ] Ukrainian: "Скопійовано «…»" toast, drop hint, times as "1 хв 20 с"
+
+## Added in V0.22.0.16 (security)
+- [ ] Upload a file named `"><img src=x onerror=alert(1)>.txt` into a share
+  (share page upload or your own folder that is shared): the share page
+  shows the name as plain text, no alert
+- [ ] Share an `.html` containing `<script>alert(1)</script>` with preview
+  on, open its preview / CDN-embed link: no alert (page shows without
+  scripts). Same for a trashed `.html` preview and a file under
+  `/CB_uploads/`
+- [ ] Images, video, audio and text previews on share pages still work
+- [ ] Share page upload of a name that already exists → `name (1).ext`,
+  the owner's file is untouched
+
+## Added in V0.22.0.17
+- [ ] Upload into the "CDN" view while `CB_uploads` isn't writable: an error
+  right away ("The server can't write to this folder"), not after the
+  whole file was sent

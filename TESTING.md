@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.19)
+# To test (V0.22.0.1 – V0.22.0.20)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -24,6 +24,11 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] **Unfinished upload session** is purged after `UPLOAD_SESSION_TTL`, not
   2-3 hours early (check `last_activity` vs. purge time in the log) -- needs 
   tests
+  > Live case: session `rT1y7hznRnwF…` (the failed 654 MB CatBox upload),
+  > last chunk 2026-11-03 15:27:41 local. TTL 48 h (default) + 5 min check
+  > interval → its folder in `/tmp/fluxdrop_upload_sessions` should vanish
+  > on **2026-11-05 between 15:28 and 15:33**. Gone around 13:30 = still
+  > the old timezone bug
 
 > Pausing aborts the in-flight requests in the browser, but a request whose
 > body was already fully sent is still processed by the server: it checks
@@ -193,3 +198,15 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Upload into a share whose owner is over quota → refused with
   "The owner of this share has no storage space left" (both the app's
   upload and the share page's form)
+
+## Added in V0.22.0.20
+- [ ] Open a folder share with the app set to Ukrainian (or browser in
+  Ukrainian): headers, buttons, badges, upload box, empty-folder text,
+  preview modal, ZIP dialog and errors are in Ukrainian; `?lang=en` switches
+  to English
+- [ ] Switch the app's language, then reload a share page: it follows
+- [ ] Login-required, expired and not-found share pages in both languages
+- [ ] With JavaScript off: the share page is still translated and works
+- [ ] Signed in on this browser: "You're signed in to FluxDrop — open your
+  files" shows at the top; signed out: only the footer link "For more
+  features, open the FluxDrop app"

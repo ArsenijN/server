@@ -68,13 +68,20 @@
     return map;
   }
 
+  /** Remember the language; the fd_lang cookie lets the server-rendered
+   *  share pages use the same one. */
+  function _storeLang(lang) {
+    localStorage.setItem(LS_KEY, lang);
+    try { document.cookie = 'fd_lang=' + encodeURIComponent(lang) + '; path=/; max-age=31536000; SameSite=Lax'; } catch (_) {}
+  }
+
   /** Synchronous init from fd_locale_bundle.js. Returns true on success. */
   function _initSync() {
     const bundle = window._FD_LOCALES;
     if (!bundle || typeof bundle !== 'object') return false;
     const lang   = _detectLang();
     _lang        = lang;
-    localStorage.setItem(LS_KEY, lang);
+    _storeLang(lang);
     _fallback    = bundle['en']  || {};
     _catalog     = bundle[lang]  || _fallback;
     _revMap      = _buildRevMap(_fallback);
@@ -93,7 +100,7 @@
 
   async function _initAsync(lang) {
     _lang = lang;
-    localStorage.setItem(LS_KEY, lang);
+    _storeLang(lang);
     if (!Object.keys(_fallback).length) _fallback = await _loadLocale('en');
     _catalog = (lang === 'en') ? _fallback : await _loadLocale(lang);
     _revMap  = _buildRevMap(_fallback);
@@ -114,7 +121,7 @@
   async function _setLang(lang) {
     if (window._FD_LOCALES) {
       _lang    = lang;
-      localStorage.setItem(LS_KEY, lang);
+      _storeLang(lang);
       _catalog = window._FD_LOCALES[lang] || _fallback;
     } else {
       await _initAsync(lang);

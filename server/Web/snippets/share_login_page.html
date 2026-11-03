@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="{lang}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FluxDrop — Login to Access</title>
+<title>FluxDrop — {t:sp_login_title}</title>
 <link rel="icon" type="image/png" sizes="64x64" href="/fluxdrop_pp/icon-64.png">
 <link rel="stylesheet" href="/fluxdrop_pp/assets/Inter.css">
 <style>
@@ -18,27 +18,29 @@ input:focus{border-color:#3b82f6}
 </head><body>
 <div class="card">
   <div style="font-size:46px;margin-bottom:12px">🔒</div>
-  <h2 style="margin:0 0 6px;color:#1e293b;font-size:20px">Login Required</h2>
-  <p style="color:#64748b;font-size:13px;margin:0 0 22px">This shared link requires a FluxDrop account.</p>
+  <h2 style="margin:0 0 6px;color:#1e293b;font-size:20px">{t:sp_login_required}</h2>
+  <p style="color:#64748b;font-size:13px;margin:0 0 22px">{t:sp_login_needs_account}</p>
 
-  <input type="text"     id="usr" placeholder="Username"  autocomplete="username">
-  <input type="password" id="pwd" placeholder="Password"  autocomplete="current-password">
-  <button class="btn" id="login-btn" onclick="doLogin()">Login &amp; Continue</button>
+  <input type="text"     id="usr" placeholder="{t:username}"  autocomplete="username">
+  <input type="password" id="pwd" placeholder="{t:password}"  autocomplete="current-password">
+  <button class="btn" id="login-btn" onclick="doLogin()">{t:sp_login_continue}</button>
   <div class="err" id="err"></div>
 
   <div style="margin-top:16px;font-size:12px;color:#94a3b8">
-    Already logged in on this device?
-    <a href="#" onclick="useStoredToken()" style="color:#3b82f6;text-decoration:none">Use saved session</a>
+    {t:sp_already_logged}
+    <a href="#" onclick="useStoredToken()" style="color:#3b82f6;text-decoration:none">{t:sp_use_saved}</a>
   </div>
 </div>
 
 <script>
 const CDN = {cdn_origin};
 const SHARE = {share_path};
+const _T = { noSaved: {tjs:sp_no_saved}, enter: {tjs:sp_enter_credentials}, loggingIn: {tjs:sp_logging_in},
+             failed: {tjs:sp_login_failed}, cont: {tjs:sp_login_continue}, network: {tjs:sp_network_error} };
 
 function useStoredToken() {
   const t = localStorage.getItem('fluxdrop_token');
-  if (!t) { document.getElementById('err').textContent = 'No saved session found. Please log in.'; return; }
+  if (!t) { document.getElementById('err').textContent = _T.noSaved; return; }
   redirect(t);
 }
 
@@ -47,8 +49,8 @@ async function doLogin() {
   const err = document.getElementById('err');
   const usr = document.getElementById('usr').value.trim();
   const pwd = document.getElementById('pwd').value;
-  if (!usr || !pwd) { err.textContent = 'Please enter username and password.'; return; }
-  btn.disabled = true; btn.textContent = 'Logging in…'; err.textContent = '';
+  if (!usr || !pwd) { err.textContent = _T.enter; return; }
+  btn.disabled = true; btn.textContent = _T.loggingIn; err.textContent = '';
   try {
     const r = await fetch(CDN + '/auth/login', {
       method: 'POST',
@@ -56,13 +58,13 @@ async function doLogin() {
       body: JSON.stringify({username: usr, password: pwd})
     });
     const data = await r.json();
-    if (!r.ok) { err.textContent = data.error || 'Login failed.'; btn.disabled = false; btn.textContent = 'Login & Continue'; return; }
+    if (!r.ok) { err.textContent = data.error || _T.failed; btn.disabled = false; btn.textContent = _T.cont; return; }
     localStorage.setItem('fluxdrop_token', data.token);
     localStorage.setItem('fluxdrop_username', data.username);
     redirect(data.token);
   } catch(e) {
-    err.textContent = 'Network error: ' + e.message;
-    btn.disabled = false; btn.textContent = 'Login & Continue';
+    err.textContent = _T.network + e.message;
+    btn.disabled = false; btn.textContent = _T.cont;
   }
 }
 

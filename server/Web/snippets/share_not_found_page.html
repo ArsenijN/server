@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="{lang}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FluxDrop — Link Not Found</title>
+<title>FluxDrop — {t:sp_notfound_title}</title>
 <link rel="icon" type="image/png" sizes="64x64" href="/fluxdrop_pp/icon-64.png">
 <link rel="stylesheet" href="/fluxdrop_pp/assets/Inter.css">
 <style>
@@ -15,10 +15,10 @@ body{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:ce
 </head><body>
 <div class="card">
   <div style="font-size:46px;margin-bottom:12px">🔗</div>
-  <span class="badge">NOT FOUND</span>
-  <h2 style="margin:0 0 8px;color:#1e293b;font-size:20px">Link not found</h2>
-  <p style="color:#64748b;font-size:13px;margin:0">This share link is invalid or has been revoked by its owner.</p>
-  <a class="btn" href="/fluxdrop_pp/" data-app-home>Go to FluxDrop</a>
+  <span class="badge">{t:sp_notfound_badge}</span>
+  <h2 style="margin:0 0 8px;color:#1e293b;font-size:20px">{t:sp_notfound_title}</h2>
+  <p style="color:#64748b;font-size:13px;margin:0">{t:sp_notfound_body}</p>
+  <a class="btn" href="/fluxdrop_pp/" data-app-home>{t:sp_go_app}</a>
 </div>
 <script>/* App home: fluxdrop.me serves the app at /, other domains at /fluxdrop_pp/ */
 (function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();</script>

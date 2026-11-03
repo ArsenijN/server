@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="{lang}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FluxDrop — {current_title}</title>
 <link rel="icon" type="image/png" sizes="64x64" href="/fluxdrop_pp/icon-64.png">
@@ -26,7 +26,7 @@
     <div style="flex:1;min-width:0">
       <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{current_title}</h1>
       <div style="font-size:13px;color:#94a3b8">
-        Shared by <strong style="color:#475569">{owner_name}</strong>
+        {t:sp_shared_by} <strong style="color:#475569">{owner_name}</strong>
         {require_account_badge}
         {expiry_badge}
       </div>
@@ -34,27 +34,29 @@
         <button onclick="startShareZip('{current_zip_url}')"
            style="flex-shrink:0;background:#0ea5e9;color:white;border:none;padding:5px 12px;border-radius:7px;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer">⬇ ZIP</button>
         <a href="{current_zip_direct_url}" download class="nojs-zip"
-           title="Direct download — works without JavaScript, but no progress bar and can't resume if interrupted"
-           style="flex-shrink:0;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:4px 11px;border-radius:7px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;text-decoration:none">⬇ ZIP (no JS)</a>
+           title="{t:sp_zip_nojs_title}"
+           style="flex-shrink:0;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:4px 11px;border-radius:7px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;text-decoration:none">{t:sp_zip_nojs}</a>
         <span id="current-folder-size" style="font-size:12px;color:#94a3b8;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
-              onclick="loadShareFolderSize(this, '{current_size_url}')">📦 Load folder size</span>
+              onclick="loadShareFolderSize(this, '{current_size_url}')">{t:sp_load_size}</span>
       </div>
     </div>
   </div>
 
+  <a id="sp-signed-in" href="/fluxdrop_pp/" data-app-home style="display:none;margin:0 0 12px;padding:8px 12px;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:13px;text-decoration:none">👋 {t:sp_signed_in} →</a>
   <div class="crumbs">{crumbs_html}</div>
 
   <table>
     <thead><tr>
-      <th>Name</th><th>Size</th><th>Modified</th><th style="width:50px"></th>
+      <th>{t:file_info_name}</th><th>{t:file_info_size}</th><th>{t:file_info_modified}</th><th style="width:50px"></th>
     </tr></thead>
     <tbody>{entries_html}</tbody>
   </table>
   {upload_section}
   <div style="margin-top:20px;padding-top:14px;border-top:1px solid #f1f5f9;font-size:12px;color:#cbd5e1;text-align:center">
-    Powered by <a href="/fluxdrop_pp/" data-app-home style="color:#93c5fd;text-decoration:none;font-weight:600">FluxDrop</a>
+    {t:sp_powered_by} <a href="/fluxdrop_pp/" data-app-home style="color:#93c5fd;text-decoration:none;font-weight:600">FluxDrop</a>
     &nbsp;·&nbsp;
-    <a href="{report_url}" rel="nofollow" style="color:#f87171;text-decoration:none" title="Report this link to the FluxDrop operator">🚩 Report</a>
+    <a href="{report_url}" rel="nofollow" style="color:#f87171;text-decoration:none" title="{t:sp_report_title}">{t:sp_report}</a>
+    <div style="margin-top:6px"><a href="/fluxdrop_pp/" data-app-home style="color:#93c5fd;text-decoration:none">{t:sp_open_app}</a></div>
   </div>
 </div>
 
@@ -67,7 +69,7 @@
     </div>
     <div id="sp-preview-body" style="overflow:auto;max-height:75vh"></div>
     <div style="display:flex;justify-content:flex-end">
-      <a id="sp-preview-dl" href="#" download style="background:#3b82f6;color:white;padding:5px 14px;border-radius:7px;text-decoration:none;font-size:13px">⬇ Download</a>
+      <a id="sp-preview-dl" href="#" download style="background:#3b82f6;color:white;padding:5px 14px;border-radius:7px;text-decoration:none;font-size:13px">⬇ {t:download}</a>
     </div>
   </div>
 </div>
@@ -78,6 +80,13 @@ const _EXT_AUDIO = new Set(['mp3','wav','flac','aac','ogg','oga','m4a','opus']);
 const _EXT_TEXT  = new Set(['txt','md','js','ts','py','sh','json','xml','yaml','yml','toml','ini','css','html','htm','csv','log','rs','go','c','cpp','h','java','rb','php','sql']);
 
 function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+const _T = {
+  loading: {tjs:loading}, noPreview: {tjs:sp_no_preview}, badVideo: {tjs:sp_unsupported_video},
+  badAudio: {tjs:sp_unsupported_audio}, failed: {tjs:sp_failed}, truncated: {tjs:sp_truncated},
+  building: {tjs:sp_zip_building}, zipFailed: {tjs:sp_zip_failed}, sizeLoading: {tjs:sp_size_loading},
+  sizeFailed: {tjs:sp_size_failed}, skippedTitle: {tjs:zip_skipped_title}, skippedBody: {tjs:zip_skipped_body},
+  cancel: {tjs:cancel}, anyway: {tjs:zip_download_anyway},
+};
 
 async function previewShareFile(url, name, event) {
   if (event) event.preventDefault();
@@ -90,7 +99,7 @@ async function previewShareFile(url, name, event) {
   title.textContent = name;
   dl.href = url;
   dl.download = name;
-  body.innerHTML = '<p style="color:#64748b;text-align:center;padding:2rem">Loading…</p>';
+  body.innerHTML = '<p style="color:#64748b;text-align:center;padding:2rem">' + _escHtml(_T.loading) + '</p>';
   overlay.style.display = 'flex';
   document.addEventListener('keydown', _spKeyHandler);
 
@@ -99,17 +108,17 @@ async function previewShareFile(url, name, event) {
   if (_EXT_IMAGE.has(ext)) {
     body.innerHTML = `<img src="${previewUrl}" alt="${_escHtml(name)}" style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto">`;
   } else if (_EXT_VIDEO.has(ext)) {
-    body.innerHTML = `<video controls autoplay style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto;background:#000"><source src="${previewUrl}">Unsupported video.</video>`;
+    body.innerHTML = `<video controls autoplay style="max-width:100%;max-height:72vh;border-radius:8px;display:block;margin:0 auto;background:#000"><source src="${previewUrl}">${_escHtml(_T.badVideo)}</video>`;
   } else if (_EXT_AUDIO.has(ext)) {
-    body.innerHTML = `<div style="padding:2rem;text-align:center"><div style="font-size:4rem;margin-bottom:1rem">🎵</div><audio controls autoplay style="width:100%"><source src="${previewUrl}">Unsupported audio.</audio></div>`;
+    body.innerHTML = `<div style="padding:2rem;text-align:center"><div style="font-size:4rem;margin-bottom:1rem">🎵</div><audio controls autoplay style="width:100%"><source src="${previewUrl}">${_escHtml(_T.badAudio)}</audio></div>`;
   } else if (_EXT_TEXT.has(ext)) {
     try {
       const r = await fetch(previewUrl);
       const t = await r.text();
-      body.innerHTML = `<pre style="background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;overflow:auto;max-height:65vh;font-size:13px;white-space:pre-wrap;word-break:break-word">${_escHtml(t.slice(0,50000))}${t.length>50000?'\n…(truncated)':''}</pre>`;
-    } catch(e) { body.innerHTML = `<p style="color:#ef4444;text-align:center;padding:2rem">Failed: ${_escHtml(String(e))}</p>`; }
+      body.innerHTML = `<pre style="background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;overflow:auto;max-height:65vh;font-size:13px;white-space:pre-wrap;word-break:break-word">${_escHtml(t.slice(0,50000))}${t.length>50000?'\n'+_escHtml(_T.truncated):''}</pre>`;
+    } catch(e) { body.innerHTML = `<p style="color:#ef4444;text-align:center;padding:2rem">${_escHtml(_T.failed + String(e))}</p>`; }
   } else {
-    body.innerHTML = `<div style="padding:3rem;text-align:center"><div style="font-size:3rem;margin-bottom:1rem">📄</div><p style="color:#94a3b8">No preview for this file type.</p></div>`;
+    body.innerHTML = `<div style="padding:3rem;text-align:center"><div style="font-size:3rem;margin-bottom:1rem">📄</div><p style="color:#94a3b8">${_escHtml(_T.noPreview)}</p></div>`;
   }
 }
 
@@ -130,7 +139,7 @@ function _spKeyHandler(e) { if (e.key === 'Escape') closeSharePreview(); }
 
 async function startShareZip(metaUrl) {
   const btn = event && event.currentTarget;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Building…'; }
+  if (btn) { btn.disabled = true; btn.textContent = _T.building; }
 
   try {
     // Phase 1: kick off the background scan — returns 202 + job_id immediately
@@ -172,7 +181,7 @@ async function startShareZip(metaUrl) {
     await _triggerZipDownload(meta);
 
   } catch(e) {
-    alert('ZIP failed: ' + e.message);
+    alert(_T.zipFailed + e.message);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '⬇ ZIP'; }
   }
@@ -209,12 +218,12 @@ function _triggerZipDownload(meta) {
     mo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem';
     mo.innerHTML = `
       <div style="background:white;border-radius:12px;padding:20px;width:100%;max-width:440px;box-shadow:0 20px 50px rgba(0,0,0,.3)">
-        <h3 style="font-size:16px;font-weight:700;margin:0 0 8px;color:#1e293b">\u26a0 ${meta.missing.length} file(s) will be skipped</h3>
-        <p style="font-size:13px;color:#64748b;margin:0 0 10px">These files could not be read and will be absent from the ZIP:</p>
+        <h3 style="font-size:16px;font-weight:700;margin:0 0 8px;color:#1e293b">${_escHtml(_T.skippedTitle.replace('{n}', meta.missing.length))}</h3>
+        <p style="font-size:13px;color:#64748b;margin:0 0 10px">${_escHtml(_T.skippedBody)}</p>
         <ul style="max-height:200px;overflow-y:auto;padding-left:18px;margin:0 0 16px">${list}</ul>
         <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button id="sp-zip-missing-cancel" style="background:#e2e8f0;color:#1e293b;border:none;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
-          <button id="sp-zip-missing-ok" style="background:#0ea5e9;color:white;border:none;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Download anyway</button>
+          <button id="sp-zip-missing-cancel" style="background:#e2e8f0;color:#1e293b;border:none;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">${_escHtml(_T.cancel)}</button>
+          <button id="sp-zip-missing-ok" style="background:#0ea5e9;color:white;border:none;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">${_escHtml(_T.anyway)}</button>
         </div>
       </div>`;
     document.body.appendChild(mo);
@@ -224,7 +233,7 @@ function _triggerZipDownload(meta) {
 }
 
 async function loadShareFolderSize(el, url) {
-  el.textContent = '⏳ Loading…';
+  el.textContent = _T.sizeLoading;
   el.style.cursor = 'default';
   el.onclick = null;
   try {
@@ -238,12 +247,14 @@ async function loadShareFolderSize(el, url) {
         : (bytes / 1073741824).toFixed(2) + ' GB';
     el.textContent = '📦 ' + str;
   } catch(e) {
-    el.textContent = '⚠ Failed';
+    el.textContent = _T.sizeFailed;
     el.style.cursor = 'pointer';
     el.onclick = () => loadShareFolderSize(el, url);
   }
 }
 </script>
 <script>/* App home: fluxdrop.me serves the app at /, other domains at /fluxdrop_pp/ */
-(function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();</script>
+(function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();
+/* Signed in to FluxDrop in this browser? Offer the app (more features). */
+(function(){try{if(localStorage.getItem('fluxdrop_token')){var a=document.getElementById('sp-signed-in');if(a)a.style.display='block';}}catch(e){}})();</script>
 </body></html>

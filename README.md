@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.19`
+# FluxDrop & server `v0.22.0.20`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -39,6 +39,10 @@ repo. Anyone can use it.
   trays and the ZIP "files will be skipped" dialog
 - After a ZIP download, files deleted while it was downloading are listed
   (they're in the ZIP but empty)
+- Share pages (folder, login, expired, not found) are translated on the
+  server, so they still work without JavaScript. Language: `?lang=`, else
+  the language chosen in the app (`fd_lang` cookie), else the browser's.
+  They also link to the app, and say so when you're already signed in
 - See [TESTING.md](./TESTING.md) for what still needs checking
 
 **Fixed**

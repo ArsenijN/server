@@ -150,7 +150,7 @@ from core.auth import _hash_session_token, _prepare_password, hash_password, sen
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
 from core.meta import _SERVER_START_TIME, SERVER_VERSION
 from config import DEBUG_LOGGING
-from core.snippets import _render_snippet
+from core.snippets import _render_snippet, pick_lang, tr as _tr
 from core.archive_tree import archive_tree_get, archive_tree_prewarm
 
 # Content-types that benefit from gzip (text-based, not already compressed).
@@ -4771,10 +4771,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _h = lambda v: _html_mod.escape(str(v), quote=True)
         # A JS string literal inside an onclick="…" attribute.
         _js = lambda v: _html_mod.escape(json.dumps(str(v)), quote=True)
+        lang = pick_lang(self)
+        _t   = lambda key, **kw: _h(_tr(lang, key, **kw))          # HTML text
+        _tj  = lambda key, **kw: json.dumps(_tr(lang, key, **kw)).replace('<', '\\u003c')  # JS literal in <script>
 
         # --- Breadcrumb ---
         crumb_parts = sub_path_clean.split("/") if sub_path_clean else []
-        crumbs_html = f'<a href="{_turl(f"/share/{token}")}" style="color:#3b82f6;text-decoration:none">Home</a>'
+        crumbs_html = f'<a href="{_turl(f"/share/{token}")}" style="color:#3b82f6;text-decoration:none">{_t("sp_home")}</a>'
         for i, part in enumerate(crumb_parts):
             crumb_url = _turl("/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:i+1]))
             crumbs_html += f' <span style="color:#94a3b8">/</span> <a href="{crumb_url}" style="color:#3b82f6;text-decoration:none">{_h(part)}</a>'
@@ -4803,15 +4806,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             <a href="{entry_url}" style="color:#3b82f6;text-decoration:none;font-weight:500">📁 {_h(name)}</a>
                         </td>
                         <td style="padding:8px 12px;color:#94a3b8" id="fsz-{rel_from_base.replace('/','_')}">
-                            <span style="font-size:11px;color:#cbd5e1;cursor:pointer" onclick="loadShareFolderSize(this,{_js(size_url)})">— (load)</span>
+                            <span style="font-size:11px;color:#cbd5e1;cursor:pointer" onclick="loadShareFolderSize(this,{_js(size_url)})">{_t("sp_load_short")}</span>
                         </td>
                         <td style="padding:8px 12px;color:#94a3b8">{mtime}</td>
                         <td style="padding:8px 12px;white-space:nowrap">
                             <button onclick="startShareZip({_js(zip_url)})"
                                style="background:#0ea5e9;color:white;border:none;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer">⬇ ZIP</button>
                             <a href="{zip_direct_url}" download class="nojs-zip"
-                               title="Direct download — works without JavaScript, but no progress bar and can't resume if interrupted"
-                               style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:2px 9px;border-radius:5px;font-size:11px;font-weight:600;text-decoration:none;margin-left:4px">⬇ no JS</a>
+                               title="{_t('sp_zip_nojs_title')}"
+                               style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:2px 9px;border-radius:5px;font-size:11px;font-weight:600;text-decoration:none;margin-left:4px">{_t('sp_zip_nojs_short')}</a>
                         </td>
                     </tr>"""
                     # If we're viewing this directory or a parent of it, expand its children
@@ -4850,13 +4853,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
             entries_html = build_rows(target_fs, indent=0)
             # Back link
             parent_url = _turl(("/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:-1])).rstrip("/") if crumb_parts else f"/share/{token}")
-            back_row = f'<tr><td colspan="4" style="padding:6px 12px"><a href="{parent_url}" style="color:#64748b;text-decoration:none;font-size:13px">⬆ Parent folder</a></td></tr>'
+            back_row = f'<tr><td colspan="4" style="padding:6px 12px"><a href="{parent_url}" style="color:#64748b;text-decoration:none;font-size:13px">{_t("sp_parent")}</a></td></tr>'
             entries_html = back_row + entries_html
         else:
             entries_html = build_rows(base_fs, indent=0)
 
         if not entries_html:
-            entries_html = '<tr><td colspan="4" style="padding:16px;color:#94a3b8;text-align:center">This folder is empty</td></tr>'
+            entries_html = f'<tr><td colspan="4" style="padding:16px;color:#94a3b8;text-align:center">{_t("sp_empty")}</td></tr>'
 
         # --- Upload section ---
         upload_section = ""
@@ -4892,21 +4895,21 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     '\n                <!-- Auth gate: hidden once JS resolves a valid token -->'
                     '\n                <div id="upload-auth-gate" style="text-align:center;padding:8px 0">'
                     '\n                    <p style="font-size:13px;color:#64748b;margin:0 0 10px">'
-                    '\n                        A FluxDrop account is required to upload here.'
+                    '\n                        ' + _t('sp_upload_need_account') +
                     '\n                    </p>'
                     '\n                    <div id="upload-auth-form">'
-                    '\n                        <input type="text" id="upload-usr" placeholder="Username"'
+                    '\n                        <input type="text" id="upload-usr" placeholder="' + _t('username') + '"'
                     '\n                               style="width:100%;max-width:280px;padding:8px 12px;'
                     'border:1px solid #e2e8f0;border-radius:8px;font-size:13px;'
                     'margin-bottom:6px;display:block;margin:0 auto 6px">'
-                    '\n                        <input type="password" id="upload-pwd" placeholder="Password"'
+                    '\n                        <input type="password" id="upload-pwd" placeholder="' + _t('password') + '"'
                     '\n                               style="width:100%;max-width:280px;padding:8px 12px;'
                     'border:1px solid #e2e8f0;border-radius:8px;font-size:13px;'
                     'margin-bottom:6px;display:block;margin:0 auto 6px">'
                     '\n                        <button onclick="doUploadLogin()"'
                     '\n                                style="background:#3b82f6;color:white;border:none;'
                     'border-radius:8px;padding:8px 20px;font-size:13px;cursor:pointer">'
-                    '\n                            Login &amp; unlock upload'
+                    '\n                            ' + _t('sp_login_unlock') +
                     '\n                        </button>'
                     '\n                        <div id="upload-auth-err" style="color:#ef4444;font-size:12px;margin-top:6px"></div>'
                     '\n                    </div>'
@@ -4919,18 +4922,18 @@ class AuthHandler(SimpleHTTPRequestHandler):
             <div id="upload-section" style="margin-top:24px;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px">
                 {_auth_gate_html}
                 <div id="upload-ui"{_ui_hidden}>
-                    <h3 style="margin:0 0 10px;font-size:15px;color:#166534">Upload files to this folder</h3>
+                    <h3 style="margin:0 0 10px;font-size:15px;color:#166534">{_t('sp_upload_title')}</h3>
                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                         <input type="file" id="upload-file" multiple style="font-size:14px">
                         <button onclick="uploadFiles()"
                             style="background:#16a34a;color:white;border:none;border-radius:8px;
                                    padding:8px 18px;cursor:pointer;font-size:14px;flex-shrink:0">
-                            Upload
+                            {_t('upload')}
                         </button>
                         <button onclick="promptMkdir()"
                             style="background:#0ea5e9;color:white;border:none;border-radius:8px;
                                    padding:8px 18px;cursor:pointer;font-size:14px;flex-shrink:0">
-                            📁 New Folder
+                            📁 {_t('new_folder')}
                         </button>
                         <span id="upload-status" style="font-size:13px;color:#166534"></span>
                     </div>
@@ -4960,8 +4963,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     const usr = document.getElementById('upload-usr').value.trim();
                     const pwd = document.getElementById('upload-pwd').value;
                     const err = document.getElementById('upload-auth-err');
-                    if (!usr || !pwd) {{ err.textContent = 'Please enter username and password.'; return; }}
-                    err.textContent = 'Logging in…';
+                    if (!usr || !pwd) {{ err.textContent = {_tj('sp_enter_credentials')}; return; }}
+                    err.textContent = {_tj('sp_logging_in')};
                     try {{
                         const r = await fetch(_CDN_ORIGIN + '/auth/login', {{
                             method: 'POST',
@@ -4969,12 +4972,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             body: JSON.stringify({{username: usr, password: pwd}})
                         }});
                         const d = await r.json();
-                        if (!r.ok) {{ err.textContent = d.error || 'Login failed.'; return; }}
+                        if (!r.ok) {{ err.textContent = d.error || {_tj('sp_login_failed')}; return; }}
                         localStorage.setItem('fluxdrop_token', d.token);
                         localStorage.setItem('fluxdrop_username', d.username);
                         err.textContent = '';
                         _unlockUpload(d.token);
-                    }} catch(e) {{ err.textContent = 'Network error: ' + e.message; }}
+                    }} catch(e) {{ err.textContent = {_tj('sp_network_error')} + e.message; }}
                 }}
 
                 function _uploadUrl() {{
@@ -4984,10 +4987,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
                 async function uploadFiles() {{
                     const files = document.getElementById('upload-file').files;
-                    if (!files.length) {{ document.getElementById('upload-status').textContent = 'No files selected'; return; }}
+                    if (!files.length) {{ document.getElementById('upload-status').textContent = {_tj('sp_no_files')}; return; }}
                     const statusEl   = document.getElementById('upload-status');
                     const progressEl = document.getElementById('upload-progress');
-                    statusEl.textContent = `Uploading ${{files.length}} file(s)…`;
+                    statusEl.textContent = {_tj('sp_uploading_n')}.replace('{{n}}', files.length);
                     let done = 0, failed = 0;
                     for (const f of files) {{
                         const fd = new FormData();
@@ -5006,19 +5009,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
                                     if (gate) gate.style.display = '';
                                     if (ui)   ui.style.display   = 'none';
                                     document.getElementById('upload-auth-err').textContent =
-                                        'Session expired — please log in again.';
+                                        {_tj('sp_session_expired')};
                                     break;
                                 }}
                             }}
                         }} catch(e) {{ failed++; }}
                     }}
-                    statusEl.textContent = `Done: ${{done}} uploaded${{failed ? ', ' + failed + ' failed' : ''}}`;
+                    statusEl.textContent = {_tj('sp_done_n')}.replace('{{done}}', done) + (failed ? {_tj('sp_failed_n')}.replace('{{n}}', failed) : '');
                     progressEl.textContent = '';
                     if (done > 0) setTimeout(() => location.reload(), 1200);
                 }}
 
                 async function promptMkdir() {{
-                    const name = prompt('New folder name:');
+                    const name = prompt({_tj('sp_new_folder_prompt')});
                     if (!name || !name.trim()) return;
                     const curSubpath = {_subpath_js};
                     const subpath = curSubpath ? curSubpath + '/' + name.trim() : name.trim();
@@ -5030,8 +5033,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                             body: JSON.stringify({{subpath}})
                         }});
                         if (r.ok) location.reload();
-                        else {{ const t = await r.text(); alert('Failed: ' + t); }}
-                    }} catch(e) {{ alert('Error: ' + e); }}
+                        else {{ const t = await r.text(); alert({_tj('sp_failed')} + t); }}
+                    }} catch(e) {{ alert({_tj('sp_error')} + e); }}
                 }}
                 </script>
             </div>"""
@@ -5041,14 +5044,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
             try:
                 exp = _parse_expiry(share["expires_at"])
                 if exp is not None:
-                    expiry_badge = f'&nbsp;<span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">⏰ Expires {exp.strftime("%Y-%m-%d")}</span>'
+                    expiry_badge = f'&nbsp;<span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">{_t("sp_expires", date=exp.strftime("%Y-%m-%d"))}</span>'
             except Exception: pass
 
-        folder_name = os.path.basename(base_fs.rstrip("/")) or "Shared Folder"
+        folder_name = os.path.basename(base_fs.rstrip("/")) or _tr(lang, 'sp_shared_folder')
         current_title = os.path.basename(target_fs.rstrip("/")) if sub_path_clean else folder_name
         share_icon = '📁' if share['is_dir'] else '📄'
         require_account_badge = (
-            '&nbsp;<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">🔒 Account required</span>'
+            f'&nbsp;<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600">{_t("sp_account_required")}</span>'
             if share["require_account"] else ''
         )
 
@@ -5061,7 +5064,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         current_size_url       = _turl(f"/share/{token}" + (f"/{sub_path_clean}" if sub_path_clean else "") + "?foldersize=1")
 
         report_url = '/report?url=' + quote(f"{PUBLIC_BASE_URL}/share/{token}", safe='')
-        return _render_snippet('share_folder_page.html',
+        return _render_snippet('share_folder_page.html', lang=lang,
             PUBLIC_DOMAIN=PUBLIC_DOMAIN,
             report_url=report_url,
             current_title=_h(current_title),
@@ -5080,7 +5083,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     def _render_share_login_page(self, token):
         cdn_origin = PUBLIC_BASE_URL
         share_path = f"/share/{token}"
-        return _render_snippet('share_login_page.html',
+        return _render_snippet('share_login_page.html', lang=pick_lang(self),
             PUBLIC_DOMAIN=PUBLIC_DOMAIN,
             cdn_origin=repr(cdn_origin),
             share_path=repr(share_path),
@@ -5136,10 +5139,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return self._send_response(200, json.dumps(res))
 
     def _render_share_expired_page(self):
-        return _render_snippet('share_expired_page.html',PUBLIC_DOMAIN=PUBLIC_DOMAIN)
+        return _render_snippet('share_expired_page.html', lang=pick_lang(self), PUBLIC_DOMAIN=PUBLIC_DOMAIN)
 
     def _render_share_not_found_page(self):
-        return _render_snippet('share_not_found_page.html',PUBLIC_DOMAIN=PUBLIC_DOMAIN)
+        return _render_snippet('share_not_found_page.html', lang=pick_lang(self), PUBLIC_DOMAIN=PUBLIC_DOMAIN)
 
     # --- FluxDrop API Handlers ---
 

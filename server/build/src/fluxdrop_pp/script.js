@@ -646,7 +646,7 @@ function _startCopyJobTracking(jobId, fname) {
             const job = await apiCall(`/api/v1/copy/status/${jobId}`, 'GET');
             if (job.status === 'done') {
                 progress.dismiss();
-                showToast(`Copied "${fname}"`);
+                showToast(t('copy_done', { name: fname }));
                 loadDirectory(currentPath);
                 return;
             }
@@ -1549,7 +1549,7 @@ function renderFileBrowserView() {
                      style="display:none;padding:14px 0 8px;text-align:center;
                             color:var(--fd-accent,#3b82f6);font-size:13px;
                             font-weight:500;pointer-events:none">
-                    ⬆ Drop files or folders here to upload
+                    ⬆ ${escapeHtml(t('drop_hint'))}
                 </div>
 
                 <div id="file-list" class="mt-4" style="min-height:320px;user-select:none"></div>
@@ -2951,7 +2951,7 @@ window.downloadFolderZip = async function(path) {
     dl.totalSize     = metaData.size || null;
     dl.filename      = metaData.filename || dl.filename;
     dl.error         = (metaData.missing && metaData.missing.length > 0)
-        ? `\u26a0 ${metaData.missing.length} file(s) skipped (unreadable)`
+        ? t('zip_skipped_tray', { n: metaData.missing.length })
         : null;
 
     // Build the stream URL with auth token as query param so the <a> tag works
@@ -2972,12 +2972,12 @@ window.downloadFolderZip = async function(path) {
         const mo = document.createElement('div');
         mo.className = 'modal-overlay';
         mo.innerHTML = `<div class="modal-content" style="max-width:480px">
-            <h3 style="font-size:16px;font-weight:700;margin-bottom:8px">⚠ ${metaData.missing.length} file(s) will be skipped</h3>
-            <p style="font-size:13px;color:#64748b;margin-bottom:10px">These files could not be read and will be absent from the ZIP:</p>
+            <h3 style="font-size:16px;font-weight:700;margin-bottom:8px">${escapeHtml(t('zip_skipped_title', { n: metaData.missing.length }))}</h3>
+            <p style="font-size:13px;color:#64748b;margin-bottom:10px">${escapeHtml(t('zip_skipped_body'))}</p>
             <ul style="max-height:200px;overflow-y:auto;padding-left:18px;margin-bottom:16px">${list}</ul>
             <div style="display:flex;gap:8px;justify-content:flex-end">
-                <button id="zip-missing-cancel" class="btn" style="background:#e2e8f0;color:#1e293b">Cancel</button>
-                <button id="zip-missing-ok" class="btn">Download anyway</button>
+                <button id="zip-missing-cancel" class="btn" style="background:#e2e8f0;color:#1e293b">${escapeHtml(t('cancel'))}</button>
+                <button id="zip-missing-ok" class="btn">${escapeHtml(t('zip_download_anyway'))}</button>
             </div>
         </div>`;
         document.body.appendChild(mo);
@@ -2993,11 +2993,46 @@ window.downloadFolderZip = async function(path) {
     // Mark done — browser's download manager owns the rest from here
     dl.status = 'done';
     renderDownloadTray();
+    _watchZipReport(metaData.session_id, dl);
     const delay = getTrayDismissDelay();
     if (delay > 0) {
         setTimeout(() => { activeDownloads.delete(zipKey); renderDownloadTray(); }, delay);
     }
 };
+
+// Files deleted (or shrunk) after a ZIP was planned are streamed as zeros —
+// the size and checksums were fixed up front. The browser owns the download,
+// so ask the server until it has sent the last byte, then tell the user
+// which files in the ZIP are empty.
+function _watchZipReport(sessionId, dl) {
+    if (!sessionId) return;
+    const url = `${API_BASE_URL}/api/v1/zip_stream/${sessionId}/report`;
+    const started = Date.now();
+    const tick = async () => {
+        let rep;
+        try {
+            const r = await fetchWithFallback(url, {
+                headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+            });
+            if (r.status === 404 || r.status === 403) return;   // session gone
+            rep = r.ok ? await r.json() : null;
+        } catch (_) { rep = null; }
+        if (rep && rep.finished) {
+            if (rep.vanished && rep.vanished.length) {
+                dl.error = t('zip_vanished_tray', { n: rep.vanished.length });
+                renderDownloadTray();
+                const list = rep.vanished.map(f =>
+                    `<li style="font-family:monospace;font-size:12px">${escapeHtml(f)}</li>`).join('');
+                showMessage(t('zip_vanished_title', { n: rep.vanished.length }),
+                    `${escapeHtml(t('zip_vanished_body', { name: dl.filename || '' }))}
+                     <ul style="max-height:200px;overflow-y:auto;padding-left:18px;margin-top:8px">${list}</ul>`, true);
+            }
+            return;
+        }
+        if (Date.now() - started < 24 * 3600 * 1000) setTimeout(tick, 5000);
+    };
+    setTimeout(tick, 5000);
+}
 
 // ── Tiny MIME helper ──────────────────────────────────────────────────────────
 function _mimeForExt(ext) {
@@ -6532,9 +6567,10 @@ function formatSpeed(bps) {
 
 function formatEta(seconds) {
     if (!isFinite(seconds) || seconds < 0) return '…';
-    if (seconds < 60) return Math.ceil(seconds) + 's';
-    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + Math.ceil(seconds % 60) + 's';
-    return Math.floor(seconds / 3600) + 'h ' + Math.floor((seconds % 3600) / 60) + 'm';
+    const s = t('unit_s'), m = t('unit_m'), h = t('unit_h');
+    if (seconds < 60) return Math.ceil(seconds) + s;
+    if (seconds < 3600) return Math.floor(seconds / 60) + m + ' ' + Math.ceil(seconds % 60) + s;
+    return Math.floor(seconds / 3600) + h + ' ' + Math.floor((seconds % 3600) / 60) + m;
 }
 
 function renderUploadTray() {

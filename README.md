@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.14`
+# FluxDrop & server `v0.22.0.15`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -35,6 +35,10 @@ repo. Anyone can use it.
 - Resuming an upload shows "Checking with the server…" while it asks which
   chunks arrived
 - The archive preview's header and Download button are translated
+- Also translated: the "Copied" toast, the drop hint, time units in the
+  trays and the ZIP "files will be skipped" dialog
+- After a ZIP download, files deleted while it was downloading are listed
+  (they're in the ZIP but empty)
 - See [TESTING.md](./TESTING.md) for what still needs checking
 
 **Fixed**
@@ -59,6 +63,9 @@ repo. Anyone can use it.
 - `/api/v1/trash/<id>/file?path=<sub/path>` streams a file inside a trashed
   folder (checked to stay inside it)
 - `DELETE /api/v1/zip_status/<job>` cancels a ZIP job
+- `GET /api/v1/zip_stream/<session>/report` → `{finished, vanished}`: files
+  deleted or shrunk after the ZIP was planned (sent as zeros so the stream
+  stays valid; the stored CRC flags them)
 - Archive listings (`/api/v1/archive_tree`) are cached on disk. `.tar(.gz)`
   is read by a low-priority background worker (202 + progress until ready),
   also right after it's uploaded. Zip-bomb limits: max entries, time and

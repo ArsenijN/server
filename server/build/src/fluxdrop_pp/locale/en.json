@@ -581,5 +581,17 @@
   "conflict_setting": "When a file with the same name exists",
   "conflict_setting_ask": "Ask each time",
   "conflict_setting_rename": "Keep both (add \" (1)\")",
-  "conflict_setting_replace": "Replace (old file goes to the Trash)"
+  "conflict_setting_replace": "Replace (old file goes to the Trash)",
+  "zip_skipped_tray": "⚠ {n} file(s) skipped (unreadable)",
+  "zip_skipped_title": "⚠ {n} file(s) will be skipped",
+  "zip_skipped_body": "These files could not be read and will be absent from the ZIP:",
+  "zip_download_anyway": "Download anyway",
+  "zip_vanished_tray": "⚠ {n} file(s) in the ZIP are empty (deleted during download)",
+  "zip_vanished_title": "⚠ {n} file(s) in the ZIP are empty",
+  "zip_vanished_body": "These files were deleted or changed while \"{name}\" was downloading. They are in the ZIP, but filled with zeros (extractors report a CRC error for them):",
+  "drop_hint": "Drop files or folders here to upload",
+  "copy_done": "Copied \"{name}\"",
+  "unit_s": "s",
+  "unit_m": "m",
+  "unit_h": "h"
 }

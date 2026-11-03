@@ -1213,6 +1213,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
     zip_meta_pattern     = re.compile(r'^/api/(v[1-3])/zip_meta(/.*)?$')
     zip_status_pattern   = re.compile(r'^/api/(v[1-3])/zip_status/([0-9a-f\-]{36})$')
     zip_stream_pattern   = re.compile(r'^/api/(v[1-3])/zip_stream/([0-9a-f\-]{36})$')
+    zip_report_pattern   = re.compile(r'^/api/(v[1-3])/zip_stream/([0-9a-f\-]{36})/report$')
     foldersize_pattern   = re.compile(r'^/api/(v[1-3])/foldersize(/.*)?$')
     archive_tree_pattern = re.compile(r'^/api/(v[1-3])/archive_tree(/.*)?$')
     # Chunked resumable upload API:
@@ -3222,6 +3223,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _zip_stream_m = self.zip_stream_pattern.match(parsed_url.path)
         if _zip_stream_m:
             return self._handle_zip_stream(_zip_stream_m.group(2))
+        _zip_report_m = self.zip_report_pattern.match(parsed_url.path)
+        if _zip_report_m:
+            return self._handle_zip_report(_zip_report_m.group(2))
 
         # Archive file-tree listing (no full download — reads ZIP central dir only)
         _at_m = self.archive_tree_pattern.match(parsed_url.path)
@@ -5909,6 +5913,25 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return self._send_response(200, json.dumps(resp))
 
 
+    def _handle_zip_report(self, session_id: str):
+        """GET /api/v1/zip_stream/<session_id>/report
+        {finished, vanished}: whether the last byte has been sent, and the
+        files that were deleted or shrank after the ZIP was planned (they're
+        in the ZIP as zeros). The browser owns the download itself, so this
+        is how the page learns about them. Doesn't extend the session.
+        """
+        with _zip_sessions_lock:
+            session = _zip_sessions.get(session_id)
+            if not session:
+                return self._send_response(404, json.dumps({'error': 'ZIP session not found or expired'}))
+            owner    = session.get('user_id')
+            finished = bool(session.get('finished'))
+            vanished = list(session.get('vanished', []))
+        # Share ZIPs ('share') are open to whoever has the session id, like the stream.
+        if owner not in (None, 'share') and str(self._check_token_auth()) != str(owner):
+            return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+        return self._send_response(200, json.dumps({'finished': finished, 'vanished': vanished}))
+
     def _handle_zip_stream(self, session_id: str):
         """GET /api/v1/zip_stream/<session_id>[  Range: bytes=N-M ]
         Streams the ZIP using the pre-built session.  Supports Range requests
@@ -6024,6 +6047,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     read_len   = fsz - file_skip - file_trail
 
                     if read_len > 0:
+                        got = 0
                         try:
                             with open(entry['abs_path'], 'rb') as fh:
                                 if file_skip:
@@ -6046,12 +6070,23 @@ class AuthHandler(SimpleHTTPRequestHandler):
                                     for chunk in _chunks:
                                         if not _write(chunk):
                                             return
+                                        got += len(chunk)
                         except OSError:
-                            # File disappeared mid-stream — pad with zeros so the
-                            # stream length stays correct (CRC will flag the file).
-                            logging.warning('zip_stream: file vanished during send: %r',
+                            pass
+                        if got < read_len:
+                            # Deleted or shrunk after the ZIP was planned — pad
+                            # with zeros so the stream length stays correct
+                            # (the stored CRC flags the file in extractors) and
+                            # remember it for the client's report
+                            # (GET /zip_stream/<id>/report).
+                            logging.warning('zip_stream: file vanished/shrank during send: %r',
                                             entry['abs_path'])
-                            pad = read_len
+                            name = entry['arcname_bytes'].decode('utf-8', 'replace')
+                            with _zip_sessions_lock:
+                                vanished = session.setdefault('vanished', [])
+                                if name not in vanished:
+                                    vanished.append(name)
+                            pad = read_len - got
                             while pad > 0:
                                 chunk = bytes(min(READ_BUF, pad))
                                 if not _write(chunk):
@@ -6072,6 +6107,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     break
                 if not _write_clipped(data, virt_start):
                     return
+            if remaining <= 0 and req_end == total_size - 1:
+                session['finished'] = True   # the last byte went out
 
             try:
                 self.wfile.flush()

@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.13)
+# To test (V0.22.0.1 – V0.22.0.15)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -46,7 +46,14 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Request the same folder twice (two tabs): one job, both get the ZIP -- 
   needs tests
 - [ ] A folder with a file that disappears mid-job: the "skipped files" list
-  shows it, names with `<`/`&` display as text -- needs additional tests
+  shows it, names with `<`/`&` display as text -- needs additional tests -- 
+  archive have empty files downloaded (no content but size), nothing displayed 
+  a problem (I deleted   the files from folder mid-download and nothing 
+  appeared)
+  > Expected so far: the ZIP's size and checksums are fixed before the
+  > download starts, so a file deleted later is sent as zeros (7-Zip etc.
+  > report a CRC error for it). The "skipped" list only covers files gone
+  > *before* the download. V0.22.0.15 adds a report afterwards — see below
 
 ## Trash
 - [X] Trashed folder → "Browse": files listed under their folders
@@ -63,7 +70,7 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [x] Open it again: instant (cached)
 - [ ] Upload a new `.tar.gz`, open it a bit later: already cached (prewarm) -- 
   needs tests (my internet right now is slow and I want to make tests with 1-2 
-  GB archive)
+  GB archive) -- 14:42~14:43 is upload time, not I wait some time to check
 - [x] `.zip` preview still works
 
 ## Domains and redirects
@@ -96,12 +103,16 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   file is still there, nothing else is left behind
 - [x] Same for a `.tar.gz` → `name (1).tar.gz`, and for a folder upload over
   an existing folder (each clashing file gets " (1)")
-- [ ] **Interrupted, twice**: pause → reload → Interrupted → continue →
+- [x] **Interrupted, twice**: pause → reload → Interrupted → continue →
   pause → Interrupted → continue. One tray row only; when finished it shows
   "Done" with Dismiss, no Cancel. While the upload is running, continuing
   it from Interrupted says it's already uploading -- needs test
 - [ ] Cancel on an upload that has just finished shows "Done", not
-  "Cancelled" (server 409 = already complete) -- needs test
+  "Cancelled" (server 409 = already complete) -- needs test -- can't test, now 
+  the same upload item isn't dupped in the Uploads modal so I can't do the 
+  same as before to test that
+  > Right — with the duplicate row gone this path is hard to reach; it's a
+  > safety net now. Fine to tick it as "can't reproduce".
 - [x] **Esc** closes the Trash (and a preview opened from it first)
 - [ ] Archive preview: the spinner keeps turning while the % updates -- 
   needs tests
@@ -109,7 +120,8 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   archive…" / "Hashing files…", then "Downloading via browser…"
 - [ ] **Ukrainian UI**: Uploads/Downloads trays (title, ETA, Paused,
   Cancelled, Done, verifying), Info panel, Move/Rename/Copy dialog, copy
-  toast (Cancel/Hide), archive preview progress -- partially tested
+  toast (Cancel/Hide), archive preview progress -- partially tested -- time 
+  definities (s vs с), "Copied" isn't translated, and drag-n-drop text is also
 
 ## Added in V0.22.0.13
 - [ ] **Name clash, "Ask" (default)**: upload a file that exists → dialog
@@ -134,3 +146,10 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Copy (or move/rename) a previewed `.tar.gz`, open the copy: instant
   (the cache now follows the content, not the path). Note: the old cache
   entries don't match the new key, so each archive is read once more
+
+## Added in V0.22.0.15
+- [ ] ZIP a folder, delete one of its files while the browser downloads it:
+  when the download finishes, a message lists the file(s) that are empty in
+  the ZIP, and the tray row says so. A file deleted before the ZIP is ready
+  still shows the "will be skipped" dialog (now in Ukrainian too)
+- [ ] Ukrainian: "Скопійовано «…»" toast, drop hint, times as "1 хв 20 с"

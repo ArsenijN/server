@@ -104,6 +104,7 @@ import io as _io
 import hashlib as _hl
 import re as _re
 import zipfile as _zf
+import html as _html_mod
 import struct  as _st
 import time as _time
 import urllib.parse as _up
@@ -1667,6 +1668,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
             "img-src 'self' data:; "
             "connect-src 'self';"
         )
+        # User uploads served as-is (CatBox, CDN folder) share this origin
+        # with the app, and the policy above allows inline script: an
+        # uploaded .html would run next to the FluxDrop login. A second
+        # policy only tightens: 'sandbox' gives them an opaque origin.
+        _p = urlparse(getattr(self, 'path', '') or '').path
+        if _p.startswith(('/' + CATBOX_UPLOAD_DIR.strip('/') + '/', '/cdn/')):
+            self.send_header('Content-Security-Policy', 'sandbox')
         super().end_headers()
 
     def _send_response(self, status_code, content, content_type='application/json'):
@@ -4576,6 +4584,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", content_type)
                 if disposition:
                     self.send_header("Content-Disposition", disposition)
+                else:
+                    self._send_inline_isolation_headers()
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
                 self.send_header("Content-Length", str(length))
@@ -4597,6 +4607,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", content_type)
                 if disposition:
                     self.send_header("Content-Disposition", disposition)
+                else:
+                    self._send_inline_isolation_headers()
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Content-Length", str(file_size))
                 self.end_headers()
@@ -4643,6 +4655,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return self._send_response(404, "<h1>404 — Not Found</h1>", "text/html")
         # This message by no means should came up with the FluxDrop interaction as-is, so if it will - that's the sign of an error
 
+    def _send_inline_isolation_headers(self):
+        """For a user's file shown inline on this origin: an .html/.svg
+        would otherwise run script next to the FluxDrop login in
+        localStorage. 'sandbox' gives it an opaque origin with scripts off;
+        images, video, audio and text still display."""
+        self.send_header("Content-Security-Policy", "sandbox")
+        self.send_header("X-Content-Type-Options", "nosniff")
+
     def _render_share_page(self, share, token, target_fs, base_fs, sub_path):
         """Render the public share HTML page with recursive folder listing."""
         owner_name = ""
@@ -4672,12 +4692,20 @@ class AuthHandler(SimpleHTTPRequestHandler):
             sep = '&' if '?' in url else '?'
             return url + sep + 'token=' + quote(_visitor_token_raw, safe='')
 
+        # Names come from the filesystem (anyone allowed to upload to the
+        # share picks them) and the nickname from the owner — escape every one
+        # before it goes into the page, or a file named "<img onerror=…>"
+        # runs script on this origin, where the FluxDrop login is stored.
+        _h = lambda v: _html_mod.escape(str(v), quote=True)
+        # A JS string literal inside an onclick="…" attribute.
+        _js = lambda v: _html_mod.escape(json.dumps(str(v)), quote=True)
+
         # --- Breadcrumb ---
         crumb_parts = sub_path_clean.split("/") if sub_path_clean else []
         crumbs_html = f'<a href="{_turl(f"/share/{token}")}" style="color:#3b82f6;text-decoration:none">Home</a>'
         for i, part in enumerate(crumb_parts):
             crumb_url = _turl("/share/" + token + "/" + "/".join(quote(seg, safe="") for seg in crumb_parts[:i+1]))
-            crumbs_html += f' <span style="color:#94a3b8">/</span> <a href="{crumb_url}" style="color:#3b82f6;text-decoration:none">{part}</a>'
+            crumbs_html += f' <span style="color:#94a3b8">/</span> <a href="{crumb_url}" style="color:#3b82f6;text-decoration:none">{_h(part)}</a>'
 
         # --- Build entry rows (recursive helper) ---
         def build_rows(directory, indent=0):
@@ -4700,14 +4728,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     size_url = _turl(entry_url_base + "?foldersize=1")
                     rows += f"""<tr class="entry-row">
                         <td style="padding:8px 12px 8px {12+pad}px">
-                            <a href="{entry_url}" style="color:#3b82f6;text-decoration:none;font-weight:500">📁 {name}</a>
+                            <a href="{entry_url}" style="color:#3b82f6;text-decoration:none;font-weight:500">📁 {_h(name)}</a>
                         </td>
                         <td style="padding:8px 12px;color:#94a3b8" id="fsz-{rel_from_base.replace('/','_')}">
-                            <span style="font-size:11px;color:#cbd5e1;cursor:pointer" onclick="loadShareFolderSize(this,{repr(size_url)})">— (load)</span>
+                            <span style="font-size:11px;color:#cbd5e1;cursor:pointer" onclick="loadShareFolderSize(this,{_js(size_url)})">— (load)</span>
                         </td>
                         <td style="padding:8px 12px;color:#94a3b8">{mtime}</td>
                         <td style="padding:8px 12px;white-space:nowrap">
-                            <button onclick="startShareZip({repr(zip_url)})"
+                            <button onclick="startShareZip({_js(zip_url)})"
                                style="background:#0ea5e9;color:white;border:none;padding:3px 10px;border-radius:5px;font-size:12px;cursor:pointer">⬇ ZIP</button>
                             <a href="{zip_direct_url}" download class="nojs-zip"
                                title="Direct download — works without JavaScript, but no progress bar and can't resume if interrupted"
@@ -4723,13 +4751,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     preview_url = entry_url + "?preview=1"
                     allow_prev = bool(share.get("allow_preview"))
                     name_cell = (
-                        f'<a href="{preview_url}" onclick="previewShareFile({repr(entry_url)},{repr(name)},event)" '
-                        f'style="color:#1e293b;text-decoration:none;cursor:pointer">📄 {name}</a>'
+                        f'<a href="{preview_url}" onclick="previewShareFile({_js(entry_url)},{_js(name)},event)" '
+                        f'style="color:#1e293b;text-decoration:none;cursor:pointer">📄 {_h(name)}</a>'
                         if allow_prev else
-                        f'<a href="{entry_url}" download style="color:#1e293b;text-decoration:none">📄 {name}</a>'
+                        f'<a href="{entry_url}" download style="color:#1e293b;text-decoration:none">📄 {_h(name)}</a>'
                     )
                     preview_btn = (
-                        f'<a href="{preview_url}" onclick="previewShareFile({repr(entry_url)},{repr(name)},event)" '
+                        f'<a href="{preview_url}" onclick="previewShareFile({_js(entry_url)},{_js(name)},event)" '
                         f'style="background:#8b5cf6;color:white;text-decoration:none;padding:3px 10px;border-radius:5px;font-size:12px;margin-right:4px">👁</a>'
                         if allow_prev else ""
                     )
@@ -4964,9 +4992,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         return _render_snippet('share_folder_page.html',
             PUBLIC_DOMAIN=PUBLIC_DOMAIN,
             report_url=report_url,
-            current_title=current_title,
+            current_title=_h(current_title),
             share_icon=share_icon,
-            owner_name=owner_name,
+            owner_name=_h(owner_name),
             require_account_badge=require_account_badge,
             expiry_badge=expiry_badge,
             crumbs_html=crumbs_html,
@@ -5142,6 +5170,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_response(206)
             self._send_cors_headers()
             self.send_header('Content-Type',        mime_type)
+            self._send_inline_isolation_headers()
             # Use RFC 5987 encoding for non-ASCII names (Cyrillic, CJK, etc.)
             self.send_header('Content-Disposition',
                             self._content_disposition(filename).replace('attachment;', 'inline;', 1))
@@ -5166,6 +5195,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self._send_cors_headers()
             self.send_header('Content-Type',        mime_type)
+            self._send_inline_isolation_headers()
             self.send_header('Content-Disposition', disposition)
             self.send_header('Accept-Ranges',       'bytes')
             self.send_header('Content-Length',      str(file_size))
@@ -6274,8 +6304,16 @@ class AuthHandler(SimpleHTTPRequestHandler):
             save_path = os.path.normpath(os.path.join(dest_dir, safe_name))
             if not _is_within(dest_dir, save_path):
                 return self._send_response(400, json.dumps({"error": "Invalid filename."}))
+            # Never write over the owner's files: a clashing name is saved as
+            # "name (1).ext" (as the chunked upload does). 'xb' refuses to open
+            # a file that appeared in the meantime instead of truncating it.
+            try:
+                save_path = _free_upload_dest(save_path)
+            except ValueError as e:
+                return self._send_response(409, json.dumps({"error": str(e)}))
+            safe_name = os.path.basename(save_path)
 
-            with open(save_path, "wb") as f:
+            with open(save_path, "xb") as f:
                 written = 0
                 while True:
                     chunk = file_item.stream.read(1 * 1024 * 1024)

@@ -2481,6 +2481,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
             # For authenticated visitors it still acts as the binding token — keeps the
             # logic uniform and avoids leaking which device a session belongs to.
             anon_device_token = secrets.token_urlsafe(32)
+            # Files uploaded into a share land in the owner's storage — count
+            # them against the owner's quota (visitors have none of their own).
+            _q_err = self._owner_quota_error(owner_id_s, max(total_size, 0))
+            if _q_err:
+                return self._send_response(507, json.dumps({'error': _q_err}))
 
         elif owner_type == 'catbox':
             if not user_id:
@@ -3330,12 +3335,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(401, json.dumps({'error': 'Authentication required.'}))
             with _db_connect() as conn:
                 row = conn.execute(
-                    'SELECT id, username, nickname, email, is_admin, quota_bytes, quota_override, created_at FROM users WHERE id = ?',
+                    'SELECT id, username, nickname, email, is_admin, quota_bytes, quota_override, created_at, can_publish FROM users WHERE id = ?',
                     (user_id,)
                 ).fetchone()
             if not row:
                 return self._send_response(404, json.dumps({'error': 'User not found.'}))
-            uid, uname, nick, email, adm, quota, qover, created = row
+            uid, uname, nick, email, adm, quota, qover, created, can_pub = row
             eff_quota = quota if quota else _compute_dynamic_quota()
             usage = _get_user_disk_usage(uid)
             trash_bytes = _trash_size_used(uid)
@@ -3345,6 +3350,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 'quota_override': bool(qover), 'usage_bytes': usage,
                 'trash_bytes': trash_bytes,
                 'created_at': created,
+                'can_publish': bool(adm or can_pub),
             }))
         
         if parsed_url.path == '/api/v1/policy/status':
@@ -3392,6 +3398,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(400, json.dumps({'error': 'path required'}))
 
             # Resolve to an absolute filesystem path (mirrors the download handler)
+            if self._cdn_admin_denied(rel):
+                return
             if rel.startswith('/cdn'):
                 abs_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, rel[len('/cdn'):].lstrip('/')))
                 cs_key   = rel        # checksum key is the CDN-relative path
@@ -3463,11 +3471,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
             if not admin: return
             with _db_connect() as conn:
                 rows = conn.execute(
-                    'SELECT id, username, nickname, email, is_admin, quota_bytes, quota_override, created_at FROM users ORDER BY id'
+                    'SELECT id, username, nickname, email, is_admin, quota_bytes, quota_override, created_at, can_publish FROM users ORDER BY id'
                 ).fetchall()
             out = []
             for r in rows:
-                uid, uname, nick, email, adm, quota, qover, created = r
+                uid, uname, nick, email, adm, quota, qover, created, can_pub = r
                 eff_quota = quota if quota else _compute_dynamic_quota()
                 # Never walk the disk here: a cold cache used to mean one full
                 # tree walk per user inside this request, which ran past the
@@ -3475,7 +3483,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 # the panel re-polls while the background scan catches up.
                 out.append({'id': uid, 'username': uname, 'nickname': nick, 'email': email,
                             'is_admin': bool(adm), 'quota_bytes': eff_quota, 'quota_override': bool(qover),
-                            'usage_bytes': _get_user_disk_usage_nowait(uid), 'created_at': created})
+                            'usage_bytes': _get_user_disk_usage_nowait(uid), 'created_at': created,
+                            'can_publish': bool(can_pub)})
             return self._send_response(200, json.dumps({'users': out}))
 
         # Beacon IP lookup (JSON API)
@@ -3797,6 +3806,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(400, json.dumps({'error': 'path and algos are required'}))
 
             # Resolve path (mirrors the fileinfo GET handler)
+            if self._cdn_admin_denied(file_path):
+                return
             if file_path.startswith('/cdn'):
                 abs_path = os.path.normpath(
                     os.path.join(CDN_UPLOAD_DIR, file_path[len('/cdn'):].lstrip('/')))
@@ -3921,7 +3932,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 data = json.loads(self.rfile.read(length))
             except Exception:
                 return self._send_response(400, json.dumps({'error': 'Invalid JSON'}))
-            allowed = {'username', 'nickname', 'email', 'is_admin', 'quota_bytes', 'quota_override'}
+            allowed = {'username', 'nickname', 'email', 'is_admin', 'quota_bytes', 'quota_override', 'can_publish'}
             updates = {k: v for k, v in data.items() if k in allowed}
             if not updates:
                 return self._send_response(400, json.dumps({'error': 'Nothing to update'}))
@@ -4422,6 +4433,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         path = data.get("path")
         if not path:
             return self._send_response(400, json.dumps({"error": "Missing 'path' field."}))
+        if self._publish_denied(user_id, data):
+            return
 
         # Normalise and resolve path to ensure it belongs to this user
         if not path.startswith("/"):
@@ -4430,6 +4443,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # Verify the file/folder actually exists under the user's area
         user_root = os.path.realpath(os.path.join(SERVE_ROOT, "FluxDrop", str(user_id)))
+        if self._cdn_admin_denied(path):
+            return
         if path.startswith("/cdn"):
             fs_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, path[len("/cdn"):].lstrip("/")))
             if not _is_within(CDN_UPLOAD_DIR, fs_path):
@@ -4469,6 +4484,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             data = json.loads(body)
         except Exception:
             return self._send_response(400, json.dumps({"error": "Invalid JSON body."}))
+        if self._publish_denied(user_id, data):
+            return
         if not _update_share(token, user_id, data):
             return self._send_response(404, json.dumps({"error": "Share not found or not owned by you."}))
         return self._send_response(200, json.dumps({"ok": True}))
@@ -4661,6 +4678,54 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         return self._send_response(404, "<h1>404 — Not Found</h1>", "text/html")
         # This message by no means should came up with the FluxDrop interaction as-is, so if it will - that's the sign of an error
+
+    def _owner_quota_error(self, owner_id, extra_bytes: int):
+        """Error text when adding extra_bytes to owner_id's storage would
+        exceed their quota, else None."""
+        try:
+            with _db_connect() as conn:
+                row = conn.execute('SELECT quota_bytes FROM users WHERE id = ?',
+                                   (int(owner_id),)).fetchone()
+            quota = (row[0] if row and row[0] else _compute_dynamic_quota())
+            usage = _get_user_disk_usage(int(owner_id))
+        except Exception:
+            logging.exception('_owner_quota_error: check failed, allowing upload')
+            return None
+        if usage + max(int(extra_bytes or 0), 0) > quota:
+            return "The owner of this share has no storage space left for this upload."
+        return None
+
+    def _publish_denied(self, user_id, data: dict) -> bool:
+        """Opening a share to anonymous uploads or CDN embedding needs the
+        admin-granted can_publish flag (or admin). Switching them off is
+        always allowed. Sends 403 and returns True when refused."""
+        if not any(bool(data.get(k)) for k in ('allow_anon_upload', 'allow_cdn_embed')):
+            return False
+        with _db_connect() as conn:
+            row = conn.execute('SELECT is_admin, can_publish FROM users WHERE id = ?',
+                               (user_id,)).fetchone()
+        if row and (row[0] or row[1]):
+            return False
+        self._send_response(403, json.dumps({
+            'error': 'Anonymous uploads and CDN embedding need permission from the administrator.',
+            'code': 'publish_not_allowed'}))
+        return True
+
+    def _cdn_admin_denied(self, path) -> bool:
+        """The legacy global CDN folder (CDN_UPLOAD_DIR, "/cdn…" paths) is one
+        folder shared by every account, and half-broken: admins only until
+        the per-user public space replaces it. Matches the handlers' own
+        test (startswith('/cdn')). Sends 403 and returns True when refused."""
+        if not (isinstance(path, str) and path.startswith('/cdn')):
+            return False
+        uid = self._check_token_auth()
+        if uid:
+            with _db_connect() as conn:
+                row = conn.execute('SELECT is_admin FROM users WHERE id = ?', (uid,)).fetchone()
+            if row and row[0]:
+                return False
+        self._send_response(403, json.dumps({'error': 'The CDN folder is available to admins only.'}))
+        return True
 
     def _send_inline_isolation_headers(self):
         """For a user's file shown inline on this origin: an .html/.svg
@@ -5526,6 +5591,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             relative_path = unquote(path_segment)
             user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
 
+            if self._cdn_admin_denied(relative_path):
+                return
             if relative_path.startswith('/cdn'):
                 cdn_rel = relative_path[len('/cdn'):]
                 base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
@@ -5798,6 +5865,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 return self._send_response(401, json.dumps({'error': 'Unauthorized'}))
             relative_path = unquote(path_segment)
             user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
+            if self._cdn_admin_denied(relative_path):
+                return
             if relative_path.startswith('/cdn'):
                 cdn_rel = relative_path[len('/cdn'):]
                 base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
@@ -6173,6 +6242,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         relative_path = unquote(path_segment)
         user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
 
+        if self._cdn_admin_denied(relative_path):
+            return
         if relative_path.startswith('/cdn'):
             cdn_rel = relative_path[len('/cdn'):]
             base_fs = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
@@ -6225,6 +6296,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         relative_path = unquote(path_segment)
         user_root = os.path.normpath(os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id)))
 
+        if self._cdn_admin_denied(relative_path):
+            return
         if relative_path.startswith('/cdn'):
             cdn_rel  = relative_path[len('/cdn'):]
             base_fs  = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
@@ -6293,6 +6366,15 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(403, json.dumps({"error": "Forbidden: path outside shared area."}))
         if not os.path.isdir(dest_dir):
             return self._send_response(404, json.dumps({"error": "Target subfolder not found on disk."}))
+        # Lands in the owner's storage: count it against the owner's quota.
+        try:
+            _declared = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            _declared = 0
+        _q_err = self._owner_quota_error(owner_id, _declared)
+        if _q_err:
+            self.close_connection = True   # body left unread
+            return self._send_response(507, json.dumps({"error": _q_err}))
 
         try:
             content_type = self.headers.get("Content-Type", "")
@@ -6432,6 +6514,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             os.path.join(SERVE_ROOT, "FluxDrop", str(user_id))
         )
 
+        if self._cdn_admin_denied(relative_path):
+            return
         if relative_path.startswith("/cdn"):
             cdn_rel = relative_path[len("/cdn"):].lstrip("/")
             fs_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel))
@@ -6533,6 +6617,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # volume.  Returned paths keep the "/cdn" prefix so the client can
         # distinguish them from per-user entries.
         # Right now, it's not working, and... The purpose is unknown to be fair. Will be marked for removal
+        if self._cdn_admin_denied(relative_path):
+            return
         if relative_path.startswith('/cdn'):
             cdn_rel = relative_path[len('/cdn'):]
             base_path = os.path.normpath(os.path.join(CDN_UPLOAD_DIR, cdn_rel.lstrip('/')))
@@ -6824,6 +6910,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # Target base for operations; allow a special "/cdn" prefix that operates
         # on CDN_UPLOAD_DIR instead of the per-user directory.  The prefix is kept
         # in the API path so clients can tell where the file lives.
+        if self._cdn_admin_denied(relative_path):
+            return
         if relative_path.startswith('/cdn'):
             cdn_rel = relative_path[len('/cdn'):]
             base_fs = os.path.normpath(CDN_UPLOAD_DIR)

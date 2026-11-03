@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.18`
+# FluxDrop & server `v0.22.0.19`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -71,6 +71,9 @@ repo. Anyone can use it.
   also right after it's uploaded. Zip-bomb limits: max entries, time and
   compression ratio (`ARCHIVE_TREE_*` settings)
 - `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` for the front servers
+- `users.can_publish` (admin panel → user → "Can publish"): needed to open a
+  share to uploads without an account or to CDN embedding; off by default,
+  admins always can. Existing shares keep their settings
 - `on_conflict` for `upload_session/init`: `rename` (default), `ask` (200
   with `conflict: true` and the existing file's size and mtime; no
   session is created) or `replace` (uploads under a
@@ -94,6 +97,11 @@ repo. Anyone can use it.
 - HTTP→HTTPS redirects go to the host and port of `PUBLIC_BASE_URL`; they
   used the CDN's port (64800) and sent `/api/` to the main domain
 - `wand` and `requests` removed from `requirements.txt` (nothing uses them)
+- The legacy global CDN folder (`/cdn`, `CDN_UPLOAD_DIR`) is admins only and
+  its button is hidden for others: it was one folder shared by every account.
+  Uploading from it went to CatBox (another folder) and never showed up, so
+  it's off until the per-user public space (V2)
+- Uploads into a share count against the share owner's quota (507 when full)
 - The archive listing cache is keyed by the file's content (size, mtime,
   first/last 64 KB) instead of its path, so copies, moves and renames reuse
   it. Existing cache entries no longer match and are read again once

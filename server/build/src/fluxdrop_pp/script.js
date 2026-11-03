@@ -154,6 +154,7 @@ const authControls = document.getElementById('auth-controls');
 let authToken = localStorage.getItem('fluxdrop_token');
 let currentUsername = localStorage.getItem('fluxdrop_username');
 let isAdmin = localStorage.getItem('fluxdrop_is_admin') === '1';
+let _canPublish = null;   // from /api/v1/me — see _fetchCanPublish
 // Track the currently viewed path in the file browser (always starts at root)
 let currentPath = '/';
 // Best-effort cache of the current Trash retention period, kept up to date
@@ -1488,7 +1489,7 @@ function renderFileBrowserView() {
                         <button id="btn-up" class="btn bg-gray-300 text-black text-sm" style="padding:.45rem .9rem">${t('up')}</button>
                         <button id="btn-refresh" class="btn text-sm" style="padding:.45rem .9rem">${t('refresh')}</button>
                         <button id="btn-create-folder" class="btn bg-gray-200 text-black text-sm" style="padding:.45rem .9rem">${t('create_a_folder')}</button>
-                        <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm" style="padding:.45rem .9rem">${t('browse_cdn')}</button>
+                        <button id="btn-browse-cdn" class="btn bg-yellow-300 text-black text-sm" style="padding:.45rem .9rem;${isAdmin ? '' : 'display:none'}">${t('browse_cdn')}</button>
                         <button id="btn-trash" class="btn text-sm" style="background:#dc2626;color:#fff;padding:.45rem .9rem" title="${t('trash_title')}">${t('trash_bin_button')}</button>
                         <button id="btn-folders-mixed" class="btn text-sm" style="padding:.45rem .9rem" title="${t('folder_sort_first')}"></button>
                     </div>
@@ -1818,7 +1819,8 @@ function renderFileBrowserView() {
 
             // Feed directly into the upload pipeline (same path as the form submit)
             const isProtected = document.getElementById('upload-protected')?.checked || false;
-            const ownerType   = currentPath.startsWith('/cdn') ? 'catbox' : 'user';
+            if (currentPath.startsWith('/cdn')) { showMessage(t('upload_title'), t('cdn_upload_unavailable')); return; }
+            const ownerType   = 'user';
             const basePath    = currentPath.endsWith('/') ? currentPath : currentPath + '/';
 
             window.addEventListener('beforeunload', windowLock);
@@ -6441,7 +6443,14 @@ async function handleUploadForm(e) {
     if (!fileInput.files.length) { showMessage(t('upload_title'), t('upload_no_file')); return; }
     const files = Array.from(fileInput.files);
     const isProtected = document.getElementById('upload-protected').checked;
-    const ownerType = currentPath.startsWith('/cdn') ? 'catbox' : 'user';
+    // Uploading in the legacy CDN view went to CatBox (another folder), so
+    // the file never appeared there. Off until the per-user public space.
+    if (currentPath.startsWith('/cdn')) {
+        window.removeEventListener('beforeunload', windowLock);
+        showMessage(t('upload_title'), t('cdn_upload_unavailable'));
+        return;
+    }
+    const ownerType = 'user';
 
     // Show spinner between button press and first tray update
     const _ubtn = document.getElementById('btn-upload-submit');
@@ -6961,6 +6970,8 @@ async function handleLogin(e) {
         authToken = data.token;
         currentUsername = data.username;
         isAdmin = !!data.is_admin;
+        _canPublish = null;
+        { const cb = document.getElementById('btn-browse-cdn'); if (cb) cb.style.display = isAdmin ? '' : 'none'; }
         localStorage.setItem('fluxdrop_token', authToken);
         localStorage.setItem('fluxdrop_is_admin', data.is_admin ? '1' : '0');
         localStorage.setItem('fluxdrop_username', currentUsername);
@@ -8146,6 +8157,10 @@ function _apOpenEditModal(userId, users) {
                             <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
                                 <input type="checkbox" id="ape-quota-override" ${u.quota_override?'checked':''}> ${t('admin_edit_flag_pin_quota')}
                             </label>
+                            <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer"
+                                   title="${escapeHtmlAttr(t('admin_edit_flag_publish_hint'))}">
+                                <input type="checkbox" id="ape-can-publish" ${u.can_publish?'checked':''}> ${t('admin_edit_flag_publish')}
+                            </label>
                         </span>
                     </label>
                 </div>
@@ -8183,6 +8198,7 @@ function _apOpenEditModal(userId, users) {
                 quota_bytes:    Math.round(quotaGb * 1024 ** 3),
                 is_admin:       modal.querySelector('#ape-is-admin').checked ? 1 : 0,
                 quota_override: modal.querySelector('#ape-quota-override').checked ? 1 : 0,
+                can_publish:    modal.querySelector('#ape-can-publish').checked ? 1 : 0,
             });
             window.fdCloseOverlay(modal);
             await _apLoadUsers();
@@ -8216,7 +8232,18 @@ async function _apDeleteUser(userId, username) {
         // ======================================================================
         // --- SHARE DIALOG (create a new share for a file/folder) ---
         // ======================================================================
+// Anonymous uploads and CDN embedding on shares need the admin-granted
+// can_publish flag (the server enforces it; this only greys the options out).
+// _canPublish is declared next to isAdmin (top of file).
+async function _fetchCanPublish() {
+    if (_canPublish !== null) return _canPublish;
+    try { _canPublish = !!(await apiCall('/api/v1/me', 'GET', null, true)).can_publish; }
+    catch (_) { return isAdmin; }
+    return _canPublish;
+}
+
 async function openShareDialog(path, isDir) {
+    const canPub = await _fetchCanPublish();
     const name = path.split('/').pop() || path;
     // Default expiry options: none, 1 day, 7 days, 30 days, custom
     const overlay = document.createElement('div');
@@ -8258,7 +8285,7 @@ async function openShareDialog(path, isDir) {
                     <span style="font-size:14px">${t('share_dlg_allow_preview')}</span>
                 </label>
                 ${!isDir ? `<label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-                    <input type="checkbox" id="sh-cdn-embed" style="width:16px;height:16px">
+                    <input type="checkbox" id="sh-cdn-embed" style="width:16px;height:16px" ${canPub ? '' : 'disabled'}>
                     <span style="font-size:14px">${t('share_dlg_allow_cdn')}</span>
                 </label>` : ''}
 
@@ -8268,10 +8295,11 @@ async function openShareDialog(path, isDir) {
                     <span style="font-size:14px;font-weight:600;white-space:nowrap">${t('share_dlg_upload_who')}</span>
                     <select id="sh-upload-policy" style="flex:1;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:white">
                         <option value="none">${t('share_dlg_upload_none')}</option>
-                        <option value="anon">${t('share_dlg_upload_anon')}</option>
+                        <option value="anon" ${canPub ? '' : 'disabled'}>${t('share_dlg_upload_anon')}</option>
                         <option value="auth">${t('share_dlg_upload_auth')}</option>
                     </select>
                 </label>` : ''}
+                ${canPub ? '' : `<div style="font-size:12px;color:#94a3b8">${escapeHtml(t('share_publish_locked'))}</div>`}
             </div>
 
             <div id="sh-result" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-bottom:14px">
@@ -8390,6 +8418,7 @@ async function openShareDialog(path, isDir) {
         // --- SHARE MANAGER (list + manage existing shares) ---
         // ======================================================================
 async function openShareManager() {
+    await _fetchCanPublish();
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'share-manager-overlay';
@@ -8572,12 +8601,12 @@ function renderShareRow(s) {
                 ${t('shares_info_preview')}
             </label>
             ${!s.is_dir ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_cdn_embed" ${s.allow_cdn_embed ? 'checked' : ''}>
+                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_cdn_embed" ${s.allow_cdn_embed ? 'checked' : (_canPublish ? '' : 'disabled')}>
                 ${t('shares_info_cdn_embed')}
             </label>` : ''}
             ${s.is_dir ? `
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_anon_upload" ${s.allow_anon_upload ? 'checked' : ''}>
+                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_anon_upload" ${s.allow_anon_upload ? 'checked' : (_canPublish ? '' : 'disabled')}>
                 ${t('shares_info_uploads_anyone')}
             </label>
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">

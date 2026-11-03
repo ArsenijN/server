@@ -593,5 +593,9 @@
   "copy_done": "Copied \"{name}\"",
   "unit_s": "s",
   "unit_m": "m",
-  "unit_h": "h"
+  "unit_h": "h",
+  "cdn_upload_unavailable": "Uploading to the CDN folder isn't available right now. It will come back as your own public space.",
+  "admin_edit_flag_publish": "Can publish (anonymous uploads, CDN embed)",
+  "admin_edit_flag_publish_hint": "Lets this user open shares to uploads without an account and embed shared files on other sites",
+  "share_publish_locked": "Uploads without an account and CDN embedding need permission from the administrator."
 }

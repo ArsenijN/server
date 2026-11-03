@@ -436,6 +436,9 @@ def init_db():
         # Per-language overrides for the notice modal: {"uk": {"title","body"}}
         _add_column_if_missing('message_board', 'i18n', 'TEXT DEFAULT NULL')
         _add_column_if_missing('users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0')
+        # Admin-granted: may open a share to anonymous uploads or CDN embedding
+        # (later also the public space). Admins always may.
+        _add_column_if_missing('users', 'can_publish', 'INTEGER NOT NULL DEFAULT 0')
         _add_column_if_missing('beacon_read_tokens', 'last_used', 'REAL DEFAULT NULL')
         _add_column_if_missing('upload_sessions', 'strategy',
                                "TEXT NOT NULL DEFAULT 'buffer'")

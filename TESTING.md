@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.18)
+# To test (V0.22.0.1 – V0.22.0.19)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -179,3 +179,17 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] An admin can delete an old CatBox file (uploaded before this version)
 - [ ] After a CatBox upload (API or the app's "CDN" button) the server DB has
   a `catbox_uploads` row with your user id
+
+## Added in V0.22.0.19
+- [ ] As a non-admin: no CDN button; `/api/v1/list/cdn` (or any `/cdn` path)
+  → 403. As admin: the CDN view still opens
+- [ ] Uploading in the CDN view (admin) says it's unavailable instead of
+  sending the file to CatBox
+- [ ] Without "Can publish": share dialog greys out "Allow CDN" and
+  "anyone can upload" (with a note); the API refuses them (403
+  `publish_not_allowed`); turning them *off* on an old share still works
+- [ ] Admin panel → edit user → "Can publish": tick it, the user can now use
+  both options (they may need to reopen the share dialog)
+- [ ] Upload into a share whose owner is over quota → refused with
+  "The owner of this share has no storage space left" (both the app's
+  upload and the share page's form)

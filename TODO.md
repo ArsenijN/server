@@ -181,6 +181,23 @@ background copy jobs already exist)
 - [ ] Reimplement the CDN path purpose, fix its errors: per-user CDN hosting
 (upload files into a folder and link them from your own page; hosting a whole
 page is possible, but should be a separate service using FluxDrop as API)
+  - Model: personal space (private) / **public space** (per user, separate
+  from personal files, everything public at stable links like
+  `/p/<user>/...`, more management options) / CatBox (anonymous API
+  uploads, no main button — a "My CatBox uploads" list in the profile once
+  the API is back on)
+  - Public space only for users with `can_publish` (admin-granted; later a
+  subscription tier). The share "Allow CDN" option stays and uses the same flag
+  - Serve user content (public space, CDN embeds, CatBox, inline previews)
+  from a separate domain (e.g. `usercontent.fluxdrop.me`) so it can never
+  reach the app's login; `CSP: sandbox` covers it until then
+  - Remove the legacy global `CDN_UPLOAD_DIR` (admin-only since V0.22.0.19)
+  - Abuse safeguards: admin "disable share" / "suspend user" from a report,
+  a cap on shares per user, rate limits on share traffic
+- [ ] "Shared with me" and "Recent" (Links / Files and folders) in the app:
+a private per-user list of opened shares (not the owner's access log), shown
+in the normal file table via an additive JSON share listing API; old
+`/share/...` pages stay as the no-JS version
 - [ ] Dynamic page building support (shared header/footer, changing body)
 - [ ] Add proper account disable and deletion, GDPR compliance -- admin-side
 deletion with a 30-day file purge is done; still missing:
@@ -234,6 +251,8 @@ API usage" page
 
 ## Phase 4 -- Long-term
 
+- [ ] Photo contest (annual) with subscription tiers as prizes — after
+subscriptions exist; better as a separate service on the FluxDrop API
 - [ ] cRes ("Access cached resources for fast!") as a separate service on top
 of the FluxDrop API: download an external URL into the user's storage, so it
 uses the server's bandwidth. Replaces the disabled CatBox `urlupload`. Must

@@ -93,8 +93,8 @@ effective date, then bump `policies/versions.json`
 - [ ] File preview modal may blink with light when it doesn't keep up when file
 loads/decodes
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
-- [ ] `ap-body`'s spinning wheel is still spinning in background (not visible
-but Animations debugger sees it)
+- [x] `ap-body`'s spinning wheel is still spinning in background (not visible
+but Animations debugger sees it) -- confirmed fixed on the live server
   - It's the boot loader (`fd-boot-spin`) left in `#app-root`. Safety net
   added (removed once anything else appears in `#app-root`); the render path
   that skipped it is still unknown -- needs testing
@@ -102,9 +102,10 @@ but Animations debugger sees it)
 is present
 - [ ] Add animation for file copy when task is executed (button pressed)
 - [ ] Add loading wheels/bars to:
-  - [ ] Stats button for shared links manager
-  - [ ] Profile infos
-- [ ] Fix i18n in error-related pages -- untested
+  - [ ] Stats button for shared links manager -- Done, needs testing
+  - [ ] Profile infos -- Done, needs testing (quota card and account line)
+- [ ] Fix i18n in error-related pages -- share expired / not found / login
+pages are translated on the server since V0.22.0.20; needs testing
 
 ---
 

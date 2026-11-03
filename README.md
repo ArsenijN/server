@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.20`
+# FluxDrop & server `v0.22.0.21`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -23,6 +23,7 @@ repo. Anyone can use it.
 - Cancelling a ZIP download that is still being prepared tells the server to
   stop
 - The trash "Browse" list shows files under their folders
+- Loading spinners on the share "Stats" button and in the profile panel
 - More of the UI is translated: the Uploads/Downloads trays, the Info
   panel, the Move/Rename/Copy dialog, the copy toast and archive preview
 - A ZIP that the server is still preparing shows "Building archive…"
@@ -58,7 +59,7 @@ repo. Anyone can use it.
 - Esc didn't close the Trash
 - The archive preview spinner restarted on every progress update
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
-  the audio preview weren't escaped
+  the audio preview weren't escaped; neither were usernames in share stats
 
 ### Server (backend)
 **Added**

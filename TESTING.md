@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.20)
+# To test (V0.22.0.1 – V0.22.0.21)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -210,3 +210,9 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Signed in on this browser: "You're signed in to FluxDrop — open your
   files" shows at the top; signed out: only the footer link "For more
   features, open the FluxDrop app"
+
+## Added in V0.22.0.21
+- [ ] Share manager → "Stats": the button shows a small spinner until the
+  log opens, then its label comes back
+- [ ] Profile panel: spinners in the quota card and the account line until
+  the data arrives (throttle the network to see them)

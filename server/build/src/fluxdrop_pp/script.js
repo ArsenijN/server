@@ -7445,7 +7445,7 @@ async function openProfilePanel() {
             <div style="overflow-y:auto;flex:1;padding:20px 24px;display:grid;gap:20px">
                 <!-- Quota card -->
                 <div id="pp-quota-card" data-fd-dark="surface2" style="background:#f8fafc;border-radius:10px;padding:14px 16px">
-                    <div style="font-size:13px;color:#64748b;margin-bottom:8px">${t('loading')}</div>
+                    ${_loadingHtml('4px 0')}
                 </div>
 
                 <!-- Edit profile section -->
@@ -7560,7 +7560,7 @@ async function openProfilePanel() {
                 </div>
 
                 <!-- Account info footer -->
-                <div id="pp-account-info" style="font-size:12px;color:#94a3b8;padding-bottom:4px"></div>
+                <div id="pp-account-info" style="font-size:12px;color:#94a3b8;padding-bottom:4px">${_loadingHtml('0')}</div>
             </div>
         </div>`;
     document.body.appendChild(overlay);
@@ -7629,6 +7629,7 @@ async function openProfilePanel() {
         if (!overlay.isConnected) return;
         overlay.querySelector('#pp-quota-card').innerHTML =
             `<div style="color:#ef4444;font-size:13px">${t('pp_load_failed')}: ${escapeHtml(err.message)}</div>`;
+        overlay.querySelector('#pp-account-info').innerHTML = '';
     }
 
     // Save profile info
@@ -8506,7 +8507,19 @@ async function loadShareManager() {
             });
         });
         body.querySelectorAll('.sm-stats-btn').forEach(btn => {
-            btn.addEventListener('click', () => openShareStats(btn.dataset.token, btn.dataset.name));
+            btn.addEventListener('click', async () => {
+                if (btn.disabled) return;
+                // Small spinner in the button while the access log loads
+                // (same width, so the row doesn't jump).
+                const label = btn.innerHTML;
+                btn.style.minWidth = btn.offsetWidth + 'px';
+                btn.disabled = true;
+                _loadingHtml();   // makes sure the fd-spin keyframes exist
+                btn.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border:2px solid rgba(255,255,255,.5);' +
+                    'border-top-color:#fff;border-radius:50%;animation:fd-spin .7s linear infinite;vertical-align:-1px"></span>';
+                try { await openShareStats(btn.dataset.token, btn.dataset.name); }
+                finally { btn.disabled = false; btn.innerHTML = label; btn.style.minWidth = ''; }
+            });
         });
 
         // Expiry date input — save on change (blur or Enter)
@@ -8659,7 +8672,7 @@ async function openShareStats(token, name) {
             ? `<tr><td colspan="3" style="padding:12px;color:#94a3b8;text-align:center">${t('shares_stats_no_accesses')}</td></tr>`
             : logs.map(l => `<tr style="border-top:1px solid #f1f5f9">
                 <td style="padding:8px 12px;font-size:13px">${l.accessed_at ? new Date(l.accessed_at).toLocaleString() : '?'}</td>
-                <td style="padding:8px 12px;font-size:13px">${l.username || _anonSpan}</td>
+                <td style="padding:8px 12px;font-size:13px">${l.username ? escapeHtml(l.username) : _anonSpan}</td>
                 <td style="padding:8px 12px;font-size:13px">${escapeHtmlAttr(_shareActionLabel(l.action))}</td>
             </tr>`).join('');
         showMessage(t('shares_stats_title', {name}),

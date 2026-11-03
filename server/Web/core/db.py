@@ -402,6 +402,18 @@ def init_db():
                 closed_at        TIMESTAMP DEFAULT NULL
             )
         ''')
+        # Who uploaded each CatBox file (stored name in CATBOX_UPLOAD_DIR).
+        # user_id NULL = anonymous upload or uploaded before this table
+        # existed — only an admin can delete those.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS catbox_uploads (
+                name          TEXT PRIMARY KEY,
+                user_id       INTEGER,
+                original_name TEXT,
+                size_bytes    INTEGER,
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         conn.commit()
 
     # ── Schema migrations (safe to run on every startup) ──────────────────
@@ -880,3 +892,26 @@ def _assembly_progress_get(token: str) -> dict | None:
 def _assembly_progress_clear(token: str) -> None:
     with _assembly_progress_lock:
         _assembly_progress.pop(token, None)
+
+
+def catbox_record_upload(name: str, user_id, original_name: str, size_bytes: int) -> None:
+    """Remember who uploaded a CatBox file (see catbox_uploads)."""
+    with _db_connect() as conn:
+        conn.execute(
+            'INSERT OR REPLACE INTO catbox_uploads (name, user_id, original_name, size_bytes)'
+            ' VALUES (?,?,?,?)',
+            (name, int(user_id) if user_id else None, original_name, size_bytes))
+        conn.commit()
+
+
+def catbox_owner(name: str):
+    """(found, user_id) for a stored CatBox file name."""
+    with _db_connect() as conn:
+        row = conn.execute('SELECT user_id FROM catbox_uploads WHERE name = ?', (name,)).fetchone()
+    return (row is not None, row[0] if row else None)
+
+
+def catbox_forget(name: str) -> None:
+    with _db_connect() as conn:
+        conn.execute('DELETE FROM catbox_uploads WHERE name = ?', (name,))
+        conn.commit()

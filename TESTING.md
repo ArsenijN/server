@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.17)
+# To test (V0.22.0.1 – V0.22.0.18)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -170,3 +170,12 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Upload into the "CDN" view while `CB_uploads` isn't writable: an error
   right away ("The server can't write to this folder"), not after the
   whole file was sent
+
+## Added in V0.22.0.18 (CatBox, needs `CATBOX_API_ENABLED=1` to test)
+- [ ] Upload via the CatBox API with your token, then delete it with
+  `reqtype=deletefiles`: works. With another user's token: refused
+- [ ] `deletefiles` with `files=../FluxDrop/<id>/<some file>`: refused, file
+  untouched
+- [ ] An admin can delete an old CatBox file (uploaded before this version)
+- [ ] After a CatBox upload (API or the app's "CDN" button) the server DB has
+  a `catbox_uploads` row with your user id

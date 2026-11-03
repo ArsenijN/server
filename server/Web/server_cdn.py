@@ -126,6 +126,7 @@ import socket as _socket
 import mimetypes
 
 # Importing core modules
+from core.db import catbox_record_upload, catbox_owner, catbox_forget
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear, \
                     checksum_get, checksum_put, checksum_is_fresh, checksum_rename, checksum_copy, \
@@ -2726,6 +2727,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
         size = os.path.getsize(dest_path)
         # Re-use the SHA-256 already computed during assembly — no second file read.
         sha256 = assembly_sha256
+        if owner_type == 'catbox':
+            try:
+                catbox_record_upload(os.path.basename(dest_path), session['owner_ref'],
+                                     session['filename'], size)
+            except Exception:
+                logging.exception('catbox_record_upload failed')
 
         logging.info(f'Upload complete: {dest_path} ({size} bytes) sha256={sha256[:12]}… token={upload_token[:12]}…')
         _fire_upload_notification(
@@ -7302,7 +7309,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         elif reqtype == 'deletefiles':
             if not user_id: # Must be authenticated to delete
                 return self._send_response(401, "Unauthorized: A valid token is required to delete files.", "text/plain")
-            return self.handle_catbox_deletefiles(files, form, auth_user_display)
+            return self.handle_catbox_deletefiles(files, form, auth_user_display, user_id)
         else:
             return self._send_response(501, "Album functionality is not implemented.", "text/plain")
 
@@ -7371,6 +7378,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         logging.info(f"CatBox upload progress: {bytes_written // (1024*1024)} MB")
 
             file_url = f"{PUBLIC_BASE_URL}/{CATBOX_UPLOAD_DIR}/{new_filename}"
+            try:
+                catbox_record_upload(new_filename, user_id, file_item.filename, bytes_written)
+            except Exception:
+                logging.exception('catbox_record_upload failed')
             logging.info(
                 f"CatBox user '{auth_user_display}' uploaded '{file_item.filename}' "
                 f"({bytes_written} bytes) to '{save_path}'"
@@ -7409,24 +7420,44 @@ class AuthHandler(SimpleHTTPRequestHandler):
         logging.warning(f"CatBox urlupload refused (disabled) for '{auth_user_display}'")
         return self._send_response(403, "Forbidden: urlupload is disabled on this server.", "text/plain")
 
-    def handle_catbox_deletefiles(self, files, form, auth_user_display):
-        """Handles CatBox deletefiles."""
+    def handle_catbox_deletefiles(self, files, form, auth_user_display, user_id):
+        """Handles CatBox deletefiles: only the uploader (or an admin) can
+        delete a file, and only plain names inside CATBOX_UPLOAD_DIR.
+
+        It used to accept any path under SERVE_ROOT ("../FluxDrop/<id>/x"
+        passed) from any logged-in user, with no ownership check.
+        """
         files_to_delete_str = form.get('files')
         if not files_to_delete_str:
             return self._send_response(400, "Bad Request: Missing 'files' parameter.", "text/plain")
+
+        with _db_connect() as conn:
+            _adm = conn.execute('SELECT is_admin FROM users WHERE id = ?', (user_id,)).fetchone()
+        is_admin = bool(_adm and _adm[0])
+        catbox_root = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR))
 
         files = files_to_delete_str.split()
         error_list = []
 
         for filename in files:
-            file_path = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR, filename))
-            if not _is_within(SERVE_ROOT, file_path) or not os.path.isfile(file_path):
+            # Accept a full URL too (catbox.moe clients send the bare name).
+            filename = filename.rstrip('/').rsplit('/', 1)[-1]
+            file_path = os.path.normpath(os.path.join(catbox_root, filename))
+            if (not filename or filename in ('.', '..')
+                    or os.path.dirname(file_path) != catbox_root
+                    or not os.path.isfile(file_path)):
                 logging.warning(f"CatBox delete failed: File '{filename}' not found.")
+                error_list.append(filename)
+                continue
+            found, owner = catbox_owner(filename)
+            if not is_admin and (not found or owner is None or str(owner) != str(user_id)):
+                logging.warning(f"CatBox delete refused: '{filename}' isn't owned by {auth_user_display}")
                 error_list.append(filename)
                 continue
 
             try:
                 os.remove(file_path)
+                catbox_forget(filename)
                 logging.info(f"CatBox user '{auth_user_display}' deleted file '{file_path}'")
             except Exception as e:
                 logging.exception(f"CatBox delete failed for file '{file_path}'.")

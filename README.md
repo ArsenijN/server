@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.17`
+# FluxDrop & server `v0.22.0.18`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -112,6 +112,12 @@ repo. Anyone can use it.
   can't run script on fluxdrop.me
 - An upload into a folder the server can't write to was received in full
   and failed only at the end; it's refused at the start now
+- **Security:** CatBox `deletefiles` let any logged-in user delete any
+  CatBox file, and accepted paths like `../FluxDrop/<id>/<file>` (anything
+  under SERVE_ROOT). Now only plain names inside the CatBox folder, and only
+  the uploader or an admin. Uploads record their owner in the new
+  `catbox_uploads` table; older files have no owner, so only an admin can
+  delete them
 - Uploading on a share page wrote over the owner's file with the same name;
   it's saved as `name (1).ext` now
 - Uploading a file with the same name as an existing one wrote over it

@@ -259,6 +259,10 @@ usages, for example the abuse
 ### Shell
 - [ ] Proper header and footer
 - [ ] Redesign the login page and the "session expired" state
+- [ ] Language switch UK → EN doesn't update dialogs that are already open
+(the page auto-translates English text one way only; open dialogs would
+have to be rebuilt). FE V2: render every text through t() and re-render on
+language change
 - [ ] Login with Google (OAuth; link to an existing account by verified
 email)
 - [ ] Dynamic page building (footer and header are shared, the body is

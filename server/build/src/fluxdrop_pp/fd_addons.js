@@ -234,7 +234,7 @@
     { re: /(?<![-\w])color\s*:\s*(#3b82f6\b|#2563eb\b)/gi,                rep: 'color:#60a5fa' },
     // red / indigo text: ~4.1:1 and ~3.5:1 on the dark surface
     { re: /(?<![-\w])color\s*:\s*(#ef4444\b|#dc2626\b)/gi,                rep: 'color:#f87171' },
-    { re: /(?<![-\w])color\s*:\s*(#6366f1\b|#4f46e5\b)/gi,                rep: 'color:#a5b4fc' },
+    { re: /(?<![-\w])color\s*:\s*(#6366f1\b|#4f46e5\b|#4338ca\b|#3730a3\b)/gi, rep: 'color:#a5b4fc' },
   ];
 
   function _isDark(mode) {
@@ -1105,7 +1105,8 @@ window.fdCloseFloatingPanel = function (panel, ms) {
  */
 (function () {
   'use strict';
-  const SEL = '.modal-overlay, .fd-profile-overlay, #fd-auth-modal, [id$="-overlay"]';
+  const SEL = '.modal-overlay, .fd-profile-overlay, #fd-auth-modal, [id$="-overlay"], ' +
+              '#upload-queue-panel, #interrupted-manager-panel';
   function mark(el) {
     if (el.getAttribute('role')) return;
     el.setAttribute('role', 'dialog');
@@ -1113,8 +1114,11 @@ window.fdCloseFloatingPanel = function (panel, ms) {
     // name: a title element (…-title) by reference, else the first heading
     const titled = el.querySelector('[id$="-title"]');
     if (titled) { el.setAttribute('aria-labelledby', titled.id); return; }
-    const h = el.querySelector('h1, h2, h3, h4');
-    const name = h && h.textContent.trim();
+    // else the first heading, else the first bold text (most panels title
+    // themselves with a styled div)
+    const h = el.querySelector('h1, h2, h3, h4') ||
+              el.querySelector('strong, b, [style*="font-weight:700"], [style*="font-weight:600"]');
+    const name = h && h.textContent.trim().slice(0, 80);
     if (name) el.setAttribute('aria-label', name);
   }
   function scan(node) {

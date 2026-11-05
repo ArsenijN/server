@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.36`
+# FluxDrop & server `v0.22.0.37`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -80,6 +80,18 @@ repo. Anyone can use it.
   shades now, so the text reaches the readable contrast minimum (WCAG AA) in
   both themes; red/indigo text is lighter in dark mode; dialogs are marked as
   dialogs for screen readers; share-manager date and link fields have labels
+- Footer: all its texts come from the translations now (the Terms link
+  stayed "TOS" in Ukrainian while Privacy Policy was translated)
+- Clearer sign-out message when updated policies are declined
+- Move dialog in dark mode: hovering a folder no longer turns the row white;
+  the active tab's text is white again
+- Share manager: loading placeholders follow the dark theme
+- Screen readers: names for the remaining panels (login, profile, admin,
+  upload queue, interrupted uploads, policies), the prompt's input, status
+  announcements for spinners / toasts / the update banner
+- Modal gallery: "Close all" closes everything; the policy agreement opens in
+  a preview mode (no saving, no sign-out); the trash notice opens every time;
+  switching language re-opens the current dialog
 - **Modal gallery** for testing: open the app with `?modals` (or run
   `fdModalGallery()` in the console) to get a panel that opens every dialog
   and panel with sample data, with EN/UK switches

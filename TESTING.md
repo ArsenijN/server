@@ -310,3 +310,14 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Open https://fluxdrop.me/files?modals → gallery bottom-left; every
   entry opens its dialog; EN/UK switches the language; "Close all" works.
   Entries with ⚠ act on the first row if you press their main button
+
+## Added in V0.22.0.37
+- [ ] Footer in Ukrainian: "Умови надання послуг | Політика конфіденційності";
+  switching language updates it
+- [ ] Gallery: "Agreement prompt (preview)" — Agree / Decline only close it
+  (Decline shows the new sign-out text, but you stay signed in)
+- [ ] Gallery: "Trash batch notice" opens every time; "Close all" closes every
+  dialog; switching EN/UK with a dialog open rebuilds it in that language
+- [ ] Move dialog (dark): hovering a folder row is dark grey, not white; the
+  active tab text is white
+- [ ] Share manager (dark): loading placeholders are dark

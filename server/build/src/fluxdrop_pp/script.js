@@ -85,6 +85,7 @@ function _showUpdateBanner() {
     if (document.getElementById('fd-update-banner')) return; // already shown
     const banner = document.createElement('div');
     banner.id = 'fd-update-banner';
+    banner.setAttribute('role', 'status');
     banner.style.cssText = [
         'position:fixed', 'bottom:1rem', 'left:50%', 'transform:translateX(-50%)',
         'background:#1e40af', 'color:#fff', 'padding:0.6rem 1.2rem',
@@ -294,6 +295,7 @@ function showSpinnerOverlay(message = 'Loading…', opts = {}) {
     const id    = opts.id || ('fd-spinner-' + Date.now());
     const overlay = document.createElement('div');
     overlay.id = id;
+    overlay.setAttribute('role', 'status');
     overlay.style.cssText = [
         'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10400',
         'background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center',
@@ -448,6 +450,7 @@ function _getToastStack() {
     if (!stack) {
         stack = document.createElement('div');
         stack.id = 'fd-toast-stack';
+        stack.setAttribute('role', 'status');
         stack.className = 'fd-toast-stack';
         document.body.appendChild(stack);
     }
@@ -538,6 +541,7 @@ function showPromptModal({ title, label = '', placeholder = '', defaultValue = '
         overlay.querySelector('h3').textContent = title || '';
         if (label) overlay.querySelector('label').textContent = label;
         const input = overlay.querySelector('#fd-prompt-input');
+        input.setAttribute('aria-label', label || title || '');
         input.value = defaultValue;
         input.placeholder = placeholder;
         overlay.querySelector('#fd-prompt-cancel').textContent = cancelLabel;
@@ -585,7 +589,7 @@ function showConfirmModal({ title, message = '', confirmLabel = t('yes'), cancel
         const yesBtn = overlay.querySelector('#fd-confirm-yes');
         noBtn.textContent  = cancelLabel;
         yesBtn.textContent = confirmLabel;
-        if (danger) yesBtn.style.background = '#ef4444';
+        if (danger) yesBtn.style.background = '#dc2626';
         document.body.appendChild(overlay);
 
         let settled = false;
@@ -976,6 +980,9 @@ async function showPolicyModal(type) {
     const url = _policyUrl(type, lang, version);
 
     const overlay = document.createElement('div');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', label);
     overlay.style.cssText = [
         'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10000',
         'background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:1rem',
@@ -1187,7 +1194,7 @@ async function checkAndShowPolicies(onAllAccepted) {
 
 // Like showPolicyModal but forces the user to scroll to the bottom and click "I agree".
 // version here is the server-required version string (from policy/status).
-async function _showPolicyAgreementModal(type, version, onAccepted) {
+async function _showPolicyAgreementModal(type, version, onAccepted, opts = {}) {
     const label    = POLICY_LABELS[type] || type.toUpperCase();
     const versions = await _fetchVersions();
     const languages = versions.languages || {};
@@ -1203,6 +1210,9 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
     }
 
     const overlay = document.createElement('div');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', label);
     overlay.style.cssText = [
         'position:fixed;top:0;left:0;width:100%;height:100%;z-index:10001',
         'background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:1rem',
@@ -1230,7 +1240,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
                 <div id="pam-skeleton" style="padding:.5rem 0">
                     ${Array.from({length: 18}, (_, i) => {
                         const w = [92,78,85,65,88,70,95,60,82,74,90,55,87,72,80,68,93,63][i] + '%';
-                        return `<div style="height:13px;border-radius:4px;margin-bottom:10px;width:${w};background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></div>`;
+                        return `<div style="height:13px;border-radius:4px;margin-bottom:10px;width:${w};background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></div>`;
                     }).join('')}
                 </div>
             </div>
@@ -1266,6 +1276,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
     });
 
     agreeBtn.addEventListener('click', async () => {
+        if (opts.preview) { window.fdCloseOverlay(overlay); showToast('Preview: nothing saved'); return; }
         agreeBtn.disabled = true;
         agreeBtn.textContent = t('policy_saving');
         const _paDismiss = showSpinnerOverlay('Saving your agreement…', { minMs: 1000 });
@@ -1289,6 +1300,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
     const declineBtn = overlay.querySelector('#pam-decline-btn');
     declineBtn.addEventListener('click', () => {
         window.fdCloseOverlay(overlay);
+        if (opts.preview) { showMessage(t('policy_not_accepted'), t('policy_logout_msg')); return; }
         showMessage(t('policy_not_accepted'),
             t('policy_logout_msg'));
         handleLogout();
@@ -1316,7 +1328,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
         bodyEl.innerHTML = `<div id="pam-skeleton" style="padding:.5rem 0">
             ${Array.from({length: 18}, (_, i) => {
                 const w = [92,78,85,65,88,70,95,60,82,74,90,55,87,72,80,68,93,63][i] + '%';
-                return `<div style="height:13px;border-radius:4px;margin-bottom:10px;width:${w};background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></div>`;
+                return `<div style="height:13px;border-radius:4px;margin-bottom:10px;width:${w};background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></div>`;
             }).join('')}
         </div>`;
         bodyEl.scrollTop = 0;
@@ -5126,6 +5138,8 @@ async function openMoveDialog(srcPath) {
             .mv-tab:not(.mv-active):hover{background:#f1f5f9;color:#1e293b}
             [data-theme="dark"] .mv-tab{color:#94a3b8}
             [data-theme="dark"] .mv-tab:not(.mv-active):hover{background:#2d3f52;color:#e2e8f0}
+            [data-theme="dark"] .mv-tab.mv-active{color:#fff}
+            [data-theme="dark"] .mv-tree-row:hover{background:#2d3f52}
             [data-theme="dark"] .mv-tree-row.mv-selected{background:#1e3a5f}
             [data-theme="dark"] .mv-tree-row.mv-selected:hover{background:#25476f}
         `;
@@ -5699,7 +5713,7 @@ function _askUploadConflict(file, destRel, info) {
                 <h3 style="margin:0 0 6px;font-size:17px">${escapeHtml(t('conflict_title'))}</h3>
                 <p style="margin:0 0 12px;font-size:13px;color:#64748b">${escapeHtml(t('conflict_body', { name: ex.name || file.name }))}</p>
                 <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px">
-                    <tr><th style="${cell}"></th>
+                    <tr><td style="${cell}"></td>
                         <th style="${cell};text-align:left">${escapeHtml(t('conflict_existing'))}</th>
                         <th style="${cell};text-align:left">${escapeHtml(t('conflict_new'))}</th></tr>
                     <tr><td style="${cell};color:#64748b">${escapeHtml(t('file_info_size'))}</td>
@@ -8512,18 +8526,18 @@ async function loadShareManager() {
             <div style="display:flex;justify-content:space-between;margin-bottom:10px">
                 <div>
                     <span style="display:inline-block;width:160px;height:15px;border-radius:4px;
-                        background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);
+                        background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
                         background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span><br>
                     <span style="display:inline-block;width:100px;height:11px;border-radius:4px;margin-top:6px;
-                        background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);
+                        background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
                         background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
                 </div>
                 <div style="display:flex;gap:6px">
                     <span style="display:inline-block;width:60px;height:28px;border-radius:6px;
-                        background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);
+                        background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
                         background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
                     <span style="display:inline-block;width:54px;height:28px;border-radius:6px;
-                        background:linear-gradient(90deg,#e2e8f0 25%,#f1f5f9 50%,#e2e8f0 75%);
+                        background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
                         background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
                 </div>
             </div>
@@ -9364,9 +9378,9 @@ function initFooter() {
     }
     // Helper to generate the HTML
     const renderContent = (swVer, srvVer) => `
-        <div>FluxDrop Preview Program | <a href="https://github.com/ArsenijN/server/" style="color: inherit; text-decoration: underline;">GitHub repo</a></div>
-        <div>&copy; 2025-2026 by Arsenii Nochevnyi.</div>
-        <div><button onclick="showPolicyModal('tos')" style="background:none; border:none; color:inherit; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">TOS</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:inherit; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">Privacy Policy</button></div>
+        <div>${escapeHtml(t('footer_fluxdrop_pp'))} | <a href="https://github.com/ArsenijN/server/" style="color: inherit; text-decoration: underline;">${escapeHtml(t('footer_github_repo'))}</a></div>
+        <div>${escapeHtml(t('footer_creator_note'))}</div>
+        <div><button onclick="showPolicyModal('tos')" style="background:none; border:none; color:inherit; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">${escapeHtml(t('footer_tos'))}</button> | <button onclick="showPolicyModal('pp')" style="background:none; border:none; color:inherit; cursor:pointer; text-decoration:underline; padding:0; font:inherit;">${escapeHtml(t('footer_pp'))}</button></div>
         <div>Script v.${SCRIPT_VERSION} · SW v.${swVer} · Server v.${srvVer || '?'}</div>
     `;
 
@@ -9375,6 +9389,8 @@ function initFooter() {
 
     footer.innerHTML = renderContent(_swVer, _srvVer);
     document.body.appendChild(footer);
+    // texts come from the catalogue: redraw when the language changes
+    document.addEventListener('fd-locale-change', _footerUpdate);
 
     // Request the exact Service Worker version
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
@@ -9528,10 +9544,10 @@ function fdModalGallery() {
         return r;
     };
     const closeAll = () => {
-        document.querySelectorAll('.modal-overlay:not(#message-modal), [id$="-overlay"], #profile-menu-modal, ' +
+        document.querySelectorAll('[role="dialog"], .modal-overlay, [id$="-overlay"], #profile-menu-modal, ' +
                                   '#fd-auth-modal, #fd-info-panel, #fd-ctx-menu, #upload-queue-panel, ' +
-                                  '#interrupted-manager-panel, #fd-update-banner')
-            .forEach(el => el.remove());
+                                  '#interrupted-manager-panel, #fd-update-banner, [id^="fd-spinner-"]')
+            .forEach(el => { if (el.id !== 'message-modal' && el.id !== 'fd-modal-gallery') el.remove(); });
         document.getElementById('message-modal')?.classList.add('hidden');
     };
     const sampleImage = () => new Promise(res => {
@@ -9565,7 +9581,7 @@ function fdModalGallery() {
         ['Policies', [
             ['Terms',             () => showPolicyModal('tos')],
             ['Privacy',           () => showPolicyModal('pp')],
-            ['⚠ Agreement prompt', () => _showPolicyAgreementModal('tos', '0.1.0', () => {})],
+            ['Agreement prompt (preview)', () => _showPolicyAgreementModal('tos', '', () => {}, { preview: true })],
         ]],
         ['Files', [
             ['Context menu',      () => { const r = firstRow(); if (r) _showContextMenu(260, 220, r); }],
@@ -9575,7 +9591,7 @@ function fdModalGallery() {
                 { name: 'example.txt', size: 2048, lastModified: Date.now() }, '/example.txt',
                 { existing: { name: 'example.txt', size: 1900, mtime: new Date(Date.now() - 864e5).toISOString() } })],
             ['Trash',             () => openTrashView()],
-            ['Trash batch notice', () => _showTrashBatchNotice(3, 30)],
+            ['Trash batch notice', () => { localStorage.removeItem(_TRASH_BATCH_NOTICE_KEY); _showTrashBatchNotice(3, 30); }],
             ['Upload queue',      () => openUploadQueuePanel(() => {})],
             ['Interrupted uploads', () => openInterruptedManager(() => {})],
         ]],
@@ -9607,14 +9623,19 @@ function fdModalGallery() {
             `<div style="margin:8px 0 2px;color:#94a3b8;font-weight:600">${group}</div>` +
             items.map(([label], ii) => `<button data-entry="${gi}:${ii}" style="${btn}">${escapeHtml(label)}</button>`).join('')
         ).join('');
+    let last = null;
     panel.addEventListener('click', async e => {
         const b = e.target.closest('button');
         if (!b) return;
         e.stopPropagation();
         if (b.hasAttribute('data-close')) return panel.remove();
         if (b.hasAttribute('data-closeall')) return closeAll();
-        if (b.dataset.lang) { await FDi18n.setLang(b.dataset.lang); return; }
-        const [gi, ii] = b.dataset.entry.split(':').map(Number);
+        // Text is translated when a dialog is built, so after a language
+        // switch the open one is rebuilt (switching back to EN can't be
+        // done in place)
+        if (b.dataset.lang) { await FDi18n.setLang(b.dataset.lang); if (!last) return; }
+        else last = b.dataset.entry;
+        const [gi, ii] = last.split(':').map(Number);
         closeAll();
         try { await ENTRIES[gi][1][ii][1](); }
         catch (err) { console.error('[modal gallery]', err); showToast(String(err.message || err), { type: 'error' }); }

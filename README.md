@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.29`
+# FluxDrop & server `v0.22.0.30`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -63,6 +63,12 @@ repo. Anyone can use it.
 - Esc didn't close the Trash
 - The archive preview spinner restarted on every progress update
 - PDF previews flashed a white box before the viewer loaded
+- The selection bar put the count, the checkbox and the buttons on separate
+  lines
+- The Info panel title had a folder/file icon, so it read like an item name;
+  it's ℹ️ now. Opening the profile menu closes the panel (it covered the menu)
+- Dark mode: blue buttons were too light for their white text; they're a
+  deeper blue now, and the selection bar's Trash/Clear keep their red/grey
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
   the audio preview weren't escaped; neither were usernames in share stats
 
@@ -134,6 +140,14 @@ repo. Anyone can use it.
 - 
 
 **Fixed**
+- **Security:** HSTS never reached browsers — the API server only added it
+  on its own TLS port, and the public HTTPS front didn't send it at all. The
+  front sends it on every response now, with `max-age` one week (raise to a
+  year later, see `fluxdrop_audit.md` v8)
+- Deleting a reported CatBox file kept counting it against its owner's
+  quota; reports on CatBox files now find the owner. Report alert emails are
+  capped at 10 a minute overall
+- Removed the routes of a friend's site that has moved off this server
 - **Security:** share pages put file/folder names, breadcrumbs and the
   owner's nickname into the page unescaped, so a file named like an HTML tag
   could run script on fluxdrop.me (where the login is stored). Everything is

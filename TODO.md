@@ -98,10 +98,6 @@ loads/decodes
   - Likely cause found, fixed, needs testing: PDF previews were an iframe with
   a white background, shown before the PDF viewer painted. Now dark and faded
   in once loaded. If it also happens with other types, note which
-- [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
-  - Not found from the code: Shift+click on a row already closes the context
-  menu and the info panel. Needs exact steps (which "actions modal" — the
-  "⋮" menu, the right-click menu, the selection bar? — and what was clicked)
 - [x] `ap-body`'s spinning wheel is still spinning in background (not visible
 but Animations debugger sees it) -- confirmed fixed on the live server
   - It's the boot loader (`fd-boot-spin`) left in `#app-root`. Safety net
@@ -112,6 +108,15 @@ is present
   - Done, needs testing: hidden on touch-only devices (no fine pointer and
   no hover anywhere); multi-item actions stay in the long-press menu
 - [ ] Add animation for file copy when task is executed (button pressed)
+- [ ] Info panel title showed 📁/📄 like an item name -- now ℹ️ (V0.22.0.30),
+needs testing
+- [ ] Profile menu opened under the Info panel -- opening it now closes the
+panel (V0.22.0.30), needs testing
+- [ ] Selection bar items were on separate lines (V0.22.0.25 regression) --
+fixed V0.22.0.30, needs testing
+- [ ] Dark mode buttons too light for white text (~2.5:1) -- now `#2563eb`
+(~5.2:1, WCAG AA) in V0.22.0.30, needs testing; the selection bar's Trash /
+Clear are red / grey again in dark mode
 - [ ] Add loading wheels/bars to:
   - [ ] Stats button for shared links manager -- Done, needs testing
   - [ ] Profile infos -- Done, needs testing (quota card and account line)
@@ -125,9 +130,12 @@ pages are translated on the server since V0.22.0.20; needs testing
 - [ ] Make separate "testing" server where I would be able to test everything
 before pushing to the real one (needed before the FE V2 rewrite)
 - [x] Add code map -- `CODEMAP.md` (+ the module index in `server_cdn.py`)
-- [ ] Check code for security flaws/vulnerabilities -- audit v8, covering
-everything since V0.20.0.21 (last audit, see `fluxdrop_audit.md`)
-  - [ ] B8: raise HSTS `max-age` (still `300`)
+- [x] Check code for security flaws/vulnerabilities -- audit v8, covering
+everything since V0.20.0.21 (see `fluxdrop_audit.md`, incl. the cadence:
+focused review each `y` bump, full read each `x` bump or ~6 months)
+  - [ ] B8: HSTS -- it never reached browsers (B23, fixed V0.22.0.30, now
+  1 week); raise `HSTS_MAX_AGE` to `31536000` after a month of clean
+  certificate renewals (around 2026-12-10)
   - [ ] B9: drop `unsafe-inline` from CSP -- done by FE V2 (no inline scripts)
 - [ ] Use the background hashsums for silent file check activity in
 background -- specifiable time period in server config
@@ -196,9 +204,10 @@ early (same class of bug as audit B14)
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
   - Done: unit files match the live ones; the `webserver-https` memory
   drop-in (`webserver-https.service.d/override.conf`) is in the repo now;
-  `ip_beacon.service` points at https://fluxdrop.me. Open: the `.gitignore`
-  still excludes `tilesna_*`, and `tilesna_api.service` is still installed
-  and running on the server -- remove both when the friend's site is gone
+  `ip_beacon.service` points at https://fluxdrop.me. The friend's site
+  moved away: its `.gitignore` entries and routes are gone (V0.22.0.30).
+  Left on the server, needs `sudo`: stop/disable/remove
+  `tilesna_api.service`, delete `Web/tilesna_api.py`, `TestWeb/tilesna_practyka`
 - [x] Document the new proxy method that is currently used with my Immich
 instance -- wiki: Deployment → "Proxying another service"
   - Found while documenting, fixed: plain-HTTP `/api/` and `/auth/` requests
@@ -249,6 +258,9 @@ usages, for example the abuse
 
 ### Shell
 - [ ] Proper header and footer
+- [ ] Redesign the login page and the "session expired" state
+- [ ] Login with Google (OAuth; link to an existing account by verified
+email)
 - [ ] Dynamic page building (footer and header are shared, the body is
 different, if it's blogs - text of the blogs are changing, etc.)
 - [ ] Divide snippets to dedicated HTML, JS and CSS (no inline scripts/styles)
@@ -310,6 +322,15 @@ optimizations (Python; go to gunicorn or something else) -- WIP
 media)
 - [ ] Discover ways to build own page via modules (zero-code; not necessary
 since I can just remember CSS and HTML, and do that by hands)
+
+---
+
+## Can't reproduce / gone / unclear
+*Kept for reference; reopen with exact steps if it shows up again.*
+
+- [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
+-- not reproducible since; not found in the code (Shift+click already closes
+the context menu and the Info panel)
 
 ---
 

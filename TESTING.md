@@ -253,3 +253,19 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] `curl -sI http://gallery.arseniusgen.dev/api/server/ping` →
   `Location: https://gallery.arseniusgen.dev/api/server/ping` (not fluxdrop.me);
   `curl -sI http://arseniusgen.dev/api/v1/status.json` → fluxdrop.me
+
+## Added in V0.22.0.30
+- [ ] `curl -sI https://fluxdrop.me/` and `curl -sI https://fluxdrop.me/api/v1/me`
+  → exactly one `Strict-Transport-Security: max-age=604800; includeSubDomains`
+  each (it was missing everywhere before). Same on
+  `https://gallery.arseniusgen.dev/`
+- [ ] Desktop: select one file → the selection bar is one row again
+  (count, keep-selection, buttons side by side); in dark mode Trash is red and
+  Clear is grey
+- [ ] Info panel title is "ℹ️ Інфо" for files and folders
+- [ ] Info panel open → click the avatar: the panel closes, the profile menu
+  is fully visible
+- [ ] Dark mode: blue buttons (Refresh, Trash, Folders first, Upload…) are a
+  deeper blue and the white text reads easily
+- [ ] Admin → Reports: "Delete file" on a reported CatBox file → the owner's
+  used space drops by its size

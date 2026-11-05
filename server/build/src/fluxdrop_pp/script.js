@@ -4087,7 +4087,9 @@ function _updateSelBar() {
     // in a mouse brings it back.
     const touchOnly = !window.matchMedia('(any-pointer: fine)').matches
                    && !window.matchMedia('(any-hover: hover)').matches;
-    bar.style.display = touchOnly ? 'none' : '';
+    // 'flex', not '': clearing it would also drop the template's inline
+    // display:flex and stack the bar's items on separate lines.
+    bar.style.display = touchOnly ? 'none' : 'flex';
     if (touchOnly) return;
 
     if (n === 0) {
@@ -4116,8 +4118,8 @@ function _updateSelBar() {
             📌 ${t('sel_bar_keep_label')}
         </label>` : ''}
         <button data-fdsel="download" class="btn" style="padding:3px 10px;font-size:12px">⬇ ${t('download')}</button>
-        <button data-fdsel="trash"    class="btn" style="padding:3px 10px;font-size:12px;background:#ef4444">🗑 ${t('trash')}</button>
-        <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto">✕ ${t('sel_bar_clear')}</button>
+        <button data-fdsel="trash"    class="btn" style="padding:3px 10px;font-size:12px;background:#dc2626 !important">🗑 ${t('trash')}</button>
+        <button data-fdsel="clear"    class="btn" style="padding:3px 10px;font-size:12px;background:#4b5563 !important;margin-left:auto">✕ ${t('sel_bar_clear')}</button>
     `;
 
     if (showKeepToggle) {
@@ -4573,7 +4575,7 @@ function _showFileInfo(row) {
                      display:flex;justify-content:space-between;align-items:center;
                      border-bottom:1px solid var(--fd-border,#e2e8f0)">
             <span style="font-weight:600;color:var(--fd-text,#1e293b);font-size:14px">
-                ${isDir ? '📁' : '📄'} ${escapeHtml(t('file_info_title'))}
+                ℹ️ ${escapeHtml(t('file_info_title'))}
             </span>
             <button id="fd-info-close" style="background:none;border:none;cursor:pointer;
                 font-size:18px;color:var(--fd-muted,#64748b);padding:0 2px;line-height:1">✕</button>
@@ -7376,6 +7378,10 @@ function openProfileMenu() {
     // Close if already open
     const existing = document.getElementById('profile-menu-modal');
     if (existing) { existing.remove(); return; }
+    // The Info panel sits in the same corner (and above, z-index 20000), so
+    // it would cover the menu — close it.
+    const infoPanel = document.getElementById('fd-info-panel');
+    if (infoPanel) window.fdCloseFloatingPanel(infoPanel);
 
     const overlay = document.createElement('div');
     overlay.id = 'profile-menu-modal';

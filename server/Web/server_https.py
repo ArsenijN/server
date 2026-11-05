@@ -18,7 +18,7 @@ from shared import PrefetchReader, CustomLogger, load_blacklist_safely, update_b
     current_blacklist, blacklist_lock, stop_update_event, server_ready
 from config import SERVE_DIRECTORY, LOG_FILE_HTTPS, BLACKLIST_FILE, CERT_FILE, \
     KEY_FILE, PUBLIC_UPLOAD_DIR as UPLOAD_DIRECTORY, PUBLIC_DOMAIN, \
-    WILDCARD_CERT_FILE, WILDCARD_KEY_FILE
+    WILDCARD_CERT_FILE, WILDCARD_KEY_FILE, HSTS_HEADER_VALUE
 import urllib.request as _urllib_req
 import urllib.error   as _urllib_err
 import posixpath as _psp
@@ -288,7 +288,7 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
         'access-control-allow-origin', 'access-control-allow-methods',
         'access-control-allow-headers', 'access-control-allow-credentials',
         'access-control-max-age', 'cross-origin-resource-policy',
-        'date', 'server',
+        'date', 'server', 'strict-transport-security',
     })
 
     target = f"{target_base}{handler.path}"
@@ -483,20 +483,8 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
 # server_http.py mirrors this table but only 308-redirects matches to HTTPS
 # (same policy it already applies to '/api/'); the real proxying happens
 # here on the TLS side.
-_TILESNA_API_PORT = int(os.getenv('TILESNA_API_PORT', '8765'))
 _PATH_PROXY: dict[str, list[dict]] = {
-    # tilesna-practyka.com — the booking / reviews SPA is served at / on this
-    # domain (see _ROOT_DOMAIN_SUBPATH) and calls /api/* same-origin.  Send
-    # that /api/* to tilesna_api.py instead of FluxDrop's CDN.  tilesna_api.py
-    # routes on the literal '/api/...' path, so no strip_prefix is needed.
-    'tilesna-practyka.com': [
-        {
-            'prefix':  '/api/',
-            'target':  f'http://127.0.0.1:{_TILESNA_API_PORT}',
-            'enabled': True,
-            'timeout': 30,
-        },
-    ],
+    # (empty since V0.22.0.30 — its one user, a friend's site, moved away)
     # Template for future services — copy, set a real host key, enabled=True:
     # 'service.example.com': [
     #     {'prefix': '/api/', 'target': 'http://127.0.0.1:PORT',
@@ -552,8 +540,6 @@ def _try_path_proxy(handler, method: str) -> bool:
 _ROOT_DOMAIN_SUBPATH: dict[str, str] = {
     'fluxdrop.me':     '/fluxdrop_pp',
     'www.fluxdrop.me': '/fluxdrop_pp',
-    'tilesna-practyka.com': '/tilesna_practyka',
-    'www.tilesna-practyka.com': '/tilesna_practyka',
     # arseniusgen.dev intentionally excluded — behaves like arseniusgen.uk.to
     # (user navigates to /fluxdrop_pp/ explicitly on that domain).
 }
@@ -602,6 +588,7 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
         'cross-origin-resource-policy',
         'date',   # Python's BaseHTTPRequestHandler adds its own Date
         'server', # we want only our Server header, not the CDN's
+        'strict-transport-security',  # end_headers() sends ours
     })
 
     target = f"http://127.0.0.1:{CDN_INTERNAL_PORT}{handler.path}"
@@ -872,6 +859,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         the CDN already sent its own CORS headers and we must not duplicate them.
         Duplicate CORS headers cause browsers to reject the response outright.
         """
+        # HSTS on every response, proxied ones included: this is the only
+        # TLS front browsers see. server_cdn.py sits behind it on plain
+        # loopback HTTP, so its own "is this TLS?" check never fires here.
+        self.send_header('Strict-Transport-Security', HSTS_HEADER_VALUE)
         if getattr(self, '_proxying', False):
             super().end_headers()
             return
@@ -947,7 +938,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         # ── Per-host path-prefix proxy ("multi-forward") ─────────────────────
         # Must run before the _CDN_PROXY_PREFIXES check below so an overlapping
-        # prefix (e.g. '/api/' on tilesna-practyka.com) reaches its own backend
+        # prefix (e.g. a host's own '/api/') reaches its own backend
         # instead of the CDN, and before the root-domain rewrite so the path is
         # not turned into an SPA navigation URL.
         if _try_path_proxy(self, 'GET'):

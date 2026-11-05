@@ -197,16 +197,7 @@ def _proxy_to_cdn_http(handler, method: str = 'GET'):
 # '/api/' via _HTTPS_REDIRECT_PREFIXES), and the real forwarding to the
 # backend happens on the TLS side.  See server_https.py for the full field
 # documentation.
-_TILESNA_API_PORT = int(os.getenv('TILESNA_API_PORT', '8765'))
 _PATH_PROXY: dict[str, list[dict]] = {
-    'tilesna-practyka.com': [
-        {
-            'prefix':  '/api/',
-            'target':  f'http://127.0.0.1:{_TILESNA_API_PORT}',
-            'enabled': True,
-            'timeout': 30,
-        },
-    ],
 }
 
 def _get_path_proxy(headers, path: str) -> dict | None:

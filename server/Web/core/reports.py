@@ -14,6 +14,7 @@ from config import (SERVE_ROOT, CDN_UPLOAD_DIR, CATBOX_UPLOAD_DIR, PUBLIC_BASE_U
                     REPORT_NOTIFY_EMAIL)
 from core.db import _db_connect
 from core.mailer import send_plain
+from core.rate_limit import _rate_limit
 
 REPORT_REASONS = ('illegal', 'copyright', 'encrypted', 'abuse', 'other')
 REPORT_STATUSES = ('open', 'action_taken', 'dismissed')
@@ -52,6 +53,10 @@ def resolve_target(target_url: str) -> dict:
         with _db_connect() as conn:
             row = conn.execute('SELECT uploaded_by FROM cdn_uploads WHERE filename = ?',
                                (name,)).fetchone()
+            if not row and path.startswith(cb_prefix):
+                # CatBox uploads are recorded in catbox_uploads since V0.22.0.26
+                row = conn.execute('SELECT user_id FROM catbox_uploads WHERE name = ?',
+                                   (name,)).fetchone()
         if row:
             out['owner_id'] = row[0]
     return out
@@ -113,6 +118,12 @@ def _app_home_url() -> str:
 def _notify_operator(report_id, target_url, reason, message, t):
     if not REPORT_NOTIFY_EMAIL:
         logging.info('Content report #%s received (REPORT_NOTIFY_EMAIL not set, no alert sent)', report_id)
+        return
+    # The per-IP limit on /api/v1/report doesn't stop a flood from many IPs;
+    # cap the alert mails overall (the reports themselves are all stored and
+    # show up in the admin panel).
+    if not _rate_limit('all', 'report_mail', max_hits=10):
+        logging.warning('Content report #%s: alert mail skipped (over 10/min)', report_id)
         return
     kind = ('share link' if t['share_token'] else
             'CDN file' if t['cdn_path'] else 'unrecognised URL')
@@ -189,6 +200,9 @@ def apply_action(report_id: int, action: str, note: str = '') -> dict:
                 raise ValueError('no_file')
             os.remove(fs)
             conn.execute('DELETE FROM cdn_uploads WHERE filename = ?', (os.path.basename(fs),))
+            # Also drop the CatBox record, or the deleted file would keep
+            # counting against its owner's quota (catbox_user_bytes).
+            conn.execute('DELETE FROM catbox_uploads WHERE name = ?', (os.path.basename(fs),))
             status, auto_note = 'action_taken', 'File deleted'
         elif action == 'resolve':
             status, auto_note = 'action_taken', ''

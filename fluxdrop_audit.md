@@ -1,4 +1,42 @@
-# FluxDrop — Security & Code Audit v7
+# FluxDrop — Security & Code Audit v8
+
+*Backend (`server_cdn.py`, `server_http.py`, `server_https.py`, `config.py`, `core/*.py`, snippets) plus the frontend code that renders server data.*
+*Covers the changes since v7 (`b0e8664`, V0.20.0.21) up to V0.22.0.30: ~65 commits, ~4.3k changed backend lines.*
+*Method: static reading of the new and changed code paths (new endpoints, auth checks, path containment, HTML/header output), plus live header checks against the production hosts on 2026-11-05. Not a full re-read of code unchanged since v7, and not dynamically exploited.*
+
+## Summary table
+
+| # | Issue | Severity | Status |
+|---|-------|----------|--------|
+| **B20** | Share pages put file/folder names, breadcrumbs and the owner's nickname into HTML unescaped — stored XSS on fluxdrop.me, where the login token lives. | 🟠 High | ✅ Fixed V0.22.0.16 — `_h` / `_js` helpers on every inserted value |
+| **B21** | User files shown inline (share previews, CDN embeds, trash previews, `/CB_uploads/`, `/cdn/`) served from the app's origin — an uploaded `.html`/`.svg` could run script there. | 🟠 High | ✅ Fixed V0.22.0.16 — `Content-Security-Policy: sandbox` + `nosniff` (`_send_inline_isolation_headers`) |
+| **B22** | CatBox `deletefiles`: any logged-in user could delete any CatBox file, and `../` names reached anything under `SERVE_ROOT`. | 🟠 High | ✅ Fixed V0.22.0.18 — plain names only, owner or admin (`catbox_uploads`) |
+| **B23** | HSTS never reached browsers: `server_cdn.py` only adds it on a TLS socket, but the public HTTPS front talks to it over loopback HTTP, and the front itself never sent the header. Live check: no `Strict-Transport-Security` on any host. (This is why B8's "300 s" was harmless — it was never sent.) | 🟡 Medium | ✅ Fixed V0.22.0.30 — the TLS front sends it on every response (upstream copies dropped); `max-age` 1 week, staged |
+| **B24** | Legacy share upload and same-name uploads overwrote existing files (data loss, and a share visitor could replace the owner's file). | 🟡 Medium | ✅ Fixed V0.22.0.12 — `_free_upload_dest`, exclusive create (`'xb'`), replace only via an explicit choice that moves the old file to the trash |
+| **B25** | Share uploads didn't count against the owner's quota; anonymous share uploads and CDN embeds were open to every account. | 🟡 Medium | ✅ Fixed V0.22.0.19 — `_owner_quota_error`, `can_publish` (off by default) |
+| **B26** | Deleting a reported CatBox file from the admin panel left its `catbox_uploads` row, so it kept counting against the owner's quota; reports on CatBox files never found the owner. | 🟢 Low | ✅ Fixed V0.22.0.30 — `core/reports.py` |
+| **B27** | `/api/v1/report` is limited per IP (3/min) only — many IPs could flood the operator's mailbox with alert mails. | 🟢 Low | ✅ Fixed V0.22.0.30 — alert mails capped at 10/min overall; reports are still all stored |
+| **B28** | An email subject containing a line break (from a file name) made the mail library refuse the message, silently dropping alerts. | 🟢 Low | ✅ Fixed V0.22.0.29 — `send_plain` flattens the subject |
+| **B29** | Plain-HTTP `/api/` and `/auth/` on a proxied subdomain (Immich) were redirected to FluxDrop's host. | 🟢 Low | ✅ Fixed V0.22.0.27 — `_https_redirect_host` |
+| **B9** | CSP still needs `unsafe-inline` for the snippet pages. | ⚠️ Open | Done by FE V2 (no inline scripts/styles) |
+| **B8** | HSTS `max-age` | ⚠️ Staged | 1 week now (B23); raise `HSTS_MAX_AGE` to `31536000` after a month of clean certificate renewals |
+
+Checked and fine: the new endpoints `/api/v1/report` (rate-limited, validated, length-capped), `/api/v1/admin/reports*` (admin-only), `/auth/verify` and `/auth/verify_cancel` (rate-limited, need the emailed token), `/api/v1/zip_stream/<id>/report` (owner check, share sessions open like the stream itself), `/api/v1/archive_tree/*` (session + download token + `_is_within`, zip-bomb limits in `core/archive_tree.py`); report takedowns resolve the file with `realpath` + `commonpath`; upload replace uses a hidden temp in the same folder and `os.replace`; integrity alerts and emails go through `send_plain` only.
+
+### HSTS notes (B23)
+
+- With `includeSubDomains`, every name under a host that sent the header must serve valid HTTPS for `max-age`, with no click-through. Today: `*.fluxdrop.me` is covered by the wildcard certificate; `arseniusgen.uk.to` / `arsenius-gen.uk.to` have their own certificate; `.dev` is HSTS-preloaded anyway. Before adding a subdomain that can't do HTTPS (e.g. a mail provider's click-tracking CNAME), check this first.
+- A failed certificate renewal makes the site unreachable in browsers that remember HSTS, until it's fixed — the reason for the staged ramp.
+- Plain-HTTP access for clients without TLS keeps working: those clients never see the header (browsers ignore it over HTTP).
+
+## Audit cadence
+
+Usual practice is layered rather than one big audit: automated checks on every change (dependency/CVE scan, a static analyser such as Bandit/Semgrep for Python), a security look at every change touching auth, paths, uploads or HTML output, and a full review on a schedule or before a major release, plus after a large rewrite. For this project: a focused review like this one on each `y` bump (new features), a full read on each `x` bump or every ~6 months (whichever comes first), and the FE V2 rewrite gets its own review before it ships.
+
+---
+
+# Previous: Audit v7
+
 
 *Covers backend only: `server_cdn.py`, `server_http.py`, `server_https.py`, `config.py`, `shared.py`, `core/*.py`.*
 *Supersedes audit v6 (April, `d301733`). ~196 commits / ~6.4k changed backend lines since.*

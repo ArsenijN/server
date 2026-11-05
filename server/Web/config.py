@@ -74,13 +74,13 @@ except OSError as e:
 # Public-facing domain (can be overridden via env)
 PUBLIC_DOMAIN = os.getenv('PUBLIC_DOMAIN', 'arseniusgen.uk.to')
 
-# HSTS max-age, in seconds. Single source of truth — this same value used to be
-# hardcoded as the literal string 'max-age=300; includeSubDomains' independently
-# in ~6 places across server_http.py and server_cdn.py, which meant changing it
-# meant remembering to touch every one of them. 300s (5 min) is intentionally
-# short for now (staged rollout); bump via env or here once confirmed stable,
-# and every call site picks it up automatically.
-HSTS_MAX_AGE = int(os.getenv('HSTS_MAX_AGE', '300'))
+# HSTS max-age, in seconds — the single source for every server's header.
+# Sent to browsers by server_https.py (the TLS front); until V0.22.0.30 it
+# never actually reached them (see audit v8). Staged rollout, as hstspreload.org
+# suggests: 1 week now; once a month of certificate renewals has gone fine,
+# raise to 31536000 (1 year). Every *.fluxdrop.me name must keep valid HTTPS
+# (includeSubDomains) — the wildcard certificate covers that today.
+HSTS_MAX_AGE = int(os.getenv('HSTS_MAX_AGE', '604800'))
 HSTS_HEADER_VALUE = f'max-age={HSTS_MAX_AGE}; includeSubDomains'
 
 # SMTP credentials should come from env vars in production

@@ -45,7 +45,7 @@ variables, tables, etc.)
 
 ## Phase 0 -- Priority fixes (non-breaking, current version line)
 
-- [ ] Backend doesn't always save all received chunks: after pausing the
+- [x] Backend doesn't always save all received chunks: after pausing the
 upload, a chunk that was successfully sent may not be saved (unACK issue?).
 Not related to internet conditions AFAIK; recheck after the recent proxy fixes
 (may affect only Immich over WebSocket, or regular HTTP too)
@@ -54,17 +54,20 @@ Not related to internet conditions AFAIK; recheck after the recent proxy fixes
   second run from the highest chunk taken while the old run woke up too;
   chunks in between could be skipped ("Missing chunks" on complete). Now
   chunks come from a queue, Resume asks `/status` for the missing ones, and
-  the client re-checks `/status` before `/complete`
-- [ ] Not always UI cancels the upload (says "Cancelling..." and does nothing)
+  the client re-checks `/status` before `/complete` -- tested on the live
+  server (pause/resume, quick pause/resume, pause during a retry)
+- [x] Not always UI cancels the upload (says "Cancelling..." and does nothing)
   - Cause found, fixed, needs testing: Cancel on a *paused* upload never
   sent the DELETE or left the "cancelling" state, since the paused run had
   already ended. Also, pausing during a chunk retry cancelled the upload
-- [ ] Trash bin: file preview inside trashed folders (`/api/v1/trash/<id>/list`
+  -- tested on the live server
+- [x] Trash bin: file preview inside trashed folders (`/api/v1/trash/<id>/list`
 exists, but `/api/v1/trash/<id>/file` rejects folders -- needs a sub-path
 parameter with the `_is_within()` containment check)
   - Done, needs testing: `/trash/<id>/file?path=<sub/path>` (checked with
   `_is_within()`); files in the "Browse" tree are clickable and open the
-  preview. The tree is now nested properly and escapes file names
+  preview. The tree is now nested properly and escapes file names -- tested
+  on the live server (incl. the `../..` path check → 403)
 - [ ] ZIP download:
   - [ ] Cancel the file hashing, or avoid the multithreaded file hash after
   canceling the ZIP download, or do it only if server is unused or via `nice`
@@ -77,12 +80,12 @@ parameter with the `_is_within()` containment check)
   `ZIP_JOB_IDLE_STOP` (20 s, not 3 -- background tabs throttle timers) stops
   the job, even mid-file; hashes done so far stay stored, and polling the job
   again continues from the file it stopped at
-- [ ] Do not make speed probe for small files (e.g. less than 25 MB) -- not if
+- [x] Do not make speed probe for small files (e.g. less than 25 MB) -- not if
 internet is bad -- if so, needs changes in how the chunks are calculated, maybe
 a dynamic chunk size based on the upload speed
   - Done, needs testing: files under 25 MB skip the probe; they reuse the
   speed of an upload finished in the last 10 min, or else use 1 MB chunks
-  (safe for the 90 s chunk timeout on a bad connection)
+  (safe for the 90 s chunk timeout on a bad connection) -- tested
 - [ ] Check the upload concurrency behavior on weak connections
 - [ ] Publish Privacy Policy and Terms of Service v0.1.0: set up
 `privacy@fluxdrop.me`, fill in `[CONTACT EMAIL]`, the email provider and the
@@ -161,11 +164,13 @@ the proxy gives `/api/` 10 s; the CDN keeps working after the proxy gave up.
   - Done, needs testing (`core/archive_tree.py`): all of the above, with
   the cache in `secrets/archive_tree_cache`; the preview shows progress and
   a "truncated" note. Tested locally with tar.gz, zip, a plain .gz and two
-  gzip bombs
-- [ ] Upload session purge (`core/upload.py`) compares naive local
+  gzip bombs; on the live server the 1.6 GB archive, the cache and zip
+  previews work. Still to test: pre-warm after upload
+- [x] Upload session purge (`core/upload.py`) compares naive local
 `datetime.now()` with the UTC `last_activity` -- sessions are purged 2-3 h
 early (same class of bug as audit B14)
-  - Done: compares in UTC
+  - Done: compares in UTC -- verified live: a session idle since
+  2026-11-03 15:27 was purged 2026-11-05 15:31 (48 h TTL)
 - [ ] Use separate email for FluxDrop
 - [ ] Send emails in the user's locale
 - [ ] Update the services (and exclude the entry in the `.gitignore`)

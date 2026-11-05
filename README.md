@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.21`
+# FluxDrop & server `v0.22.0.22`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -76,6 +76,7 @@ repo. Anyone can use it.
   also right after it's uploaded. Zip-bomb limits: max entries, time and
   compression ratio (`ARCHIVE_TREE_*` settings)
 - `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` for the front servers
+- `tbot.arseniusgen.dev` proxied to the transcription bot (port 8790)
 - `users.can_publish` (admin panel → user → "Can publish"): needed to open a
   share to uploads without an account or to CDN embedding; off by default,
   admins always can. Existing shares keep their settings
@@ -143,8 +144,8 @@ repo. Anyone can use it.
   while the whole archive was decompressed)
 
 ### Known issues
-- The upload, ZIP, archive and trash fixes above still need testing on the
-  live server
+- Most fixes above are tested on the live server; what's left is listed in
+  [TESTING.md](./TESTING.md)
 - The Privacy Policy and Terms of Service v0.1.0 are drafted but not published
   yet
 

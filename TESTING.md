@@ -21,7 +21,7 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   upload starts
 - [x] **Small file (< 25 MB) right after a big one**: no speed test, reuses
   the speed. **Small file on a fresh page**: no speed test, 1 MB chunks
-- [ ] **Unfinished upload session** is purged after `UPLOAD_SESSION_TTL`, not
+- [x] **Unfinished upload session** is purged after `UPLOAD_SESSION_TTL`, not
   2-3 hours early (check `last_activity` vs. purge time in the log) -- needs 
   tests
   > Live case: session `rT1y7hznRnwF…` (the failed 654 MB CatBox upload),
@@ -29,6 +29,7 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   > interval → its folder in `/tmp/fluxdrop_upload_sessions` should vanish
   > on **2026-11-05 between 15:28 and 15:33**. Gone around 13:30 = still
   > the old timezone bug
+  > ✔ Purged 2026-11-05 15:31 (folder mtime) — inside the window
 
 > Pausing aborts the in-flight requests in the browser, but a request whose
 > body was already fully sent is still processed by the server: it checks

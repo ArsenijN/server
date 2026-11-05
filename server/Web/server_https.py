@@ -96,6 +96,12 @@ _HOST_PROXY: dict[str, dict] = {
         # whole download.
         'timeout': 900,
     },
+    # tbot shared transcripts — https://tbot.arseniusgen.dev
+    'tbot.arseniusgen.dev': {
+        'target':  'http://127.0.0.1:8790',
+        'enabled': True,
+        'timeout': 30,
+    },
     # Template for future services — copy, rename, set enabled=True:
     # 'service.arseniusgen.dev': {
     #     'target':  'http://127.0.0.1:PORT',

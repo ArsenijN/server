@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.34`
+# FluxDrop & server `v0.22.0.35`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -80,6 +80,14 @@ repo. Anyone can use it.
   shades now, so the text reaches the readable contrast minimum (WCAG AA) in
   both themes; red/indigo text is lighter in dark mode; dialogs are marked as
   dialogs for screen readers; share-manager date and link fields have labels
+- Dark mode: buttons with their own colour (grey Cancel, red, green…) were
+  painted blue like the main button, so Cancel looked like Done; they keep
+  their colour now
+- More accessibility fixes from a second axe run: names for the language,
+  policy-version and share-expiry selects and for the profile menu, Move
+  dialog and Info panel; readable Move/Rename/Copy tabs and selected folder
+  in dark mode; policy headings and links readable in dark mode; grey text
+  on selected rows; the amber Replace and green Copy buttons are darker
 - Status and beacon pages: grey labels were too faint, buttons too light; the
   page title is a proper heading and footer links are underlined
 - File names in the trash "Browse" list, the ZIP "skipped files" list and

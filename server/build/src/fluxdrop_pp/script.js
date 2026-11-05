@@ -953,7 +953,7 @@ function _langSelectorHtml(availableLangs, languages, currentLang, selectId) {
         const sel  = code === currentLang ? ' selected' : '';
         return `<option value="${code}"${sel}>${name}</option>`;
     }).join('');
-    return `<select id="${selectId}"
+    return `<select id="${selectId}" aria-label="${escapeHtmlAttr(t('language'))}"
         style="font-size:.8rem;padding:3px 6px;border-radius:6px;border:1px solid #cbd5e1;
                color:#475569;background:#f8fafc;cursor:pointer;margin-left:.5rem">
         ${opts}
@@ -1029,7 +1029,7 @@ async function showPolicyModal(type) {
             wrap.innerHTML = `<span style="font-size:.8rem;color:#94a3b8;font-weight:400">v${escapeHtml(current)}</span>`;
             return;
         }
-        wrap.innerHTML = `<select id="pm-ver" title="${escapeHtmlAttr(t('policy_version_label'))}"
+        wrap.innerHTML = `<select id="pm-ver" title="${escapeHtmlAttr(t('policy_version_label'))}" aria-label="${escapeHtmlAttr(t('policy_version_label'))}"
             style="font-size:.8rem;padding:3px 6px;border-radius:6px;border:1px solid #cbd5e1;
                    color:#475569;background:#f8fafc;cursor:pointer">
             ${list.map(v => `<option value="${escapeHtmlAttr(v)}"${v === selectedVer ? ' selected' : ''}>v${escapeHtml(v)}${
@@ -3041,7 +3041,7 @@ function _watchZipReport(sessionId, dl) {
                     `<li style="font-family:monospace;font-size:12px">${escapeHtml(f)}</li>`).join('');
                 showMessage(t('zip_vanished_title', { n: rep.vanished.length }),
                     `${escapeHtml(t('zip_vanished_body', { name: dl.filename || '' }))}
-                     <ul style="max-height:200px;overflow-y:auto;padding-left:18px;margin-top:8px">${list}</ul>`, true);
+                     <ul tabindex="0" style="max-height:200px;overflow-y:auto;padding-left:18px;margin-top:8px">${list}</ul>`, true);
             }
             return;
         }
@@ -4551,6 +4551,8 @@ function _showFileInfo(row) {
 
     const panel = document.createElement('div');
     panel.id = 'fd-info-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', t('file_info_title'));
     panel.style.cssText =
         'position:fixed;right:12px;top:70px;width:280px;z-index:20000;' +
         'background:var(--fd-surface,#fff);border:1px solid var(--fd-border,#e2e8f0);' +
@@ -5122,6 +5124,10 @@ async function openMoveDialog(srcPath) {
                 cursor:pointer;background:none;color:#64748b;transition:background .15s,color .15s}
             .mv-tab.mv-active{background:#2563eb;color:#fff}
             .mv-tab:not(.mv-active):hover{background:#f1f5f9;color:#1e293b}
+            [data-theme="dark"] .mv-tab{color:#94a3b8}
+            [data-theme="dark"] .mv-tab:not(.mv-active):hover{background:#2d3f52;color:#e2e8f0}
+            [data-theme="dark"] .mv-tree-row.mv-selected{background:#1e3a5f}
+            [data-theme="dark"] .mv-tree-row.mv-selected:hover{background:#25476f}
         `;
         document.head.appendChild(st);
     }
@@ -5134,7 +5140,7 @@ async function openMoveDialog(srcPath) {
             <!-- Header -->
             <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
                 <div>
-                    <div style="color:white;font-weight:700;font-size:16px">📁 ${escapeHtml(t('move_rename_copy'))}</div>
+                    <div id="mv-dialog-title" style="color:white;font-weight:700;font-size:16px">📁 ${escapeHtml(t('move_rename_copy'))}</div>
                     <div style="color:rgba(255,255,255,.75);font-size:12px;margin-top:2px;max-width:380px;
                         overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtmlAttr(srcPath)}">${escapeHtml(srcPath)}</div>
                 </div>
@@ -5713,7 +5719,7 @@ function _askUploadConflict(file, destRel, info) {
                     <button id="fd-cf-skip" class="btn" style="background:#e2e8f0;color:#1e293b">${escapeHtml(t('conflict_skip'))}</button>
                     <button id="fd-cf-rename" class="btn" style="background:#0369a1"
                         title="${escapeHtmlAttr(info.suggested_name || '')}">${escapeHtml(t('conflict_keep_both'))}</button>
-                    <button id="fd-cf-replace" class="btn" style="background:#f59e0b"
+                    <button id="fd-cf-replace" class="btn" style="background:#b45309"
                         title="${escapeHtmlAttr(t('conflict_replace_hint'))}">${escapeHtml(t('conflict_replace'))}</button>
                 </div>
             </div>`;
@@ -7385,6 +7391,8 @@ function openProfileMenu() {
 
     const overlay = document.createElement('div');
     overlay.id = 'profile-menu-modal';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-label', t('profile'));
     overlay.className = 'fd-profile-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:8000;display:flex;align-items:flex-start;justify-content:flex-end;padding:70px 1rem 0 0';
     overlay.innerHTML = `
@@ -8321,8 +8329,8 @@ async function openShareDialog(path, isDir) {
                 </label>
 
                 <div style="display:flex;align-items:center;gap:10px">
-                    <span style="font-size:14px;font-weight:600;white-space:nowrap">${t('share_dlg_expires_label')}</span>
-                    <select id="sh-expiry-preset" style="flex:1;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:white">
+                    <span id="sh-expiry-label" style="font-size:14px;font-weight:600;white-space:nowrap">${t('share_dlg_expires_label')}</span>
+                    <select id="sh-expiry-preset" aria-labelledby="sh-expiry-label" style="flex:1;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:white">
                         <option value="">${t('share_dlg_exp_never')}</option>
                         <option value="1">${t('share_dlg_exp_1d')}</option>
                         <option value="7">${t('share_dlg_exp_7d')}</option>
@@ -8362,13 +8370,13 @@ async function openShareDialog(path, isDir) {
                 <div style="font-size:12px;color:#166534;margin-bottom:6px;font-weight:600">${t('share_dlg_link_created')}</div>
                 <div style="display:flex;gap:6px">
                     <input id="sh-link-box" type="text" readonly aria-label="Link" style="flex:1;font-size:12px;padding:6px;border:1px solid #ccc;border-radius:6px;background:white;color:#1e293b">
-                    <button id="sh-copy-btn" style="background:#16a34a;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">${t('share_dlg_copy')}</button>
+                    <button id="sh-copy-btn" style="background:#15803d;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">${t('share_dlg_copy')}</button>
                 </div>
             </div>
 
             <div style="display:flex;gap:8px;justify-content:flex-end">
                 <button id="sh-cancel-btn" class="btn" style="background:#e2e8f0;color:#1e293b">${t('cancel')}</button>
-                <button id="sh-create-btn" class="btn" style="background:#8b5cf6">${t('share_dlg_create')}</button>
+                <button id="sh-create-btn" class="btn" style="background:#7c3aed">${t('share_dlg_create')}</button>
             </div>
         </div>`;
     document.body.appendChild(overlay);
@@ -8731,7 +8739,7 @@ async function openShareStats(token, name) {
                 <td style="padding:8px 12px;font-size:13px">${escapeHtmlAttr(_shareActionLabel(l.action))}</td>
             </tr>`).join('');
         showMessage(t('shares_stats_title', {name}),
-            `<div style="text-align:left;max-height:300px;overflow-y:auto">` +
+            `<div tabindex="0" style="text-align:left;max-height:300px;overflow-y:auto">` +
             `<table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f8fafc">
                 <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">${t('shares_stats_col_time')}</th>
                 <th style="padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;text-align:left">${t('shares_stats_col_user')}</th>

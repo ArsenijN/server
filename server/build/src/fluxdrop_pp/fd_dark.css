@@ -44,7 +44,7 @@
   --fd-muted2:      #64748b;
   --fd-accent:      #60a5fa;
   --fd-accent-dark: #3b82f6;
-  --fd-accent-bg:   #1e3a5f;
+  --fd-accent-bg:   #1c3557;  /* was #1e3a5f: grey text on selected rows was 4.48:1 */
   --fd-accent-border:#2563eb;
   /* Button fill: --fd-accent is a text/link colour here — white text on it
      is ~2.5:1, too faint; #2563eb gives ~5.2:1 (WCAG AA) */
@@ -93,12 +93,22 @@
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────────── */
-[data-theme="dark"] .btn {
+/* Only buttons without their own fill: an inline background (grey Cancel,
+   red Trash…) used to be painted blue too, so Cancel looked like Done */
+[data-theme="dark"] .btn:not([style*="background"]) {
   background-color: var(--fd-btn-bg) !important;
 }
-[data-theme="dark"] .btn:hover {
+[data-theme="dark"] .btn:not([style*="background"]):hover {
   background-color: var(--fd-btn-bg-hover) !important;
 }
+[data-theme="dark"] .btn[style*="background"]:hover { filter: brightness(1.15); }
+
+/* Policy text (Markdown): headings and links were light-theme blues */
+[data-theme="dark"] #pm-body h1, [data-theme="dark"] #pm-body h2,
+[data-theme="dark"] #pm-body h3, [data-theme="dark"] #pm-body h4,
+[data-theme="dark"] #pam-body h1, [data-theme="dark"] #pam-body h2,
+[data-theme="dark"] #pam-body h3, [data-theme="dark"] #pam-body h4 { color: #93c5fd !important; }
+[data-theme="dark"] #pm-body a, [data-theme="dark"] #pam-body a { color: #60a5fa !important; }
 
 /* ── Modals ─────────────────────────────────────────────────────────────────── */
 [data-theme="dark"] .modal-content {

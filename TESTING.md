@@ -294,3 +294,12 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   still clearly red / green / blue; in dark mode red text (e.g. "expired") is
   a lighter red
 - [ ] /status and /beacon/ui: grey labels readable, buttons deeper blue
+
+## Added in V0.22.0.35
+- [ ] Dark mode: share dialog / move dialog / conflict dialog — Cancel is grey,
+  not blue; hovering a coloured button brightens it slightly
+- [ ] Move dialog in dark mode: inactive Rename/Copy tabs readable, the
+  selected folder row is dark blue (was near-white with white text)
+- [ ] Policy (TOS / Privacy) in dark mode: headings and links readable
+- [ ] axe again on: file list with a row selected, Info panel open, share
+  dialog, move dialog, policy, share stats — no violations expected

@@ -1109,6 +1109,9 @@ window.fdCloseFloatingPanel = function (panel, ms) {
     if (el.getAttribute('role')) return;
     el.setAttribute('role', 'dialog');
     el.setAttribute('aria-modal', 'true');
+    // name: a title element (…-title) by reference, else the first heading
+    const titled = el.querySelector('[id$="-title"]');
+    if (titled) { el.setAttribute('aria-labelledby', titled.id); return; }
     const h = el.querySelector('h1, h2, h3, h4');
     const name = h && h.textContent.trim();
     if (name) el.setAttribute('aria-label', name);

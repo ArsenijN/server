@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.37`
+# FluxDrop & server `v0.22.0.38`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -80,6 +80,11 @@ repo. Anyone can use it.
   shades now, so the text reaches the readable contrast minimum (WCAG AA) in
   both themes; red/indigo text is lighter in dark mode; dialogs are marked as
   dialogs for screen readers; share-manager date and link fields have labels
+- Policy agreement prompt: the document name is translated, as whole
+  sentences so Ukrainian uses the right case ("з оновленими Умовами надання
+  послуг"); policy tables have a dark header row in dark mode
+- Modal gallery: "Close all" removed the built-in message / preview dialogs,
+  so opening a file afterwards failed until reload; they're only hidden now
 - Footer: all its texts come from the translations now (the Terms link
   stayed "TOS" in Ukrainian while Privacy Policy was translated)
 - Clearer sign-out message when updated policies are declined

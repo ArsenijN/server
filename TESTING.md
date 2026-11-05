@@ -321,3 +321,11 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Move dialog (dark): hovering a folder row is dark grey, not white; the
   active tab text is white
 - [ ] Share manager (dark): loading placeholders are dark
+
+## Added in V0.22.0.38
+- [ ] Gallery: Close all, then open a file preview — works (was a
+  "textContent of null" error until reload)
+- [ ] Policy agreement (UK): title "Будь ласка, ознайомтеся з оновленими
+  Умовами надання послуг", version shown, button "Я погоджуюся з Умовами
+  надання послуг"; same for the Privacy Policy
+- [ ] Policy tables in dark mode: header row dark with readable text

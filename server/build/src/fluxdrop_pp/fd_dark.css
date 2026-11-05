@@ -110,6 +110,9 @@
 [data-theme="dark"] #pam-body h1, [data-theme="dark"] #pam-body h2,
 [data-theme="dark"] #pam-body h3, [data-theme="dark"] #pam-body h4 { color: #93c5fd !important; }
 [data-theme="dark"] #pm-body a, [data-theme="dark"] #pam-body a { color: #60a5fa !important; }
+[data-theme="dark"] #pm-body th, [data-theme="dark"] #pam-body th { background: var(--fd-surface3) !important; color: var(--fd-text) !important; }
+[data-theme="dark"] #pm-body td, [data-theme="dark"] #pm-body th,
+[data-theme="dark"] #pam-body td, [data-theme="dark"] #pam-body th { border-color: var(--fd-border) !important; }
 
 /* ── Modals ─────────────────────────────────────────────────────────────────── */
 [data-theme="dark"] .modal-content {

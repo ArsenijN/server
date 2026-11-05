@@ -921,6 +921,8 @@ function renderLandingView() {
 
 // ── Policy / TOS / PP modal ───────────────────────────────────────────────
 const POLICY_LABELS = { tos: 'Terms of Service', pp: 'Privacy Policy' };
+// Translated document name (title bar, dialog name)
+const _policyLabel = type => type === 'tos' ? t('tos') : type === 'pp' ? t('footer_pp') : type.toUpperCase();
 
 // Active language code — persisted in localStorage.
 // Falls back to 'eng' if the stored value isn't available for a document.
@@ -966,7 +968,7 @@ function _langSelectorHtml(availableLangs, languages, currentLang, selectId) {
 
 // Show a read-only view of one policy document (no agreement required).
 async function showPolicyModal(type) {
-    const label    = POLICY_LABELS[type] || type.toUpperCase();
+    const label    = _policyLabel(type);
     const versions = await _fetchVersions();
     const languages = versions.languages || {};
 
@@ -1195,12 +1197,13 @@ async function checkAndShowPolicies(onAllAccepted) {
 // Like showPolicyModal but forces the user to scroll to the bottom and click "I agree".
 // version here is the server-required version string (from policy/status).
 async function _showPolicyAgreementModal(type, version, onAccepted, opts = {}) {
-    const label    = POLICY_LABELS[type] || type.toUpperCase();
+    const label    = _policyLabel(type);
     const versions = await _fetchVersions();
     const languages = versions.languages || {};
     const versionMap = versions[type] || {};
     const availableLangs = Object.keys(versionMap).length ? Object.keys(versionMap) : ['eng'];
     let lang = availableLangs.includes(_policyLang) ? _policyLang : availableLangs[0];
+    if (!version) version = versionMap[lang] || '';
 
     // Helper: enable/disable the agree button
     function _enableAgree() {
@@ -1227,7 +1230,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted, opts = {}) {
                         display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem">
                 <div>
                     <h2 style="font-size:1.1rem;font-weight:700;color:#1e40af;margin:0 0 .25rem;display:flex;align-items:center;gap:.5rem">
-                        ${t('policy_review_title', { label })}
+                        ${t('policy_review_title_' + type)}
                         ${_langSelectorHtml(availableLangs, languages, lang, 'pam-lang')}
                     </h2>
                     <p style="font-size:.85rem;color:#3730a3;margin:0">
@@ -1254,7 +1257,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted, opts = {}) {
                         ${t('policy_decline_btn')}
                     </button>
                     <button id="pam-agree-btn" class="btn" disabled style="opacity:.45;cursor:not-allowed;white-space:nowrap">
-                        ${t('policy_agree_btn', { label })}
+                        ${t('policy_agree_btn_' + type)}
                     </button>
                 </div>
             </div>
@@ -1292,7 +1295,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted, opts = {}) {
                 return;
             }
             agreeBtn.disabled = false;
-            agreeBtn.textContent = t('policy_agree_btn', { label });
+            agreeBtn.textContent = t('policy_agree_btn_' + type);
             showMessage(t('msg_error'), t('policy_save_failed') + ': ' + err.message);
         }
     });
@@ -9543,12 +9546,19 @@ function fdModalGallery() {
         if (!r) showToast('Open a folder that has files first', { type: 'error' });
         return r;
     };
+    const STATIC = new Set(['message-modal', 'notice-modal', 'preview-modal']
+        .map(id => document.getElementById(id)).filter(Boolean));
     const closeAll = () => {
         document.querySelectorAll('[role="dialog"], .modal-overlay, [id$="-overlay"], #profile-menu-modal, ' +
                                   '#fd-auth-modal, #fd-info-panel, #fd-ctx-menu, #upload-queue-panel, ' +
                                   '#interrupted-manager-panel, #fd-update-banner, [id^="fd-spinner-"]')
-            .forEach(el => { if (el.id !== 'message-modal' && el.id !== 'fd-modal-gallery') el.remove(); });
-        document.getElementById('message-modal')?.classList.add('hidden');
+            .forEach(el => {
+                if (el.id === 'fd-modal-gallery') return;
+                // message / notice / preview live in index.html and are
+                // reused: hide them (removing them broke file previews)
+                if (STATIC.has(el)) el.classList.add('hidden');
+                else el.remove();
+            });
     };
     const sampleImage = () => new Promise(res => {
         const c = document.createElement('canvas'); c.width = c.height = 256;

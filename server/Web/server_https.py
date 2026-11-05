@@ -1145,7 +1145,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             _cc = _cache_control_for_path(self.path)
             if _cc:
                 self.send_header("Cache-Control", _cc)
-            super(RequestHandler, self).end_headers()
+            # RequestHandler's own end_headers (CORS, HSTS), not the base
+            # class's — calling super() here skipped them for every static file
+            RequestHandler.end_headers(self)
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
         try:
@@ -1258,7 +1260,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             _cc = _cache_control_for_path(self.path)
             if _cc:
                 self.send_header("Cache-Control", _cc)
-            super(RequestHandler, self).end_headers()
+            # RequestHandler's own end_headers (CORS, HSTS), not the base
+            # class's — calling super() here skipped them for every static file
+            RequestHandler.end_headers(self)
         old_end_headers = self.end_headers
         self.end_headers = patched_end_headers
         try:

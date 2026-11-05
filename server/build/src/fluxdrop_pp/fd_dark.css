@@ -156,11 +156,13 @@
 }
 
 /* ── Footer ──────────────────────────────────────────────────────────────────── */
+/* --fd-muted, not --fd-muted2: #64748b on the dark page is ~3.7:1, too
+   faint for 11px light text (WCAG AA needs 4.5:1); #94a3b8 is ~7:1 */
 [data-theme="dark"] #fluxdrop-footer {
-  color: var(--fd-muted2) !important;
+  color: var(--fd-muted) !important;
 }
 [data-theme="dark"] #fluxdrop-footer a {
-  color: var(--fd-muted2) !important;
+  color: var(--fd-muted) !important;
 }
 
 /* ── Style-fallback banner ──────────────────────────────────────────────────── */
@@ -516,7 +518,7 @@ html[data-theme="dark"] { background: #0d1520 !important; }
 
 /* ── Footer: static-flow spacing ────────────────────────────────────────── */
 #fluxdrop-footer { padding-bottom: env(safe-area-inset-bottom, 0.5rem); }
-[data-theme="dark"] #fluxdrop-footer a { color: var(--fd-muted2) !important; }
+[data-theme="dark"] #fluxdrop-footer a { color: var(--fd-muted) !important; }
 
 /* ── fd-col-mtime and ⋮ column sizing ───────────────────────────────────── */
 /* Remove old desktop-button min-width so the table is compact */

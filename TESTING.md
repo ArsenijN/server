@@ -269,3 +269,9 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   deeper blue and the white text reads easily
 - [ ] Admin → Reports: "Delete file" on a reported CatBox file → the owner's
   used space drops by its size
+
+## Added in V0.22.0.31
+- [ ] `curl -sI https://fluxdrop.me/fluxdrop_pp/script.js` → has
+  `Strict-Transport-Security` and `Access-Control-Allow-Origin: *`
+- [ ] Dark mode: footer text (repo link, ©, TOS / Privacy Policy, versions)
+  reads easily; WAVE extension shows no contrast errors there

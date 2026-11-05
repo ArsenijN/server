@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.30`
+# FluxDrop & server `v0.22.0.31`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -69,6 +69,7 @@ repo. Anyone can use it.
   it's ℹ️ now. Opening the profile menu closes the panel (it covered the menu)
 - Dark mode: blue buttons were too light for their white text; they're a
   deeper blue now, and the selection bar's Trash/Clear keep their red/grey
+- Dark mode: the footer text was too faint (~3.7:1); it's lighter now
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
   the audio preview weren't escaped; neither were usernames in share stats
 
@@ -148,6 +149,9 @@ repo. Anyone can use it.
   quota; reports on CatBox files now find the owner. Report alert emails are
   capped at 10 a minute overall
 - Removed the routes of a friend's site that has moved off this server
+- Static files (scripts, styles, fonts) from the HTTPS server skipped its
+  header code, so they had no HSTS and no CORS header — fonts failed to load
+  when the page was shown from another origin (e.g. an accessibility checker)
 - **Security:** share pages put file/folder names, breadcrumbs and the
   owner's nickname into the page unescaped, so a file named like an HTML tag
   could run script on fluxdrop.me (where the login is stored). Everything is

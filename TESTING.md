@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.26)
+# To test (V0.22.0.1 – V0.22.0.27)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -248,3 +248,8 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Signed-in CatBox upload larger than your free quota → 507
 - [ ] An anonymous upload older than 30 days is removed by the purge
   (shorten with `CATBOX_ANON_RETENTION_DAYS` to check)
+
+## Added in V0.22.0.27
+- [ ] `curl -sI http://gallery.arseniusgen.dev/api/server/ping` →
+  `Location: https://gallery.arseniusgen.dev/api/server/ping` (not fluxdrop.me);
+  `curl -sI http://arseniusgen.dev/api/v1/status.json` → fluxdrop.me

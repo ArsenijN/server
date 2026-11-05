@@ -22,8 +22,7 @@ Wants=network-online.target
 Type=simple
 # ── Change these to match your setup ──
 ExecStart=/usr/bin/python3 /opt/fluxdrop_beacon/ip_beacon.py \
-    --server https://arseniusgen.uk.to:64800 \
-    --insecure \
+    --server https://fluxdrop.me \
     --interval 60
 # ───────────────────────────────────────
 WorkingDirectory=/opt/fluxdrop_beacon
@@ -50,8 +49,7 @@ WantedBy=multi-user.target
 # [Service]
 # Type=oneshot
 # ExecStart=/usr/bin/python3 /opt/fluxdrop_beacon/ip_beacon.py \
-#     --server https://arseniusgen.uk.to:64800 \
-#     --insecure \
+#     --server https://fluxdrop.me \
 #     --once
 # WorkingDirectory=/opt/fluxdrop_beacon
 # Environment=HOME=/opt/fluxdrop_beacon

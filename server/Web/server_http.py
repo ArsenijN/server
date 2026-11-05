@@ -55,6 +55,21 @@ _HTTPS_REDIRECT_PREFIXES = ('/api/', '/auth/')
 # HSTS preload list level, so the browser never sends plain HTTP to that domain.
 _ROOT_HTTPS_DOMAINS = frozenset({'fluxdrop.me', 'www.fluxdrop.me'})
 
+
+def _https_redirect_host(handler) -> str:
+    """Host for an HTTP→HTTPS redirect of an /api/ or /auth/ request.
+
+    FluxDrop's own names (and bare IPs / unknown Host) go to PUBLIC_BASE_URL's
+    host. Any other subdomain keeps its own name: http://gallery.…/api/ is
+    Immich's API, which used to be sent to FluxDrop's."""
+    from shared import FLUXDROP_LEGACY_HOSTS
+    h = handler.headers.get('Host', '').split(':')[0].strip().lower()
+    if (not h or h == _PUBLIC_DOMAIN or h in _ROOT_HTTPS_DOMAINS
+            or h in FLUXDROP_LEGACY_HOSTS or h == 'localhost'
+            or h.replace('.', '').isdigit() or ':' in h):
+        return _PUBLIC_DOMAIN
+    return h
+
 # --- CDN reverse proxy (HTTP) ---
 _CDN_PROXY_PREFIXES = (
     '/api/',
@@ -396,7 +411,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         _clean = requested_path.split('?')[0]
         if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
-            _location = f'https://{_PUBLIC_DOMAIN}{_port_suffix}{requested_path}'
+            _location = f'https://{_https_redirect_host(self)}{_port_suffix}{requested_path}'
             self.send_response(308)
             self.send_header('Location', _location)
             self.send_header('Content-Length', '0')
@@ -576,7 +591,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if any(_clean == p.rstrip('/') or _clean.startswith(p) for p in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)
-            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{requested_path}')
+            self.send_header('Location', f'https://{_https_redirect_host(self)}{_port_suffix}{requested_path}')
             self.send_header('Content-Length', '0')
             self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
             self.end_headers()
@@ -687,7 +702,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)
-            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
+            self.send_header('Location', f'https://{_https_redirect_host(self)}{_port_suffix}{self.path}')
             self.send_header('Content-Length', '0')
             self.send_header('Strict-Transport-Security', _HSTS_HEADER_VALUE)
             self.end_headers()
@@ -736,7 +751,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)
-            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
+            self.send_header('Location', f'https://{_https_redirect_host(self)}{_port_suffix}{self.path}')
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
@@ -762,7 +777,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)
-            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
+            self.send_header('Location', f'https://{_https_redirect_host(self)}{_port_suffix}{self.path}')
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
@@ -788,7 +803,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if any(_p == x.rstrip('/') or _p.startswith(x) for x in _HTTPS_REDIRECT_PREFIXES):
             _port_suffix = f':{_HTTPS_PORT}' if _HTTPS_PORT != 443 else ''
             self.send_response(308)
-            self.send_header('Location', f'https://{_PUBLIC_DOMAIN}{_port_suffix}{self.path}')
+            self.send_header('Location', f'https://{_https_redirect_host(self)}{_port_suffix}{self.path}')
             self.send_header('Content-Length', '0')
             self.end_headers()
             return

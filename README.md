@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.26`
+# FluxDrop & server `v0.22.0.27`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -119,6 +119,8 @@ repo. Anyone can use it.
 - HTTP→HTTPS redirects go to the host and port of `PUBLIC_BASE_URL`; they
   used the CDN's port (64800) and sent `/api/` to the main domain
 - `wand` and `requests` removed from `requirements.txt` (nothing uses them)
+- `server/services/` matches the live units; the `webserver-https` memory
+  drop-in is included and `ip_beacon.service` uses https://fluxdrop.me
 - The legacy global CDN folder (`/cdn`, `CDN_UPLOAD_DIR`) is admins only and
   its button is hidden for others: it was one folder shared by every account.
   Uploading from it went to CatBox (another folder) and never showed up, so
@@ -156,6 +158,9 @@ repo. Anyone can use it.
   upload uses that name)
 - Unfinished upload sessions were purged 2-3 hours early (local time
   compared with UTC)
+- Plain-HTTP `/api/` and `/auth/` requests to other subdomains (Immich at
+  `gallery.…`) were redirected to FluxDrop's host instead of HTTPS on their
+  own name
 - Previewing a 1.6 GB `.tar.gz` failed with HTTP 502 (the proxy gave up
   while the whole archive was decompressed)
 

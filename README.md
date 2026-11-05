@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.32`
+# FluxDrop & server `v0.22.0.33`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -74,6 +74,7 @@ repo. Anyone can use it.
   lighter now — file sizes and dates, breadcrumb links, the sorted column
   name and the sort arrows
 - The script-error banner showed when the page was viewed without CSS
+- The debug bar's ✕ (clear) couldn't be reached by keyboard and was too faint
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
   the audio preview weren't escaped; neither were usernames in share stats
 

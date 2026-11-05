@@ -382,7 +382,9 @@
     bar.innerHTML =
       `<span style="color:#475569;flex-shrink:0;pointer-events:none">${t('debug_bar_label')}</span>` +
       `<span id="fd-db-text" style="flex:1;overflow:hidden;text-overflow:ellipsis">${t('debug_bar_idle')}</span>` +
-      `<span id="fd-db-clear" style="pointer-events:auto;cursor:pointer;color:#475569;flex-shrink:0;padding:0 4px" title="${t('debug_clear')}">✕</span>`;
+      // a <button> (was a <span>) so it's reachable by keyboard; #94a3b8, not
+      // #475569, which was ~2.5:1 on the bar's dark background
+      `<button type="button" id="fd-db-clear" style="pointer-events:auto;cursor:pointer;color:#94a3b8;background:none;border:none;font:inherit;flex-shrink:0;padding:0 4px" title="${t('debug_clear')}" aria-label="${t('debug_clear')}">✕</button>`;
     bar.querySelector('#fd-db-clear').addEventListener('click', () => {
       bar.style.pointerEvents = 'none';
       _history = [];

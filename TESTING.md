@@ -282,3 +282,6 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   ("Назва ▲") or the ⇅ arrows; the hidden selection bar isn't listed
 - [ ] View → Page Style → No Style: the red "failed to load" banner doesn't
   show (the yellow "styles are taking a while" one does — on purpose)
+
+## Added in V0.22.0.33
+- [ ] Debug bar: Tab reaches the ✕, Enter clears it; the ✕ is readable

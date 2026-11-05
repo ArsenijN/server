@@ -229,6 +229,9 @@
     { re: /\bcolor\s*:\s*(#64748b\b)/gi,                                  rep: 'color:#94a3b8' },
     { re: /\bcolor\s*:\s*(#1e40af\b)/gi,                                  rep: 'color:#60a5fa' },
     { re: /\bcolor\s*:\s*(#1d4ed8\b)/gi,                                  rep: 'color:#60a5fa' },
+    // blue-500/600 text (breadcrumb links, active sort column) is ~3:1 on
+    // the dark surface; the lookbehind leaves background-color alone
+    { re: /(?<![-\w])color\s*:\s*(#3b82f6\b|#2563eb\b)/gi,                rep: 'color:#60a5fa' },
   ];
 
   function _isDark(mode) {

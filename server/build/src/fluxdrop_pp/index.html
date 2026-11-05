@@ -165,7 +165,7 @@
     <!-- Script load-failure banner. Unlike the CSS fallback below (a pure-CSS
          "rule exists once loaded" trick), a <script> tag failing to load
          can't be detected in CSS — it needs an onerror handler per tag. -->
-    <div id="fd-script-error" class="hidden"
+    <div id="fd-script-error" class="hidden" hidden
          style="position:fixed;top:0;left:0;width:100%;
                 padding:1.25rem 1.5rem;background:#fee2e2;color:#991b1b;
                 font-family:sans-serif;font-size:14px;line-height:1.6;
@@ -197,7 +197,7 @@
             document.getElementById('fd-se-reload').textContent = 'Перезавантажити';
           }
         } catch (_) {}
-        if (el) el.classList.remove('hidden');
+        if (el) { el.classList.remove('hidden'); el.hidden = false; }
         var boot = document.getElementById('fd-boot-loading');
         if (boot) boot.style.display = 'none';
       };

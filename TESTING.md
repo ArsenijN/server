@@ -275,3 +275,10 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   `Strict-Transport-Security` and `Access-Control-Allow-Origin: *`
 - [ ] Dark mode: footer text (repo link, ©, TOS / Privacy Policy, versions)
   reads easily; WAVE extension shows no contrast errors there
+
+## Added in V0.22.0.32
+- [ ] Firefox F12 → Accessibility → Check for issues → Contrast, dark mode,
+  file list: no hits on sizes, dates, the breadcrumb, the sorted column
+  ("Назва ▲") or the ⇅ arrows; the hidden selection bar isn't listed
+- [ ] View → Page Style → No Style: the red "failed to load" banner doesn't
+  show (the yellow "styles are taking a while" one does — on purpose)

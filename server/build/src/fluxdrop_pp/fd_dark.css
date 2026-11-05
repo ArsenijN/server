@@ -123,6 +123,8 @@
 
 /* ── Tailwind utility overrides for dark mode ──────────────────────────────── */
 [data-theme="dark"] .text-blue-800  { color: #93c5fd !important; }
+/* gray-500 (file sizes, dates) is ~3.5:1 on the dark surface, below WCAG AA */
+[data-theme="dark"] .text-gray-500  { color: var(--fd-muted) !important; }
 [data-theme="dark"] .text-gray-600  { color: var(--fd-muted) !important; }
 [data-theme="dark"] .text-black     { color: var(--fd-text) !important; }
 [data-theme="dark"] .bg-gray-200,

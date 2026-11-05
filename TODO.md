@@ -271,6 +271,9 @@ different, if it's blogs - text of the blogs are changing, etc.)
 slide-in animation for the `fd-sel-bar` (slide down with some part of the UI)
 - [ ] Rework the `btn-toolbar-toggle` to become as mini modal (aka menu) with
 options
+- [ ] Keyboard navigation of the file list: rows are clickable but not
+focusable (Firefox a11y check "keyboard"); the name and ⋮ buttons inside
+are reachable by Tab. Proper fix: a grid with arrow keys (roving tabindex)
 - [ ] AJAX-like updates (no visual reloads of the content)
 - [ ] Multiple files streaming (archive and stream to the server; one stream -
 a lot of files) from `batch_tar_upload.py`

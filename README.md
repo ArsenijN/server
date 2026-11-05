@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.31`
+# FluxDrop & server `v0.22.0.32`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -70,6 +70,10 @@ repo. Anyone can use it.
 - Dark mode: blue buttons were too light for their white text; they're a
   deeper blue now, and the selection bar's Trash/Clear keep their red/grey
 - Dark mode: the footer text was too faint (~3.7:1); it's lighter now
+- Dark mode: more text below the readable contrast minimum (WCAG AA) is
+  lighter now — file sizes and dates, breadcrumb links, the sorted column
+  name and the sort arrows
+- The script-error banner showed when the page was viewed without CSS
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
   the audio preview weren't escaped; neither were usernames in share stats
 

@@ -2099,7 +2099,7 @@ async function loadDirectory(path) {
             const clsAttr = c.cls ? ` class="${c.cls}"` : '';
             return `<th style="${thStyle(c.align)}"${clsAttr}>
                 <button onclick="window._sortBy('${c.key}')"
-                    style="${btnStyle}${activeStyle}">${c.label}<span style="font-size:10px;opacity:.7">${arrow}</span></button>
+                    style="${btnStyle}${activeStyle}">${c.label}<span style="font-size:10px" aria-hidden="true">${arrow}</span></button>
             </th>`;
         }).join('');
         return `<thead><tr style="border-bottom:2px solid #e2e8f0">
@@ -4037,10 +4037,10 @@ window._fdKeepSelectionOnNav = false;
 // load time. Calling it lazily, after everything's loaded, is safe.
 function _selBarGhost() {
     return `
-    <span style="opacity:0;pointer-events:none;flex-shrink:0">${t('sel_bar_count', { n: 0 })}</span>
-    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ ${t('download')}</button>
-    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 ${t('trash')}</button>
-    <button class="btn" style="opacity:0;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ ${t('sel_bar_clear')}</button>`;
+    <span style="visibility:hidden;pointer-events:none;flex-shrink:0">${t('sel_bar_count', { n: 0 })}</span>
+    <button class="btn" style="visibility:hidden;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ ${t('download')}</button>
+    <button class="btn" style="visibility:hidden;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 ${t('trash')}</button>
+    <button class="btn" style="visibility:hidden;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ ${t('sel_bar_clear')}</button>`;
 }
 
 // ── Shared bulk-trash flow ───────────────────────────────────────────────────

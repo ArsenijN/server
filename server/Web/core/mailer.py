@@ -58,6 +58,9 @@ def send_message(msg, to_addrs: list[str]) -> bool:
 
 def send_plain(to: str, subject: str, body: str) -> bool:
     msg = MIMEText(body, 'plain', 'utf-8')
-    msg['Subject'] = subject
+    # Subjects can carry file names, which may contain line breaks: the email
+    # library rightly refuses those (header injection), which would drop the
+    # whole message — flatten them instead.
+    msg['Subject'] = ' '.join(str(subject).split())
     msg['To'] = to
     return send_message(msg, [to])

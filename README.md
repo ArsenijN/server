@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.28`
+# FluxDrop & server `v0.22.0.29`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -158,6 +158,8 @@ repo. Anyone can use it.
   upload uses that name)
 - Unfinished upload sessions were purged 2-3 hours early (local time
   compared with UTC)
+- An email whose subject contains a file name with a line break (e.g. a
+  corruption alert) was dropped; line breaks in subjects are flattened now
 - Plain-HTTP `/api/` and `/auth/` requests to other subdomains (Immich at
   `gallery.…`) were redirected to FluxDrop's host instead of HTTPS on their
   own name

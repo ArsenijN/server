@@ -3620,8 +3620,9 @@ async function _previewTrashFile(trashId, filename, subPath) {
                     <audio controls autoplay style="width:100%"><source src="${blobUrl}"></audio></div>`;
             } else if (cat === 'pdf') {
                 bodyEl.innerHTML = `<iframe src="${blobUrl}"
-                    style="width:100%;height:65vh;border:none;border-radius:8px;background:#fff"
+                    style="width:100%;height:65vh;border:none;border-radius:8px;background:#1e293b;opacity:0;transition:opacity .2s"
                     title="${escapeHtml(filename)}"></iframe>`;
+                _fadeInWhenLoaded(bodyEl.querySelector('iframe'));
             } else {
                 // text / markdown — read as text
                 const text = await blob.text();
@@ -3771,6 +3772,16 @@ function _renderArchiveTree(bodyEl, entries, archiveName) {
         </div>`;
 }
 
+// PDF viewers start blank (white) and only paint once loaded — on the dark
+// preview that flashed a white box. Keep the frame invisible until it loads
+// (with a fallback in case 'load' never fires for a plugin viewer).
+function _fadeInWhenLoaded(frame) {
+    if (!frame) return;
+    const show = () => { frame.style.opacity = '1'; };
+    frame.addEventListener('load', show, { once: true });
+    setTimeout(show, 1500);
+}
+
 window.previewFile = async function(path) {
     // Cancel any previous in-flight preview fetch before starting a new one.
     if (_previewAbortCtrl) { _previewAbortCtrl.abort(); }
@@ -3876,12 +3887,13 @@ window.previewFile = async function(path) {
             // blob: URLs are same-origin to the page — X-Frame-Options does not apply.
             bodyEl.innerHTML = `<iframe
                 src="${pdfBlobUrl}"
-                style="width:100%;height:65vh;border:none;border-radius:8px;background:#fff"
+                style="width:100%;height:65vh;border:none;border-radius:8px;background:#1e293b;opacity:0;transition:opacity .2s"
                 title="${escapeHtml(filename)}">
                 <p style="color:#94a3b8;padding:2rem;text-align:center">
                     Your browser cannot display PDFs inline.
                 </p>
             </iframe>`;
+            _fadeInWhenLoaded(bodyEl.querySelector('iframe'));
             // Revoke the blob URL when the preview is closed.
             const _origClosePdf = window.closePreview;
             window.closePreview = function() {
@@ -4068,6 +4080,15 @@ function _updateSelBar() {
     const n = _selectedPaths.size;
     const bar = document.getElementById('fd-sel-bar');
     if (!bar) return;
+
+    // Touch-only devices (no mouse/trackpad anywhere): no selection bar —
+    // the long-press menu already has the multi-item actions, and the bar
+    // only takes screen space there. Re-checked on every update, so plugging
+    // in a mouse brings it back.
+    const touchOnly = !window.matchMedia('(any-pointer: fine)').matches
+                   && !window.matchMedia('(any-hover: hover)').matches;
+    bar.style.display = touchOnly ? 'none' : '';
+    if (touchOnly) return;
 
     if (n === 0) {
         bar.classList.remove('fd-sel-bar-visible');

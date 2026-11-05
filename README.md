@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.24`
+# FluxDrop & server `v0.22.0.25`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -24,6 +24,8 @@ repo. Anyone can use it.
   stop
 - The trash "Browse" list shows files under their folders
 - Loading spinners on the share "Stats" button and in the profile panel
+- The selection bar is hidden on touch-only devices (phones, tablets
+  without a mouse); the long-press menu has the same actions
 - Emails (sign-up verification, upload notifications) come in the language
   you use in the app; it's saved to your account when you switch it
 - More of the UI is translated: the Uploads/Downloads trays, the Info
@@ -60,6 +62,7 @@ repo. Anyone can use it.
   upload
 - Esc didn't close the Trash
 - The archive preview spinner restarted on every progress update
+- PDF previews flashed a white box before the viewer loaded
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
   the audio preview weren't escaped; neither were usernames in share stats
 

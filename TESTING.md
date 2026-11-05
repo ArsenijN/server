@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.24)
+# To test (V0.22.0.1 – V0.22.0.25)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -235,3 +235,9 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   -d @<old mtime>`). Next pass logs `BAD`, you get the operator email and the
   owner email, and the Info panel shows the red "Damaged" line. Upload the
   file again → the warning disappears
+
+## Added in V0.22.0.25
+- [ ] Phone (no mouse): selecting files doesn't show the selection bar;
+  long-press → menu with "Download N files" / "Move N items to Trash" works.
+  Laptop/desktop: bar as before
+- [ ] PDF preview in dark mode: no white flash while it loads

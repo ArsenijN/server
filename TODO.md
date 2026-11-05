@@ -95,7 +95,13 @@ effective date, then bump `policies/versions.json`
 
 - [ ] File preview modal may blink with light when it doesn't keep up when file
 loads/decodes
+  - Likely cause found, fixed, needs testing: PDF previews were an iframe with
+  a white background, shown before the PDF viewer painted. Now dark and faded
+  in once loaded. If it also happens with other types, note which
 - [ ] Bug with item selector when `Shift` is used (actions modal stays opened)
+  - Not found from the code: Shift+click on a row already closes the context
+  menu and the info panel. Needs exact steps (which "actions modal" — the
+  "⋮" menu, the right-click menu, the selection bar? — and what was clicked)
 - [x] `ap-body`'s spinning wheel is still spinning in background (not visible
 but Animations debugger sees it) -- confirmed fixed on the live server
   - It's the boot loader (`fd-boot-spin`) left in `#app-root`. Safety net
@@ -103,6 +109,8 @@ but Animations debugger sees it) -- confirmed fixed on the live server
   that skipped it is still unknown -- needs testing
 - [ ] Hide file selector (`fd-sel-bar`) for the mobile version if no keyboard
 is present
+  - Done, needs testing: hidden on touch-only devices (no fine pointer and
+  no hover anywhere); multi-item actions stay in the long-press menu
 - [ ] Add animation for file copy when task is executed (button pressed)
 - [ ] Add loading wheels/bars to:
   - [ ] Stats button for shared links manager -- Done, needs testing

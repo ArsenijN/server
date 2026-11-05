@@ -160,6 +160,13 @@ CATBOX_MAX_UPLOAD_BYTES = int(os.getenv('CATBOX_MAX_UPLOAD_BYTES', str(2 * 1024 
 # request (upload, delete) is refused without reading its body; files already
 # uploaded to CATBOX_UPLOAD_DIR stay downloadable.
 CATBOX_API_ENABLED = os.getenv('CATBOX_API_ENABLED', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+# Limits for uploads WITHOUT an account (signed-in users count against their
+# quota instead): uploads per IP per minute, MB per IP per day (in memory —
+# resets on restart, no IPs stored), and how many days anonymous files are
+# kept (0 = forever). Files uploaded before owners were recorded are untouched.
+CATBOX_ANON_PER_MIN        = int(os.getenv('CATBOX_ANON_PER_MIN', '10'))
+CATBOX_ANON_DAILY_MB       = int(os.getenv('CATBOX_ANON_DAILY_MB', '1024'))
+CATBOX_ANON_RETENTION_DAYS = int(os.getenv('CATBOX_ANON_RETENTION_DAYS', '30'))
 
 # When False (production default), routine static-file access logs are suppressed
 # to reduce per-request log I/O overhead on the CDN path.  API, auth, and share

@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.25)
+# To test (V0.22.0.1 – V0.22.0.26)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -241,3 +241,10 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   long-press → menu with "Download N files" / "Move N items to Trash" works.
   Laptop/desktop: bar as before
 - [ ] PDF preview in dark mode: no white flash while it loads
+
+## Added in V0.22.0.26 (CatBox limits, needs `CATBOX_API_ENABLED=1`)
+- [ ] 11 anonymous uploads within a minute from one IP → the 11th gets 429
+- [ ] Anonymous uploads over 1 GB in a day from one IP → 429
+- [ ] Signed-in CatBox upload larger than your free quota → 507
+- [ ] An anonymous upload older than 30 days is removed by the purge
+  (shorten with `CATBOX_ANON_RETENTION_DAYS` to check)

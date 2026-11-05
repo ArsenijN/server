@@ -164,6 +164,9 @@ makes two servers bind one port. Give the front servers their own names
 and daily volume for anonymous uploads, retention/expiry for anonymous files,
 counting against quota for signed-in users); kill switch
 `CATBOX_API_ENABLED` exists
+  - Done, needs testing: `CATBOX_ANON_PER_MIN` / `_DAILY_MB` /
+  `_RETENTION_DAYS`; signed-in uploads checked against quota (incl. their
+  existing CatBox files); owners recorded in `catbox_uploads`
 - [ ] Archive preview (`/api/v1/archive_tree`): a 1.6 GB `.tar.gz` gives
 HTTP 502 -- gzip has no index, so listing decompresses the whole file, and
 the proxy gives `/api/` 10 s; the CDN keeps working after the proxy gave up.

@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.25`
+# FluxDrop & server `v0.22.0.26`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -83,6 +83,10 @@ repo. Anyone can use it.
 - `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` for the front servers
 - `tbot.arseniusgen.dev` proxied to the transcription bot (port 8790)
 - `users.lang` / `PATCH /api/v1/me {lang}`: the language for emails
+- CatBox limits (for when the API is switched back on): uploads without an
+  account are limited per IP (`CATBOX_ANON_PER_MIN`, `CATBOX_ANON_DAILY_MB`)
+  and deleted after `CATBOX_ANON_RETENTION_DAYS`; signed-in users' CatBox
+  files count against their quota
 - Integrity scrub in the background checksum scan: files confirmed more than
   `INTEGRITY_SCRUB_DAYS` (30) ago are read again (up to
   `INTEGRITY_SCRUB_MAX_GB`, 20, per pass) and their SHA-256 compared. A

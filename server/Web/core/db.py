@@ -963,3 +963,20 @@ def integrity_record(relative_path: str, user_id, file_size: int, mtime_ns: int,
             (user_id, relative_path, file_size, mtime_ns, expected_sha256, actual_sha256))
         conn.commit()
         return cur.rowcount > 0
+
+
+def catbox_user_bytes(user_id) -> int:
+    """Total size of a user's CatBox uploads (they live outside the user's folder)."""
+    with _db_connect() as conn:
+        row = conn.execute('SELECT COALESCE(SUM(size_bytes), 0) FROM catbox_uploads WHERE user_id = ?',
+                           (int(user_id),)).fetchone()
+    return int(row[0] or 0)
+
+
+def catbox_expired_anonymous(days: int) -> list:
+    """Stored names of anonymous CatBox uploads older than `days`."""
+    with _db_connect() as conn:
+        rows = conn.execute(
+            "SELECT name FROM catbox_uploads WHERE user_id IS NULL"
+            " AND created_at < datetime('now', ?)", (f'-{int(days)} days',)).fetchall()
+    return [r[0] for r in rows]

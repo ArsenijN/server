@@ -126,7 +126,8 @@ import socket as _socket
 import mimetypes
 
 # Importing core modules
-from core.db import catbox_record_upload, catbox_owner, catbox_forget, integrity_open, integrity_record
+from core.db import catbox_record_upload, catbox_owner, catbox_forget, integrity_open, integrity_record, \
+                    catbox_user_bytes, catbox_expired_anonymous
 from core.mailer import send_plain as _send_plain
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear, \
@@ -387,6 +388,49 @@ _BG_SCAN_BUSY_SLEEP_S = 30   # how long to wait before re-checking a busy system
 # covered over several nights at the scanner's rate limit.
 _SCRUB_DAYS      = int(os.getenv('INTEGRITY_SCRUB_DAYS', '30'))
 _SCRUB_MAX_BYTES = int(float(os.getenv('INTEGRITY_SCRUB_MAX_GB', '20')) * 1024 ** 3)
+
+
+# Daily volume of CatBox uploads without an account, per IP (memory only).
+_catbox_anon_volume: dict = {}   # ip -> (date, bytes)
+_catbox_anon_lock = threading.Lock()
+
+
+def _catbox_anon_used(ip: str) -> int:
+    today = _dt.date.today()
+    with _catbox_anon_lock:
+        day, used = _catbox_anon_volume.get(ip, (today, 0))
+        return used if day == today else 0
+
+
+def _catbox_anon_add(ip: str, n: int) -> None:
+    today = _dt.date.today()
+    with _catbox_anon_lock:
+        if len(_catbox_anon_volume) > 10000:   # bound memory: drop other days
+            for k in [k for k, (d, _) in _catbox_anon_volume.items() if d != today]:
+                del _catbox_anon_volume[k]
+        day, used = _catbox_anon_volume.get(ip, (today, 0))
+        _catbox_anon_volume[ip] = (today, (used if day == today else 0) + n)
+
+
+def _purge_expired_catbox_anonymous() -> None:
+    """Delete anonymous CatBox uploads older than CATBOX_ANON_RETENTION_DAYS."""
+    from config import CATBOX_ANON_RETENTION_DAYS
+    if CATBOX_ANON_RETENTION_DAYS <= 0:
+        return
+    try:
+        root = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR))
+        for name in catbox_expired_anonymous(CATBOX_ANON_RETENTION_DAYS):
+            path = os.path.normpath(os.path.join(root, name))
+            if os.path.dirname(path) != root:
+                continue
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            catbox_forget(name)
+            logging.info('CatBox: removed expired anonymous upload %s', name)
+    except Exception:
+        logging.exception('CatBox retention purge failed')
 
 
 def _integrity_alert(uid: int, rel_path: str, size: int, expected: str, actual: str) -> None:
@@ -2558,6 +2602,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
             rand_name = secrets.token_urlsafe(6).lower().replace('-','').replace('_','')
             dest_path = os.path.normpath(os.path.join(SERVE_ROOT, CATBOX_UPLOAD_DIR, rand_name + file_ext))
             owner_ref = str(user_id)
+            _q_err = self._owner_quota_error(user_id, max(total_size, 0) + catbox_user_bytes(user_id))
+            if _q_err:
+                return self._send_response(507, json.dumps({'error': 'Storage quota exceeded.'}))
         else:
             return self._send_response(400, json.dumps({'error': f'Unknown owner_type: {owner_type}'}))
 
@@ -7506,6 +7553,20 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 "text/plain"
             )
 
+        # Without an account: per-IP rate + daily volume. With one: the
+        # user's quota (CatBox files are stored outside their folder).
+        from config import CATBOX_ANON_PER_MIN, CATBOX_ANON_DAILY_MB
+        ip = self._client_ip()
+        if not user_id:
+            if not _rate_limit(f"catbox:{ip}", "catbox_anon", max_hits=CATBOX_ANON_PER_MIN):
+                return self._send_response(429, "Too many uploads. Try again in a minute.", "text/plain")
+            if _catbox_anon_used(ip) + declared_size > CATBOX_ANON_DAILY_MB * 1024 * 1024:
+                return self._send_response(429, "Daily upload limit for uploads without an account reached.", "text/plain")
+        else:
+            q_err = self._owner_quota_error(user_id, declared_size + catbox_user_bytes(user_id))
+            if q_err:
+                return self._send_response(507, "Storage quota exceeded.", "text/plain")
+
         try:
             file_ext    = os.path.splitext(file_item.filename)[1]
             random_name = secrets.token_urlsafe(6).lower().replace('-', '').replace('_', '')
@@ -7549,6 +7610,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 catbox_record_upload(new_filename, user_id, file_item.filename, bytes_written)
             except Exception:
                 logging.exception('catbox_record_upload failed')
+            if not user_id:
+                _catbox_anon_add(ip, bytes_written)
             logging.info(
                 f"CatBox user '{auth_user_display}' uploaded '{file_item.filename}' "
                 f"({bytes_written} bytes) to '{save_path}'"
@@ -7763,6 +7826,7 @@ def _token_purge_worker():
         time.sleep(interval)
         success = _purge_expired_download_tokens()
         _purge_abandoned_upload_sessions()  # also clean up stale chunked uploads
+        _purge_expired_catbox_anonymous()
 
         # N5: Purge expired pending_verifications rows (1-hour TTL, never bulk-cleared before)
         try:

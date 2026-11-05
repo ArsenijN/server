@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.23`
+# FluxDrop & server `v0.22.0.24`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -80,6 +80,12 @@ repo. Anyone can use it.
 - `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` for the front servers
 - `tbot.arseniusgen.dev` proxied to the transcription bot (port 8790)
 - `users.lang` / `PATCH /api/v1/me {lang}`: the language for emails
+- Integrity scrub in the background checksum scan: files confirmed more than
+  `INTEGRITY_SCRUB_DAYS` (30) ago are read again (up to
+  `INTEGRITY_SCRUB_MAX_GB`, 20, per pass) and their SHA-256 compared. A
+  mismatch while size and mtime are unchanged is silent corruption: it's
+  logged, emailed to the operator and the owner (in their language) and shown
+  in the file's Info panel
 - `users.can_publish` (admin panel → user → "Can publish"): needed to open a
   share to uploads without an account or to CDN embedding; off by default,
   admins always can. Existing shares keep their settings

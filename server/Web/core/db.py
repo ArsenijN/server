@@ -402,6 +402,23 @@ def init_db():
                 closed_at        TIMESTAMP DEFAULT NULL
             )
         ''')
+        # Silent corruption found by the integrity scrub: the file's content
+        # no longer matches its stored SHA-256 although size and mtime are
+        # unchanged. "Open" while the file still has that size + mtime
+        # (replacing or editing the file closes it by itself).
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS file_integrity_issues (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         INTEGER,
+                relative_path   TEXT    NOT NULL,
+                file_size       INTEGER NOT NULL,
+                mtime_ns        INTEGER NOT NULL,
+                expected_sha256 TEXT    NOT NULL,
+                actual_sha256   TEXT    NOT NULL,
+                detected_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, relative_path, mtime_ns, file_size)
+            )
+        ''')
         # Who uploaded each CatBox file (stored name in CATBOX_UPLOAD_DIR).
         # user_id NULL = anonymous upload or uploaded before this table
         # existed — only an admin can delete those.
@@ -922,3 +939,27 @@ def catbox_forget(name: str) -> None:
     with _db_connect() as conn:
         conn.execute('DELETE FROM catbox_uploads WHERE name = ?', (name,))
         conn.commit()
+
+
+def integrity_open(relative_path: str, user_id, file_size: int, mtime_ns: int):
+    """The open integrity issue for this exact file state, or None."""
+    with _db_connect() as conn:
+        row = conn.execute(
+            'SELECT detected_at, expected_sha256, actual_sha256 FROM file_integrity_issues'
+            ' WHERE user_id IS ? AND relative_path = ? AND file_size = ? AND mtime_ns = ?',
+            (user_id, relative_path, file_size, mtime_ns)).fetchone()
+    return ({'detected_at': row[0], 'expected_sha256': row[1], 'actual_sha256': row[2]}
+            if row else None)
+
+
+def integrity_record(relative_path: str, user_id, file_size: int, mtime_ns: int,
+                     expected_sha256: str, actual_sha256: str) -> bool:
+    """Store a corruption finding; True when it's new (alert once)."""
+    with _db_connect() as conn:
+        cur = conn.execute(
+            'INSERT OR IGNORE INTO file_integrity_issues'
+            ' (user_id, relative_path, file_size, mtime_ns, expected_sha256, actual_sha256)'
+            ' VALUES (?,?,?,?,?,?)',
+            (user_id, relative_path, file_size, mtime_ns, expected_sha256, actual_sha256))
+        conn.commit()
+        return cur.rowcount > 0

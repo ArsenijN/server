@@ -126,6 +126,10 @@ background -- specifiable time period in server config
   - [ ] Add parchives to avoid file damages on server
   - [ ] Add some kind of messages if files got corrupted on server side and
   were unrecoverable
+  - Done, needs testing: scrub in the background scanner
+  (`INTEGRITY_SCRUB_DAYS`/`_MAX_GB`), `file_integrity_issues` table, emails
+  to the operator and the owner (in their language), warning in the Info
+  panel. Parity (par2) still to do
 - [ ] Fix CSP for used domain other than `PUBLIC_DOMAIN` (e.g. accessing
 FluxDrop from fluxdrop.me, and it loads the link relative to arseniusgen.uk.to
 as specified in `PUBLIC_DOMAIN`)

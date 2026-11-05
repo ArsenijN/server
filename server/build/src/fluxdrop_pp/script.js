@@ -4705,6 +4705,18 @@ function _initChecksumSection(path, panel) {
         }
         if (!panel.isConnected) return;
 
+        // The nightly integrity scrub found this file damaged (content no
+        // longer matches its checksum although nobody changed it).
+        if (data.integrity_issue && !panel.querySelector('#fd-info-integrity')) {
+            const w = document.createElement('div');
+            w.id = 'fd-info-integrity';
+            w.style.cssText = 'padding:8px 14px;background:#fef2f2;color:#b91c1c;font-size:12px;' +
+                'border-bottom:1px solid var(--fd-border,#e2e8f0)';
+            w.textContent = t('info_integrity_warning',
+                { date: formatMtime(String(data.integrity_issue.detected_at).replace(' ', 'T') + 'Z') });
+            panel.querySelector('#fd-info-cs-wrap')?.before(w);
+        }
+
         const job      = data.job;
         const isActive = job && (job.status === 'pending' || job.status === 'running');
         const isError  = job && job.status === 'error';

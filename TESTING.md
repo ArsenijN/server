@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.23)
+# To test (V0.22.0.1 – V0.22.0.24)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -225,3 +225,13 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   DB (one `PATCH /api/v1/me` in the Network tab)
 - [ ] An upload notification email (if you have one set up) comes in your
   language
+
+## Added in V0.22.0.24 (integrity scrub)
+- [ ] After the next scan pass, `maintenance.log` shows `OK : … verified`
+  lines and a "Scrubbed" line in the summary (files hashed > 30 days ago;
+  to see it sooner, set `INTEGRITY_SCRUB_DAYS=1` for a night)
+- [ ] Simulated corruption (on a throwaway test file only): change one byte
+  in place without changing the size, then put the old mtime back (`touch
+  -d @<old mtime>`). Next pass logs `BAD`, you get the operator email and the
+  owner email, and the Info panel shows the red "Damaged" line. Upload the
+  file again → the warning disappears

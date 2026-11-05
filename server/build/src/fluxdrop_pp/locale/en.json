@@ -664,5 +664,8 @@
   "email_support": "Questions or problems? Just reply to this email or write to {addr}.",
   "email_tagline": "Your files. Your server. Your rules.",
   "email_upload_subject": "FluxDrop: upload complete",
-  "email_upload_body": "FluxDrop upload notification\n\nPath:    {path}\nMessage: {message}\nTime:    {time}\n"
+  "email_upload_body": "FluxDrop upload notification\n\nPath:    {path}\nMessage: {message}\nTime:    {time}\n",
+  "email_corrupt_subject": "FluxDrop: a file may be damaged",
+  "email_corrupt_body": "During a routine check the server found that this file's content changed although nobody edited it — most likely disk damage:\n\n{path}\n\nIf you have a copy, upload it again and choose Replace. The operator has been told.\n",
+  "info_integrity_warning": "⚠ Damaged: the content no longer matches its checksum (found {date}). Upload it again if you have a copy."
 }

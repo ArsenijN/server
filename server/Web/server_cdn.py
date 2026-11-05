@@ -126,7 +126,8 @@ import socket as _socket
 import mimetypes
 
 # Importing core modules
-from core.db import catbox_record_upload, catbox_owner, catbox_forget
+from core.db import catbox_record_upload, catbox_owner, catbox_forget, integrity_open, integrity_record
+from core.mailer import send_plain as _send_plain
 from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, \
                     _assembly_progress_set, _assembly_progress_get, _assembly_progress_clear, \
                     checksum_get, checksum_put, checksum_is_fresh, checksum_rename, checksum_copy, \
@@ -379,6 +380,36 @@ _BG_SCAN_MAX_LOAD     = float(os.getenv('BG_SCAN_MAX_LOAD', '0.5'))   # 1-min lo
 _BG_SCAN_NICE         = int(os.getenv('BG_SCAN_NICE', '19'))
 _BG_SCAN_IDLE_RESCAN_S = int(os.getenv('BG_SCAN_IDLE_RESCAN_S', str(6 * 3600)))  # gap between idle passes
 _BG_SCAN_BUSY_SLEEP_S = 30   # how long to wait before re-checking a busy system
+# Integrity scrub (part of the same scan): re-read a file whose checksum was
+# last confirmed more than INTEGRITY_SCRUB_DAYS ago (0 = off) and compare its
+# SHA-256 — a mismatch with unchanged size + mtime is silent corruption.
+# At most INTEGRITY_SCRUB_MAX_GB is re-read per pass, so the whole storage is
+# covered over several nights at the scanner's rate limit.
+_SCRUB_DAYS      = int(os.getenv('INTEGRITY_SCRUB_DAYS', '30'))
+_SCRUB_MAX_BYTES = int(float(os.getenv('INTEGRITY_SCRUB_MAX_GB', '20')) * 1024 ** 3)
+
+
+def _integrity_alert(uid: int, rel_path: str, size: int, expected: str, actual: str) -> None:
+    """Email the operator and the file's owner (in their language) about a
+    corrupted file. Off-thread; SMTP problems only get logged."""
+    from config import REPORT_NOTIFY_EMAIL
+    def _go():
+        try:
+            if REPORT_NOTIFY_EMAIL:
+                _send_plain(REPORT_NOTIFY_EMAIL, f'[FluxDrop] Corrupted file: user {uid} {rel_path}',
+                    f"The integrity scrub found a file whose content changed although its size "
+                    f"and modification time didn't (disk or filesystem damage).\n\n"
+                    f"User:     {uid}\nPath:     {rel_path}\nSize:     {size}\n"
+                    f"Expected: {expected}\nActual:   {actual}\n")
+            with _db_connect() as conn:
+                row = conn.execute('SELECT email, lang FROM users WHERE id = ?', (uid,)).fetchone()
+            if row and row[0]:
+                lang = row[1] or 'en'
+                _send_plain(row[0], _tr(lang, 'email_corrupt_subject'),
+                            _tr(lang, 'email_corrupt_body', path=rel_path))
+        except Exception:
+            logging.exception('integrity alert failed for %s %s', uid, rel_path)
+    threading.Thread(target=_go, name='IntegrityAlert', daemon=True).start()
 
 
 _MAINTENANCE_LOG = os.getenv(
@@ -506,6 +537,7 @@ def _bg_crc32_scanner():
         run_start_ts = time.time()
         scanned = skipped = errors = 0
         bytes_read = 0
+        scrub_bytes = 0; scrubbed = corrupted = 0
         done       = False
         pauses     = 0
         paused_s   = 0.0
@@ -600,9 +632,18 @@ def _bg_crc32_scanner():
                         except OSError:
                             continue
                         stored = checksum_get(rel_path, uid)
+                        scrub = False
                         if stored and checksum_is_fresh(stored, abs_path) and stored.get('sha256'):
-                            skipped += 1; user_skipped += 1
-                            continue
+                            # Integrity scrub: confirmed long ago → read it again
+                            # (unless this exact state is already reported).
+                            if (_SCRUB_DAYS > 0
+                                    and time.time() - (stored.get('computed_at') or 0) > _SCRUB_DAYS * 86400
+                                    and scrub_bytes + st.st_size <= _SCRUB_MAX_BYTES
+                                    and not integrity_open(rel_path, uid, st.st_size, int(st.st_mtime_ns))):
+                                scrub = True
+                            else:
+                                skipped += 1; user_skipped += 1
+                                continue
                         # Compute CRC-32 + SHA-256 in a single read pass
                         crc = 0; h256 = _hl.sha256(); read_b = 0
                         try:
@@ -627,6 +668,27 @@ def _bg_crc32_scanner():
                             if done:
                                 break   # partial read — don't store a checksum for it
                             sha256_hex = h256.hexdigest()
+                            if scrub:
+                                scrub_bytes += read_b
+                                st2 = os.stat(abs_path)
+                                if (st2.st_size, st2.st_mtime_ns) != (st.st_size, st.st_mtime_ns):
+                                    continue   # changed while reading: a normal re-hash next pass
+                                if sha256_hex == stored['sha256'].lower():
+                                    checksum_put(rel_path, uid, crc, st.st_size,
+                                                 int(st.st_mtime_ns), 'scrub', sha256=sha256_hex)
+                                    scrubbed += 1
+                                    _ml(f'  OK   : {rel_path}  verified')
+                                else:
+                                    # Keep the stored (good) checksum — it's the reference.
+                                    corrupted += 1
+                                    _ml(f'  BAD  : {rel_path}  expected sha256={stored["sha256"][:16]}…  '
+                                        f'got {sha256_hex[:16]}…  (size/mtime unchanged)')
+                                    logging.error('Integrity scrub: %s (user %s) is corrupted', rel_path, uid)
+                                    if integrity_record(rel_path, uid, st.st_size, int(st.st_mtime_ns),
+                                                        stored['sha256'].lower(), sha256_hex):
+                                        _integrity_alert(uid, rel_path, st.st_size,
+                                                         stored['sha256'].lower(), sha256_hex)
+                                continue
                             checksum_put(rel_path, uid, crc, st.st_size,
                                          int(st.st_mtime_ns), 'background',
                                          sha256=sha256_hex)
@@ -653,6 +715,8 @@ def _bg_crc32_scanner():
         _ml(f'  Paused   : {pauses} time(s), {int(paused_s // 60)}m {int(paused_s % 60)}s total (system busy)')
         _ml(f'  Hashed   : {scanned} file(s)  ({bytes_read / 1024 / 1024:.1f} MB read)')
         _ml(f'  Skipped  : {skipped} file(s)  (checksum already fresh)')
+        _ml(f'  Scrubbed : {scrubbed} file(s) verified, {corrupted} corrupted  '
+            f'({scrub_bytes / 1024 / 1024:.1f} MB re-read)')
         _ml(f'  Errors   : {errors}')
         _ml(f'  Complete : {"NO — window closed early" if done else "YES"}')
         _ml(SEP + '\n')
@@ -3454,8 +3518,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 logging.exception('fileinfo: job lookup failed for %r', abs_path)
 
             mime_guess, _ = mimetypes.guess_type(abs_path)
+            try:
+                integrity = integrity_open(cs_key, cs_uid, st.st_size, int(st.st_mtime_ns))
+            except Exception:
+                integrity = None
 
             payload = {
+                'integrity_issue': ({'detected_at': integrity['detected_at']} if integrity else None),
                 'name':   os.path.basename(abs_path),
                 'size':   st.st_size,
                 'mtime':  datetime.fromtimestamp(st.st_mtime).isoformat(timespec='seconds'),

@@ -6,7 +6,7 @@ from email.mime.multipart import MIMEMultipart
 from core.db import _db_connect
 from core.rate_limit import _rate_limit
 from config import SMTP_SERVER, SMTP_PORT, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD, SMTP_REPLY_TO, CONTACT_EMAIL
-from core.snippets import _render_snippet
+from core.snippets import _render_snippet, tr as _tr
 from core.mailer import send_message
 from config import PUBLIC_DOMAIN, HTTPS_PORT, SERVE_DIRECTORY, PUBLIC_BASE_URL
 from email.mime.image import MIMEImage
@@ -42,7 +42,7 @@ def hash_password(password: str, salt=None) -> tuple[str, str]:
     hashed = bcrypt.hashpw(_prepare_password(password), bcrypt.gensalt(rounds=12))   # ← P6
     return hashed.decode('utf-8'), ''
 
-def send_verification_email(email, token, username):
+def send_verification_email(email, token, username, lang='en'):
     """Sends a verification email to the user.
 
     The function can operate in three modes:
@@ -64,7 +64,7 @@ def send_verification_email(email, token, username):
         return True
 
     # Compose the message once, regardless of send outcome.
-    subject = "Verify your FluxDrop Account"
+    subject = _tr(lang, 'email_verify_subject')
 
     # Gmail blocks SVG entirely; only raster formats work. icon.svg is an
     # Inkscape wrapper around a single embedded data:image/png;base64 raster,
@@ -107,10 +107,12 @@ def send_verification_email(email, token, username):
     # (SpamAssassin HTML_IMAGE_ONLY_*).
     support_addr = SMTP_REPLY_TO or CONTACT_EMAIL
     support_html = (
-        f'<p style="color:#94a3b8;font-size:12px;margin:0 0 8px">Questions or problems? Just reply to this '
-        f'email or write to <a href="mailto:{support_addr}" style="color:#64748b">{support_addr}</a>.</p>'
+        '<p style="color:#94a3b8;font-size:12px;margin:0 0 8px">'
+        + _html.escape(_tr(lang, 'email_support')).replace(
+            '{addr}', f'<a href="mailto:{support_addr}" style="color:#64748b">{support_addr}</a>')
+        + '</p>'
         if support_addr else '')
-    html_body = _render_snippet('email_verification.html',
+    html_body = _render_snippet('email_verification.html', lang=lang,
         icon_img=icon_img,
         username=_html.escape(username),
         verification_link=verification_link,
@@ -126,15 +128,14 @@ def send_verification_email(email, token, username):
     # Wrap HTML in multipart/alternative (text fallback + HTML)
     alt = MIMEMultipart('alternative')
     alt.attach(MIMEText(
-        f"Hello {username},\n\n"
-        f"Thanks for signing up. Confirm your email address to activate your account:\n"
+        f"{_tr(lang, 'email_hello')} {username},\n\n"
+        f"{_tr(lang, 'email_thanks')}\n"
         f"{verification_link}\n\n"
-        f"Once it's confirmed, you can sign in and start uploading, organising and sharing your files.\n\n"
-        f"This link expires in 1 hour. If you didn't create a FluxDrop account, you can ignore this email.\n\n"
-        f"You're receiving this because someone signed up for FluxDrop with {email}. "
-        f"We only email you about your account; there are no newsletters or ads.\n"
-        + (f"Questions or problems? Just reply to this email or write to {support_addr}.\n" if support_addr else "")
-        + "\nFluxDrop - Your files. Your server. Your rules.",
+        f"{_tr(lang, 'email_after')}\n\n"
+        f"{_tr(lang, 'email_expires')}\n\n"
+        f"{_tr(lang, 'email_why', email=email)}\n"
+        + (_tr(lang, 'email_support', addr=support_addr) + "\n" if support_addr else "")
+        + f"\nFluxDrop - {_tr(lang, 'email_tagline')}",
         'plain'
     ))
     alt.attach(MIMEText(html_body, 'html'))

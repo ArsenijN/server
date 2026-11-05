@@ -652,5 +652,17 @@
   "sp_go_app": "Go to FluxDrop",
   "sp_notfound_title": "Link not found",
   "sp_notfound_badge": "NOT FOUND",
-  "sp_notfound_body": "This share link is invalid or has been revoked by its owner."
+  "sp_notfound_body": "This share link is invalid or has been revoked by its owner.",
+  "email_verify_subject": "Verify your FluxDrop account",
+  "email_hello": "Hello",
+  "email_thanks": "Thanks for signing up. Confirm your email address to activate your account:",
+  "email_after": "Once it's confirmed, you can sign in and start uploading, organising and sharing your files.",
+  "email_verify_btn": "Verify my account",
+  "email_paste": "Or paste this link into your browser:",
+  "email_expires": "This link expires in 1 hour. If you didn't create a FluxDrop account, you can safely ignore this email — nothing will happen.",
+  "email_why": "You're receiving this because someone signed up for FluxDrop with {email}. We only email you about your account; there are no newsletters or ads.",
+  "email_support": "Questions or problems? Just reply to this email or write to {addr}.",
+  "email_tagline": "Your files. Your server. Your rules.",
+  "email_upload_subject": "FluxDrop: upload complete",
+  "email_upload_body": "FluxDrop upload notification\n\nPath:    {path}\nMessage: {message}\nTime:    {time}\n"
 }

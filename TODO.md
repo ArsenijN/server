@@ -173,6 +173,10 @@ early (same class of bug as audit B14)
   2026-11-03 15:27 was purged 2026-11-05 15:31 (48 h TTL)
 - [ ] Use separate email for FluxDrop
 - [ ] Send emails in the user's locale
+  - Done, needs testing: `users.lang` (from the app/browser at sign-up,
+  then synced from the app's language switch via `PATCH /api/v1/me`);
+  verification and upload-notification emails use it. Report emails to the
+  operator stay English
 - [ ] Update the services (and exclude the entry in the `.gitignore`)
 - [ ] Document the new proxy method that is currently used with my Immich
 instance

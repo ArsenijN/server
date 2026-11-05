@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.22`
+# FluxDrop & server `v0.22.0.23`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -24,6 +24,8 @@ repo. Anyone can use it.
   stop
 - The trash "Browse" list shows files under their folders
 - Loading spinners on the share "Stats" button and in the profile panel
+- Emails (sign-up verification, upload notifications) come in the language
+  you use in the app; it's saved to your account when you switch it
 - More of the UI is translated: the Uploads/Downloads trays, the Info
   panel, the Move/Rename/Copy dialog, the copy toast and archive preview
 - A ZIP that the server is still preparing shows "Building archive…"
@@ -77,6 +79,7 @@ repo. Anyone can use it.
   compression ratio (`ARCHIVE_TREE_*` settings)
 - `FRONT_HTTP_PORT` / `FRONT_HTTPS_PORT` for the front servers
 - `tbot.arseniusgen.dev` proxied to the transcription bot (port 8790)
+- `users.lang` / `PATCH /api/v1/me {lang}`: the language for emails
 - `users.can_publish` (admin panel → user → "Can publish"): needed to open a
   share to uploads without an account or to CDN embedding; off by default,
   admins always can. Existing shares keep their settings

@@ -150,7 +150,7 @@ from core.auth import _hash_session_token, _prepare_password, hash_password, sen
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
 from core.meta import _SERVER_START_TIME, SERVER_VERSION
 from config import DEBUG_LOGGING
-from core.snippets import _render_snippet, pick_lang, tr as _tr
+from core.snippets import _render_snippet, pick_lang, load_locale, tr as _tr
 from core.archive_tree import archive_tree_get, archive_tree_prewarm
 
 # Content-types that benefit from gzip (text-based, not already compressed).
@@ -3865,10 +3865,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 data = json.loads(self.rfile.read(length))
             except Exception:
                 return self._send_response(400, json.dumps({'error': 'Invalid JSON.'}))
-            allowed = {'nickname', 'email'}
+            allowed = {'nickname', 'email', 'lang'}
             updates = {k: v for k, v in data.items() if k in allowed and isinstance(v, str) and v.strip()}
+            # lang: one of the app's locales (the email language)
+            if 'lang' in updates and not (re.fullmatch(r'[a-z]{2}', updates['lang'])
+                                          and load_locale(updates['lang'])):
+                return self._send_response(400, json.dumps({'error': 'Unknown language.'}))
             if not updates:
-                return self._send_response(400, json.dumps({'error': 'Nothing to update. Allowed fields: nickname, email.'}))
+                return self._send_response(400, json.dumps({'error': 'Nothing to update. Allowed fields: nickname, email, lang.'}))
             parts = ', '.join(f'{k} = ?' for k in updates)
             vals  = [v.strip() for v in updates.values()] + [user_id]
             with _db_connect() as conn:
@@ -4203,6 +4207,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # actual time, i.e. tokens practically never expired same-day. Match
         # the format exactly and use real UTC.
         expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+        signup_lang = pick_lang(self)   # app language (fd_lang cookie) or the browser's
 
         with _db_connect() as conn:
             cursor = conn.cursor()
@@ -4213,8 +4218,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     (username, nickname, email)
                 )
                 cursor.execute(
-                    "INSERT INTO pending_verifications (username, nickname, email, password_hash, salt, verification_token, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (username, nickname, email, password_hash, salt, verification_token, expires_at)
+                    "INSERT INTO pending_verifications (username, nickname, email, password_hash, salt, verification_token, expires_at, lang) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (username, nickname, email, password_hash, salt, verification_token, expires_at, signup_lang)
                 )
                 conn.commit()
             except sqlite3.IntegrityError as ie:
@@ -4222,7 +4227,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 logging.warning(f"Integrity error when inserting pending_verification: {ie}")
                 return self._send_response(409, json.dumps({"error": "Username, nickname, or email already exists (pending)."}))
 
-        if send_verification_email(email, verification_token, username):
+        if send_verification_email(email, verification_token, username, lang=signup_lang):
             return self._send_response(201, json.dumps({"message": "Registration successful. Please check your email to verify your account."}))
         else:
             return self._send_response(500, json.dumps({"error": "Failed to send verification email."}))
@@ -4268,10 +4273,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(400, json.dumps({"error": "Invalid or expired link.", "code": "invalid"}))
         _id, username, nickname, email, password_hash, salt, _exp = row
         with _db_connect() as conn:
+            _lr = conn.execute("SELECT lang FROM pending_verifications WHERE verification_token = ?",
+                               (token,)).fetchone()
             try:
                 conn.execute(
-                    "INSERT INTO users (username, nickname, email, password_hash, salt) VALUES (?, ?, ?, ?, ?)",
-                    (username, nickname, email, password_hash, salt))
+                    "INSERT INTO users (username, nickname, email, password_hash, salt, lang) VALUES (?, ?, ?, ?, ?, ?)",
+                    (username, nickname, email, password_hash, salt, _lr[0] if _lr else None))
             except sqlite3.IntegrityError:
                 # Someone else verified the same name/email first.
                 conn.execute("DELETE FROM pending_verifications WHERE verification_token = ?", (token,))

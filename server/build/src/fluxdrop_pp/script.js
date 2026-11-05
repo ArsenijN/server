@@ -155,6 +155,20 @@ let authToken = localStorage.getItem('fluxdrop_token');
 let currentUsername = localStorage.getItem('fluxdrop_username');
 let isAdmin = localStorage.getItem('fluxdrop_is_admin') === '1';
 let _canPublish = null;   // from /api/v1/me — see _fetchCanPublish
+
+// Email language: the server sends verification / notification emails in the
+// language picked here (users.lang). Synced on change, after login and once
+// per browser when it differs from what was last sent.
+function _syncLangToServer() {
+    const lang = window.FDi18n && window.FDi18n.lang;
+    if (!lang || !authToken) return;
+    if (localStorage.getItem('fluxdrop_lang_synced') === lang) return;
+    apiCall('/api/v1/me', 'PATCH', { lang })
+        .then(() => localStorage.setItem('fluxdrop_lang_synced', lang))
+        .catch(() => {});
+}
+document.addEventListener('fd-locale-change', _syncLangToServer);
+window.addEventListener('load', () => setTimeout(_syncLangToServer, 3000));
 // Track the currently viewed path in the file browser (always starts at root)
 let currentPath = '/';
 // Best-effort cache of the current Trash retention period, kept up to date
@@ -6971,10 +6985,12 @@ async function handleLogin(e) {
         currentUsername = data.username;
         isAdmin = !!data.is_admin;
         _canPublish = null;
+        localStorage.removeItem('fluxdrop_lang_synced');   // new account: send it again
         { const cb = document.getElementById('btn-browse-cdn'); if (cb) cb.style.display = isAdmin ? '' : 'none'; }
         localStorage.setItem('fluxdrop_token', authToken);
         localStorage.setItem('fluxdrop_is_admin', data.is_admin ? '1' : '0');
         localStorage.setItem('fluxdrop_username', currentUsername);
+        _syncLangToServer();
         if (data.id) localStorage.setItem('fluxdrop_user_id', String(data.id));
         const _authModal = document.getElementById('fd-auth-modal');
         if (_authModal) window.fdCloseOverlay(_authModal);

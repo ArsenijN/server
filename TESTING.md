@@ -1,4 +1,4 @@
-# To test (V0.22.0.1 – V0.22.0.21)
+# To test (V0.22.0.1 – V0.22.0.23)
 
 Changes made since V0.22.0 that still need a check on the live server.
 Tick an item when it works; if it doesn't, write what happened under it.
@@ -217,3 +217,11 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
   log opens, then its label comes back
 - [ ] Profile panel: spinners in the quota card and the account line until
   the data arrives (throttle the network to see them)
+
+## Added in V0.22.0.23
+- [ ] Register a test account with the app (or browser) in Ukrainian: the
+  verification email is in Ukrainian (subject, text, button)
+- [ ] Switch the app language while signed in: `users.lang` changes in the
+  DB (one `PATCH /api/v1/me` in the Network tab)
+- [ ] An upload notification email (if you have one set up) comes in your
+  language

@@ -4,6 +4,7 @@ from core.db import _db_connect
 # SMTP config — these globals must come with it:
 import os
 from core.mailer import send_plain, smtp_configured
+from core.snippets import tr as _tr
 
 # ── B13: SSRF-safe webhook delivery ─────────────────────────────────────────
 # Webhook targets are supplied by an authenticated user (POST /api/v1/notifications)
@@ -89,6 +90,15 @@ def _fire_upload_notification(user_id: int, path: str, message: str) -> None:
     subs = _get_upload_notifications(user_id)
     if not subs:
         return
+    # Email language: the one the user picked in the app (users.lang).
+    lang = 'en'
+    try:
+        with _db_connect() as conn:
+            row = conn.execute('SELECT lang FROM users WHERE id = ?', (user_id,)).fetchone()
+        if row and row[0]:
+            lang = row[0]
+    except Exception:
+        pass
 
     payload = {
         "event":   "upload_complete",
@@ -155,11 +165,9 @@ def _fire_upload_notification(user_id: int, path: str, message: str) -> None:
                         continue
                     ok = send_plain(
                         target,
-                        "FluxDrop: upload complete",
-                        f"FluxDrop upload notification\n\n"
-                        f"Path:    {path}\n"
-                        f"Message: {message}\n"
-                        f"Time:    {time.strftime('%Y-%m-%d %H:%M:%S')}\n",
+                        _tr(lang, 'email_upload_subject'),
+                        _tr(lang, 'email_upload_body', path=path, message=message,
+                            time=time.strftime('%Y-%m-%d %H:%M:%S')),
                     )
                     if ok:
                         logging.info(f"Notification email sent to {target!r}")

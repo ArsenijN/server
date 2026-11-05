@@ -439,6 +439,10 @@ def init_db():
         # Admin-granted: may open a share to anonymous uploads or CDN embedding
         # (later also the public space). Admins always may.
         _add_column_if_missing('users', 'can_publish', 'INTEGER NOT NULL DEFAULT 0')
+        # Language for emails: from the browser at sign-up, then whatever the
+        # user picks in the app (PATCH /api/v1/me {lang}).
+        _add_column_if_missing('users', 'lang', 'TEXT DEFAULT NULL')
+        _add_column_if_missing('pending_verifications', 'lang', 'TEXT DEFAULT NULL')
         _add_column_if_missing('beacon_read_tokens', 'last_used', 'REAL DEFAULT NULL')
         _add_column_if_missing('upload_sessions', 'strategy',
                                "TEXT NOT NULL DEFAULT 'buffer'")

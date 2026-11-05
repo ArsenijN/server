@@ -10,6 +10,9 @@
 #   _get_chunk_lock(token)         — per-upload serialisation lock
 #   _release_chunk_lock(token)     — release after assembly or purge
 #   _assembly_progress_{set,get,clear}(token, ...) — in-process progress tracker
+#   checksum_{get,put,is_fresh,rename,copy}(...)    — stored CRC-32 / SHA-256
+#   catbox_{record_upload,owner,forget,user_bytes,expired_anonymous}(...)
+#   integrity_{open,record}(...)   — corruption found by the integrity scrub
 #
 # core/rate_limit.py
 #   _rate_limit(ip, bucket, max_hits) → bool  — sliding-window throttle
@@ -19,7 +22,7 @@
 #
 # core/auth.py
 #   hash_password(password) → (hash, '')
-#   send_verification_email(email, token, username)
+#   send_verification_email(email, token, username, lang)
 #   _mint_download_token(relative_path, user_id) → raw_token
 #   _validate_download_token(relative_path, raw_token) → dict | None
 #   _update_token_progress(token_id, bytes_confirmed)
@@ -70,7 +73,24 @@
 #   _get_status_history(days)
 #
 # core/snippets.py
-#   _render_snippet(filename, **kwargs) → str   — safe {PLACEHOLDER} substitution
+#   _render_snippet(filename, lang, **kwargs) → str — {PLACEHOLDER} substitution,
+#                                    {t:key} / {tjs:key} translations, {lang}
+#   pick_lang(handler) → 'en'|'uk'… — ?lang=, fd_lang cookie, Accept-Language
+#   tr(lang, key, **vars) → str     — one string from the app's locale files
+#
+# core/archive_tree.py
+#   archive_tree_get(abs_path) → (status, body)  — cached listing; 202 while a
+#                                    .tar(.gz) is read by the background worker
+#   archive_tree_prewarm(abs_path)  — queue a listing right after an upload
+#
+# core/mailer.py
+#   send_message(msg, to_addrs) / send_plain(to, subject, body) / smtp_configured()
+#
+# core/reports.py
+#   create_report(...) / list_reports(status) / apply_action(id, action, note)
+#
+# core/accounts.py
+#   delete_account(user_id) / purge_deleted_accounts()
 #
 # core/meta.py
 #   SERVER_VERSION      — string read from VERSION file

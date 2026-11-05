@@ -124,7 +124,7 @@ pages are translated on the server since V0.22.0.20; needs testing
 
 - [ ] Make separate "testing" server where I would be able to test everything
 before pushing to the real one (needed before the FE V2 rewrite)
-- [ ] Add code map
+- [x] Add code map -- `CODEMAP.md` (+ the module index in `server_cdn.py`)
 - [ ] Check code for security flaws/vulnerabilities -- audit v8, covering
 everything since V0.20.0.21 (last audit, see `fluxdrop_audit.md`)
   - [ ] B8: raise HSTS `max-age` (still `300`)

@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.27`
+# FluxDrop & server `v0.22.0.28`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -174,6 +174,8 @@ repo. Anyone can use it.
 - Moved the finished "Background hashsums" entry to the Done part of `TODO.md`
 - Reorganised `TODO.md` into phases (priority fixes → backend → API V2 →
   frontend V2), with the project rules in their own section
+- Added [CODEMAP.md](./CODEMAP.md); the module index in `server_cdn.py` is
+  up to date again
 - Updated the `README.md` layout; installation instructions moved to the
   [Wiki](https://github.com/ArsenijN/server/wiki), which was updated to match
   the current code
@@ -296,6 +298,9 @@ Short version:
 ---
 
 ## Dev notes
+
+[CODEMAP.md](./CODEMAP.md) shows where things live (servers, `core/`
+modules, frontend sections, database tables, request flow).
 
 ### Upload temp directory
 

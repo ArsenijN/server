@@ -232,6 +232,9 @@
     // blue-500/600 text (breadcrumb links, active sort column) is ~3:1 on
     // the dark surface; the lookbehind leaves background-color alone
     { re: /(?<![-\w])color\s*:\s*(#3b82f6\b|#2563eb\b)/gi,                rep: 'color:#60a5fa' },
+    // red / indigo text: ~4.1:1 and ~3.5:1 on the dark surface
+    { re: /(?<![-\w])color\s*:\s*(#ef4444\b|#dc2626\b)/gi,                rep: 'color:#f87171' },
+    { re: /(?<![-\w])color\s*:\s*(#6366f1\b|#4f46e5\b)/gi,                rep: 'color:#a5b4fc' },
   ];
 
   function _isDark(mode) {
@@ -370,6 +373,9 @@
     if (_bar && _bar.isConnected) return _bar;
     const bar = document.createElement('div');
     bar.id = 'fd-debug-bar';
+    // a landmark of its own, so its text isn't "outside every landmark"
+    bar.setAttribute('role', 'complementary');
+    bar.setAttribute('aria-label', 'Network activity');
     // Inline the critical z-index so it can never be overridden by a stylesheet
     bar.style.cssText =
       'position:fixed;bottom:30px;left:0;right:0;height:22px;line-height:22px;' +
@@ -1087,3 +1093,32 @@ window.fdCloseFloatingPanel = function (panel, ms) {
     panel.addEventListener('animationend', finish, { once: true });
     setTimeout(finish, ms || 200); // safety net if animationend doesn't fire
 };
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Overlays as dialogs
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Modals are built in many places in script.js; mark each one as a dialog
+ * when it's added, so screen readers announce it and its content isn't
+ * reported as sitting outside every landmark (axe "region"). The name comes
+ * from the overlay's first heading.
+ */
+(function () {
+  'use strict';
+  const SEL = '.modal-overlay, .fd-profile-overlay, #fd-auth-modal, [id$="-overlay"]';
+  function mark(el) {
+    if (el.getAttribute('role')) return;
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    const h = el.querySelector('h1, h2, h3, h4');
+    const name = h && h.textContent.trim();
+    if (name) el.setAttribute('aria-label', name);
+  }
+  function scan(node) {
+    if (node.nodeType !== 1) return;
+    if (node.matches(SEL)) mark(node);
+    node.querySelectorAll(SEL).forEach(mark);
+  }
+  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(scan)))
+    .observe(document.documentElement, { childList: true, subtree: true });
+  if (document.body) scan(document.body);
+})();

@@ -772,7 +772,7 @@ function renderAuthControls() {
                     ${t('welcome_text')} ${escapeHtml(currentUsername)}!
                 </span>
                 <button id="profile-btn" title="Profile & Settings"
-                    style="width:36px;height:36px;border-radius:50%;background:#3b82f6;border:2px solid #93c5fd;
+                    style="width:36px;height:36px;border-radius:50%;background:#2563eb;border:2px solid #93c5fd;
                             color:white;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
                             flex-shrink:0;transition:background .2s;overflow:hidden;padding:0"
                     onmouseenter="this.style.background='#2563eb'" onmouseleave="this.style.background='#3b82f6'">
@@ -1350,7 +1350,7 @@ async function _showPolicyAgreementModal(type, version, onAccepted) {
             bodyEl.innerHTML = `
                 <p style="color:#dc2626">${escapeHtml(reason)}</p>
                 <p>
-                    <button id="pam-retry-btn" class="btn" style="background:#3b82f6;margin-right:8px">${escapeHtml(t('retry_btn'))}</button>
+                    <button id="pam-retry-btn" class="btn" style="background:#2563eb;margin-right:8px">${escapeHtml(t('retry_btn'))}</button>
                     ${escapeHtml(t('policy_load_retry_hint'))}
                 </p>`;
             const retryBtn = bodyEl.querySelector('#pam-retry-btn');
@@ -1540,13 +1540,13 @@ function renderFileBrowserView() {
                             📎 <span id="upload-file-label">${t('no_file_selected') !== 'no_file_selected' ? t('no_file_selected') : 'Choose files…'}</span>
                         </button>
                         <button type="button" id="btn-folder-toggle" class="btn text-sm"
-                            style="background:#0ea5e9;flex-shrink:0;padding:.45rem .75rem" title="${t('folder_mode')}">${t('folder_button')}</button>
+                            style="background:#0369a1;flex-shrink:0;padding:.45rem .75rem" title="${t('folder_mode')}">${t('folder_button')}</button>
                         <label class="text-sm" style="flex-shrink:0;white-space:nowrap"><input type="checkbox" id="upload-protected" /> ${t('protected')}</label>
                         <button class="btn" id="btn-upload-submit" type="submit" style="flex-shrink:0;padding:.45rem .9rem">${t('upload')}</button>
                         <span id="upload-spinner" style="display:none;font-size:18px;animation:spin 0.8s linear infinite">⏳</span>
                         <button type="button" id="btn-show-queue"
                             class="btn text-sm hidden"
-                            style="background:#6366f1;flex-shrink:0"
+                            style="background:#4f46e5;flex-shrink:0"
                             title="${t('upload_queue')}">
                             📋 ${t('upload_queue')} (<span id="queue-count">0</span>)
                         </button>
@@ -1581,7 +1581,7 @@ function renderFileBrowserView() {
                  so it stays reachable even while a transfer is in progress. -->
             <button id="fd-mobile-upload-fab" type="button" title="${t('upload')}"
                 style="display:none;position:fixed;left:18px;bottom:22px;width:52px;height:52px;
-                       border-radius:50%;background:#3b82f6;color:#fff;border:none;
+                       border-radius:50%;background:#2563eb;color:#fff;border:none;
                        align-items:center;justify-content:center;font-size:22px;
                        box-shadow:0 6px 16px rgba(0,0,0,.3);z-index:9100;cursor:pointer">⬆</button>
         </div>
@@ -3162,7 +3162,7 @@ function renderDownloadTray() {
                 </div>
                 <div style="background:#334155;border-radius:4px;height:6px;margin-bottom:6px">
                     <div class="dl-bar"
-                        style="background:#3b82f6;height:6px;border-radius:4px;width:0%;transition:width .3s"></div>
+                        style="background:#2563eb;height:6px;border-radius:4px;width:0%;transition:width .3s"></div>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <span class="dl-status" style="color:#64748b"></span>
@@ -3177,13 +3177,13 @@ function renderDownloadTray() {
 
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = t('cancel');
-            cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;' +
+            cancelBtn.style.cssText = 'background:#dc2626;color:#fff;border:none;border-radius:5px;' +
                 'padding:2px 8px;cursor:pointer;font-size:11px';
             cancelBtn.addEventListener('click', () => cancelDownload(path));
 
             const resumeBtn = document.createElement('button');
             resumeBtn.textContent = t('dl_resume');
-            resumeBtn.style.cssText = 'background:#3b82f6;color:#fff;border:none;border-radius:5px;' +
+            resumeBtn.style.cssText = 'background:#2563eb;color:#fff;border:none;border-radius:5px;' +
                 'padding:2px 8px;cursor:pointer;font-size:11px';
             resumeBtn.addEventListener('click', () => resumeDownload(encodeURIComponent(path)));
 
@@ -3534,7 +3534,7 @@ async function _fetchBlobWithProgress(resp, signal, bodyEl) {
                 background:linear-gradient(90deg,#1e293b 25%,#334155 50%,#1e293b 75%);
                 background-size:200% 100%;animation:fd-shimmer 1.4s infinite;margin-bottom:12px"></div>
             <div style="background:#334155;border-radius:4px;height:5px;overflow:hidden">
-                <div id="${barId}" style="height:100%;border-radius:4px;background:#3b82f6;width:0%;transition:width .15s"></div>
+                <div id="${barId}" style="height:100%;border-radius:4px;background:#2563eb;width:0%;transition:width .15s"></div>
             </div>
             <div id="${barId}-label" style="text-align:center;font-size:12px;color:#64748b;margin-top:6px">0%</div>
         </div>`;
@@ -4039,7 +4039,7 @@ function _selBarGhost() {
     return `
     <span style="visibility:hidden;pointer-events:none;flex-shrink:0">${t('sel_bar_count', { n: 0 })}</span>
     <button class="btn" style="visibility:hidden;pointer-events:none;padding:3px 10px;font-size:12px" disabled>⬇ ${t('download')}</button>
-    <button class="btn" style="visibility:hidden;pointer-events:none;padding:3px 10px;font-size:12px;background:#ef4444" disabled>🗑 ${t('trash')}</button>
+    <button class="btn" style="visibility:hidden;pointer-events:none;padding:3px 10px;font-size:12px;background:#dc2626" disabled>🗑 ${t('trash')}</button>
     <button class="btn" style="visibility:hidden;pointer-events:none;padding:3px 10px;font-size:12px;background:#6b7280;margin-left:auto" disabled>✕ ${t('sel_bar_clear')}</button>`;
 }
 
@@ -4901,7 +4901,7 @@ async function openTrashView() {
                         : 'Files are automatically deleted after their retention period. Trash does not count toward your storage quota.'}
                 </span>
                 <button id="trash-empty-btn"
-                    style="background:#ef4444;color:white;border:none;border-radius:7px;
+                    style="background:#dc2626;color:white;border:none;border-radius:7px;
                            padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;
                            white-space:nowrap">
                     ${t('trash_empty_btn') !== 'trash_empty_btn' ? t('trash_empty_btn') : 'Empty Trash'}
@@ -5022,22 +5022,22 @@ async function _refreshTrashView() {
             <div style="display:flex;gap:6px;flex-shrink:0">
                 ${!item.is_dir
                     ? `<button class="trash-preview-btn" data-id="${item.id}" data-name="${escapeHtmlAttr(item.name)}"
-                           style="background:#6366f1;color:white;border:none;border-radius:6px;
+                           style="background:#4f46e5;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
                            ${t('trash_preview')}
                        </button>`
                     : `<button class="trash-browse-btn" data-trash-path="${escapeHtmlAttr(item.trash_path)}" data-id="${item.id}"
-                           style="background:#6366f1;color:white;border:none;border-radius:6px;
+                           style="background:#4f46e5;color:white;border:none;border-radius:6px;
                                   padding:4px 10px;cursor:pointer;font-size:12px">
                            ${t('trash_browse')}
                        </button>`}
                 <button class="trash-restore-btn" data-id="${item.id}"
-                    style="background:#22c55e;color:white;border:none;border-radius:6px;
+                    style="background:#15803d;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600">
                     ${t('trash_restore')}
                 </button>
                 <button class="trash-del-btn" data-id="${item.id}" data-name="${escapeHtmlAttr(item.name)}"
-                    style="background:#ef4444;color:white;border:none;border-radius:6px;
+                    style="background:#dc2626;color:white;border:none;border-radius:6px;
                            padding:4px 10px;cursor:pointer;font-size:12px">
                     ${t('trash_delete')}
                 </button>
@@ -5120,7 +5120,7 @@ async function openMoveDialog(srcPath) {
             #mv-name-input:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.15)}
             .mv-tab{padding:6px 14px;border:none;border-radius:6px;font-size:13px;font-weight:600;
                 cursor:pointer;background:none;color:#64748b;transition:background .15s,color .15s}
-            .mv-tab.mv-active{background:#3b82f6;color:#fff}
+            .mv-tab.mv-active{background:#2563eb;color:#fff}
             .mv-tab:not(.mv-active):hover{background:#f1f5f9;color:#1e293b}
         `;
         document.head.appendChild(st);
@@ -5157,7 +5157,7 @@ async function openMoveDialog(srcPath) {
                 <!-- New folder shortcut -->
                 <div style="display:flex;gap:6px;margin-bottom:8px">
                     <input id="mv-new-folder-input" placeholder="${escapeHtmlAttr(t('mv_new_subfolder_ph'))}" style="flex:1;padding:5px 9px;border:1px solid #e2e8f0;border-radius:7px;font-size:13px;font-family:Inter,sans-serif;outline:none">
-                    <button id="mv-new-folder-btn" style="background:#0ea5e9;color:white;border:none;border-radius:7px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">${escapeHtml(t('mv_new_folder_btn'))}</button>
+                    <button id="mv-new-folder-btn" style="background:#0369a1;color:white;border:none;border-radius:7px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">${escapeHtml(t('mv_new_folder_btn'))}</button>
                 </div>
                 <!-- Tree -->
                 <div id="mv-tree" style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;
@@ -5178,7 +5178,7 @@ async function openMoveDialog(srcPath) {
             <!-- Footer -->
             <div style="padding:12px 20px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #f1f5f9">
                 <button id="mv-cancel-btn" class="btn" style="background:#e2e8f0;color:#1e293b">${escapeHtml(t('cancel'))}</button>
-                <button id="mv-confirm-btn" class="btn" style="background:#3b82f6;min-width:110px">${escapeHtml(t('mv_move_here'))}</button>
+                <button id="mv-confirm-btn" class="btn" style="background:#2563eb;min-width:110px">${escapeHtml(t('mv_move_here'))}</button>
             </div>
         </div>`;
     document.body.appendChild(overlay);
@@ -5711,7 +5711,7 @@ function _askUploadConflict(file, destRel, info) {
                     <input type="checkbox" id="fd-cf-all"> ${escapeHtml(t('conflict_apply_all', { n: queued }))}</label>` : ''}
                 <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end">
                     <button id="fd-cf-skip" class="btn" style="background:#e2e8f0;color:#1e293b">${escapeHtml(t('conflict_skip'))}</button>
-                    <button id="fd-cf-rename" class="btn" style="background:#0ea5e9"
+                    <button id="fd-cf-rename" class="btn" style="background:#0369a1"
                         title="${escapeHtmlAttr(info.suggested_name || '')}">${escapeHtml(t('conflict_keep_both'))}</button>
                     <button id="fd-cf-replace" class="btn" style="background:#f59e0b"
                         title="${escapeHtmlAttr(t('conflict_replace_hint'))}">${escapeHtml(t('conflict_replace'))}</button>
@@ -6701,7 +6701,7 @@ function renderUploadTray() {
                     <span class="ul-bytes" style="color:#94a3b8"></span>
                 </div>
                 <div style="background:#334155;border-radius:4px;height:6px;margin-bottom:6px">
-                    <div class="ul-bar" style="background:#22c55e;height:6px;border-radius:4px;width:0%;transition:width .2s"></div>
+                    <div class="ul-bar" style="background:#15803d;height:6px;border-radius:4px;width:0%;transition:width .2s"></div>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <span class="ul-status" style="color:#64748b"></span>
@@ -6730,7 +6730,7 @@ function renderUploadTray() {
 
             const resumeBtn = document.createElement('button');
             resumeBtn.textContent = '▶ ' + t('im_resume');
-            resumeBtn.style.cssText = 'background:#22c55e;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
+            resumeBtn.style.cssText = 'background:#15803d;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px';
             resumeBtn.addEventListener('click', () => {
                 ul.paused    = false;
                 ul.cancelled = false;
@@ -6759,7 +6759,7 @@ function renderUploadTray() {
 
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = '✕ ' + t('ul_cancel');
-            cancelBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
+            cancelBtn.style.cssText = 'background:#dc2626;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;margin-left:4px';
             cancelBtn.addEventListener('click', () => {
                 const wasPaused = ul.paused;
                 ul.status = 'cancelling';
@@ -7208,7 +7208,7 @@ function _showAvatarEditor(file, onConfirm) {
                         style="background:#334155;color:#cbd5e1;border:none;border-radius:7px;
                                padding:7px 14px;cursor:pointer;font-size:13px">${t('cancel')}</button>
                     <button id="aed-ok"
-                        style="background:#3b82f6;color:#fff;border:none;border-radius:7px;
+                        style="background:#2563eb;color:#fff;border:none;border-radius:7px;
                                padding:7px 18px;cursor:pointer;font-size:13px;font-weight:600">
                         ${t('avatar_set_photo')}
                     </button>
@@ -7411,7 +7411,7 @@ function openProfileMenu() {
             <div id="pm-quota-bar" style="padding:10px 16px 6px;border-bottom:1px solid var(--fd-border,#e2e8f0)">
                 <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">${t('menu_account_info_storage_loading')}</div>
                 <div style="background:#e2e8f0;border-radius:4px;height:5px;overflow:hidden">
-                    <div id="pm-quota-fill" style="height:100%;border-radius:4px;background:#3b82f6;width:0%;transition:width .4s"></div>
+                    <div id="pm-quota-fill" style="height:100%;border-radius:4px;background:#2563eb;width:0%;transition:width .4s"></div>
                 </div>
             </div>
             <div style="padding:8px 0">
@@ -7584,7 +7584,7 @@ async function openProfilePanel() {
                                        box-sizing:border-box;font-family:Inter,sans-serif">
                         </label>
                         <div id="pp-pw-msg" style="display:none;font-size:13px;border-radius:6px;padding:6px 10px"></div>
-                        <button id="pp-change-pw" class="btn" style="justify-self:end;padding:.5rem 1.25rem;background:#6366f1">${t('change_password')}</button>
+                        <button id="pp-change-pw" class="btn" style="justify-self:end;padding:.5rem 1.25rem;background:#4f46e5">${t('change_password')}</button>
                     </div>
                 </div>
 
@@ -8149,9 +8149,9 @@ function _apRenderRow(u) {
         </div>
         <div style="display:flex;gap:5px;justify-content:flex-end">
             <button class="ap-btn ap-edit-btn" data-id="${u.id}"
-                style="background:#3b82f6;color:white">${t('admin_panel_edit_button')}</button>
+                style="background:#2563eb;color:white">${t('admin_panel_edit_button')}</button>
             <button class="ap-btn ap-del-btn" data-id="${u.id}" data-name="${escapeHtmlAttr(u.username)}"
-                style="background:#ef4444;color:white">${t('admin_panel_delete_button')}</button>
+                style="background:#dc2626;color:white">${t('admin_panel_delete_button')}</button>
         </div>
     </div>`;
 }
@@ -8226,7 +8226,7 @@ function _apOpenEditModal(userId, users) {
             <div style="padding:12px 20px 18px;display:flex;gap:8px;justify-content:flex-end;
                         border-top:1px solid #f1f5f9">
                 <button id="ape-cancel" class="btn" style="background:#e2e8f0;color:#1e293b">${t('cancel')}</button>
-                <button id="ape-save" class="btn" style="background:#3b82f6;min-width:80px">${t('admin_edit_save')}</button>
+                <button id="ape-save" class="btn" style="background:#2563eb;min-width:80px">${t('admin_edit_save')}</button>
             </div>
         </div>`;
     document.body.appendChild(modal);
@@ -8361,7 +8361,7 @@ async function openShareDialog(path, isDir) {
             <div id="sh-result" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-bottom:14px">
                 <div style="font-size:12px;color:#166534;margin-bottom:6px;font-weight:600">${t('share_dlg_link_created')}</div>
                 <div style="display:flex;gap:6px">
-                    <input id="sh-link-box" type="text" readonly style="flex:1;font-size:12px;padding:6px;border:1px solid #ccc;border-radius:6px;background:white;color:#1e293b">
+                    <input id="sh-link-box" type="text" readonly aria-label="Link" style="flex:1;font-size:12px;padding:6px;border:1px solid #ccc;border-radius:6px;background:white;color:#1e293b">
                     <button id="sh-copy-btn" style="background:#16a34a;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">${t('share_dlg_copy')}</button>
                 </div>
             </div>
@@ -8647,11 +8647,11 @@ function renderShareRow(s) {
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0;margin-left:8px">
                 ${s.track_stats ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}"
-                    style="background:#0ea5e9;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_stats_button')}</button>` : ''}
+                    style="background:#0369a1;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_stats_button')}</button>` : ''}
                 <button class="sm-copy-btn" data-url="${urlEsc}"
-                    style="background:#3b82f6;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_copy_link_button')}</button>
+                    style="background:#2563eb;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_copy_link_button')}</button>
                 <button class="sm-delete-btn" data-token="${s.token}"
-                    style="background:#ef4444;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_revoke_button')}</button>
+                    style="background:#dc2626;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_revoke_button')}</button>
             </div>
         </div>
 
@@ -8683,7 +8683,7 @@ function renderShareRow(s) {
             </label>` : ''}
             <div style="display:flex;align-items:center;gap:6px;font-size:13px">
                 <span style="white-space:nowrap">${t('shares_info_expiry')}</span>
-                <input type="date" class="sm-expiry-input" data-token="${s.token}"
+                <input type="date" class="sm-expiry-input" data-token="${s.token}" aria-label="${escapeHtmlAttr(t('shares_info_expiry'))}"
                     value="${expiryInputVal}"
                     style="padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#1e293b">
                 <button class="sm-expiry-clear" data-token="${s.token}"
@@ -8701,7 +8701,7 @@ function renderShareRow(s) {
                 </span>
             </div>
             <div style="display:flex;gap:6px">
-                <input type="text" readonly value="${urlEsc}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
+                <input type="text" readonly value="${urlEsc}" aria-label="${escapeHtmlAttr(t('shares_cdn_embed_title'))}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
                 <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#ca8a04;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">${t('shares_copy_button')}</button>
             </div>
         </div>` : '' }
@@ -8777,7 +8777,7 @@ function openUploadQueuePanel(onClose) {
                         </div>
                     </div>
                     <button class="qp-remove" data-qi="${i}"
-                        style="background:#ef4444;color:white;border:none;border-radius:6px;
+                        style="background:#dc2626;color:white;border:none;border-radius:6px;
                                padding:4px 10px;cursor:pointer;font-size:12px;flex-shrink:0">
                         Remove
                     </button>
@@ -8878,12 +8878,12 @@ function openInterruptedManager(onClose) {
                         </div>
                         <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
                             <button class="im-resume" data-im="${i}"
-                                style="background:#22c55e;color:white;border:none;border-radius:6px;
+                                style="background:#15803d;color:white;border:none;border-radius:6px;
                                        padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600">
                                 ▶ ${t('im_resume')}
                             </button>
                             <button class="im-discard" data-im="${i}"
-                                style="background:#ef4444;color:white;border:none;border-radius:6px;
+                                style="background:#dc2626;color:white;border:none;border-radius:6px;
                                        padding:5px 12px;cursor:pointer;font-size:12px">
                                 🗑 ${t('im_discard')}
                             </button>

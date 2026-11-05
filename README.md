@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.33`
+# FluxDrop & server `v0.22.0.34`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -75,6 +75,13 @@ repo. Anyone can use it.
   name and the sort arrows
 - The script-error banner showed when the page was viewed without CSS
 - The debug bar's ✕ (clear) couldn't be reached by keyboard and was too faint
+- Accessibility check (axe) fixes: coloured buttons with white text (blue,
+  red, green, indigo, sky — share manager, trash, admin panel) are darker
+  shades now, so the text reaches the readable contrast minimum (WCAG AA) in
+  both themes; red/indigo text is lighter in dark mode; dialogs are marked as
+  dialogs for screen readers; share-manager date and link fields have labels
+- Status and beacon pages: grey labels were too faint, buttons too light; the
+  page title is a proper heading and footer links are underlined
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
   the audio preview weren't escaped; neither were usernames in share stats
 

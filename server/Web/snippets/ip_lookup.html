@@ -13,12 +13,12 @@
   --border:    #1e2130;
   --border2:   #252a3a;
   --text:      #e2e8f0;
-  --muted:     #5a6480;
+  --muted:     #8b93ab;  /* #5a6480 was ~3.2:1 on the dark background (WCAG AA needs 4.5:1) */
   --accent:    #3b82f6;
   --accent2:   #60a5fa;
   --green:     #22c55e;
   --yellow:    #eab308;
-  --red:       #ef4444;
+  --red:       #f87171;  /* #ef4444 text was ~4.1:1 on the dark cards */
   --orange:    #f97316;
   --mono:      'IBM Plex Mono', monospace;
   --display:   'Syne', sans-serif;
@@ -93,7 +93,7 @@ input[type=text]:focus{border-color:var(--accent)}
 input[type=text]::placeholder{color:var(--muted)}
 
 .btn{
-  background:var(--accent);
+  background:#2563eb;  /* white on --accent (#3b82f6) was ~3.7:1 */
   border:none;border-radius:8px;
   color:#fff;font-family:var(--mono);font-size:13px;font-weight:600;
   padding:10px 22px;cursor:pointer;transition:background .15s;
@@ -190,7 +190,7 @@ footer{
   font-size:11px;color:var(--muted);text-align:center;
   display:flex;align-items:center;justify-content:center;gap:6px;
 }
-footer a{color:var(--accent2);text-decoration:none}
+footer a{color:var(--accent2);text-decoration:underline}
 footer a:hover{text-decoration:underline}
 
 @media(max-width:500px){
@@ -207,7 +207,7 @@ footer a:hover{text-decoration:underline}
 <div class="topbar"></div>
 
 <header>
-  <div class="logo">
+  <div class="logo" role="heading" aria-level="1">
     <div class="logo-icon">📡</div>
     <div>
       <span class="logo-name">FluxDrop<span class="logo-sub">/ IP Beacon</span></span>

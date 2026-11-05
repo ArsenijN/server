@@ -285,3 +285,12 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 
 ## Added in V0.22.0.33
 - [ ] Debug bar: Tab reaches the ✕, Enter clears it; the ✕ is readable
+
+## Added in V0.22.0.34
+- [ ] Run the axe snippet again (same pages: file list, Admin, Profile, Trash,
+  Share manager, login, /status, /beacon/ui) — no `color-contrast` or `label`
+  violations left; `region` only for things outside dialogs, if any
+- [ ] Trash / share manager / admin: red, green, blue buttons look darker but
+  still clearly red / green / blue; in dark mode red text (e.g. "expired") is
+  a lighter red
+- [ ] /status and /beacon/ui: grey labels readable, buttons deeper blue

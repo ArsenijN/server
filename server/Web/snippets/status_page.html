@@ -13,12 +13,12 @@
   --border:    #1e2130;
   --border2:   #252a3a;
   --text:      #e2e8f0;
-  --muted:     #5a6480;
+  --muted:     #8b93ab;  /* #5a6480 was ~3.2:1 on the dark background (WCAG AA needs 4.5:1) */
   --accent:    #3b82f6;
   --accent2:   #60a5fa;
   --green:     #22c55e;
   --yellow:    #eab308;
-  --red:       #ef4444;
+  --red:       #f87171;  /* #ef4444 text was ~4.1:1 on the dark cards */
   --orange:    #f97316;
   --mono:      'IBM Plex Mono', monospace;
   --display:   'Syne', sans-serif;
@@ -605,7 +605,7 @@ footer {
 .uptime-bar:hover { opacity: 0.75; filter: brightness(1.2); }
 
 footer span { font-size: 11px; color: var(--muted); }
-footer a { color: var(--accent2); text-decoration: none; }
+footer a { color: var(--accent2); text-decoration: underline; }
 footer a:hover { text-decoration: underline; }
 
 /* admin panel modal */
@@ -639,7 +639,7 @@ footer a:hover { text-decoration: underline; }
 .admin-field textarea { resize: vertical; min-height: 64px; }
 .admin-btn { display: inline-block; padding: 8px 18px; border-radius: 6px; border: none; font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
 .admin-btn:hover { opacity: 0.82; }
-.admin-btn.primary { background: var(--accent); color: #fff; }
+.admin-btn.primary { background: #2563eb; color: #fff; }
 .admin-btn.danger  { background: rgba(239,68,68,0.18); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
 .admin-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .admin-tab { padding: 5px 14px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid transparent; color: var(--muted); background: none; transition: all 0.15s; }
@@ -672,7 +672,7 @@ footer a:hover { text-decoration: underline; }
 <div class="topbar"></div>
 
 <header>
-  <div class="logo">
+  <div class="logo" role="heading" aria-level="1">
     <div class="logo-icon">⚡</div>
     <div class="logo-text">Flux<span>Drop</span> Status</div>
     <span style="font-size:10px;font-weight:600;letter-spacing:1px;color:var(--muted);
@@ -694,7 +694,7 @@ footer a:hover { text-decoration: underline; }
   </div>
 </header>
 
-<div class="container">
+<div class="container" role="main">
 
   <!-- ── SYSTEM OVERVIEW ── -->
   <div>
@@ -1584,7 +1584,7 @@ function _ensureAdminLoginModal() {
       <div id="adm-err" style="font-size:12px;color:#f87171;display:none"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button onclick="_hideAdminLoginModal()" style="background:#334155;color:#94a3b8;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px">Cancel</button>
-        <button id="adm-submit" onclick="_submitAdminLogin()" style="background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600">Login</button>
+        <button id="adm-submit" onclick="_submitAdminLogin()" style="background:#2563eb;color:#fff;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600">Login</button>
       </div>
     </div>`;
   // Allow Enter key from either field

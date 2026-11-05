@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.35`
+# FluxDrop & server `v0.22.0.36`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -80,6 +80,12 @@ repo. Anyone can use it.
   shades now, so the text reaches the readable contrast minimum (WCAG AA) in
   both themes; red/indigo text is lighter in dark mode; dialogs are marked as
   dialogs for screen readers; share-manager date and link fields have labels
+- **Modal gallery** for testing: open the app with `?modals` (or run
+  `fdModalGallery()` in the console) to get a panel that opens every dialog
+  and panel with sample data, with EN/UK switches
+- The toolbar's grey Up / New folder and yellow CDN buttons turned blue in
+  dark mode (V0.22.0.35); sky-blue buttons (Folders first, Folder upload,
+  Copy here) are darker; the red Trash menu item is lighter in dark mode
 - Dark mode: buttons with their own colour (grey Cancel, red, green…) were
   painted blue like the main button, so Cancel looked like Done; they keep
   their colour now

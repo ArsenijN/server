@@ -734,6 +734,7 @@
 
     const panel = document.createElement('div');
     panel.className  = 'trash-tree-panel';
+    panel.tabIndex   = 0;   // scrollable: reachable by keyboard
     panel.style.cssText =
       'background:var(--fd-surface2,#f8fafc);' +
       'border-bottom:1px solid var(--fd-border,#e2e8f0);' +

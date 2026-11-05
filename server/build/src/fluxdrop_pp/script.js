@@ -1628,7 +1628,7 @@ function renderFileBrowserView() {
         const btn = document.getElementById('btn-folders-mixed');
         if (!btn) return;
         btn.textContent = sortFoldersMixed ? t('folder_sort_mix') : t('folder_sort_first');
-        btn.style.background = sortFoldersMixed ? '#6b7280' : '#0ea5e9';
+        btn.style.background = sortFoldersMixed ? '#6b7280' : '#0369a1';
     }
     updateFoldersMixedBtn();
     document.getElementById('btn-folders-mixed').addEventListener('click', () => {
@@ -1657,7 +1657,7 @@ function renderFileBrowserView() {
             _fileInput.removeAttribute('mozdirectory');
             _fileInput.setAttribute('multiple', '');
             _folderBtn.textContent = t('folder_button');
-            _folderBtn.style.background = '#0ea5e9';
+            _folderBtn.style.background = '#0369a1';
             _folderBtn.title = t('folder_mode');
         }
         _fileInput.value = '';
@@ -1818,7 +1818,7 @@ function renderFileBrowserView() {
                 _folderMode = false;
                 if (_folderBtn) {
                     _folderBtn.textContent = t('folder_button') || '📁 Folder';
-                    _folderBtn.style.background = '#0ea5e9';
+                    _folderBtn.style.background = '#0369a1';
                     _folderBtn.title = t('folder_mode') || 'Switch to folder mode';
                 }
             }
@@ -4885,7 +4885,7 @@ async function openTrashView() {
             <div style="background:linear-gradient(135deg,#dc2626,#b91c1c);padding:16px 20px;
                         display:flex;align-items:center;justify-content:space-between">
                 <div>
-                    <div style="color:white;font-weight:700;font-size:16px">🗑 Trash</div>
+                    <div id="trash-title" style="color:white;font-weight:700;font-size:16px">🗑 Trash</div>
                     <div id="trash-subtitle" style="color:rgba(255,255,255,.75);font-size:12px;margin-top:2px"></div>
                 </div>
                 <div onclick="window.fdCloseOverlay(document.getElementById('trash-overlay'))"
@@ -5235,7 +5235,7 @@ async function openMoveDialog(srcPath) {
         });
         const confirmBtn = $('mv-confirm-btn');
         if (tab === 'move')   { confirmBtn.textContent = t('mv_move_here');  confirmBtn.style.background = '#3b82f6'; }
-        if (tab === 'copy')   { confirmBtn.textContent = t('mv_copy_here');  confirmBtn.style.background = '#0ea5e9'; }
+        if (tab === 'copy')   { confirmBtn.textContent = t('mv_copy_here');  confirmBtn.style.background = '#0369a1'; }
         if (tab === 'rename') { confirmBtn.textContent = t('mv_rename_btn'); confirmBtn.style.background = '#8b5cf6'; }
     }
 
@@ -9511,3 +9511,117 @@ async function checkSiteNotice() {
 }
 
 document.addEventListener('DOMContentLoaded', checkSiteNotice);
+
+        // ======================================================================
+        // --- MODAL GALLERY (testing aid) ---
+        // ======================================================================
+// Opens every modal / panel the app has, with sample data, to check visuals
+// and translations in both languages without hunting for each trigger.
+// Start it with ?modals in the URL, or fdModalGallery() in the console.
+// Entries marked ⚠ act on real data if you click their main button (they use
+// the first row of the current folder).
+function fdModalGallery() {
+    document.getElementById('fd-modal-gallery')?.remove();
+    const firstRow = () => {
+        const r = _getFileRows()[0];
+        if (!r) showToast('Open a folder that has files first', { type: 'error' });
+        return r;
+    };
+    const closeAll = () => {
+        document.querySelectorAll('.modal-overlay:not(#message-modal), [id$="-overlay"], #profile-menu-modal, ' +
+                                  '#fd-auth-modal, #fd-info-panel, #fd-ctx-menu, #upload-queue-panel, ' +
+                                  '#interrupted-manager-panel, #fd-update-banner')
+            .forEach(el => el.remove());
+        document.getElementById('message-modal')?.classList.add('hidden');
+    };
+    const sampleImage = () => new Promise(res => {
+        const c = document.createElement('canvas'); c.width = c.height = 256;
+        const g = c.getContext('2d');
+        const grad = g.createLinearGradient(0, 0, 256, 256);
+        grad.addColorStop(0, '#2563eb'); grad.addColorStop(1, '#7c3aed');
+        g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+        c.toBlob(b => res(new File([b], 'sample.png', { type: 'image/png' })), 'image/png');
+    });
+    const ENTRIES = [
+        ['Basics', [
+            ['Message',           () => showMessage(t('file_info_title'), 'Sample message text.')],
+            ['Prompt',            () => showPromptModal({ title: t('new_folder') || 'Prompt', label: 'Name', defaultValue: 'example' })],
+            ['Confirm',           () => showConfirmModal({ title: t('trash'), message: 'Sample confirmation text.' })],
+            ['Spinner (2 s)',     () => { const done = showSpinnerOverlay(t('mv_renaming'), { minMs: 0 }); setTimeout(() => done && done(), 2000); }],
+            ['Toast: info',       () => showToast('Sample info', { type: 'info' })],
+            ['Toast: success',    () => showToast('Sample success')],
+            ['Toast: error',      () => showToast('Sample error', { type: 'error' })],
+            ['Update banner',     () => _showUpdateBanner()],
+        ]],
+        ['Account', [
+            ['Login',             () => _showAuthModal('login')],
+            ['Register',          () => _showAuthModal('register')],
+            ['Welcome screen',    () => _showWelcomeScreen()],
+            ['Profile menu',      () => openProfileMenu()],
+            ['Profile panel',     () => openProfilePanel()],
+            ['Avatar editor',     async () => _showAvatarEditor(await sampleImage(), () => {})],
+            ['Admin panel',       () => openAdminPanel()],
+        ]],
+        ['Policies', [
+            ['Terms',             () => showPolicyModal('tos')],
+            ['Privacy',           () => showPolicyModal('pp')],
+            ['⚠ Agreement prompt', () => _showPolicyAgreementModal('tos', '0.1.0', () => {})],
+        ]],
+        ['Files', [
+            ['Context menu',      () => { const r = firstRow(); if (r) _showContextMenu(260, 220, r); }],
+            ['Info panel',        () => { const r = firstRow(); if (r) _showFileInfo(r); }],
+            ['⚠ Move / rename / copy', () => { const r = firstRow(); if (r) openMoveDialog(r.dataset.path); }],
+            ['Name clash (upload)', () => _askUploadConflict(
+                { name: 'example.txt', size: 2048, lastModified: Date.now() }, '/example.txt',
+                { existing: { name: 'example.txt', size: 1900, mtime: new Date(Date.now() - 864e5).toISOString() } })],
+            ['Trash',             () => openTrashView()],
+            ['Trash batch notice', () => _showTrashBatchNotice(3, 30)],
+            ['Upload queue',      () => openUploadQueuePanel(() => {})],
+            ['Interrupted uploads', () => openInterruptedManager(() => {})],
+        ]],
+        ['Sharing', [
+            ['⚠ Share dialog (creates a link)', () => { const r = firstRow(); if (r) openShareDialog(r.dataset.path, r.dataset.isDir === '1'); }],
+            ['Share manager',     () => openShareManager()],
+        ]],
+    ];
+
+    const panel = document.createElement('div');
+    panel.id = 'fd-modal-gallery';
+    panel.setAttribute('role', 'complementary');
+    panel.setAttribute('aria-label', 'Modal gallery');
+    panel.style.cssText =
+        'position:fixed;left:12px;bottom:12px;z-index:2147483000;width:230px;max-height:70vh;overflow:auto;' +
+        'background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:10px;' +
+        'box-shadow:0 8px 30px rgba(0,0,0,.4);font:12px Inter,sans-serif;padding:8px';
+    const btn = 'display:block;width:100%;text-align:left;margin:2px 0;padding:4px 8px;border:none;border-radius:5px;' +
+                'background:#1e293b;color:#e2e8f0;cursor:pointer;font:inherit';
+    panel.innerHTML =
+        `<div style="display:flex;align-items:center;gap:4px;margin-bottom:6px">
+            <strong style="flex:1">Modal gallery</strong>
+            <button data-lang="en" style="${btn};width:auto;display:inline-block">EN</button>
+            <button data-lang="uk" style="${btn};width:auto;display:inline-block">UK</button>
+            <button data-close style="${btn};width:auto;display:inline-block" aria-label="Close gallery">✕</button>
+        </div>
+        <button data-closeall style="${btn};background:#7f1d1d">Close all open modals</button>` +
+        ENTRIES.map(([group, items], gi) =>
+            `<div style="margin:8px 0 2px;color:#94a3b8;font-weight:600">${group}</div>` +
+            items.map(([label], ii) => `<button data-entry="${gi}:${ii}" style="${btn}">${escapeHtml(label)}</button>`).join('')
+        ).join('');
+    panel.addEventListener('click', async e => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        e.stopPropagation();
+        if (b.hasAttribute('data-close')) return panel.remove();
+        if (b.hasAttribute('data-closeall')) return closeAll();
+        if (b.dataset.lang) { await FDi18n.setLang(b.dataset.lang); return; }
+        const [gi, ii] = b.dataset.entry.split(':').map(Number);
+        closeAll();
+        try { await ENTRIES[gi][1][ii][1](); }
+        catch (err) { console.error('[modal gallery]', err); showToast(String(err.message || err), { type: 'error' }); }
+    });
+    document.body.appendChild(panel);
+}
+window.fdModalGallery = fdModalGallery;
+document.addEventListener('DOMContentLoaded', () => {
+    if (new URLSearchParams(location.search).has('modals')) setTimeout(fdModalGallery, 1500);
+});

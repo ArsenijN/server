@@ -303,3 +303,10 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Policy (TOS / Privacy) in dark mode: headings and links readable
 - [ ] axe again on: file list with a row selected, Info panel open, share
   dialog, move dialog, policy, share stats — no violations expected
+
+## Added in V0.22.0.36
+- [ ] Dark mode toolbar: Up / New folder grey, CDN brown-yellow again;
+  Folders first / Folder toggle a darker sky blue
+- [ ] Open https://fluxdrop.me/files?modals → gallery bottom-left; every
+  entry opens its dialog; EN/UK switches the language; "Close all" works.
+  Entries with ⚠ act on the first row if you press their main button

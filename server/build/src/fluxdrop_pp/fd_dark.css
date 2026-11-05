@@ -50,7 +50,7 @@
      is ~2.5:1, too faint; #2563eb gives ~5.2:1 (WCAG AA) */
   --fd-btn-bg:      #2563eb;
   --fd-btn-bg-hover:#1d4ed8;
-  --fd-danger:      #ef4444;
+  --fd-danger:      #f87171;  /* #ef4444 text was 4.1:1 on the dark surface */
   --fd-input-bg:    #0d1520;
   /* Skeleton shimmer — dark mode (matches the dark surface palette) */
   --fd-skel-base:   #1e2d3d;
@@ -94,11 +94,12 @@
 
 /* ── Buttons ───────────────────────────────────────────────────────────────── */
 /* Only buttons without their own fill: an inline background (grey Cancel,
-   red Trash…) used to be painted blue too, so Cancel looked like Done */
-[data-theme="dark"] .btn:not([style*="background"]) {
+   red Trash…) or a Tailwind bg-* class (grey Up / New folder, yellow CDN)
+   used to be painted blue too, so Cancel looked like Done */
+[data-theme="dark"] .btn:not([style*="background"]):not([class*="bg-"]) {
   background-color: var(--fd-btn-bg) !important;
 }
-[data-theme="dark"] .btn:not([style*="background"]):hover {
+[data-theme="dark"] .btn:not([style*="background"]):not([class*="bg-"]):hover {
   background-color: var(--fd-btn-bg-hover) !important;
 }
 [data-theme="dark"] .btn[style*="background"]:hover { filter: brightness(1.15); }

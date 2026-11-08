@@ -164,6 +164,9 @@
 [data-theme="dark"] .profile-menu-item:hover {
   background-color: var(--fd-surface3) !important;
 }
+[data-theme="dark"] #pm-logout {
+  color: var(--fd-danger) !important;
+}
 
 /* ── Tooltip ─────────────────────────────────────────────────────────────────── */
 [data-theme="dark"] .fd-tooltip-icon {

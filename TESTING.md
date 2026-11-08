@@ -161,14 +161,17 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Ukrainian: "Скопійовано «…»" toast, drop hint, times as "1 хв 20 с"
 
 ## Added in V0.22.0.16 (security)
-- [ ] Upload a file named `"><img src=x onerror=alert(1)>.txt` into a share
+- [x] Upload a file named `"><img src=x onerror=alert(1)>.txt` into a share
   (share page upload or your own folder that is shared): the share page
   shows the name as plain text, no alert
 - [ ] Share an `.html` containing `<script>alert(1)</script>` with preview
   on, open its preview / CDN-embed link: no alert (page shows without
   scripts). Same for a trashed `.html` preview and a file under
   `/CB_uploads/`
-- [ ] Images, video, audio and text previews on share pages still work
+- [ ] Images, 
+- [ ] video, 
+- [ ] audio and 
+- [x] text previews on share pages still work -- broken apart to test as I go
 - [ ] Share page upload of a name that already exists → `name (1).ext`,
   the owner's file is untouched
 
@@ -189,7 +192,7 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 ## Added in V0.22.0.19
 - [ ] As a non-admin: no CDN button; `/api/v1/list/cdn` (or any `/cdn` path)
   → 403. As admin: the CDN view still opens
-- [ ] Uploading in the CDN view (admin) says it's unavailable instead of
+- [x] Uploading in the CDN view (admin) says it's unavailable instead of
   sending the file to CatBox
 - [ ] Without "Can publish": share dialog greys out "Allow CDN" and
   "anyone can upload" (with a note); the API refuses them (403
@@ -328,4 +331,23 @@ Needs `./build.sh` + deploy first (TestWeb and the backend).
 - [ ] Policy agreement (UK): title "Будь ласка, ознайомтеся з оновленими
   Умовами надання послуг", version shown, button "Я погоджуюся з Умовами
   надання послуг"; same for the Privacy Policy
-- [ ] Policy tables in dark mode: header row dark with readable text
+- [x] Policy tables in dark mode: header row dark with readable text
+
+## Added in V0.22.0.39
+Needs `./build.sh` and a backend restart (login response).
+- [ ] Share dialog on `"><img src=x onerror=alert(1)>.txt` (file and a folder
+  of that name): no alert, the title and path show the name as text
+- [ ] Profile → Analyze space with that file in the list: no alert
+- [ ] Dark mode: create a share → the "Link created" box is dark green;
+  share manager → CDN-embed box dark amber, its Copy button readable;
+  Trash notice / admin badges dark too
+- [ ] Dark mode: "Вихід" in the profile menu is red
+- [ ] Sign out, sign in as another account (no reload): the header and menu
+  show that account's avatar (or the letter fallback), not the previous one
+- [ ] Welcome tour (gallery → Welcome screen) in UK: all text Ukrainian,
+  including "Порада" and the TOS / Privacy links, which open the policy;
+  trash card shows the server's retention days; no CDN card as non-admin
+- [ ] Non-admin opening `/files/cdn`: "Не вдалося завантажити теку: Тека CDN
+  доступна лише адміністраторам."
+- [ ] Profile panel: "Вигляд та фішки" comes right after the transfer
+  settings, same heading style, the "ID … · ім'я користувача" line is last

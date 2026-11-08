@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.38`
+# FluxDrop & server `v0.22.0.39`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -115,6 +115,19 @@ repo. Anyone can use it.
   page title is a proper heading and footer links are underlined
 - File names in the trash "Browse" list, the ZIP "skipped files" list and
   the audio preview weren't escaped; neither were usernames in share stats
+- **Security:** the share dialog's title ran HTML in file names (a file
+  named `<img src=x onerror=…>` ran its script when you opened Share on
+  it); the storage analyzer had the same problem. Both escape names now
+- Signing out and into another account without reloading showed the
+  previous account's avatar
+- The welcome tour was English-only with outdated hints (👤 button, 🗑 in
+  the top right, a fixed 30 days); it's translated now, shows the real
+  trash retention, and the CDN card only for admins
+- Dark mode: the green "Link created" box, the yellow CDN-embed box, amber
+  notices and red/green badges stayed light; "Log out" is red again
+- "Failed to load directory" and the CDN admin-only error are translated
+- Profile: "Appearance" sits above the account line and looks like the
+  other section headings
 
 ### Server (backend)
 **Added**

@@ -4531,7 +4531,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         _is_admin = bool(_adm[0]) if _adm else False
         return self._send_response(200, json.dumps({
             "message": "Login successful.", "token": session_token,
-            "username": username, "is_admin": _is_admin
+            "username": username, "is_admin": _is_admin, "id": user_id
         }))
 
     def handle_auth_logout(self):
@@ -4867,7 +4867,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 row = conn.execute('SELECT is_admin FROM users WHERE id = ?', (uid,)).fetchone()
             if row and row[0]:
                 return False
-        self._send_response(403, json.dumps({'error': 'The CDN folder is available to admins only.'}))
+        self._send_response(403, json.dumps({'error': 'The CDN folder is available to admins only.',
+                                             'code': 'cdn_admin_only'}))
         return True
 
     def _send_inline_isolation_headers(self):

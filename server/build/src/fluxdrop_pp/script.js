@@ -714,12 +714,15 @@ async function apiCall(endpoint, method = 'GET', body = null, requiresAuth = tru
                 currentUsername = null;
                 localStorage.removeItem('fluxdrop_token');
                 localStorage.removeItem('fluxdrop_username');
+                localStorage.removeItem('fluxdrop_user_id');
                 renderApp('login');
                 // Show a gentle notice instead of a raw error
                 showMessage(t('session_expired'), t('session_expired_msg'));
                 throw new Error('SESSION_EXPIRED');
             }
-            throw new Error(responseData.error || `HTTP error! status: ${response.status}`);
+            const err = new Error(responseData.error || `HTTP error! status: ${response.status}`);
+            err.code = responseData.code;   // stable id for translated messages
+            throw err;
         }
         return responseData;
     } catch (error) {
@@ -831,7 +834,11 @@ async function renderApp(route = null) {
         if (!localStorage.getItem('fluxdrop_user_id')) {
             try {
                 const me = await apiCall('/api/v1/me');
-                if (me && me.id) localStorage.setItem('fluxdrop_user_id', String(me.id));
+                if (me && me.id) {
+                    localStorage.setItem('fluxdrop_user_id', String(me.id));
+                    const hdr = document.getElementById('header-avatar');
+                    if (hdr) hdr.src = _avatarUrl();
+                }
             } catch (_) { /* non-fatal — header just falls back as before */ }
         }
         _requestNotificationPermission();
@@ -2166,7 +2173,8 @@ async function loadDirectory(path) {
         // SESSION_EXPIRED: apiCall already cleared the token and called
         // renderApp('login') — don't overwrite the login view with an error.
         if (err.message === 'SESSION_EXPIRED') return;
-        fileList.innerHTML = `<p class="text-sm text-red-600" style="padding:1rem">Failed to load directory: ${escapeHtml(err.message)}</p>`;
+        const why = err.code === 'cdn_admin_only' ? t('cdn_admin_only') : err.message;
+        fileList.innerHTML = `<p class="text-sm text-red-600" style="padding:1rem">${escapeHtml(t('load_dir_failed', { msg: why }))}</p>`;
         _updateSelBar();
     }
 }
@@ -7050,6 +7058,7 @@ async function handleLogin(e) {
         localStorage.setItem('fluxdrop_username', currentUsername);
         _syncLangToServer();
         if (data.id) localStorage.setItem('fluxdrop_user_id', String(data.id));
+        else localStorage.removeItem('fluxdrop_user_id');  // renderApp backfills it from /api/v1/me
         const _authModal = document.getElementById('fd-auth-modal');
         if (_authModal) window.fdCloseOverlay(_authModal);
         delete appRoot.dataset.fdLanding;
@@ -7089,18 +7098,22 @@ function _doShowWelcome() {
     ].join(';');
 
     const features = [
-        ['📁', 'File browser', 'Browse, create folders, rename, move, and delete files. Sorting and breadcrumb navigation included.'],
-        ['⬆', 'Chunked uploads', 'Upload files up to 10 GB in resumable chunks. Pause, resume, or queue multiple uploads simultaneously.'],
-        ['📁➡📄', 'Folder upload', 'Click the <strong>📁 Folder</strong> toggle next to the upload input to switch between file and folder upload mode. FluxDrop preserves the full directory structure.'],
-        ['👁', 'Previews', 'Click any file name to preview it in-app — images, video, audio, text, Markdown, PDFs, and even ZIP contents.'],
-        ['🔗', 'Sharing', 'Right-click (or use the Share button) on any file or folder to generate a public link. Set expiry, restrict to logged-in users, or allow anonymous uploads.'],
-        ['🗑', 'Trash bin', 'Deleted files land in the Trash (🗑 button, top right). Items are kept for 30 days and can be restored at any time.'],
-        ['⬇', 'Downloads', 'All downloads run in a floating tray (bottom-right). Large downloads support pause/resume via HTTP Range.'],
-        ['🔒', 'Protected files', "Tick the <em>Protected</em> checkbox before uploading to mark a file as private — it won't appear in public share listings."],
-        ['👤', 'Profile & settings', 'Click the 👤 button (top-right) to manage your profile, view shared links, check server status, and adjust preferences.'],
-        ['📡', 'CDN browser', 'Click <strong>Browse CDN</strong> to browse the CDN storage area, separate from your personal file space.'],
+        ['📁', t('welcomer_card_lable1'), t('welcomer_card_desc1')],
+        ['⬆', t('welcomer_card_lable2'), t('welcomer_card_desc2')],
+        ['📁➡📄', t('welcomer_card_lable3'), t('welcomer_card_desc3')],
+        ['👁', t('welcomer_card_lable4'), t('welcomer_card_desc4')],
+        ['🔗', t('welcomer_card_lable5'), t('welcomer_card_desc5')],
+        ['🗑', t('welcomer_card_lable6'), t('welcomer_card_desc6', { days: _lastKnownRetentionDays })],
+        ['⬇', t('welcomer_card_lable7'), t('welcomer_card_desc7')],
+        ['🔒', t('welcomer_card_lable8'), t('welcomer_card_desc8')],
+        ['👤', t('welcomer_card_lable9'), t('welcomer_card_desc9')],
+        // The CDN folder is admin-only (see _cdn_admin_denied on the server)
+        ...(isAdmin ? [['📡', t('welcomer_card_lable10'), t('welcomer_card_desc10')]] : []),
     ];
 
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'fd-welcome-title');
     overlay.innerHTML = `
         <div style="background:#fff;border-radius:1.25rem;width:100%;max-width:740px;
                     max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
@@ -7109,19 +7122,19 @@ function _doShowWelcome() {
             <div style="background:linear-gradient(135deg,#1e40af,#4f46e5);padding:1.75rem 2rem 1.5rem;flex-shrink:0">
                 <div style="display:flex;align-items:center;gap:.9rem;margin-bottom:.5rem">
                     <img src="/fluxdrop_pp/icon-128.png" width="44" height="44" style="width:44px;height:44px" alt="">
-                    <h2 style="color:white;font-size:1.55rem;font-weight:800;margin:0">Welcome to FluxDrop!</h2>
+                    <h2 id="fd-welcome-title" style="color:white;font-size:1.55rem;font-weight:800;margin:0">${t('welcomer_lable')}</h2>
                 </div>
                 <p style="color:rgba(255,255,255,.82);margin:0;font-size:.95rem;line-height:1.6">
-                    Here's a quick tour of everything available to you.
+                    ${t('welcomer_desc')}
                 </p>
             </div>
             <!-- Feature grid -->
-            <div style="overflow-y:auto;flex:1;padding:1.5rem 2rem">
+            <div tabindex="0" style="overflow-y:auto;flex:1;padding:1.5rem 2rem">
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem">
                     ${features.map(([icon, title, desc]) => `
                         <div style="display:flex;gap:.75rem;padding:.9rem 1rem;background:#f8fafc;
                                     border-radius:.75rem;border:1px solid #e2e8f0;align-items:flex-start">
-                            <div style="font-size:1.4rem;flex-shrink:0;line-height:1;margin-top:.1rem">${icon}</div>
+                            <div aria-hidden="true" style="font-size:1.4rem;flex-shrink:0;line-height:1;margin-top:.1rem">${icon}</div>
                             <div>
                                 <div style="font-weight:700;color:#1e293b;font-size:.95rem;margin-bottom:.25rem">${title}</div>
                                 <div style="color:#475569;font-size:.85rem;line-height:1.55">${desc}</div>
@@ -7130,20 +7143,25 @@ function _doShowWelcome() {
                 </div>
                 <div style="margin-top:1.25rem;padding:1rem 1.25rem;background:#eff6ff;border-radius:.75rem;
                             border:1px solid #bfdbfe;font-size:.88rem;color:#1e40af;line-height:1.6">
-                    💡 <strong>Tip:</strong> This tour won't show again — you can always re-read the
-                    <a href="#" onclick="event.preventDefault();document.getElementById('fd-welcome-overlay').remove();showPolicyModal('tos')"
-                       style="color:#1d4ed8;text-decoration:underline">Terms of Service</a> and
-                    <a href="#" onclick="event.preventDefault();document.getElementById('fd-welcome-overlay').remove();showPolicyModal('pp')"
-                       style="color:#1d4ed8;text-decoration:underline">Privacy Policy</a> from the footer.
+                    ${t('welcomer_tip')}
                 </div>
             </div>
             <!-- Footer -->
             <div style="padding:1rem 2rem;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;flex-shrink:0">
                 <button id="fd-welcome-ok" class="btn" style="padding:.7rem 2rem;font-size:.95rem">
-                    Get started →
+                    ${t('welcomer_btn')}
                 </button>
             </div>
         </div>`;
+    overlay.querySelectorAll('a[data-policy]').forEach(a => {
+        a.href = '#';
+        a.style.cssText = 'color:inherit;text-decoration:underline';
+        a.addEventListener('click', e => {
+            e.preventDefault();
+            overlay.remove();
+            showPolicyModal(a.dataset.policy);
+        });
+    });
 
     if (!document.getElementById('fd-fadein-style')) {
         const st = document.createElement('style');
@@ -7169,6 +7187,7 @@ async function handleLogout() {
         localStorage.removeItem('fluxdrop_token');
         localStorage.removeItem('fluxdrop_is_admin');
         localStorage.removeItem('fluxdrop_username');
+        localStorage.removeItem('fluxdrop_user_id');   // else the next account shows this avatar
         renderApp();
     }
 }
@@ -8332,8 +8351,8 @@ async function openShareDialog(path, isDir) {
     overlay.id = 'share-dialog-overlay';
     overlay.innerHTML = `
         <div class="modal-content" style="max-width:500px">
-            <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">${t('share_dlg_title', { name })}</h3>
-            <p style="font-size:13px;color:#64748b;margin-bottom:16px">${isDir ? t('share_dlg_kind_folder') : t('share_dlg_kind_file')}: <code style="background:#f1f5f9;padding:1px 5px;border-radius:4px">${path}</code></p>
+            <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">${t('share_dlg_title', { name: escapeHtml(name) })}</h3>
+            <p style="font-size:13px;color:#64748b;margin-bottom:16px">${isDir ? t('share_dlg_kind_folder') : t('share_dlg_kind_file')}: <code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;word-break:break-all">${escapeHtml(path)}</code></p>
 
             <div style="display:grid;gap:10px;margin-bottom:18px">
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
@@ -8727,7 +8746,7 @@ function renderShareRow(s) {
             </div>
             <div style="display:flex;gap:6px">
                 <input type="text" readonly value="${urlEsc}" aria-label="${escapeHtmlAttr(t('shares_cdn_embed_title'))}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
-                <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#ca8a04;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">${t('shares_copy_button')}</button>
+                <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#a16207;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">${t('shares_copy_button')}</button>
             </div>
         </div>` : '' }
     </div>`;

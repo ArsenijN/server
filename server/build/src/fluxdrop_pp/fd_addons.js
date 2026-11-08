@@ -235,6 +235,15 @@
     // red / indigo text: ~4.1:1 and ~3.5:1 on the dark surface
     { re: /(?<![-\w])color\s*:\s*(#ef4444\b|#dc2626\b)/gi,                rep: 'color:#f87171' },
     { re: /(?<![-\w])color\s*:\s*(#6366f1\b|#4f46e5\b|#4338ca\b|#3730a3\b)/gi, rep: 'color:#a5b4fc' },
+    // pale status tints (notices, badges, "link created", CDN embed box)
+    { re: /(background(?:-color)?)\s*:\s*(#fef3c7\b|#fefce8\b|#fffbeb\b)/gi, rep: '$1:#3a2e0b' },
+    { re: /(background(?:-color)?)\s*:\s*(#fef2f2\b|#fee2e2\b)/gi,         rep: '$1:#3b1618' },
+    { re: /(background(?:-color)?)\s*:\s*(#f0fdf4\b|#dcfce7\b)/gi,         rep: '$1:#0f2a1c' },
+    { re: /(border(?:-[a-z]+)?\s*:[^;]*?)(#fde047\b|#fde68a\b)/gi,           rep: '$1#854d0e' },
+    { re: /(border(?:-[a-z]+)?\s*:[^;]*?)(#86efac\b)/gi,                     rep: '$1#166534' },
+    { re: /(?<![-\w])color\s*:\s*(#92400e\b|#854d0e\b|#a16207\b)/gi,        rep: 'color:#fcd34d' },
+    { re: /(?<![-\w])color\s*:\s*(#b91c1c\b|#991b1b\b)/gi,                  rep: 'color:#fca5a5' },
+    { re: /(?<![-\w])color\s*:\s*(#166534\b)/gi,                             rep: 'color:#86efac' },
   ];
 
   function _isDark(mode) {
@@ -469,6 +478,12 @@
 (function () {
   'use strict';
 
+  // File names come from the user's storage: escape before innerHTML
+  function _esc(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
+  }
+
   function _fmt(b) {
     if (!b) return '0 B';
     if (b >= 1073741824) return (b/1073741824).toFixed(2)+' GB';
@@ -579,12 +594,12 @@
         const icon = item.is_dir ? '📁' : '📄';
         const clr  = PALETTE[i % PALETTE.length];
         const drillCursor = item.is_dir ? 'cursor:pointer;' : '';
-        return `<div class="fd-sa-bar-wrap" data-fdsa-path="${item.path}"
+        return `<div class="fd-sa-bar-wrap" data-fdsa-path="${_esc(item.path)}"
             data-fdsa-isdir="${item.is_dir?'1':'0'}"
             style="${drillCursor}border-radius:6px;padding:4px 0"
             title="${pctT}% of total · ${_fmt(item.size_bytes)}${item.is_dir?' — click to open':''}">
           <span style="font-size:14px;flex-shrink:0">${icon}</span>
-          <span class="fd-sa-name" title="${item.path}">${item.name}</span>
+          <span class="fd-sa-name" title="${_esc(item.path)}">${_esc(item.name)}</span>
           <div class="fd-sa-bar-track">
             <div class="fd-sa-bar-fill" style="width:${pct}%;background:${clr}"></div>
           </div>
@@ -925,9 +940,8 @@
     const el = document.createElement('div');
     el.id    = 'fd-settings-block';
     el.innerHTML = `
-      <hr style="border:none;border-top:1px solid var(--fd-border,#e2e8f0);margin:0">
-      <div style="font-size:12px;font-weight:700;color:var(--fd-muted,#64748b);
-           text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;
+           text-transform:uppercase;letter-spacing:.05em">
         ${t('profile_info_appearance')}
       </div>
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:10px">
@@ -991,7 +1005,9 @@
     if (!grid) return;
     const block = _build();
     _attach(block, overlay);
-    grid.appendChild(block);
+    // Same look as the other settings sections, above the account-info line
+    const info = grid.querySelector('#pp-account-info');
+    if (info && info.parentNode === grid) grid.insertBefore(block, info); else grid.appendChild(block);
   }
 
   const _obs = new MutationObserver(muts => {

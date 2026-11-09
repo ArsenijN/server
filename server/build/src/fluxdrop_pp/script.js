@@ -4675,10 +4675,12 @@ function _initChecksumSection(path, panel) {
     let _pollT = null;
 
     // Show an amber "Calculating…" spinner in the given algo row.
-    function _csSetCalc(algo) {
+    function _csSetCalc(algo, afterUpload) {
         const el = panel.querySelector(`#fd-cs-val-${algo}`);
-        if (el) el.innerHTML =
-            '<span style="color:#d97706;font-size:12px">\u29d7 Calculating\u2026</span>';
+        if (!el) return;
+        el.innerHTML = '<span style="color:#d97706;font-size:12px"></span>';
+        el.firstChild.textContent = '\u29d7 ' + t(afterUpload ? 'cs_calculating_upload' : 'cs_calculating');
+        if (afterUpload) el.firstChild.title = t('cs_calculating_upload_tip');
     }
 
     // Show a computed hash value with a copy-to-clipboard button.
@@ -4716,7 +4718,7 @@ function _initChecksumSection(path, panel) {
             `<button id="fd-cs-calc-${algo}" ` +
             `style="border:none;background:#f1f5f9;color:#3b82f6;cursor:pointer;` +
             `padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;` +
-            `margin-left:4px;flex-shrink:0">${errMsg ? 'Retry' : 'Calc'}</button>`;
+            `margin-left:4px;flex-shrink:0">${errMsg ? t('retry_btn') : t('cs_calc_btn')}</button>`;
         panel.querySelector(`#fd-cs-calc-${algo}`)?.addEventListener('click', async e => {
             e.stopPropagation();
             // Immediately show "Calculating…" for every algo that will be computed.
@@ -4732,10 +4734,10 @@ function _initChecksumSection(path, panel) {
         });
     }
 
-    function _schedPoll() {
+    function _schedPoll(ms = 1800) {
         if (!panel.isConnected) return;
         clearTimeout(_pollT);
-        _pollT = setTimeout(fetchAndRender, 1800);
+        _pollT = setTimeout(fetchAndRender, ms);
     }
 
     async function fetchAndRender() {
@@ -4770,6 +4772,7 @@ function _initChecksumSection(path, panel) {
         const isError  = job && job.status === 'error';
         const errMsg   = isError ? (job.error || 'Computation failed') : null;
         const jobAlgos = job ? (job.algos || '') : '';
+        const afterUpload = !!(job && job.after_upload);   // hashing a fresh upload
 
         // When both hashes are missing, clicking either Calc button computes both
         // in a single server-side file read.  When only one is missing, only
@@ -4782,7 +4785,7 @@ function _initChecksumSection(path, panel) {
         if (data.crc32) {
             _csSetValue('crc32', data.crc32.toLowerCase());
         } else if (isActive && jobAlgos.includes('crc32')) {
-            _csSetCalc('crc32');
+            _csSetCalc('crc32', afterUpload);
         } else {
             _csSetMissing('crc32',
                 calcAlgos.length ? calcAlgos : ['crc32'],
@@ -4793,14 +4796,15 @@ function _initChecksumSection(path, panel) {
         if (data.sha256) {
             _csSetValue('sha256', data.sha256.toLowerCase());
         } else if (isActive && jobAlgos.includes('sha256')) {
-            _csSetCalc('sha256');
+            _csSetCalc('sha256', afterUpload);
         } else {
             _csSetMissing('sha256',
                 calcAlgos.length ? calcAlgos : ['sha256'],
                 isError && jobAlgos.includes('sha256') ? errMsg : null);
         }
 
-        if (isActive && panel.isConnected) _schedPoll();
+        // Tens of GB take minutes to hash: no need to ask every 2 s
+        if (isActive && panel.isConnected) _schedPoll(afterUpload ? 5000 : 1800);
     }
 
     fetchAndRender();

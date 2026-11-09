@@ -157,7 +157,7 @@ from core.db import _db_connect, init_db, _get_chunk_lock, _release_chunk_lock, 
                     checksum_jobs_reset_stale, checksum_jobs_get_pending
 from core.rate_limit import _rate_limit
 from core.notifications import _fire_upload_notification, _is_safe_webhook_url, _EMAIL_RE
-from core.upload import replace_temp_path
+from core.upload import replace_temp_path, upload_hash_state
 from core.upload import MAX_JSON_BODY, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, _upload_init, _upload_get, _upload_receive_chunk, \
     _upload_session_status, _upload_assemble, MAX_SHARE_UPLOAD_BYTES, MAX_UPLOAD_BYTES, _purge_abandoned_upload_sessions, UPLOAD_TMP_DIR, \
     _cancel_upload_session, compute_and_store_crc32, HashCancelled, dispatch_checksum_job
@@ -3583,6 +3583,13 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     }
             except Exception:
                 logging.exception('fileinfo: job lookup failed for %r', abs_path)
+            # A finished upload is hashed in the background (minutes for tens
+            # of GB): report it like a job so the panel shows "Calculating…"
+            if crc32_hex is None and not (job_info and job_info['status'] in ('pending', 'running')):
+                _up_state = upload_hash_state(cs_key, cs_uid)
+                if _up_state:
+                    job_info = {'id': None, 'status': _up_state,
+                                'algos': 'crc32,sha256', 'error': None, 'after_upload': True}
 
             mime_guess, _ = mimetypes.guess_type(abs_path)
             try:

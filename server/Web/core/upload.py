@@ -127,8 +127,23 @@ def compute_and_store_checksums(abs_path: str, relative_path: str,
     return crc_val, sha256_val
 
 
+# (relative_path, user_id) -> 'pending' | 'running', so the file info panel
+# can say "Calculating…" instead of "no checksum" while a big upload is hashed
+_crc32_upload_state: dict = {}
+_crc32_upload_state_lock = threading.Lock()
+
+
+def upload_hash_state(relative_path: str, user_id):
+    """'pending' / 'running' while the post-upload hash is queued or in
+    progress, else None."""
+    with _crc32_upload_state_lock:
+        return _crc32_upload_state.get((relative_path, str(user_id)))
+
+
 def queue_crc32_after_upload(dest_path: str, relative_path: str, user_id) -> None:
     """Non-blocking — enqueue a file for background CRC32 computation."""
+    with _crc32_upload_state_lock:
+        _crc32_upload_state[(relative_path, str(user_id))] = 'pending'
     _crc32_upload_queue.put((dest_path, relative_path, user_id))
 
 
@@ -137,6 +152,9 @@ def _crc32_upload_worker() -> None:
     while True:
         try:
             dest_path, relative_path, user_id = _crc32_upload_queue.get(timeout=5)
+            key = (relative_path, str(user_id))
+            with _crc32_upload_state_lock:
+                _crc32_upload_state[key] = 'running'
             try:
                 compute_and_store_crc32(dest_path, relative_path,
                                         user_id, 'upload')
@@ -146,6 +164,8 @@ def _crc32_upload_worker() -> None:
             except Exception as e:
                 logging.error('CRC32 worker: unexpected error: %s', e)
             finally:
+                with _crc32_upload_state_lock:
+                    _crc32_upload_state.pop(key, None)
                 _crc32_upload_queue.task_done()
         except _queue.Empty:
             continue

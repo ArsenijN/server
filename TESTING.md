@@ -351,3 +351,11 @@ Needs `./build.sh` and a backend restart (login response).
   доступна лише адміністраторам."
 - [ ] Profile panel: "Вигляд та фішки" comes right after the transfer
   settings, same heading style, the "ID … · ім'я користувача" line is last
+
+## Added in V0.22.0.40
+Needs `./build.sh` and a backend restart.
+- [ ] Upload a big file (several GB), open its Info panel right after it
+  finishes: CRC-32 / SHA-256 say "Обчислюється після вивантаження…" (hover:
+  explanation), no Calc button; the values appear by themselves when done
+- [ ] A file without a checksum (not just uploaded): "—" and "Обчислити";
+  clicking it shows "Обчислюється…" then the values

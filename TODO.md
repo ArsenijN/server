@@ -213,6 +213,16 @@ instance -- wiki: Deployment → "Proxying another service"
   - Found while documenting, fixed: plain-HTTP `/api/` and `/auth/` requests
   to other subdomains (e.g. `http://gallery…/api/`) were redirected to
   FluxDrop's host; now to HTTPS on their own name
+- [ ] Hash uploads while they arrive instead of re-reading the file after
+  assembly (28 GB took ~13 min at ~35 MB/s on the i3, V0.22.0.40 shows
+  "Calculating after upload…" meanwhile). Chunks can arrive out of order
+  and in parallel, so: feed CRC32 + SHA-256 for chunks in order, park
+  early ones until the gap fills (or fall back to the current re-read if
+  it grows too big); a resumed session after a restart also falls back.
+  The post-upload pass stays cheaper overall only if the extra reads are
+  what hurts — measure CPU first, the hash itself is most of the cost.
+  Optional: the browser could also send `sha256_final` (the API already
+  checks it), but hashing 30 GB in JS is slow, so only as an opt-in
 
 ---
 

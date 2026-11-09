@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.39`
+# FluxDrop & server `v0.22.0.40`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -128,6 +128,10 @@ repo. Anyone can use it.
 - "Failed to load directory" and the CDN admin-only error are translated
 - Profile: "Appearance" sits above the account line and looks like the
   other section headings
+- Right after a big upload the Info panel said there was no checksum while
+  the server was still hashing the file; it now shows "Calculating after
+  upload…" and fills in the values when done. The Calc / Calculating
+  labels are translated
 
 ### Server (backend)
 **Added**

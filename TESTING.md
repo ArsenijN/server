@@ -375,3 +375,11 @@ Needs `./build.sh` and a backend restart.
 - [ ] Phone (the one from the screenshot): selecting files doesn't show the
   selection bar; long-press menu stays open after a tiny finger slip, closes
   on a real scroll. Laptop with a mouse: bar as before
+
+## Added in V0.22.0.42
+- [ ] Share manager with several links: chips with counts under the title;
+  each chip shows only its links; empty categories don't appear
+- [ ] In "CDN embed", untick a link's CDN box → the count drops (the card
+  stays until you switch chips); revoke a link → counts update
+- [ ] Changing an expiry while filtered keeps the filter and the scroll
+- [ ] Reopening the manager starts on "All"; chips readable in dark mode

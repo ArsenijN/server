@@ -671,5 +671,16 @@
   "cs_calculating_upload_tip": "The server hashes every upload once it's complete — large files take a few minutes.",
   "cs_calc_btn": "Calc",
   "sp_gone_body": "The shared file or folder isn't there any more — the owner may have moved or deleted it.",
-  "shares_load_failed": "Failed to load shares: {msg}"
+  "shares_load_failed": "Failed to load shares: {msg}",
+  "shares_filter_label": "Show links",
+  "shares_filter_all": "All",
+  "shares_filter_active": "Active",
+  "shares_filter_expired": "Expired",
+  "shares_filter_files": "Files",
+  "shares_filter_folders": "Folders",
+  "shares_filter_cdn": "CDN embed",
+  "shares_filter_uploads": "Uploads allowed",
+  "shares_filter_account": "Account required",
+  "shares_filter_stats": "With statistics",
+  "shares_filter_empty": "No links in this category."
 }

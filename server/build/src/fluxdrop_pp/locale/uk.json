@@ -671,5 +671,16 @@
   "cs_calculating_upload_tip": "Сервер обчислює контрольну суму кожного файлу після вивантаження — для великих файлів це займає кілька хвилин.",
   "cs_calc_btn": "Обчислити",
   "sp_gone_body": "Спільного файлу чи теки більше немає — можливо, власник перемістив або видалив їх.",
-  "shares_load_failed": "Не вдалося завантажити посилання: {msg}"
+  "shares_load_failed": "Не вдалося завантажити посилання: {msg}",
+  "shares_filter_label": "Показати посилання",
+  "shares_filter_all": "Усі",
+  "shares_filter_active": "Активні",
+  "shares_filter_expired": "Завершені",
+  "shares_filter_files": "Файли",
+  "shares_filter_folders": "Теки",
+  "shares_filter_cdn": "CDN вбудовування",
+  "shares_filter_uploads": "З вивантаженням",
+  "shares_filter_account": "Потрібен акаунт",
+  "shares_filter_stats": "Зі статистикою",
+  "shares_filter_empty": "У цій категорії немає посилань."
 }

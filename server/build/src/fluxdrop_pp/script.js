@@ -8568,6 +8568,8 @@ async function openShareManager() {
                 <h3 style="font-size:18px;font-weight:700">${t('shares_manager_title')}</h3>
                 <button id="sm-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">✕</button>
             </div>
+            <div id="sm-filters" role="group" aria-label="${escapeHtmlAttr(t('shares_filter_label'))}"
+                 style="display:none;flex-wrap:wrap;gap:6px;padding:10px 20px;border-bottom:1px solid #e2e8f0;flex-shrink:0"></div>
             <div id="sm-body" style="overflow-y:auto;padding:16px 20px;flex:1">
                 <p style="color:#64748b;font-size:14px">${t('loading')}</p>
             </div>
@@ -8576,12 +8578,53 @@ async function openShareManager() {
     document.getElementById('sm-close').addEventListener('click', () => window.fdCloseOverlay(overlay));
     overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
 
+    _smFilter = 'all';
     await loadShareManager();
+}
+
+// Categories (filter chips) in the share manager. Filtering is done here on
+// the list already loaded; chips with nothing in them are hidden.
+let _smFilter = 'all';
+let _smShares = [];
+const _smExpired = s => !!s.expires_at && new Date(s.expires_at) < new Date();
+const _SM_FILTERS = [
+    ['all',      () => true],
+    ['active',   s => !_smExpired(s)],
+    ['expired',  _smExpired],
+    ['files',    s => !s.is_dir],
+    ['folders',  s => !!s.is_dir],
+    ['cdn',      s => !s.is_dir && !!s.allow_cdn_embed],
+    ['uploads',  s => !!s.is_dir && !!(s.allow_anon_upload || s.allow_auth_upload)],
+    ['account',  s => !!s.require_account],
+    ['stats',    s => !!s.track_stats],
+];
+
+function _smRenderFilters() {
+    const bar = document.getElementById('sm-filters');
+    if (!bar) return;
+    if (_smShares.length < 2) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    bar.innerHTML = _SM_FILTERS.map(([id, fn]) => {
+        const n = _smShares.filter(fn).length;
+        if (!n && id !== 'all' && id !== _smFilter) return '';
+        const on = id === _smFilter;
+        return `<button type="button" class="sm-filter" data-filter="${id}" aria-pressed="${on}"
+            style="border:1px solid ${on ? '#2563eb' : '#e2e8f0'};background:${on ? '#2563eb' : 'none'};
+                   color:${on ? '#fff' : '#475569'};border-radius:999px;padding:3px 10px;font-size:12px;
+                   font-weight:600;cursor:pointer">${t('shares_filter_' + id)} <span style="opacity:.75">${n}</span></button>`;
+    }).join('');
+    bar.querySelectorAll('.sm-filter').forEach(b => b.addEventListener('click', () => {
+        _smFilter = b.dataset.filter;
+        loadShareManager({ quiet: true, refetch: false });
+        const body = document.getElementById('sm-body');
+        if (body) body.scrollTop = 0;
+    }));
 }
 
 // quiet: refresh after an edit — keep the current list (and its scroll
 // position) on screen instead of flashing skeletons and jumping to the top.
-async function loadShareManager({ quiet = false } = {}) {
+// refetch=false: re-render the cached list (switching filter chips).
+async function loadShareManager({ quiet = false, refetch = true } = {}) {
     const body = document.getElementById('sm-body');
     if (!body) return;
     const keepScroll = body.scrollTop;
@@ -8608,10 +8651,15 @@ async function loadShareManager({ quiet = false } = {}) {
             </div>
         </div>`).join('');
     try {
-        const data = await apiCall('/api/v1/shares', 'GET');
-        const shares = data.shares || [];
-        if (shares.length === 0) {
+        if (refetch) _smShares = (await apiCall('/api/v1/shares', 'GET')).shares || [];
+        _smRenderFilters();
+        if (_smShares.length === 0) {
             body.innerHTML = `<p style="color:#64748b;font-size:14px">${t('shares_manager_empty')}</p>`;
+            return;
+        }
+        const shares = _smShares.filter((_SM_FILTERS.find(f => f[0] === _smFilter) || _SM_FILTERS[0])[1]);
+        if (shares.length === 0) {
+            body.innerHTML = `<p style="color:#64748b;font-size:14px">${t('shares_filter_empty')}</p>`;
             return;
         }
         body.innerHTML = shares.map(s => renderShareRow(s)).join('');
@@ -8627,9 +8675,10 @@ async function loadShareManager({ quiet = false } = {}) {
                 if (!ok) return;
                 try {
                     await apiCall(`/api/v1/shares/${btn.dataset.token}`, 'DELETE');
+                    _smShares = _smShares.filter(x => x.token !== btn.dataset.token);
                     const card = btn.closest('.sm-card');
-                    if (card && body.querySelectorAll('.sm-card').length > 1) card.remove();
-                    else await loadShareManager({ quiet: true });
+                    if (card && body.querySelectorAll('.sm-card').length > 1) { card.remove(); _smRenderFilters(); }
+                    else await loadShareManager({ quiet: true, refetch: false });
                 } catch(e) { showMessage(t('shares_revoke_failed'), e.message); }
             });
         });
@@ -8639,6 +8688,9 @@ async function loadShareManager({ quiet = false } = {}) {
                 const field = cb.dataset.field;
                 try {
                     await apiCall(`/api/v1/shares/${token}`, 'PATCH', { [field]: cb.checked });
+                    // keep the cached copy in step so the chips/counts stay right
+                    const sh = _smShares.find(x => x.token === token);
+                    if (sh) { sh[field] = cb.checked; _smRenderFilters(); }
                 } catch(e) { showMessage(t('shares_update_failed'), e.message); cb.checked = !cb.checked; }
             });
         });

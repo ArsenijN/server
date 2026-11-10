@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.41`
+# FluxDrop & server `v0.22.0.42`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -12,6 +12,9 @@ repo. Anyone can use it.
 
 ### FluxDrop (UI)
 **Added**
+- Share manager: category chips with counts — All, Active, Expired, Files,
+  Folders, CDN embed, Uploads allowed, Account required, With statistics
+  (empty ones are hidden)
 - Files inside a trashed folder can be previewed: click a file in the
   folder's "Browse" list
 - Previewing a large `.tar`/`.tar.gz` shows progress while the server reads

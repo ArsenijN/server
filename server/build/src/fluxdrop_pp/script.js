@@ -8712,9 +8712,9 @@ async function loadShareManager({ quiet = false, refetch = true } = {}) {
         body.querySelectorAll('.sm-copy-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 navigator.clipboard.writeText(btn.dataset.url).then(() => {
-                    const orig = btn.textContent;
-                    btn.textContent = t('share_dlg_copied'); btn.style.background = '#16a34a';
-                    setTimeout(() => { btn.textContent = orig; btn.style.background = '#3b82f6'; }, 1500);
+                    const orig = btn.textContent, origBg = btn.style.background;
+                    btn.textContent = t('share_dlg_copied'); btn.style.background = '#15803d';
+                    setTimeout(() => { btn.textContent = orig; btn.style.background = origBg; }, 1500);
                 });
             });
         });
@@ -8788,92 +8788,86 @@ function _fmtExpiry(d) {
 
 function renderShareRow(s) {
     const shareUrl = `${window.location.origin}/share/${s.token}`;
-    const urlEsc = escapeHtmlAttr(shareUrl);
-    const nameEsc = escapeHtmlAttr(s.path.split('/').pop() || s.path);
+    const urlEsc  = escapeHtmlAttr(shareUrl);
+    const name    = s.path.split('/').pop() || s.path;
+    const nameEsc = escapeHtmlAttr(name);
     const pathEsc = escapeHtmlAttr(s.path);
+    // Folder the item lives in — the name is already on the line above
+    const parentEsc = escapeHtmlAttr(s.path.slice(0, s.path.length - name.length) || '/');
     const created = s.created_at ? new Date(s.created_at).toLocaleDateString() : '?';
 
-    // Format expiry for display and for the date-time input (local time)
-    let expiryDisplay = `<span style="color:#94a3b8">${t('shares_info_never')}</span>`;
+    // Expiry: badge next to the name + value for the date-time input (local time)
+    let badge = '';
     let expiryInputVal = '';
     if (s.expires_at) {
         const expDate = new Date(s.expires_at);
-        const isExpired = expDate < new Date();
-        expiryDisplay = isExpired
-            ? `<span style="color:#ef4444;font-weight:600">${t('shares_expired_label')} ${_fmtExpiry(expDate)}</span>`
-            : `<span style="color:#f59e0b;font-weight:600">⏰ ${_fmtExpiry(expDate)}</span>`;
+        badge = expDate < new Date()
+            ? `<span style="background:#fee2e2;color:#b91c1c;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0">${t('shares_expired_label')} ${_fmtExpiry(expDate)}</span>`
+            : `<span style="background:#fef3c7;color:#92400e;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0">⏰ ${_fmtExpiry(expDate)}</span>`;
         expiryInputVal = _localDateTimeValue(expDate);
     }
 
-    return `<div class="sm-card" data-token="${s.token}" style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-            <div>
-                <span style="font-weight:600;font-size:14px">${s.is_dir ? '📁' : '📄'} ${nameEsc}</span>
-                <span style="font-size:11px;color:#94a3b8;margin-left:8px">${pathEsc}</span>
-                <div style="font-size:11px;color:#64748b;margin-top:3px">
-                    ${t('shares_info_created')} ${created} · ${t('shares_access_count', {n: s.access_count || 0})} · ${t('shares_expires_label')} ${expiryDisplay}
+    const toggle = (field, on, label, disabled = false) => `
+            <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;min-width:0">
+                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="${field}" ${on ? 'checked' : (disabled ? 'disabled' : '')} style="flex-shrink:0">
+                <span>${label}</span>
+            </label>`;
+    const btn = 'border:none;border-radius:6px;padding:5px 11px;cursor:pointer;font-size:12px;color:white';
+
+    return `<div class="sm-card" data-token="${s.token}" style="border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:10px;min-width:0">
+        <div style="display:flex;gap:10px;align-items:flex-start;min-width:0">
+            <span aria-hidden="true" style="font-size:20px;line-height:1.3;flex-shrink:0">${s.is_dir ? '📁' : '📄'}</span>
+            <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0">
+                    <span title="${nameEsc}" style="font-weight:600;font-size:14px;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nameEsc}</span>
+                    ${badge}
                 </div>
-            </div>
-            <div style="display:flex;gap:6px;flex-shrink:0;margin-left:8px">
-                ${s.track_stats ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}"
-                    style="background:#0369a1;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_stats_button')}</button>` : ''}
-                <button class="sm-copy-btn" data-url="${urlEsc}"
-                    style="background:#2563eb;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_copy_link_button')}</button>
-                <button class="sm-delete-btn" data-token="${s.token}"
-                    style="background:#dc2626;color:white;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">${t('shares_revoke_button')}</button>
+                <div title="${pathEsc}" style="font-size:11px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left"><bdi>${parentEsc}</bdi></div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px">
+                    ${t('shares_info_created')} ${created} · ${t('shares_access_count', {n: s.access_count || 0})}
+                </div>
             </div>
         </div>
 
-        <div style="display:flex;gap:12px 20px;flex-wrap:wrap;align-items:center">
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="require_account" ${s.require_account ? 'checked' : ''}>
-                ${t('shares_info_account_requirement')}
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="track_stats" ${s.track_stats ? 'checked' : ''}>
-                ${t('shares_info_stats_tracking')}
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_preview" ${s.allow_preview ? 'checked' : ''}>
-                ${t('shares_info_preview')}
-            </label>
-            ${!s.is_dir ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_cdn_embed" ${s.allow_cdn_embed ? 'checked' : (_canPublish ? '' : 'disabled')}>
-                ${t('shares_info_cdn_embed')}
-            </label>` : ''}
-            ${s.is_dir ? `
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_anon_upload" ${s.allow_anon_upload ? 'checked' : (_canPublish ? '' : 'disabled')}>
-                ${t('shares_info_uploads_anyone')}
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="allow_auth_upload" ${s.allow_auth_upload ? 'checked' : ''}>
-                ${t('shares_info_uploads_auth_only')}
-            </label>` : ''}
-            <div style="display:flex;align-items:center;gap:6px;font-size:13px">
-                <span style="white-space:nowrap">${t('shares_info_expiry')}</span>
-                <input type="datetime-local" class="sm-expiry-input" data-token="${s.token}" aria-label="${escapeHtmlAttr(t('shares_info_expiry'))}"
-                    value="${expiryInputVal}"
-                    style="padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#1e293b">
-                <button class="sm-expiry-clear" data-token="${s.token}"
-                    style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:11px;color:#94a3b8"
-                    title="${t('shares_expiry_remove_title')}">✕</button>
-            </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 14px;margin-top:10px">
+            ${toggle('require_account', s.require_account, t('shares_info_account_requirement'))}
+            ${toggle('track_stats', s.track_stats, t('shares_info_stats_tracking'))}
+            ${toggle('allow_preview', s.allow_preview, t('shares_info_preview'))}
+            ${!s.is_dir ? toggle('allow_cdn_embed', s.allow_cdn_embed, t('shares_info_cdn_embed'), !_canPublish) : ''}
+            ${s.is_dir ? toggle('allow_anon_upload', s.allow_anon_upload, t('shares_info_uploads_anyone'), !_canPublish) : ''}
+            ${s.is_dir ? toggle('allow_auth_upload', s.allow_auth_upload, t('shares_info_uploads_auth_only')) : ''}
+        </div>
+
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;margin-top:10px">
+            <span style="white-space:nowrap">${t('shares_info_expiry')}</span>
+            <input type="datetime-local" class="sm-expiry-input" data-token="${s.token}" aria-label="${escapeHtmlAttr(t('shares_info_expiry'))}"
+                value="${expiryInputVal}"
+                style="padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#1e293b;max-width:100%">
+            <button class="sm-expiry-clear" data-token="${s.token}"
+                style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:11px;color:#94a3b8"
+                title="${t('shares_expiry_remove_title')}" aria-label="${escapeHtmlAttr(t('shares_expiry_remove_title'))}">✕</button>
+            ${s.expires_at ? '' : `<span style="font-size:12px;color:#94a3b8">${t('shares_info_never')}</span>`}
         </div>
         ${s.allow_cdn_embed && !s.is_dir ? `
         <div style="margin-top:10px;padding:10px;background:#fefce8;border:1px solid #fde047;border-radius:8px">
             <div style="font-size:11px;color:#854d0e;font-weight:600;margin-bottom:5px">
                 ${t('shares_cdn_embed_title')}
-                <span class="fd-tooltip-wrap" id="cdn-tip-wrap">
+                <span class="fd-tooltip-wrap">
                     <span class="fd-tooltip-icon" style="font-family: Playwrite Norge; font-style: italic;">i</span>
                     <div class="fd-tooltip-bubble">${t('shares_cdn_embed_tooltip')}</div>
                 </span>
             </div>
             <div style="display:flex;gap:6px">
-                <input type="text" readonly value="${urlEsc}" aria-label="${escapeHtmlAttr(t('shares_cdn_embed_title'))}" style="flex:1;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
-                <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#a16207;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px">${t('shares_copy_button')}</button>
+                <input type="text" readonly value="${urlEsc}" aria-label="${escapeHtmlAttr(t('shares_cdn_embed_title'))}" style="flex:1;min-width:0;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
+                <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#a16207;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px;flex-shrink:0">${t('shares_copy_button')}</button>
             </div>
         </div>` : '' }
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid var(--fd-border,#e2e8f0)">
+            ${s.track_stats ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}" style="${btn};background:#0369a1">${t('shares_stats_button')}</button>` : ''}
+            <button class="sm-copy-btn" data-url="${urlEsc}" style="${btn};background:#2563eb">${t('shares_copy_link_button')}</button>
+            <button class="sm-delete-btn" data-token="${s.token}" style="${btn};background:#dc2626">${t('shares_revoke_button')}</button>
+        </div>
     </div>`;
 }
 

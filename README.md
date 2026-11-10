@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.43`
+# FluxDrop & server `v0.22.0.44`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -16,6 +16,10 @@ repo. Anyone can use it.
   Folders, CDN embed, Uploads allowed, Account required, With statistics
   (empty ones are hidden); switching is instant, the cards are only
   hidden/shown instead of being rebuilt
+- Share manager cards redesigned: long names and paths are cut with "…"
+  (full text on hover) instead of breaking the layout; expiry shown as a
+  badge next to the name; settings in a tidy grid; buttons in a row at the
+  bottom. The CDN Copy button no longer turns blue after copying
 - Files inside a trashed folder can be previewed: click a file in the
   folder's "Browse" list
 - Previewing a large `.tar`/`.tar.gz` shows progress while the server reads

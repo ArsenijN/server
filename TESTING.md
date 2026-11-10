@@ -342,12 +342,12 @@ Needs `./build.sh` and a backend restart (login response).
   share manager → CDN-embed box dark amber, its Copy button readable;
   Trash notice / admin badges dark too
 - [ ] Dark mode: "Вихід" in the profile menu is red
-- [ ] Sign out, sign in as another account (no reload): the header and menu
+- [x] Sign out, sign in as another account (no reload): the header and menu
   show that account's avatar (or the letter fallback), not the previous one
 - [ ] Welcome tour (gallery → Welcome screen) in UK: all text Ukrainian,
   including "Порада" and the TOS / Privacy links, which open the policy;
   trash card shows the server's retention days; no CDN card as non-admin
-- [ ] Non-admin opening `/files/cdn`: "Не вдалося завантажити теку: Тека CDN
+- [x] Non-admin opening `/files/cdn`: "Не вдалося завантажити теку: Тека CDN
   доступна лише адміністраторам."
 - [ ] Profile panel: "Вигляд та фішки" comes right after the transfer
   settings, same heading style, the "ID … · ім'я користувача" line is last
@@ -388,3 +388,13 @@ Needs `./build.sh` and a backend restart.
 - [ ] Share manager with many links (dark mode too): switching categories is
   instant, no pause; "No links in this category" shows when one becomes
   empty (e.g. after revoking its last link)
+
+## Added in V0.22.0.44
+- [ ] Share manager: a very long file name and a deep path stay on one line
+  each with "…" (hover shows the full text); the path shows the folder end
+  ("…/Time zone in screen recording/"); nothing overflows the card
+- [ ] Expired link: red badge "Закінчився …" next to the name; one with an
+  expiry: amber "⏰ …"; no expiry: "Ніколи" next to the date field
+- [ ] Phone width: checkboxes stack, buttons wrap at the bottom; dark mode
+  readable (badges dark red / dark amber)
+- [ ] Copy on the yellow CDN box: turns green, then back to brown, not blue

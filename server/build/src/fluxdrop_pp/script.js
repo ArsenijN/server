@@ -8615,15 +8615,33 @@ function _smRenderFilters() {
     }).join('');
     bar.querySelectorAll('.sm-filter').forEach(b => b.addEventListener('click', () => {
         _smFilter = b.dataset.filter;
-        loadShareManager({ quiet: true, refetch: false });
+        _smRenderFilters();
+        _smApplyFilter();
         const body = document.getElementById('sm-body');
         if (body) body.scrollTop = 0;
     }));
 }
 
+// Every card is rendered once; a category only hides/shows them. Rebuilding
+// the list per click was slow (each new card is also re-patched for dark mode).
+function _smApplyFilter() {
+    const body = document.getElementById('sm-body');
+    if (!body) return;
+    const fn = (_SM_FILTERS.find(f => f[0] === _smFilter) || _SM_FILTERS[0])[1];
+    const byToken = new Map(_smShares.map(x => [x.token, x]));
+    let shown = 0;
+    body.querySelectorAll('.sm-card').forEach(card => {
+        const sh = byToken.get(card.dataset.token);
+        card.hidden = !(sh && fn(sh));
+        if (!card.hidden) shown++;
+    });
+    const empty = body.querySelector('#sm-filter-empty');
+    if (empty) empty.hidden = shown > 0;
+}
+
 // quiet: refresh after an edit — keep the current list (and its scroll
 // position) on screen instead of flashing skeletons and jumping to the top.
-// refetch=false: re-render the cached list (switching filter chips).
+// refetch=false: re-render the cached list without asking the server.
 async function loadShareManager({ quiet = false, refetch = true } = {}) {
     const body = document.getElementById('sm-body');
     if (!body) return;
@@ -8657,12 +8675,9 @@ async function loadShareManager({ quiet = false, refetch = true } = {}) {
             body.innerHTML = `<p style="color:#64748b;font-size:14px">${t('shares_manager_empty')}</p>`;
             return;
         }
-        const shares = _smShares.filter((_SM_FILTERS.find(f => f[0] === _smFilter) || _SM_FILTERS[0])[1]);
-        if (shares.length === 0) {
-            body.innerHTML = `<p style="color:#64748b;font-size:14px">${t('shares_filter_empty')}</p>`;
-            return;
-        }
-        body.innerHTML = shares.map(s => renderShareRow(s)).join('');
+        body.innerHTML = _smShares.map(s => renderShareRow(s)).join('') +
+            `<p id="sm-filter-empty" hidden style="color:#64748b;font-size:14px">${t('shares_filter_empty')}</p>`;
+        _smApplyFilter();
         if (quiet) body.scrollTop = keepScroll;
         _initTooltipFlip()
         body.querySelectorAll('.sm-delete-btn').forEach(btn => {
@@ -8677,7 +8692,7 @@ async function loadShareManager({ quiet = false, refetch = true } = {}) {
                     await apiCall(`/api/v1/shares/${btn.dataset.token}`, 'DELETE');
                     _smShares = _smShares.filter(x => x.token !== btn.dataset.token);
                     const card = btn.closest('.sm-card');
-                    if (card && body.querySelectorAll('.sm-card').length > 1) { card.remove(); _smRenderFilters(); }
+                    if (card && _smShares.length) { card.remove(); _smRenderFilters(); _smApplyFilter(); }
                     else await loadShareManager({ quiet: true, refetch: false });
                 } catch(e) { showMessage(t('shares_revoke_failed'), e.message); }
             });
@@ -8790,7 +8805,7 @@ function renderShareRow(s) {
         expiryInputVal = _localDateTimeValue(expDate);
     }
 
-    return `<div class="sm-card" style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
+    return `<div class="sm-card" data-token="${s.token}" style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
             <div>
                 <span style="font-weight:600;font-size:14px">${s.is_dir ? '📁' : '📄'} ${nameEsc}</span>

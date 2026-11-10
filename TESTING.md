@@ -383,3 +383,8 @@ Needs `./build.sh` and a backend restart.
   stays until you switch chips); revoke a link → counts update
 - [ ] Changing an expiry while filtered keeps the filter and the scroll
 - [ ] Reopening the manager starts on "All"; chips readable in dark mode
+
+## Added in V0.22.0.43
+- [ ] Share manager with many links (dark mode too): switching categories is
+  instant, no pause; "No links in this category" shows when one becomes
+  empty (e.g. after revoking its last link)

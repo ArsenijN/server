@@ -8557,26 +8557,94 @@ async function openShareDialog(path, isDir) {
         // ======================================================================
         // --- SHARE MANAGER (list + manage existing shares) ---
         // ======================================================================
+// Share manager styles: classes instead of per-element inline styles. With
+// 100+ links the inline version meant thousands of style attributes for the
+// dark-mode patcher (fd_addons.js) to rewrite one by one — seconds on a slow
+// laptop. Colours come from the theme variables, dark tints are below.
+function _smEnsureStyle() {
+    if (document.getElementById('sm-style')) return;
+    const st = document.createElement('style');
+    st.id = 'sm-style';
+    st.textContent = `
+#share-manager-overlay .sm-panel{max-width:880px;width:95vw;max-height:88vh;display:flex;flex-direction:column;padding:0;overflow:hidden}
+.sm-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--fd-border,#e2e8f0);flex-shrink:0}
+.sm-head h3{font-size:18px;font-weight:700;margin:0}
+.sm-close{background:none;border:none;font-size:20px;line-height:1;padding:4px;cursor:pointer;color:var(--fd-muted,#64748b)}
+.sm-filters{display:none;flex-wrap:wrap;gap:6px;padding:10px 20px;border-bottom:1px solid var(--fd-border,#e2e8f0);flex-shrink:0}
+.sm-filter{border:1px solid var(--fd-border,#e2e8f0);background:none;color:var(--fd-muted,#64748b);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.sm-filter[aria-pressed="true"]{background:#2563eb;border-color:#2563eb;color:#fff}
+.sm-filter span{opacity:.75}
+.sm-body{overflow-y:auto;padding:16px 20px;flex:1}
+.sm-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.sm-empty{grid-column:1/-1;color:var(--fd-muted,#64748b);font-size:14px;margin:0}
+.sm-card{border:1px solid var(--fd-border,#e2e8f0);border-radius:12px;padding:12px 14px;min-width:0}
+.sm-top{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.sm-icon{font-size:20px;line-height:1.3;flex-shrink:0}
+.sm-main{flex:1;min-width:0}
+.sm-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.sm-name{font-weight:600;font-size:14px;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sm-badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0;background:#fef3c7;color:#92400e}
+.sm-badge.expired{background:#fee2e2;color:#b91c1c}
+.sm-path{font-size:11px;color:var(--fd-muted,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+.sm-meta{font-size:11px;color:var(--fd-muted,#64748b);margin-top:2px}
+.sm-opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px;margin-top:10px}
+.sm-opts label{display:flex;align-items:flex-start;gap:7px;font-size:13px;cursor:pointer;min-width:0}
+.sm-opts input{flex-shrink:0;margin-top:3px}
+.sm-exp{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;margin-top:10px}
+.sm-exp input{padding:3px 7px;border:1px solid var(--fd-border,#e2e8f0);border-radius:6px;font-size:12px;color:var(--fd-text,#1e293b);background:var(--fd-input-bg,#fff);max-width:100%}
+.sm-expiry-clear{background:none;border:1px solid var(--fd-border,#e2e8f0);border-radius:6px;padding:3px 7px;cursor:pointer;font-size:11px;color:#94a3b8}
+.sm-never{font-size:12px;color:var(--fd-muted,#64748b)}
+.sm-cdn{margin-top:10px;padding:10px;background:#fefce8;border:1px solid #fde047;border-radius:8px}
+.sm-cdn-title{font-size:11px;color:#854d0e;font-weight:600;margin-bottom:5px}
+.sm-cdn-row{display:flex;gap:6px}
+.sm-cdn-row input{flex:1;min-width:0;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:#fff;color:#1e293b}
+.sm-cdn-row button{background:#a16207;color:#fff;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px;flex-shrink:0}
+.sm-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid var(--fd-border,#e2e8f0)}
+.sm-actions button{border:none;border-radius:6px;padding:5px 11px;cursor:pointer;font-size:12px;color:#fff;white-space:nowrap}
+.sm-actions .sm-stats-btn{background:#0369a1}
+.sm-actions .sm-copy-btn{background:#2563eb}
+.sm-actions .sm-delete-btn{background:#dc2626}
+.sm-actions button:hover,.sm-cdn-row button:hover{filter:brightness(1.12)}
+.sm-card .sm-copied{background:#15803d}
+.sm-short{display:none}
+@media (max-width:560px){
+  .sm-head,.sm-filters,.sm-body{padding-left:14px;padding-right:14px}
+  .sm-filters{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .sm-list{grid-template-columns:1fr}
+  .sm-actions button{flex:1 1 auto;padding:7px 8px}
+  .sm-long{display:none}
+  .sm-short{display:inline}
+}
+[data-theme="dark"] .sm-badge{background:#3a2e0b;color:#fcd34d}
+[data-theme="dark"] .sm-badge.expired{background:#3b1618;color:#fca5a5}
+[data-theme="dark"] .sm-cdn{background:#2a220a;border-color:#854d0e}
+[data-theme="dark"] .sm-cdn-title{color:#fcd34d}
+[data-theme="dark"] .sm-cdn-row input{background:#0d1520;color:#e2e8f0;border-color:#854d0e}
+`;
+    document.head.appendChild(st);
+}
+
 async function openShareManager() {
     await _fetchCanPublish();
+    _smEnsureStyle();
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'share-manager-overlay';
     overlay.innerHTML = `
-        <div class="modal-content" style="max-width:640px;width:95vw;max-height:80vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e2e8f0;flex-shrink:0">
-                <h3 style="font-size:18px;font-weight:700">${t('shares_manager_title')}</h3>
-                <button id="sm-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">✕</button>
+        <div class="modal-content sm-panel">
+            <div class="sm-head">
+                <h3>${t('shares_manager_title')}</h3>
+                <button id="sm-close" class="sm-close" aria-label="${escapeHtmlAttr(t('close'))}">✕</button>
             </div>
-            <div id="sm-filters" role="group" aria-label="${escapeHtmlAttr(t('shares_filter_label'))}"
-                 style="display:none;flex-wrap:wrap;gap:6px;padding:10px 20px;border-bottom:1px solid #e2e8f0;flex-shrink:0"></div>
-            <div id="sm-body" style="overflow-y:auto;padding:16px 20px;flex:1">
-                <p style="color:#64748b;font-size:14px">${t('loading')}</p>
+            <div id="sm-filters" class="sm-filters" role="group" aria-label="${escapeHtmlAttr(t('shares_filter_label'))}"></div>
+            <div id="sm-body" class="sm-body" tabindex="0">
+                <p class="sm-empty">${t('loading')}</p>
             </div>
         </div>`;
     document.body.appendChild(overlay);
     document.getElementById('sm-close').addEventListener('click', () => window.fdCloseOverlay(overlay));
     overlay.addEventListener('click', e => { if (e.target === overlay) window.fdCloseOverlay(overlay); });
+    _smBindBody(overlay.querySelector('#sm-body'));
 
     _smFilter = 'all';
     await loadShareManager();
@@ -8586,6 +8654,7 @@ async function openShareManager() {
 // the list already loaded; chips with nothing in them are hidden.
 let _smFilter = 'all';
 let _smShares = [];
+let _smGen = 0;   // bumps on every list render, so stale background chunks stop
 const _smExpired = s => !!s.expires_at && new Date(s.expires_at) < new Date();
 const _SM_FILTERS = [
     ['all',      () => true],
@@ -8598,6 +8667,7 @@ const _SM_FILTERS = [
     ['account',  s => !!s.require_account],
     ['stats',    s => !!s.track_stats],
 ];
+const _smFilterFn = () => (_SM_FILTERS.find(f => f[0] === _smFilter) || _SM_FILTERS[0])[1];
 
 function _smRenderFilters() {
     const bar = document.getElementById('sm-filters');
@@ -8607,11 +8677,7 @@ function _smRenderFilters() {
     bar.innerHTML = _SM_FILTERS.map(([id, fn]) => {
         const n = _smShares.filter(fn).length;
         if (!n && id !== 'all' && id !== _smFilter) return '';
-        const on = id === _smFilter;
-        return `<button type="button" class="sm-filter" data-filter="${id}" aria-pressed="${on}"
-            style="border:1px solid ${on ? '#2563eb' : '#e2e8f0'};background:${on ? '#2563eb' : 'none'};
-                   color:${on ? '#fff' : '#475569'};border-radius:999px;padding:3px 10px;font-size:12px;
-                   font-weight:600;cursor:pointer">${t('shares_filter_' + id)} <span style="opacity:.75">${n}</span></button>`;
+        return `<button type="button" class="sm-filter" data-filter="${id}" aria-pressed="${id === _smFilter}">${t('shares_filter_' + id)} <span>${n}</span></button>`;
     }).join('');
     bar.querySelectorAll('.sm-filter').forEach(b => b.addEventListener('click', () => {
         _smFilter = b.dataset.filter;
@@ -8622,21 +8688,115 @@ function _smRenderFilters() {
     }));
 }
 
-// Every card is rendered once; a category only hides/shows them. Rebuilding
-// the list per click was slow (each new card is also re-patched for dark mode).
+// Every card is rendered once; a category only hides/shows them.
 function _smApplyFilter() {
     const body = document.getElementById('sm-body');
     if (!body) return;
-    const fn = (_SM_FILTERS.find(f => f[0] === _smFilter) || _SM_FILTERS[0])[1];
+    const fn = _smFilterFn();
     const byToken = new Map(_smShares.map(x => [x.token, x]));
-    let shown = 0;
     body.querySelectorAll('.sm-card').forEach(card => {
         const sh = byToken.get(card.dataset.token);
         card.hidden = !(sh && fn(sh));
-        if (!card.hidden) shown++;
     });
     const empty = body.querySelector('#sm-filter-empty');
-    if (empty) empty.hidden = shown > 0;
+    if (empty) empty.hidden = _smShares.some(fn);
+}
+
+// Cards go in batches: the first ones show at once, the rest are added in
+// the background so a long list doesn't freeze the page. sync: all at once
+// (refresh after an edit — needed to restore the scroll position).
+function _smRenderList(body, sync) {
+    const gen = ++_smGen;
+    const list = document.createElement('div');
+    list.className = 'sm-list';
+    list.innerHTML = `<p id="sm-filter-empty" class="sm-empty" hidden>${t('shares_filter_empty')}</p>`;
+    body.replaceChildren(list);
+    let i = 0;
+    const step = () => {
+        if (gen !== _smGen || !list.isConnected) return;
+        const end = sync ? _smShares.length : Math.min(_smShares.length, i + (i ? 30 : 12));
+        list.insertAdjacentHTML('beforeend', _smShares.slice(i, end).map(renderShareRow).join(''));
+        i = end;
+        _smApplyFilter();
+        if (i < _smShares.length) setTimeout(step, 0);
+    };
+    step();
+}
+
+// One set of listeners on the list body (event delegation) instead of six
+// per card — the cards are re-rendered and added in batches.
+function _smBindBody(body) {
+    body.addEventListener('mouseover', e => {
+        const wrap = e.target.closest('.fd-tooltip-wrap');
+        // Little room above → flip the bubble downward
+        if (wrap) wrap.classList.toggle('fd-tooltip-below', wrap.getBoundingClientRect().top < 240);
+    });
+
+    body.addEventListener('change', async e => {
+        const el = e.target;
+        const token = el.dataset.token;
+        if (el.classList.contains('sm-toggle')) {
+            const field = el.dataset.field;
+            try {
+                await apiCall(`/api/v1/shares/${token}`, 'PATCH', { [field]: el.checked });
+                // keep the cached copy in step so the chips/counts stay right
+                const sh = _smShares.find(x => x.token === token);
+                if (sh) { sh[field] = el.checked; _smRenderFilters(); }
+            } catch (err) { showMessage(t('shares_update_failed'), err.message); el.checked = !el.checked; }
+        } else if (el.classList.contains('sm-expiry-input')) {
+            // date + time, local
+            const expires_at = el.value ? new Date(el.value).toISOString() : null;
+            try {
+                await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at });
+                await loadShareManager({ quiet: true });
+            } catch (err) { showMessage(t('update_failed'), err.message); }
+        }
+    });
+
+    body.addEventListener('click', async e => {
+        const btn = e.target.closest('button');
+        if (!btn || !body.contains(btn)) return;
+        const token = btn.dataset.token;
+
+        if (btn.classList.contains('sm-copy-btn')) {
+            navigator.clipboard.writeText(btn.dataset.url).then(() => {
+                const orig = btn.innerHTML;
+                btn.textContent = t('share_dlg_copied');
+                btn.classList.add('sm-copied');
+                setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('sm-copied'); }, 1500);
+            });
+        } else if (btn.classList.contains('sm-stats-btn')) {
+            if (btn.disabled) return;
+            // Small spinner in the button while the access log loads
+            // (same width, so the row doesn't jump).
+            const label = btn.innerHTML;
+            btn.style.minWidth = btn.offsetWidth + 'px';
+            btn.disabled = true;
+            _loadingHtml();   // makes sure the fd-spin keyframes exist
+            btn.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border:2px solid rgba(255,255,255,.5);' +
+                'border-top-color:#fff;border-radius:50%;animation:fd-spin .7s linear infinite;vertical-align:-1px"></span>';
+            try { await openShareStats(token, btn.dataset.name); }
+            finally { btn.disabled = false; btn.innerHTML = label; btn.style.minWidth = ''; }
+        } else if (btn.classList.contains('sm-delete-btn')) {
+            const ok = await showConfirmModal({
+                title: t('shares_revoke_confirm_title'),
+                message: t('shares_revoke_confirm_body'),
+                danger: true,
+            });
+            if (!ok) return;
+            try {
+                await apiCall(`/api/v1/shares/${token}`, 'DELETE');
+                _smShares = _smShares.filter(x => x.token !== token);
+                if (_smShares.length) { btn.closest('.sm-card')?.remove(); _smRenderFilters(); _smApplyFilter(); }
+                else await loadShareManager({ quiet: true, refetch: false });
+            } catch (err) { showMessage(t('shares_revoke_failed'), err.message); }
+        } else if (btn.classList.contains('sm-expiry-clear')) {
+            try {
+                await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at: null });
+                await loadShareManager({ quiet: true });
+            } catch (err) { showMessage(t('update_failed'), err.message); }
+        }
+    });
 }
 
 // quiet: refresh after an edit — keep the current list (and its scroll
@@ -8649,129 +8809,26 @@ async function loadShareManager({ quiet = false, refetch = true } = {}) {
     // Skeleton share cards while fetching
     if (!quiet) body.innerHTML = Array.from({length: 3}, () => `
         <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
-            <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-                <div>
-                    <span style="display:inline-block;width:160px;height:15px;border-radius:4px;
-                        background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
-                        background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span><br>
-                    <span style="display:inline-block;width:100px;height:11px;border-radius:4px;margin-top:6px;
-                        background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
-                        background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
-                </div>
-                <div style="display:flex;gap:6px">
-                    <span style="display:inline-block;width:60px;height:28px;border-radius:6px;
-                        background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
-                        background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
-                    <span style="display:inline-block;width:54px;height:28px;border-radius:6px;
-                        background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
-                        background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
-                </div>
-            </div>
+            <span style="display:inline-block;width:160px;height:15px;border-radius:4px;
+                background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
+                background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span><br>
+            <span style="display:inline-block;width:100px;height:11px;border-radius:4px;margin-top:6px;
+                background:linear-gradient(90deg,var(--fd-skel-base,#e2e8f0) 25%,var(--fd-skel-shine,#f1f5f9) 50%,var(--fd-skel-base,#e2e8f0) 75%);
+                background-size:200% 100%;animation:fd-shimmer 1.4s infinite"></span>
         </div>`).join('');
     try {
         if (refetch) _smShares = (await apiCall('/api/v1/shares', 'GET')).shares || [];
         _smRenderFilters();
         if (_smShares.length === 0) {
-            body.innerHTML = `<p style="color:#64748b;font-size:14px">${t('shares_manager_empty')}</p>`;
+            ++_smGen;
+            body.innerHTML = `<p class="sm-empty">${t('shares_manager_empty')}</p>`;
             return;
         }
-        body.innerHTML = _smShares.map(s => renderShareRow(s)).join('') +
-            `<p id="sm-filter-empty" hidden style="color:#64748b;font-size:14px">${t('shares_filter_empty')}</p>`;
-        _smApplyFilter();
+        _smRenderList(body, quiet);
         if (quiet) body.scrollTop = keepScroll;
-        _initTooltipFlip()
-        body.querySelectorAll('.sm-delete-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const ok = await showConfirmModal({
-                    title: t('shares_revoke_confirm_title'),
-                    message: t('shares_revoke_confirm_body'),
-                    danger: true,
-                });
-                if (!ok) return;
-                try {
-                    await apiCall(`/api/v1/shares/${btn.dataset.token}`, 'DELETE');
-                    _smShares = _smShares.filter(x => x.token !== btn.dataset.token);
-                    const card = btn.closest('.sm-card');
-                    if (card && _smShares.length) { card.remove(); _smRenderFilters(); _smApplyFilter(); }
-                    else await loadShareManager({ quiet: true, refetch: false });
-                } catch(e) { showMessage(t('shares_revoke_failed'), e.message); }
-            });
-        });
-        body.querySelectorAll('.sm-toggle').forEach(cb => {
-            cb.addEventListener('change', async () => {
-                const token = cb.dataset.token;
-                const field = cb.dataset.field;
-                try {
-                    await apiCall(`/api/v1/shares/${token}`, 'PATCH', { [field]: cb.checked });
-                    // keep the cached copy in step so the chips/counts stay right
-                    const sh = _smShares.find(x => x.token === token);
-                    if (sh) { sh[field] = cb.checked; _smRenderFilters(); }
-                } catch(e) { showMessage(t('shares_update_failed'), e.message); cb.checked = !cb.checked; }
-            });
-        });
-        body.querySelectorAll('.sm-copy-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                navigator.clipboard.writeText(btn.dataset.url).then(() => {
-                    const orig = btn.textContent, origBg = btn.style.background;
-                    btn.textContent = t('share_dlg_copied'); btn.style.background = '#15803d';
-                    setTimeout(() => { btn.textContent = orig; btn.style.background = origBg; }, 1500);
-                });
-            });
-        });
-        body.querySelectorAll('.sm-stats-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                if (btn.disabled) return;
-                // Small spinner in the button while the access log loads
-                // (same width, so the row doesn't jump).
-                const label = btn.innerHTML;
-                btn.style.minWidth = btn.offsetWidth + 'px';
-                btn.disabled = true;
-                _loadingHtml();   // makes sure the fd-spin keyframes exist
-                btn.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border:2px solid rgba(255,255,255,.5);' +
-                    'border-top-color:#fff;border-radius:50%;animation:fd-spin .7s linear infinite;vertical-align:-1px"></span>';
-                try { await openShareStats(btn.dataset.token, btn.dataset.name); }
-                finally { btn.disabled = false; btn.innerHTML = label; btn.style.minWidth = ''; }
-            });
-        });
-
-        // Expiry date + time input (local time) — save on change
-        body.querySelectorAll('.sm-expiry-input').forEach(input => {
-            const saveExpiry = async () => {
-                const token = input.dataset.token;
-                const val = input.value;
-                const expires_at = val ? new Date(val).toISOString() : null;
-                try {
-                    await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at });
-                    // Refresh to show updated display
-                    await loadShareManager({ quiet: true });
-                } catch(e) { showMessage(t('update_failed'), e.message); }
-            };
-            input.addEventListener('change', saveExpiry);
-        });
-
-        // Expiry clear (✕) button — remove expiry
-        body.querySelectorAll('.sm-expiry-clear').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const token = btn.dataset.token;
-                try {
-                    await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at: null });
-                    await loadShareManager({ quiet: true });
-                } catch(e) { showMessage(t('update_failed'), e.message); }
-            });
-        });
     } catch(e) {
-        body.innerHTML = `<p style="color:#ef4444;font-size:14px">${escapeHtml(t('shares_load_failed', { msg: e.message }))}</p>`;
+        body.innerHTML = `<p class="sm-empty" style="color:#ef4444">${escapeHtml(t('shares_load_failed', { msg: e.message }))}</p>`;
     }
-}
-
-function _initTooltipFlip() {
-    document.querySelectorAll('.fd-tooltip-wrap').forEach(wrap => {
-        wrap.addEventListener('mouseenter', () => {
-            const rect = wrap.getBoundingClientRect();
-            // If less than 120px above the element, flip the bubble downward
-            wrap.classList.toggle('fd-tooltip-below', rect.top < 240);
-        });
-    });
 }
 
 // <input type="datetime-local"> value for a Date, in local time (YYYY-MM-DDTHH:MM)
@@ -8802,34 +8859,27 @@ function renderShareRow(s) {
     if (s.expires_at) {
         const expDate = new Date(s.expires_at);
         badge = expDate < new Date()
-            ? `<span style="background:#fee2e2;color:#b91c1c;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0">${t('shares_expired_label')} ${_fmtExpiry(expDate)}</span>`
-            : `<span style="background:#fef3c7;color:#92400e;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0">⏰ ${_fmtExpiry(expDate)}</span>`;
+            ? `<span class="sm-badge expired">${t('shares_expired_label')} ${_fmtExpiry(expDate)}</span>`
+            : `<span class="sm-badge">⏰ ${_fmtExpiry(expDate)}</span>`;
         expiryInputVal = _localDateTimeValue(expDate);
     }
 
-    const toggle = (field, on, label, disabled = false) => `
-            <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;min-width:0">
-                <input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="${field}" ${on ? 'checked' : (disabled ? 'disabled' : '')} style="flex-shrink:0">
-                <span>${label}</span>
-            </label>`;
-    const btn = 'border:none;border-radius:6px;padding:5px 11px;cursor:pointer;font-size:12px;color:white';
+    const toggle = (field, on, label, disabled = false) =>
+        `<label><input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="${field}" ${on ? 'checked' : (disabled ? 'disabled' : '')}><span>${label}</span></label>`;
+    // Buttons: full label on wide screens, icon / short label on phones
+    const statsL = escapeHtmlAttr(t('shares_stats_button'));
+    const revokeL = escapeHtmlAttr(t('shares_revoke_button'));
 
-    return `<div class="sm-card" data-token="${s.token}" style="border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:10px;min-width:0">
-        <div style="display:flex;gap:10px;align-items:flex-start;min-width:0">
-            <span aria-hidden="true" style="font-size:20px;line-height:1.3;flex-shrink:0">${s.is_dir ? '📁' : '📄'}</span>
-            <div style="flex:1;min-width:0">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0">
-                    <span title="${nameEsc}" style="font-weight:600;font-size:14px;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nameEsc}</span>
-                    ${badge}
-                </div>
-                <div title="${pathEsc}" style="font-size:11px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left"><bdi>${parentEsc}</bdi></div>
-                <div style="font-size:11px;color:#64748b;margin-top:2px">
-                    ${t('shares_info_created')} ${created} · ${t('shares_access_count', {n: s.access_count || 0})}
-                </div>
+    return `<div class="sm-card" data-token="${s.token}">
+        <div class="sm-top">
+            <span class="sm-icon" aria-hidden="true">${s.is_dir ? '📁' : '📄'}</span>
+            <div class="sm-main">
+                <div class="sm-title"><span class="sm-name" title="${nameEsc}">${nameEsc}</span>${badge}</div>
+                <div class="sm-path" title="${pathEsc}"><bdi>${parentEsc}</bdi></div>
+                <div class="sm-meta">${t('shares_info_created')} ${created} · ${t('shares_access_count', {n: s.access_count || 0})}</div>
             </div>
         </div>
-
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 14px;margin-top:10px">
+        <div class="sm-opts">
             ${toggle('require_account', s.require_account, t('shares_info_account_requirement'))}
             ${toggle('track_stats', s.track_stats, t('shares_info_stats_tracking'))}
             ${toggle('allow_preview', s.allow_preview, t('shares_info_preview'))}
@@ -8837,36 +8887,31 @@ function renderShareRow(s) {
             ${s.is_dir ? toggle('allow_anon_upload', s.allow_anon_upload, t('shares_info_uploads_anyone'), !_canPublish) : ''}
             ${s.is_dir ? toggle('allow_auth_upload', s.allow_auth_upload, t('shares_info_uploads_auth_only')) : ''}
         </div>
-
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;margin-top:10px">
-            <span style="white-space:nowrap">${t('shares_info_expiry')}</span>
-            <input type="datetime-local" class="sm-expiry-input" data-token="${s.token}" aria-label="${escapeHtmlAttr(t('shares_info_expiry'))}"
-                value="${expiryInputVal}"
-                style="padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#1e293b;max-width:100%">
-            <button class="sm-expiry-clear" data-token="${s.token}"
-                style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:11px;color:#94a3b8"
-                title="${t('shares_expiry_remove_title')}" aria-label="${escapeHtmlAttr(t('shares_expiry_remove_title'))}">✕</button>
-            ${s.expires_at ? '' : `<span style="font-size:12px;color:#94a3b8">${t('shares_info_never')}</span>`}
+        <div class="sm-exp">
+            <span>${t('shares_info_expiry')}</span>
+            <input type="datetime-local" class="sm-expiry-input" data-token="${s.token}" value="${expiryInputVal}"
+                aria-label="${escapeHtmlAttr(t('shares_info_expiry'))}">
+            <button class="sm-expiry-clear" data-token="${s.token}" title="${escapeHtmlAttr(t('shares_expiry_remove_title'))}"
+                aria-label="${escapeHtmlAttr(t('shares_expiry_remove_title'))}">✕</button>
+            ${s.expires_at ? '' : `<span class="sm-never">${t('shares_info_never')}</span>`}
         </div>
         ${s.allow_cdn_embed && !s.is_dir ? `
-        <div style="margin-top:10px;padding:10px;background:#fefce8;border:1px solid #fde047;border-radius:8px">
-            <div style="font-size:11px;color:#854d0e;font-weight:600;margin-bottom:5px">
-                ${t('shares_cdn_embed_title')}
+        <div class="sm-cdn">
+            <div class="sm-cdn-title">${t('shares_cdn_embed_title')}
                 <span class="fd-tooltip-wrap">
-                    <span class="fd-tooltip-icon" style="font-family: Playwrite Norge; font-style: italic;">i</span>
+                    <span class="fd-tooltip-icon" style="font-family:Playwrite Norge;font-style:italic">i</span>
                     <div class="fd-tooltip-bubble">${t('shares_cdn_embed_tooltip')}</div>
                 </span>
             </div>
-            <div style="display:flex;gap:6px">
-                <input type="text" readonly value="${urlEsc}" aria-label="${escapeHtmlAttr(t('shares_cdn_embed_title'))}" style="flex:1;min-width:0;font-size:11px;padding:4px 7px;border:1px solid #fde047;border-radius:5px;background:white;color:#1e293b">
-                <button class="sm-copy-btn" data-url="${urlEsc}" style="background:#a16207;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:11px;flex-shrink:0">${t('shares_copy_button')}</button>
+            <div class="sm-cdn-row">
+                <input type="text" readonly value="${urlEsc}" aria-label="${escapeHtmlAttr(t('shares_cdn_embed_title'))}">
+                <button class="sm-copy-btn" data-url="${urlEsc}">${t('shares_copy_button')}</button>
             </div>
-        </div>` : '' }
-
-        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid var(--fd-border,#e2e8f0)">
-            ${s.track_stats ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}" style="${btn};background:#0369a1">${t('shares_stats_button')}</button>` : ''}
-            <button class="sm-copy-btn" data-url="${urlEsc}" style="${btn};background:#2563eb">${t('shares_copy_link_button')}</button>
-            <button class="sm-delete-btn" data-token="${s.token}" style="${btn};background:#dc2626">${t('shares_revoke_button')}</button>
+        </div>` : ''}
+        <div class="sm-actions">
+            ${s.track_stats ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}" title="${statsL}" aria-label="${statsL}"><span class="sm-long">${statsL}</span><span class="sm-short">📊</span></button>` : ''}
+            <button class="sm-copy-btn" data-url="${urlEsc}"><span class="sm-long">${t('shares_copy_link_button')}</span><span class="sm-short">🔗 ${t('shares_copy_button')}</span></button>
+            <button class="sm-delete-btn" data-token="${s.token}" title="${revokeL}" aria-label="${revokeL}"><span class="sm-long">${revokeL}</span><span class="sm-short">🗑</span></button>
         </div>
     </div>`;
 }

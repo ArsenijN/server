@@ -398,3 +398,15 @@ Needs `./build.sh` and a backend restart.
 - [ ] Phone width: checkboxes stack, buttons wrap at the bottom; dark mode
   readable (badges dark red / dark amber)
 - [ ] Copy on the yellow CDN box: turns green, then back to brown, not blue
+
+## Added in V0.22.0.45
+- [ ] Share manager on a laptop: about the admin panel's size, two columns
+  of cards; opening with ~114 links on eco mode — the first cards show
+  right away, the rest fill in without freezing (compare with 2–4 s before)
+- [ ] Dark mode: cards, badges, the CDN box and the date field look right
+  (no light boxes)
+- [ ] Phone width (DevTools 360 px): one column; categories in one row that
+  scrolls sideways; buttons 📊 / 🔗 Копіювати / 🗑 fit in one row
+- [ ] Everything still works: checkboxes save, expiry date/time + ✕,
+  Copy (both), Statistics (spinner, then the log), Revoke, CDN ⓘ tooltip
+- [ ] Change an expiry far down the list: the list stays where it was

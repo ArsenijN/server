@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.44`
+# FluxDrop & server `v0.22.0.45`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -20,6 +20,11 @@ repo. Anyone can use it.
   (full text on hover) instead of breaking the layout; expiry shown as a
   badge next to the name; settings in a tidy grid; buttons in a row at the
   bottom. The CDN Copy button no longer turns blue after copying
+- Share manager is as large as the admin panel, with two columns of cards
+  on wide screens; on phones the categories scroll sideways in one row and
+  the buttons are short (📊 / 🔗 Копіювати / 🗑). It opens much faster with
+  many links: styles are a stylesheet instead of thousands of inline styles
+  the dark theme had to rewrite, and cards are added in batches
 - Files inside a trashed folder can be previewed: click a file in the
   folder's "Browse" list
 - Previewing a large `.tar`/`.tar.gz` shows progress while the server reads

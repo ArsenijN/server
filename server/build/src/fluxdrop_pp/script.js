@@ -223,6 +223,15 @@ function navigateTo(path) {
     loadDirectory(path);
 }
 
+// Back to the root folder with nothing selected (logout / account switch).
+function _resetBrowsePath() {
+    currentPath = '/';
+    _selectedPaths.clear();
+    _lastClickedPath = null;
+    if (location.pathname.startsWith(_APP_BASE + '/files/'))
+        history.replaceState({ fdPath: '/' }, '', _APP_BASE + '/files');
+}
+
 // Replace the current history entry (used on initial load, not for user clicks).
 function _syncUrlToPath(path) {
     const urlPath = _APP_BASE + '/files' + (path === '/' ? '' : encodePath(path));
@@ -4099,6 +4108,14 @@ async function _trashSelectedPaths(paths) {
     loadDirectory(currentPath);
 }
 
+// Set once a real mouse moves (touch-screen laptops start out "coarse")
+window.addEventListener('pointermove', e => {
+    if (e.pointerType === 'mouse' && !window._fdSawMouse) {
+        window._fdSawMouse = true;
+        _updateSelBar();
+    }
+}, { passive: true });
+
 function _updateSelBar() {
     const n = _selectedPaths.size;
     const bar = document.getElementById('fd-sel-bar');
@@ -4108,8 +4125,12 @@ function _updateSelBar() {
     // the long-press menu already has the multi-item actions, and the bar
     // only takes screen space there. Re-checked on every update, so plugging
     // in a mouse brings it back.
-    const touchOnly = !window.matchMedia('(any-pointer: fine)').matches
-                   && !window.matchMedia('(any-hover: hover)').matches;
+    // Primary pointer, not any-pointer/any-hover: some Android phones report
+    // a fine pointer/hover among "any" (stylus support, browser quirks), which
+    // showed the bar there. A real mouse movement (_fdSawMouse) overrides it.
+    const touchOnly = !window._fdSawMouse
+                   && window.matchMedia('(pointer: coarse)').matches
+                   && !window.matchMedia('(hover: hover)').matches;
     // 'flex', not '': clearing it would also drop the template's inline
     // display:flex and stack the bar's items on separate lines.
     bar.style.display = touchOnly ? 'none' : 'flex';
@@ -4423,6 +4444,7 @@ function _dropSelectedUnder(path) {
 
 // ── Context menu ─────────────────────────────────────────────────────────
 function _removeContextMenu() {
+    document.removeEventListener('scroll', _ctxMenuScroll);
     document.getElementById('fd-ctx-menu')?.remove();
 }
 
@@ -4434,8 +4456,16 @@ function _removeContextMenu() {
 // so it can't afford a fade there). Everywhere the menu is genuinely being
 // dismissed, use this instead so it doesn't just vanish.
 function _dismissContextMenu() {
+    document.removeEventListener('scroll', _ctxMenuScroll);
     const menu = document.getElementById('fd-ctx-menu');
     if (menu) window.fdCloseFloatingPanel(menu);
+}
+
+// Scrolling closes the menu, but a long-press on a phone often nudges the
+// page a few pixels — only a real scroll (> 24 px) counts.
+let _ctxMenuScrollY = 0;
+function _ctxMenuScroll() {
+    if (Math.abs(window.scrollY - _ctxMenuScrollY) > 24) _dismissContextMenu();
 }
 
 function _showContextMenu(x, y, row) {
@@ -4502,7 +4532,8 @@ function _showContextMenu(x, y, row) {
     // the menu, so the same click that shows it doesn't immediately close it.
     setTimeout(() => {
         document.addEventListener('click',  _dismissContextMenu, { once: true, capture: true });
-        document.addEventListener('scroll', _dismissContextMenu, { once: true, passive: true });
+        _ctxMenuScrollY = window.scrollY;
+        document.addEventListener('scroll', _ctxMenuScroll, { passive: true });
     }, 0);
 
     // Hover highlight + actions
@@ -7053,6 +7084,10 @@ async function handleLogin(e) {
         const data = await apiCall('/auth/login', 'POST', { username, password }, false);
         authToken = data.token;
         currentUsername = data.username;
+        // A folder from the previous account's session (the URL survives a
+        // session expiry) would be "not found" / admin-only for this one
+        if (localStorage.getItem('fluxdrop_last_user') !== data.username) _resetBrowsePath();
+        localStorage.setItem('fluxdrop_last_user', data.username);
         isAdmin = !!data.is_admin;
         _canPublish = null;
         localStorage.removeItem('fluxdrop_lang_synced');   // new account: send it again
@@ -7192,6 +7227,7 @@ async function handleLogout() {
         localStorage.removeItem('fluxdrop_is_admin');
         localStorage.removeItem('fluxdrop_username');
         localStorage.removeItem('fluxdrop_user_id');   // else the next account shows this avatar
+        _resetBrowsePath();   // the next account doesn't have this folder
         renderApp();
     }
 }
@@ -8378,9 +8414,9 @@ async function openShareDialog(path, isDir) {
                         <option value="90">${t('share_dlg_exp_90d')}</option>
                         <option value="custom">${t('share_dlg_exp_custom')}</option>
                     </select>
-                    <input type="date" id="sh-expiry-custom"
+                    <input type="datetime-local" id="sh-expiry-custom" aria-labelledby="sh-expiry-label"
                         style="display:none;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px"
-                        min="${new Date().toISOString().slice(0,10)}">
+                        min="${_localDateTimeValue(new Date())}">
                 </div>
 
                 <hr style="border:none;border-top:1px solid #e2e8f0;margin:2px 0">
@@ -8433,7 +8469,7 @@ async function openShareDialog(path, isDir) {
         const preset = presetSel.value;
         if (!preset) return null;
         if (preset === 'custom') {
-            return customInput.value ? new Date(customInput.value + 'T23:59:59').toISOString() : null;
+            return customInput.value ? new Date(customInput.value).toISOString() : null;   // local time
         }
         const d = new Date();
         d.setDate(d.getDate() + parseInt(preset));
@@ -8543,11 +8579,14 @@ async function openShareManager() {
     await loadShareManager();
 }
 
-async function loadShareManager() {
+// quiet: refresh after an edit — keep the current list (and its scroll
+// position) on screen instead of flashing skeletons and jumping to the top.
+async function loadShareManager({ quiet = false } = {}) {
     const body = document.getElementById('sm-body');
     if (!body) return;
+    const keepScroll = body.scrollTop;
     // Skeleton share cards while fetching
-    body.innerHTML = Array.from({length: 3}, () => `
+    if (!quiet) body.innerHTML = Array.from({length: 3}, () => `
         <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;margin-bottom:10px">
                 <div>
@@ -8576,6 +8615,7 @@ async function loadShareManager() {
             return;
         }
         body.innerHTML = shares.map(s => renderShareRow(s)).join('');
+        if (quiet) body.scrollTop = keepScroll;
         _initTooltipFlip()
         body.querySelectorAll('.sm-delete-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
@@ -8587,7 +8627,9 @@ async function loadShareManager() {
                 if (!ok) return;
                 try {
                     await apiCall(`/api/v1/shares/${btn.dataset.token}`, 'DELETE');
-                    await loadShareManager();
+                    const card = btn.closest('.sm-card');
+                    if (card && body.querySelectorAll('.sm-card').length > 1) card.remove();
+                    else await loadShareManager({ quiet: true });
                 } catch(e) { showMessage(t('shares_revoke_failed'), e.message); }
             });
         });
@@ -8625,16 +8667,16 @@ async function loadShareManager() {
             });
         });
 
-        // Expiry date input — save on change (blur or Enter)
+        // Expiry date + time input (local time) — save on change
         body.querySelectorAll('.sm-expiry-input').forEach(input => {
             const saveExpiry = async () => {
                 const token = input.dataset.token;
                 const val = input.value;
-                const expires_at = val ? new Date(val + 'T23:59:59').toISOString() : null;
+                const expires_at = val ? new Date(val).toISOString() : null;
                 try {
                     await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at });
                     // Refresh to show updated display
-                    await loadShareManager();
+                    await loadShareManager({ quiet: true });
                 } catch(e) { showMessage(t('update_failed'), e.message); }
             };
             input.addEventListener('change', saveExpiry);
@@ -8646,12 +8688,12 @@ async function loadShareManager() {
                 const token = btn.dataset.token;
                 try {
                     await apiCall(`/api/v1/shares/${token}`, 'PATCH', { expires_at: null });
-                    await loadShareManager();
+                    await loadShareManager({ quiet: true });
                 } catch(e) { showMessage(t('update_failed'), e.message); }
             });
         });
     } catch(e) {
-        body.innerHTML = `<p style="color:#ef4444;font-size:14px">Failed to load shares: ${e.message}</p>`;
+        body.innerHTML = `<p style="color:#ef4444;font-size:14px">${escapeHtml(t('shares_load_failed', { msg: e.message }))}</p>`;
     }
 }
 
@@ -8665,6 +8707,18 @@ function _initTooltipFlip() {
     });
 }
 
+// <input type="datetime-local"> value for a Date, in local time (YYYY-MM-DDTHH:MM)
+function _localDateTimeValue(d) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// Expiry as date + hours:minutes in the UI language
+function _fmtExpiry(d) {
+    return d.toLocaleString(window.FDi18n?.lang || undefined,
+        { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
 function renderShareRow(s) {
     const shareUrl = `${window.location.origin}/share/${s.token}`;
     const urlEsc = escapeHtmlAttr(shareUrl);
@@ -8672,19 +8726,19 @@ function renderShareRow(s) {
     const pathEsc = escapeHtmlAttr(s.path);
     const created = s.created_at ? new Date(s.created_at).toLocaleDateString() : '?';
 
-    // Format expiry for display and for the date input (YYYY-MM-DD)
+    // Format expiry for display and for the date-time input (local time)
     let expiryDisplay = `<span style="color:#94a3b8">${t('shares_info_never')}</span>`;
     let expiryInputVal = '';
     if (s.expires_at) {
         const expDate = new Date(s.expires_at);
         const isExpired = expDate < new Date();
         expiryDisplay = isExpired
-            ? `<span style="color:#ef4444;font-weight:600">${t('shares_expired_label')} ${expDate.toLocaleDateString()}</span>`
-            : `<span style="color:#f59e0b;font-weight:600">⏰ ${expDate.toLocaleDateString()}</span>`;
-        expiryInputVal = expDate.toISOString().slice(0, 10);
+            ? `<span style="color:#ef4444;font-weight:600">${t('shares_expired_label')} ${_fmtExpiry(expDate)}</span>`
+            : `<span style="color:#f59e0b;font-weight:600">⏰ ${_fmtExpiry(expDate)}</span>`;
+        expiryInputVal = _localDateTimeValue(expDate);
     }
 
-    return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
+    return `<div class="sm-card" style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
             <div>
                 <span style="font-weight:600;font-size:14px">${s.is_dir ? '📁' : '📄'} ${nameEsc}</span>
@@ -8731,7 +8785,7 @@ function renderShareRow(s) {
             </label>` : ''}
             <div style="display:flex;align-items:center;gap:6px;font-size:13px">
                 <span style="white-space:nowrap">${t('shares_info_expiry')}</span>
-                <input type="date" class="sm-expiry-input" data-token="${s.token}" aria-label="${escapeHtmlAttr(t('shares_info_expiry'))}"
+                <input type="datetime-local" class="sm-expiry-input" data-token="${s.token}" aria-label="${escapeHtmlAttr(t('shares_info_expiry'))}"
                     value="${expiryInputVal}"
                     style="padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;color:#1e293b">
                 <button class="sm-expiry-clear" data-token="${s.token}"

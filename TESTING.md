@@ -359,3 +359,19 @@ Needs `./build.sh` and a backend restart.
   explanation), no Calc button; the values appear by themselves when done
 - [ ] A file without a checksum (not just uploaded): "—" and "Обчислити";
   clicking it shows "Обчислюється…" then the values
+
+## Added in V0.22.0.41
+Needs `./build.sh` and a backend restart.
+- [ ] https://fluxdrop.me/share/IsIDwsTqbEl3ZL_PfZ5oWU6Q2zFSb9pd and
+  …/bQwRg5DCNTIyYNpIKO8lwrLs19G_HOdm: styled "Link not found" page with "the
+  shared file or folder isn't there any more" (UK too), not a bare 404
+- [ ] Share manager: set an expiry date + time → shows date and time, list
+  stays where it was scrolled; ✕ and the checkboxes don't jump either;
+  revoking a link removes just that card
+- [ ] Share dialog → Expires → Custom: date and time picker; the link
+  expires at that minute
+- [ ] Open a subfolder (or CDN as admin), sign out, sign in as another
+  account → root folder, no "not found" / "admins only"
+- [ ] Phone (the one from the screenshot): selecting files doesn't show the
+  selection bar; long-press menu stays open after a tiny finger slip, closes
+  on a real scroll. Laptop with a mouse: bar as before

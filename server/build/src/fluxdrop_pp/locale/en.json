@@ -669,5 +669,7 @@
   "cs_calculating": "Calculating…",
   "cs_calculating_upload": "Calculating after upload…",
   "cs_calculating_upload_tip": "The server hashes every upload once it's complete — large files take a few minutes.",
-  "cs_calc_btn": "Calc"
+  "cs_calc_btn": "Calc",
+  "sp_gone_body": "The shared file or folder isn't there any more — the owner may have moved or deleted it.",
+  "shares_load_failed": "Failed to load shares: {msg}"
 }

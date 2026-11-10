@@ -4826,8 +4826,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
             return self._send_response(200, self._render_share_page(share, token, target_fs, base_fs, sub_path or ""), "text/html")
 
-        return self._send_response(404, "<h1>404 — Not Found</h1>", "text/html")
-        # This message by no means should came up with the FluxDrop interaction as-is, so if it will - that's the sign of an error
+        # The shared file/folder (or a path inside a shared folder) is gone
+        return self._send_response(404, self._render_share_not_found_page(gone=True), "text/html")
 
     def _owner_quota_error(self, owner_id, extra_bytes: int):
         """Error text when adding extra_bytes to owner_id's storage would
@@ -5292,8 +5292,12 @@ class AuthHandler(SimpleHTTPRequestHandler):
     def _render_share_expired_page(self):
         return _render_snippet('share_expired_page.html', lang=pick_lang(self), PUBLIC_DOMAIN=PUBLIC_DOMAIN)
 
-    def _render_share_not_found_page(self):
-        return _render_snippet('share_not_found_page.html', lang=pick_lang(self), PUBLIC_DOMAIN=PUBLIC_DOMAIN)
+    def _render_share_not_found_page(self, gone: bool = False):
+        """gone=True: the link exists but its file/folder was moved or deleted."""
+        lang = pick_lang(self)
+        body = _tr(lang, 'sp_gone_body' if gone else 'sp_notfound_body')
+        return _render_snippet('share_not_found_page.html', lang=lang, PUBLIC_DOMAIN=PUBLIC_DOMAIN,
+                               BODY=_html_mod.escape(body))
 
     # --- FluxDrop API Handlers ---
 

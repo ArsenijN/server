@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.40`
+# FluxDrop & server `v0.22.0.41`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -132,6 +132,19 @@ repo. Anyone can use it.
   the server was still hashing the file; it now shows "Calculating after
   upload…" and fills in the values when done. The Calc / Calculating
   labels are translated
+- A share link whose file or folder was deleted or moved showed a bare
+  "404 — Not Found"; it now shows the normal share page saying the item
+  isn't there any more
+- Share manager: expiry takes a date **and time** (also "Custom" in the
+  share dialog); changing a setting or revoking a link no longer reloads the
+  whole list and jumps back to the top
+- Signing in as another account opened the previous account's folder
+  ("not found", or "admins only" for CDN); it starts at the root now
+- Phones: the selection bar still showed on some Android phones that claim
+  a mouse/hover; it now goes by the main pointer (a real mouse brings it
+  back). A small accidental scroll no longer closes the long-press menu
+- Docs: the README implied FluxDrop encrypts stored files — it doesn't
+  (HTTPS only); said plainly now, also in the Privacy Policy draft
 
 ### Server (backend)
 **Added**
@@ -312,9 +325,13 @@ Service linked at the bottom right of [fluxdrop.me](https://fluxdrop.me/).
 ### About Immich
 
 I don't provide the Immich server (`gallery.arseniusgen.dev`) to anyone except
-a few selected users. Resources are limited, it makes no profit, and Immich
-stores data unencrypted on disk, so I could technically see it. Please use
-FluxDrop instead.
+a few selected users. Resources are limited and it makes no profit. Please
+use FluxDrop instead.
+
+Neither of them encrypts files on the server: connections use HTTPS, but
+files sit on the disk as they are, so the operator could technically open
+them. Encrypt anything sensitive yourself before uploading (keeping such
+files for yourself is fine; sharing them publicly isn't, see the TOS).
 
 ### History
 

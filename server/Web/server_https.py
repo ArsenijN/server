@@ -166,6 +166,40 @@ def _response_has_no_body(method: str, status: int) -> bool:
     return method == 'HEAD' or status in (204, 205, 304) or 100 <= status < 200
 
 
+class _StreamedBody:
+    """Request body relayed from the client socket to the backend piece by
+    piece, instead of read into RAM in one go.
+
+    Both proxies used to do `body = handler.rfile.read(content_length)`, so an
+    Immich video upload held the whole file in this process's memory (cap was
+    16 GB) on a 2.7 GB box, pushing everything else - this process included -
+    into swap. Once swapped, any thread that touches a swapped page stalls
+    while holding the GIL and the whole server freezes for tens of seconds.
+
+    urllib/http.client accept an iterable body as long as Content-Length is
+    set (the client's header is forwarded), sending each yielded chunk as-is.
+    `remaining` > 0 after the request means the client's body was not fully
+    consumed; the caller must then close the connection, or the unread bytes
+    would be parsed as the next request on this keep-alive connection.
+    """
+    _BUF = 256 * 1024
+
+    def __init__(self, rfile, length: int):
+        self._rfile = rfile
+        self.remaining = length
+
+    def __iter__(self):
+        while self.remaining > 0:
+            chunk = self._rfile.read(min(self.remaining, self._BUF))
+            if not chunk:
+                # Client went away mid-upload. Fail the backend request
+                # rather than leave the backend waiting for the missing bytes.
+                raise ConnectionError(
+                    f'client request body ended {self.remaining} bytes early')
+            self.remaining -= len(chunk)
+            yield chunk
+
+
 def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
     """Forward the current request to an arbitrary backend origin.
 
@@ -314,7 +348,7 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
             handler.wfile.write(msg)
             return
         if cl_int > 0:
-            body = handler.rfile.read(cl_int)
+            body = _StreamedBody(handler.rfile, cl_int)
 
     req = _urllib_req.Request(target, data=body, method=method)
     for k, v in handler.headers.items():
@@ -457,6 +491,9 @@ def _proxy_to_host(handler, method: str, target_base: str, timeout: int = 60):
                 handler.wfile.write(msg)
             except Exception:
                 pass
+    finally:
+        if body is not None and body.remaining:
+            handler.close_connection = True
 
 # ── Per-host path-prefix reverse proxy ("multi-forward") ──────────────────
 # Like _HOST_PROXY, but keyed on (bare hostname, URL path prefix) instead of
@@ -608,7 +645,7 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
             handler.wfile.write(msg)
             return
         if cl_int > 0:
-            body = handler.rfile.read(cl_int)
+            body = _StreamedBody(handler.rfile, cl_int)
 
     req = _urllib_req.Request(target, data=body, method=method)
     for k, v in handler.headers.items():
@@ -742,6 +779,9 @@ def _proxy_to_cdn(handler, method: str = 'GET'):
                 handler.wfile.write(msg)
             except Exception:
                 pass
+    finally:
+        if body is not None and body.remaining:
+            handler.close_connection = True
 
 
 # --- CAPTCHA Storage ---

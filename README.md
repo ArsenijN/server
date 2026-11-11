@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.45`
+# FluxDrop & server `v0.22.0.46`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -269,6 +269,13 @@ repo. Anyone can use it.
   own name
 - Previewing a 1.6 GB `.tar.gz` failed with HTTP 502 (the proxy gave up
   while the whole archive was decompressed)
+- Immich (and sometimes FluxDrop) froze for 20–120 s at a time, a few times a
+  day, with no error. The HTTPS front read every upload whole into memory
+  before passing it on (up to 16 GB for Immich, 512 MB for FluxDrop), which
+  pushed it into swap on this 2.7 GB machine, and then the whole process
+  stalled. Uploads are now passed on in 256 KB pieces. If the client drops
+  mid-upload, the backend request fails at once instead of waiting up to
+  15 minutes, and the connection is closed
 
 ### Known issues
 - Most fixes above are tested on the live server; what's left is listed in

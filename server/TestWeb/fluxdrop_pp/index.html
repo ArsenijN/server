@@ -132,7 +132,7 @@
     </main>
 
     <!-- Message Modal -->
-    <div id="message-modal" class="modal-overlay hidden">
+    <div id="message-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="message-modal-title">
         <div class="modal-content text-center">
             <h3 id="message-modal-title" class="text-xl font-semibold mb-4"></h3>
             <p id="message-modal-content" class="mb-6"></p>
@@ -158,14 +158,14 @@
             <div id="preview-title" style="color:#94a3b8;font-size:13px;padding-right:2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
             <div id="preview-body"></div>
             <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
-                <button id="preview-download-btn" class="btn text-sm" style="display:none">⬇ Download</button>
+                <button id="preview-download-btn" class="btn text-sm" style="display:none">⬇ <span>Download</span></button>
             </div>
         </div>
     </div>
     <!-- Script load-failure banner. Unlike the CSS fallback below (a pure-CSS
          "rule exists once loaded" trick), a <script> tag failing to load
          can't be detected in CSS — it needs an onerror handler per tag. -->
-    <div id="fd-script-error" class="hidden"
+    <div id="fd-script-error" class="hidden" hidden
          style="position:fixed;top:0;left:0;width:100%;
                 padding:1.25rem 1.5rem;background:#fee2e2;color:#991b1b;
                 font-family:sans-serif;font-size:14px;line-height:1.6;
@@ -197,7 +197,7 @@
             document.getElementById('fd-se-reload').textContent = 'Перезавантажити';
           }
         } catch (_) {}
-        if (el) el.classList.remove('hidden');
+        if (el) { el.classList.remove('hidden'); el.hidden = false; }
         var boot = document.getElementById('fd-boot-loading');
         if (boot) boot.style.display = 'none';
       };

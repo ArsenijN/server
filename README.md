@@ -12,6 +12,11 @@ repo. Anyone can use it.
 
 ### FluxDrop (UI)
 **Added**
+- A shared **file** opened in a browser now shows a page: name, size, a
+  Download button and, with "Allow preview", the video / image / audio /
+  text right on the page (plus link previews in chats via `og:` tags).
+  curl, wget and download managers still get the file directly (they don't
+  ask for HTML); `?download=1` always downloads, `?preview=1` works as before
 - Share manager: category chips with counts — All, Active, Expired, Files,
   Folders, CDN embed, Uploads allowed, Account required, With statistics
   (empty ones are hidden); switching is instant, the cards are only

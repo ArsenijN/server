@@ -410,3 +410,22 @@ Needs `./build.sh` and a backend restart.
 - [ ] Everything still works: checkboxes save, expiry date/time + ✕,
   Copy (both), Statistics (spinner, then the log), Revoke, CDN ⓘ tooltip
 - [ ] Change an expiry far down the list: the list stays where it was
+
+## Added in V0.22.0.46
+Needs a backend restart (and `./build.sh` for the locale).
+- [ ] Open https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx in a
+  browser: page with name, size, Download, the video playing inline, "Open
+  in browser"; light and dark system theme
+- [ ] …/PozN0W9iDfQK1pJHTLMQwLF1zoCYnBDm (preview off): page with Download
+  only, no player
+- [ ] Download button saves the file (resumes in a download manager)
+- [ ] `curl -sI https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx`
+  → `application/octet-stream` + `attachment` (file, not page);
+  `wget` downloads the file too
+- [ ] An image share and a `.txt` share with preview: shown on the page
+- [ ] Share with "Require account": login first, then the page; Download
+  and the player work (token kept on the links)
+- [ ] CDN-embed share: still the raw file in the browser (no page)
+- [ ] Paste the preview-enabled link in Telegram/Discord: shows the title
+  (and the video/image if the app supports og: tags)
+- [ ] Stats for a file share: page opens log "view", Download logs "download"

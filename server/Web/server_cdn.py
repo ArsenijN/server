@@ -166,7 +166,7 @@ from core.shares import _get_share, _get_shares_for_user, _create_share, _update
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
     _trash_purge_expired, _user_trash_root
 from core.net_monitor import _get_net_history_by_day, _net_state_lock, _net_monitor_state, _get_net_outages, _net_monitor_worker, _reconcile_open_outages
-from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get, _dir_cache_get_ex, _probe_tcp, _probe_tls
+from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get, _dir_cache_get_ex, _probe_tcp, _probe_tls, _fmt_bytes
 from core.quota import _compute_dynamic_quota, _quota_updater_thread, _check_server_space
 from core.auth import _hash_session_token, _prepare_password, hash_password, send_verification_email, _sha256_hash, _validate_download_token, \
     _mint_download_token, _purge_expired_download_tokens, DOWNLOAD_TOKEN_TTL_SECONDS, _update_token_progress
@@ -1806,7 +1806,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Security-Policy', 'sandbox')
         super().end_headers()
 
-    def _send_response(self, status_code, content, content_type='application/json'):
+    def _send_response(self, status_code, content, content_type='application/json', vary=None):
         """Send an HTTP response, transparently gzip-encoding when the client
         supports it and the payload is a compressible type ≤ _GZIP_MAX_INLINE.
 
@@ -1849,7 +1849,10 @@ class AuthHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Length', str(len(body)))
             if use_gzip:
                 self.send_header('Content-Encoding', 'gzip')
-                self.send_header('Vary', 'Accept-Encoding')
+            # vary: request headers that changed this response (beyond gzip)
+            _vary = ', '.join(v for v in (vary, 'Accept-Encoding' if use_gzip else None) if v)
+            if _vary:
+                self.send_header('Vary', _vary)
             self._send_cors_headers()
             # Security headers (X-Frame-Options, HSTS, CSP, etc.) are sent
             # automatically by the end_headers() override — no duplicates needed here.
@@ -4724,6 +4727,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
              parse_qs(parsed_url.query).get("preview", [None])[0] == "1")
         )
 
+        # --- Single-file share opened in a browser: a page, not a download ---
+        # Browsers navigating to the link send Sec-Fetch-Dest: document /
+        # Accept: text/html; curl, wget, download managers and fetch() don't,
+        # so they keep getting the file. ?download=1 forces the file.
+        _qs = parse_qs(parsed_url.query)
+        if (not share.get("is_dir") and not _cdn_embed and not _preview_mode
+                and os.path.isfile(target_fs) and not self.headers.get("Range")
+                and _qs.get("download", [None])[0] != "1" and self._wants_html_page()):
+            if share["track_stats"] and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
+                _log_share_access(token, visitor_user_id, action="view")
+            return self._send_response(200, self._render_share_file_page(share, token, target_fs),
+                                       "text/html", vary="Accept, Sec-Fetch-Dest")
+
         # --- File serving ---
         if os.path.isfile(target_fs):
             # Choose content type and disposition based on mode
@@ -4761,6 +4777,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 else:
                     self._send_inline_isolation_headers()
                 self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Vary", "Accept, Sec-Fetch-Dest")
                 self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
                 self.send_header("Content-Length", str(length))
                 self.end_headers()
@@ -4784,6 +4801,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 else:
                     self._send_inline_isolation_headers()
                 self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Vary", "Accept, Sec-Fetch-Dest")
                 self.send_header("Content-Length", str(file_size))
                 self.end_headers()
                 try:
@@ -4885,6 +4903,93 @@ class AuthHandler(SimpleHTTPRequestHandler):
         images, video, audio and text still display."""
         self.send_header("Content-Security-Policy", "sandbox")
         self.send_header("X-Content-Type-Options", "nosniff")
+
+    def _wants_html_page(self) -> bool:
+        """A browser opening the URL as a page (not curl/wget/fetch/<video>)."""
+        dest = self.headers.get("Sec-Fetch-Dest")
+        if dest:
+            return dest == "document"
+        return "text/html" in (self.headers.get("Accept") or "")
+
+    _SHARE_TEXT_EXT = {'.txt', '.md', '.log', '.csv', '.json', '.xml', '.yml', '.yaml',
+                       '.ini', '.cfg', '.conf', '.py', '.js', '.ts', '.css', '.sh', '.bat',
+                       '.c', '.h', '.cpp', '.java', '.go', '.rs', '.sql', '.srt', '.vtt'}
+
+    def _render_share_file_page(self, share, token, target_fs):
+        """Page for a single-file share: name, size, Download, and an inline
+        preview (image / video / audio / text) when the owner allowed it."""
+        lang = pick_lang(self)
+        _h = lambda v: _html_mod.escape(str(v), quote=True)
+        owner_name = ""
+        try:
+            with _db_connect() as conn:
+                r = conn.execute("SELECT nickname FROM users WHERE id = ?", (share["owner_id"],)).fetchone()
+                if r: owner_name = r[0] or ""
+        except Exception: pass
+
+        # Keep the visitor's ?token= (account-only shares) on our links
+        _vt = parse_qs(urlparse(self.path).query).get('token', [None])[0]
+        def _turl(url):
+            return url + (('&' if '?' in url else '?') + 'token=' + quote(_vt, safe='')) if _vt else url
+        base = f"/share/{token}"
+        download_url = _turl(base + "?download=1")
+        preview_url  = _turl(base + "?preview=1")
+        abs_preview  = f"{PUBLIC_BASE_URL}{base}?preview=1"
+
+        name = os.path.basename(target_fs)
+        size = os.path.getsize(target_fs)
+        size_str = _fmt_bytes(size)
+        mime = mimetypes.guess_type(target_fs)[0] or ''
+        ext = os.path.splitext(name)[1].lower()
+        allow = bool(share.get("allow_preview"))
+
+        icon, preview_html, og_media, open_link = '📄', '', '', ''
+        if mime.startswith('image/'):   icon = '🖼'
+        elif mime.startswith('video/'): icon = '🎬'
+        elif mime.startswith('audio/'): icon = '🎵'
+        if allow:
+            if mime.startswith('image/') and mime != 'image/svg+xml':
+                preview_html = f'<img src="{_h(preview_url)}" alt="{_h(name)}">'
+                og_media = f'<meta property="og:image" content="{_h(abs_preview)}">'
+            elif mime.startswith('video/'):
+                preview_html = f'<video controls preload="metadata" src="{_h(preview_url)}"></video>'
+                og_media = (f'<meta property="og:type" content="video.other">'
+                            f'<meta property="og:video" content="{_h(abs_preview)}">'
+                            f'<meta property="og:video:type" content="{_h(mime)}">')
+            elif mime.startswith('audio/'):
+                preview_html = f'<audio controls preload="metadata" src="{_h(preview_url)}"></audio>'
+            elif mime.startswith('text/') or ext in self._SHARE_TEXT_EXT:
+                limit = 256 * 1024
+                try:
+                    with open(target_fs, 'rb') as f:
+                        raw = f.read(limit)
+                    text = raw.decode('utf-8', errors='replace')
+                    preview_html = f'<pre>{_h(text)}</pre>'
+                    if size > limit:
+                        preview_html += f'<div class="note">{_h(_tr(lang, "sp_truncated"))}</div>'
+                except OSError:
+                    preview_html = ''
+            if mime.startswith(('image/', 'video/', 'audio/')) or mime == 'application/pdf':
+                open_link = f'<a class="btn alt" href="{_h(preview_url)}" target="_blank" rel="noopener">↗ {_h(_tr(lang, "sp_open_in_browser"))}</a>'
+        if allow and not preview_html and not open_link:
+            preview_html = f'<div class="note">{_h(_tr(lang, "sp_no_preview"))}</div>'
+
+        badges = ''
+        if share.get("require_account"):
+            badges += f'<span class="badge">{_h(_tr(lang, "sp_account_required"))}</span> '
+        if share.get("expires_at"):
+            exp = _parse_expiry(share["expires_at"])
+            if exp is not None:
+                badges += f'<span class="badge">{_h(_tr(lang, "sp_expires", date=exp.strftime("%Y-%m-%d %H:%M")))}</span>'
+
+        report_url = '/report?url=' + quote(f"{PUBLIC_BASE_URL}{base}", safe='')
+        # User-controlled values last: _render_snippet replaces in order, so a
+        # name containing "{report_url}" can't be expanded by a later key
+        return _render_snippet('share_file_page.html', lang=lang,
+            icon=icon, size=size_str, badges=badges, report_url=report_url,
+            download_url=_h(download_url), open_link=open_link, og_media=og_media,
+            og_description=_h(f"{size_str} · FluxDrop"),
+            owner_name=_h(owner_name), name=_h(name), preview_html=preview_html)
 
     def _render_share_page(self, share, token, target_fs, base_fs, sub_path):
         """Render the public share HTML page with recursive folder listing."""

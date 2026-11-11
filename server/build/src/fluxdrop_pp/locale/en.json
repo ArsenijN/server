@@ -682,5 +682,6 @@
   "shares_filter_uploads": "Uploads allowed",
   "shares_filter_account": "Account required",
   "shares_filter_stats": "With statistics",
-  "shares_filter_empty": "No links in this category."
+  "shares_filter_empty": "No links in this category.",
+  "sp_open_in_browser": "Open in browser"
 }

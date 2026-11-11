@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="{lang}"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{name} — FluxDrop</title>
+<meta property="og:site_name" content="FluxDrop">
+<meta property="og:title" content="{name}">
+<meta property="og:description" content="{og_description}">
+{og_media}
+<link rel="icon" type="image/png" sizes="64x64" href="/fluxdrop_pp/icon-64.png">
+<link rel="stylesheet" href="/fluxdrop_pp/assets/Inter.css">
+<style>
+*{box-sizing:border-box}
+:root{--bg:#f0f9ff;--card:#fff;--text:#1e293b;--muted:#64748b;--line:#e2e8f0;--pre:#f8fafc}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#1a2535;--text:#e2e8f0;--muted:#94a3b8;--line:#2d3f52;--pre:#0d1520}}
+body{font-family:Inter,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;margin:0;padding:24px 16px}
+.card{background:var(--card);border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.10);padding:24px;max-width:900px;margin:0 auto}
+.head{display:flex;gap:12px;align-items:flex-start}
+.icon{font-size:36px;line-height:1}
+.main{flex:1;min-width:0}
+h1{margin:0 0 4px;font-size:20px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta{font-size:13px;color:var(--muted)}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btn{display:inline-block;padding:9px 18px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;color:#fff;background:#2563eb}
+.btn:hover{background:#1d4ed8}
+.btn.alt{background:none;color:var(--muted);border:1px solid var(--line);font-weight:500}
+.preview{margin-top:18px}
+.preview img,.preview video{display:block;max-width:100%;max-height:75vh;margin:0 auto;border-radius:10px;background:#000}
+.preview audio{width:100%}
+.preview pre{background:var(--pre);border:1px solid var(--line);border-radius:10px;padding:14px;max-height:70vh;overflow:auto;font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:0}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+.foot{margin-top:20px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);text-align:center}
+.foot a{color:#60a5fa;text-decoration:none;font-weight:600}
+.foot a.rep{color:#f87171;font-weight:400}
+</style>
+</head><body>
+<div class="card">
+  <div class="head">
+    <div class="icon" aria-hidden="true">{icon}</div>
+    <div class="main">
+      <h1 title="{name}">{name}</h1>
+      <div class="meta">{size} · {t:sp_shared_by} <strong>{owner_name}</strong> {badges}</div>
+      <div class="actions">
+        <a class="btn" href="{download_url}" download>⬇ {t:download}</a>
+        {open_link}
+      </div>
+    </div>
+  </div>
+  <div class="preview">{preview_html}</div>
+  <div class="foot">
+    {t:sp_powered_by} <a href="/fluxdrop_pp/" data-app-home>FluxDrop</a>
+    &nbsp;·&nbsp;
+    <a class="rep" href="{report_url}" rel="nofollow" title="{t:sp_report_title}">{t:sp_report}</a>
+  </div>
+</div>
+<script>/* App home: fluxdrop.me serves the app at /, other domains at /fluxdrop_pp/ */
+(function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();</script>
+</body></html>

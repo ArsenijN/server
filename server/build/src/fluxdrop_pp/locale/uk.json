@@ -682,5 +682,6 @@
   "shares_filter_uploads": "З вивантаженням",
   "shares_filter_account": "Потрібен акаунт",
   "shares_filter_stats": "Зі статистикою",
-  "shares_filter_empty": "У цій категорії немає посилань."
+  "shares_filter_empty": "У цій категорії немає посилань.",
+  "sp_open_in_browser": "Відкрити в браузері"
 }

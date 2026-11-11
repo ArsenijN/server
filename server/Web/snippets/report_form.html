@@ -1,0 +1,29 @@
+<h1>🚩 {t:rp_title_plain}</h1>
+  <p class="muted">{t:rp_intro}</p>
+
+  <form id="rf" method="post" action="/report?lang={lang}">
+    <label>{t:rp_url_label}
+      <input type="url" id="rf-url" name="url" required maxlength="2048" placeholder="https://fluxdrop.me/share/…" value="{V_URL}">
+    </label>
+
+    <fieldset class="reasons">
+      <legend>{t:rp_reason_label}</legend>
+      <label><input type="radio" name="reason" value="illegal" required {C_illegal}> <span>{t:rp_r_illegal}</span></label>
+      <label><input type="radio" name="reason" value="copyright" {C_copyright}> <span>{t:rp_r_copyright}</span></label>
+      <label><input type="radio" name="reason" value="encrypted" {C_encrypted}> <span>{t:rp_r_encrypted}</span></label>
+      <label><input type="radio" name="reason" value="abuse" {C_abuse}> <span>{t:rp_r_abuse}</span></label>
+      <label><input type="radio" name="reason" value="other" {C_other}> <span>{t:rp_r_other}</span></label>
+    </fieldset>
+
+    <label>{t:rp_msg_label} <span class="hint">{t:rp_msg_hint}</span>
+      <textarea id="rf-msg" name="message" maxlength="4000">{V_MESSAGE}</textarea>
+    </label>
+
+    <label>{t:rp_email_label} <span class="hint">{t:rp_email_hint}</span>
+      <input type="email" id="rf-email" name="email" maxlength="254" autocomplete="email" value="{V_EMAIL}">
+    </label>
+
+    <div class="msg" id="rf-err" role="alert" {ERR_HIDDEN}>{ERROR}</div>
+    <button class="btn" id="rf-send" type="submit">{t:rp_send}</button>
+    <p class="muted" style="margin-top:14px">{t:rp_false_reports}</p>
+  </form>

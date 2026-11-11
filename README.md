@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.46`
+# FluxDrop & server `v0.22.0.47`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -17,6 +17,13 @@ repo. Anyone can use it.
   text right on the page (plus link previews in chats via `og:` tags).
   curl, wget and download managers still get the file directly (they don't
   ask for HTML); `?download=1` always downloads, `?preview=1` works as before
+- The report form works without JavaScript (it used to say so only at the
+  bottom, after you had filled it in); it's translated on the server
+- Share, report and error pages link the Terms of Service and Privacy
+  Policy (`/?policy=tos`, `/?policy=pp` open them in the app); their
+  "FluxDrop" link no longer goes to the old `/fluxdrop_pp/` path
+- Chat link previews (`og:` tags) for shared folders and the status page;
+  the main page's preview has the logo now
 - Share manager: category chips with counts — All, Active, Expired, Files,
   Folders, CDN embed, Uploads allowed, Account required, With statistics
   (empty ones are hidden); switching is instant, the cards are only
@@ -232,6 +239,9 @@ repo. Anyone can use it.
 - 
 
 **Fixed**
+- `curl -I` / HEAD on a share link said 404 (only GET was routed); download
+  managers that ask HEAD first now get the size and type. HEAD doesn't count
+  as a download in the link statistics
 - **Security:** HSTS never reached browsers — the API server only added it
   on its own TLS port, and the public HTTPS front didn't send it at all. The
   front sends it on every response now, with `max-age` one week (raise to a

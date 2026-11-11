@@ -6,6 +6,7 @@
 <meta property="og:title" content="{name}">
 <meta property="og:description" content="{og_description}">
 {og_media}
+<meta property="og:image" content="{PUBLIC_BASE_URL}/fluxdrop_pp/icon-128.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/fluxdrop_pp/icon-64.png">
 <link rel="stylesheet" href="/fluxdrop_pp/assets/Inter.css">
 <style>
@@ -48,11 +49,10 @@ h1{margin:0 0 4px;font-size:20px;font-weight:700;overflow:hidden;text-overflow:e
   </div>
   <div class="preview">{preview_html}</div>
   <div class="foot">
-    {t:sp_powered_by} <a href="/fluxdrop_pp/" data-app-home>FluxDrop</a>
+    {t:sp_powered_by} <a href="/">FluxDrop</a>
     &nbsp;·&nbsp;
     <a class="rep" href="{report_url}" rel="nofollow" title="{t:sp_report_title}">{t:sp_report}</a>
+    <div style="margin-top:6px"><a href="/?policy=tos" style="font-weight:400">{t:footer_tos}</a> · <a href="/?policy=pp" style="font-weight:400">{t:footer_pp}</a></div>
   </div>
 </div>
-<script>/* App home: fluxdrop.me serves the app at /, other domains at /fluxdrop_pp/ */
-(function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();</script>
 </body></html>

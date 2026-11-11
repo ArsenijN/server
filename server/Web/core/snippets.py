@@ -1,5 +1,5 @@
 import os, re, json, html, logging
-from config import _SNIPPETS_DIR, SERVE_DIRECTORY
+from config import _SNIPPETS_DIR, SERVE_DIRECTORY, PUBLIC_BASE_URL
 
 def _load_snippet(filename: str) -> str:
     """Load an HTML snippet from the snippets/ subfolder."""
@@ -83,7 +83,8 @@ def _render_snippet(filename: str, lang: str = 'en', **kwargs) -> str:
     and JS template literals like ${previewUrl} are left completely untouched.
 
     Translations: {t:key} → HTML-escaped text, {tjs:key} → a JS string
-    literal (for the page's scripts), {lang} → the language code.
+    literal (for the page's scripts), {lang} → the language code,
+    {PUBLIC_BASE_URL} → the public origin (absolute og:image URLs).
     """
     template = _load_snippet(filename)
     template = re.sub(r'\{t:([A-Za-z0-9_]+)\}',
@@ -91,6 +92,8 @@ def _render_snippet(filename: str, lang: str = 'en', **kwargs) -> str:
     template = re.sub(r'\{tjs:([A-Za-z0-9_]+)\}',
                       lambda m: json.dumps(tr(lang, m.group(1))).replace('<', '\\u003c'), template)
     template = template.replace('{lang}', lang)
+    # Before the caller's values, so text inside them is never expanded
+    template = template.replace('{PUBLIC_BASE_URL}', PUBLIC_BASE_URL)
     for key, value in kwargs.items():
         template = template.replace('{' + key + '}', str(value))
     return template

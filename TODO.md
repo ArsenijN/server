@@ -342,6 +342,19 @@ since I can just remember CSS and HTML, and do that by hands)
 
 ---
 
+## Wiki updates pending (the user edits/commits the wiki)
+- [ ] Share links (V0.22.0.46–47): a file link opened in a browser shows a
+  page (name, size, Download, inline preview if allowed); curl/wget/download
+  managers still get the file (content negotiation on `Accept` /
+  `Sec-Fetch-Dest`); `?download=1` always the file, `?preview=1` inline,
+  CDN-embed links always the raw file; HEAD works on share links now
+- [ ] Report form works without JavaScript (posts to `/report`), translated
+  on the server, `?lang=en|uk`
+- [ ] `/?policy=tos` and `/?policy=pp` open the policy in the app (linked
+  from share, report and error pages)
+- [ ] Link previews in chats: `og:` tags on file and folder share pages,
+  the status page and the app
+
 ## Can't reproduce / gone / unclear
 *Kept for reference; reopen with exact steps if it shows up again.*
 

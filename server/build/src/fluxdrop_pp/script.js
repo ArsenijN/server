@@ -9715,6 +9715,20 @@ async function checkSiteNotice() {
 document.addEventListener('DOMContentLoaded', checkSiteNotice);
 
         // ======================================================================
+        // --- POLICY LINKS: /?policy=tos | /?policy=pp ---
+// Share pages, the report form and error pages link here; opens the policy
+// dialog over whatever the app shows, then drops the parameter.
+(function () {
+    const type = new URLSearchParams(location.search).get('policy');
+    if (type !== 'tos' && type !== 'pp') return;
+    window.addEventListener('load', () => setTimeout(() => {
+        const u = new URL(location.href);
+        u.searchParams.delete('policy');
+        history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+        showPolicyModal(type);
+    }, 300));
+})();
+
         // --- MODAL GALLERY (testing aid) ---
         // ======================================================================
 // Opens every modal / panel the app has, with sample data, to check visuals

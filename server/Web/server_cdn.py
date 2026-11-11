@@ -137,7 +137,8 @@ from config import PUBLIC_BASE_URL
 from config import CONTACT_EMAIL, LOG_RETENTION_DAYS, DELETED_ACCOUNT_PURGE_DAYS
 from core.accounts import delete_account as _delete_account, purge_deleted_accounts as _purge_deleted_accounts
 from core.reports import (create_report, list_reports, count_open as _reports_count_open,
-                          apply_action as _report_apply_action, prune_closed_reports)
+                          apply_action as _report_apply_action, prune_closed_reports,
+                          REPORT_REASONS)
 
 # Plain-HTTP loopback port used by server_https proxy to avoid double-TLS.
 # Bound to 127.0.0.1 only — never reachable from outside the machine.
@@ -3081,6 +3082,32 @@ class AuthHandler(SimpleHTTPRequestHandler):
                     return self._send_response(403, json.dumps({'error': 'Forbidden'}))
             return self.handle_upload_session_config()
 
+        # Share links: answer HEAD like GET without the body. Download
+        # managers and `curl -I` ask HEAD first for the size / type; static
+        # serving below doesn't know /share/ and said 404. Not for ?zip
+        # (that would build the archive just to throw it away).
+        _hp = urlparse(self.path)
+        _share_m = self.public_share_pattern.match(_hp.path)
+        if _share_m and 'zip' not in parse_qs(_hp.query):
+            with blacklist_lock:
+                if self._client_ip() in current_blacklist:
+                    return self._send_response(403, json.dumps({'error': 'Forbidden'}))
+            real_wfile, real_end = self.wfile, self.end_headers
+
+            class _Discard:
+                def write(self, _b): return len(_b)
+                def flush(self): pass
+
+            def _end_then_mute():
+                real_end()
+                self.wfile = _Discard()   # headers are out; drop the body
+            self.end_headers = _end_then_mute
+            try:
+                return self.handle_public_share(_share_m.group(1), _share_m.group(2), _hp)
+            finally:
+                self.end_headers = real_end
+                self.wfile = real_wfile
+
         # Ensure CORS and Accept-Ranges headers are present on HEAD responses.
         # patched_end_headers delegates to self.end_headers (the class override)
         # so X-Frame-Options, HSTS, and CSP are included — previously it called
@@ -3817,6 +3844,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         # Content reports
         if parsed_url.path == '/api/v1/report':
             return self._handle_report_create()
+        if parsed_url.path in ('/report', '/report/'):
+            return self._handle_report_form_post()   # the form without JavaScript
         _rep_act = re.match(r'^/api/v1/admin/reports/(\d+)$', parsed_url.path)
         if _rep_act:
             return self._handle_report_action(int(_rep_act.group(1)))
@@ -4735,7 +4764,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if (not share.get("is_dir") and not _cdn_embed and not _preview_mode
                 and os.path.isfile(target_fs) and not self.headers.get("Range")
                 and _qs.get("download", [None])[0] != "1" and self._wants_html_page()):
-            if share["track_stats"] and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
+            if share["track_stats"] and self.command != "HEAD" and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
                 _log_share_access(token, visitor_user_id, action="view")
             return self._send_response(200, self._render_share_file_page(share, token, target_fs),
                                        "text/html", vary="Accept, Sec-Fetch-Dest")
@@ -4757,7 +4786,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
             # hits / (token, ip) / minute is generous for real browsing and
             # blocks a hammering loop; the file still downloads either way,
             # only the logging (and access_count bump) is skipped.
-            if share["track_stats"] and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
+            if share["track_stats"] and self.command != "HEAD" and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
                 _log_share_access(token, visitor_user_id, action=action)
 
             file_size = os.path.getsize(target_fs)
@@ -4816,7 +4845,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
         # --- Directory listing page ---
         if os.path.isdir(target_fs):
-            if share["track_stats"] and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
+            if share["track_stats"] and self.command != "HEAD" and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
                 _log_share_access(token, visitor_user_id, action="view")
 
             qs = parse_qs(parsed_url.query)
@@ -4919,7 +4948,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         """Page for a single-file share: name, size, Download, and an inline
         preview (image / video / audio / text) when the owner allowed it."""
         lang = pick_lang(self)
-        _h = lambda v: _html_mod.escape(str(v), quote=True)
+        # also escape "{" so a name can't match a later {PLACEHOLDER}
+        _h = lambda v: _html_mod.escape(str(v), quote=True).replace('{', '&#123;')
         owner_name = ""
         try:
             with _db_connect() as conn:
@@ -4983,8 +5013,6 @@ class AuthHandler(SimpleHTTPRequestHandler):
                 badges += f'<span class="badge">{_h(_tr(lang, "sp_expires", date=exp.strftime("%Y-%m-%d %H:%M")))}</span>'
 
         report_url = '/report?url=' + quote(f"{PUBLIC_BASE_URL}{base}", safe='')
-        # User-controlled values last: _render_snippet replaces in order, so a
-        # name containing "{report_url}" can't be expanded by a later key
         return _render_snippet('share_file_page.html', lang=lang,
             icon=icon, size=size_str, badges=badges, report_url=report_url,
             download_url=_h(download_url), open_link=open_link, og_media=og_media,
@@ -5345,11 +5373,53 @@ class AuthHandler(SimpleHTTPRequestHandler):
             share_path=repr(share_path),
         )
 
-    def _render_report_page(self):
+    def _render_report_page(self, values=None, error_code=None, done_id=None):
+        """GET/POST /report. Rendered and translated here, so it works without
+        JavaScript (the form posts to /report); the page's script only sends
+        it in place and adds the signed-in account."""
+        lang = pick_lang(self)
+        # also escape "{" so typed text can't match a later {PLACEHOLDER}
+        _h = lambda v: _html_mod.escape(str(v), quote=True).replace('{', '&#123;')
         email = CONTACT_EMAIL if re.fullmatch(r"[^@\s'\"<>\\]+@[^@\s'\"<>\\]+", CONTACT_EMAIL or '') else ''
-        noscript = (f'You can also email your report to <strong>{email}</strong>.' if email
-                    else 'You can also contact the operator via https://github.com/ArsenijN.')
-        return _render_snippet('report_page.html', CONTACT_EMAIL=email, CONTACT_NOSCRIPT=noscript)
+        generic = _tr(lang, 'rp_e_generic_mail', mail=email) if email else _tr(lang, 'rp_e_generic')
+
+        if done_id is not None:
+            body = _render_snippet('report_done.html', lang=lang,
+                                   DONE_BODY=_h(_tr(lang, 'rp_done_body', id=done_id)))
+        else:
+            v = values or {}
+            if not v and 'url' in parse_qs(urlparse(self.path).query):
+                v = {'url': parse_qs(urlparse(self.path).query)['url'][0]}
+            err = ''
+            if error_code:
+                err = _tr(lang, 'rp_e_rate') if error_code == 'rate' else (
+                    _tr(lang, f'rp_e_{error_code}') if f'rp_e_{error_code}' in load_locale('en') else generic)
+            checked = {f'C_{r}': ('checked' if v.get('reason') == r else '') for r in REPORT_REASONS}
+            body = _render_snippet('report_form.html', lang=lang, **checked,
+                                   ERR_HIDDEN='' if err else 'hidden', ERROR=_h(err),
+                                   V_EMAIL=_h(v.get('email', '')), V_MESSAGE=_h(v.get('message', '')),
+                                   V_URL=_h(v.get('url', '')))
+        langs = ''.join(
+            f'<a href="/report?lang={c}" lang="{c}" hreflang="{c}"{" aria-current=true" if c == lang else ""}>{lbl}</a>'
+            for c, lbl in (('en', 'EN'), ('uk', 'УКР')))
+        return _render_snippet('report_page.html', lang=lang, LANG_LINKS=langs,
+                               GENERIC_JS=json.dumps(generic).replace('<', '\\u003c'), BODY=body)
+
+    def _handle_report_form_post(self):
+        """POST /report — the plain HTML form (application/x-www-form-urlencoded)."""
+        length = int(self.headers.get('Content-Length', 0) or 0)
+        if length <= 0 or length > MAX_JSON_BODY:
+            return self._send_response(400, self._render_report_page(error_code='bad_body'), 'text/html')
+        form = parse_qs(self.rfile.read(length).decode('utf-8', 'replace'), keep_blank_values=True)
+        values = {k: (form.get(k) or [''])[0] for k in ('url', 'reason', 'message', 'email')}
+        if not _rate_limit(self._client_ip(), 'report', max_hits=3):
+            return self._send_response(429, self._render_report_page(values, 'rate'), 'text/html')
+        try:
+            report_id = create_report(values['url'], values['reason'], values['message'],
+                                      reporter_user_id=None, reporter_email=values['email'])
+        except ValueError as e:
+            return self._send_response(400, self._render_report_page(values, str(e)), 'text/html')
+        return self._send_response(200, self._render_report_page(done_id=report_id), 'text/html')
 
     def _handle_report_create(self):
         """POST /api/v1/report — public. {url, reason, message, email?}"""
@@ -6680,7 +6750,7 @@ class AuthHandler(SimpleHTTPRequestHandler):
                         return self._send_response(413, json.dumps({"error": "File too large."}))
                     f.write(chunk)
 
-            if share["track_stats"] and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
+            if share["track_stats"] and self.command != "HEAD" and _rate_limit(f"share:{token}:{self._client_ip()}", "share_access", max_hits=20):
                 _log_share_access(token, visitor_user_id, action="upload")
             logging.info(f"Share upload: token={token} file='{safe_name}' subpath='{raw_subpath}' user={visitor_user_id}")
             return self._send_response(200, "OK", "text/plain")

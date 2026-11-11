@@ -362,7 +362,7 @@ Needs `./build.sh` and a backend restart.
 
 ## Added in V0.22.0.41
 Needs `./build.sh` and a backend restart.
-- [ ] https://fluxdrop.me/share/IsIDwsTqbEl3ZL_PfZ5oWU6Q2zFSb9pd and
+- [x] https://fluxdrop.me/share/IsIDwsTqbEl3ZL_PfZ5oWU6Q2zFSb9pd and
   …/bQwRg5DCNTIyYNpIKO8lwrLs19G_HOdm: styled "Link not found" page with "the
   shared file or folder isn't there any more" (UK too), not a bare 404
 - [ ] Share manager: set an expiry date + time → shows date and time, list
@@ -377,33 +377,33 @@ Needs `./build.sh` and a backend restart.
   on a real scroll. Laptop with a mouse: bar as before
 
 ## Added in V0.22.0.42
-- [ ] Share manager with several links: chips with counts under the title;
+- [x] Share manager with several links: chips with counts under the title;
   each chip shows only its links; empty categories don't appear
-- [ ] In "CDN embed", untick a link's CDN box → the count drops (the card
+- [x] In "CDN embed", untick a link's CDN box → the count drops (the card
   stays until you switch chips); revoke a link → counts update
-- [ ] Changing an expiry while filtered keeps the filter and the scroll
-- [ ] Reopening the manager starts on "All"; chips readable in dark mode
+- [x] Changing an expiry while filtered keeps the filter and the scroll
+- [x] Reopening the manager starts on "All"; chips readable in dark mode
 
 ## Added in V0.22.0.43
-- [ ] Share manager with many links (dark mode too): switching categories is
+- [x] Share manager with many links (dark mode too): switching categories is
   instant, no pause; "No links in this category" shows when one becomes
   empty (e.g. after revoking its last link)
 
 ## Added in V0.22.0.44
-- [ ] Share manager: a very long file name and a deep path stay on one line
+- [x] Share manager: a very long file name and a deep path stay on one line
   each with "…" (hover shows the full text); the path shows the folder end
   ("…/Time zone in screen recording/"); nothing overflows the card
-- [ ] Expired link: red badge "Закінчився …" next to the name; one with an
+- [x] Expired link: red badge "Закінчився …" next to the name; one with an
   expiry: amber "⏰ …"; no expiry: "Ніколи" next to the date field
 - [ ] Phone width: checkboxes stack, buttons wrap at the bottom; dark mode
   readable (badges dark red / dark amber)
 - [ ] Copy on the yellow CDN box: turns green, then back to brown, not blue
 
 ## Added in V0.22.0.45
-- [ ] Share manager on a laptop: about the admin panel's size, two columns
+- [x] Share manager on a laptop: about the admin panel's size, two columns
   of cards; opening with ~114 links on eco mode — the first cards show
   right away, the rest fill in without freezing (compare with 2–4 s before)
-- [ ] Dark mode: cards, badges, the CDN box and the date field look right
+- [x] Dark mode: cards, badges, the CDN box and the date field look right
   (no light boxes)
 - [ ] Phone width (DevTools 360 px): one column; categories in one row that
   scrolls sideways; buttons 📊 / 🔗 Копіювати / 🗑 fit in one row
@@ -413,12 +413,12 @@ Needs `./build.sh` and a backend restart.
 
 ## Added in V0.22.0.46
 Needs a backend restart (and `./build.sh` for the locale).
-- [ ] Open https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx in a
+- [x] Open https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx in a
   browser: page with name, size, Download, the video playing inline, "Open
   in browser"; light and dark system theme
-- [ ] …/PozN0W9iDfQK1pJHTLMQwLF1zoCYnBDm (preview off): page with Download
+- [x] …/PozN0W9iDfQK1pJHTLMQwLF1zoCYnBDm (preview off): page with Download
   only, no player
-- [ ] Download button saves the file (resumes in a download manager)
+- [x] Download button saves the file (resumes in a download manager)
 - [ ] `curl -sI https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx`
   → `application/octet-stream` + `attachment` (file, not page);
   `wget` downloads the file too
@@ -429,3 +429,21 @@ Needs a backend restart (and `./build.sh` for the locale).
 - [ ] Paste the preview-enabled link in Telegram/Discord: shows the title
   (and the video/image if the app supports og: tags)
 - [ ] Stats for a file share: page opens log "view", Download logs "download"
+
+## Added in V0.22.0.47
+Needs a backend restart and `./build.sh`.
+- [ ] `curl -sI https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx`
+  → 200, `application/octet-stream`, `Content-Length` (not 404); the link's
+  access count doesn't grow from it
+- [ ] /report with JavaScript **off**: page in your language (EN/УКР links
+  switch it), no "needs JavaScript" note; sending without a reason → the
+  browser asks for it; a full report → "Thank you… #N"; "Other" with empty
+  details → error shown, typed values kept
+- [ ] /report with JavaScript on: sends without reloading, same result; a
+  signed-in user's report shows them as reporter in Admin → Reports
+- [ ] Footer "FluxDrop" link on report / share / not-found pages goes to
+  https://fluxdrop.me/ (also with JS off)
+- [ ] Footer "Terms of Service" / "Privacy Policy" → the app opens with that
+  policy shown (logged in and logged out), the address bar loses `?policy=`
+- [ ] Paste a folder share link and https://fluxdrop.me in Telegram/Discord:
+  title + FluxDrop icon in the preview

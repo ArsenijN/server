@@ -18,8 +18,7 @@ body{font-family:Inter,sans-serif;background:#f0f9ff;display:flex;align-items:ce
   <span class="badge">{t:sp_notfound_badge}</span>
   <h2 style="margin:0 0 8px;color:#1e293b;font-size:20px">{t:sp_notfound_title}</h2>
   <p style="color:#64748b;font-size:13px;margin:0">{BODY}</p>
-  <a class="btn" href="/fluxdrop_pp/" data-app-home>{t:sp_go_app}</a>
+  <a class="btn" href="/">{t:sp_go_app}</a>
+  <p style="margin:16px 0 0;font-size:12px"><a href="/?policy=tos" style="color:#94a3b8">{t:footer_tos}</a> · <a href="/?policy=pp" style="color:#94a3b8">{t:footer_pp}</a></p>
 </div>
-<script>/* App home: fluxdrop.me serves the app at /, other domains at /fluxdrop_pp/ */
-(function(){if(/(^|\.)fluxdrop\.me$/.test(location.hostname))document.querySelectorAll('a[data-app-home]').forEach(function(a){a.href='/';});})();</script>
 </body></html>

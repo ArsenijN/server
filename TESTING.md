@@ -450,3 +450,18 @@ Needs a backend restart and `./build.sh`.
 
 ## Added in V0.22.0.48
 - [ ] Report sent screen: ✅, title and text centred under the EN/УКР switch
+
+## Added in V0.22.0.49
+Needs a backend restart (adds 4 columns to `shared_links` on start) and
+`./build.sh`. Use a test account and a throwaway share.
+- [ ] Report the test share, Admin → Reports → Disable link: dialog with an
+  optional message for the owner; after it, the report shows "link disabled"
+  and a "Restore link" button
+- [ ] Open the link (also `curl -I`): 410 page "Посилання вимкнено" (not
+  "revoked by its owner"); a folder link's sub-paths / ZIP / upload don't work
+- [ ] The test account gets an email in its language: link path, reason,
+  your message, how to object, no reporter info
+- [ ] Test account → Shared links: red "Вимкнено після скарги" badge and box
+  with reason + message; checkboxes / expiry locked; no Copy / Stats; Revoke
+  still deletes it; "Вимкнені" category
+- [ ] Restore link → the link works again, report "dismissed", second email

@@ -8165,6 +8165,7 @@ function _apRenderReport(r) {
     } else {
         actions += btn('reopen', t('admin_reports_reopen'), '#64748b');
     }
+    if (r.share_disabled) actions += btn('restore_link', t('admin_reports_restore_link'), '#0369a1');
     return `<div class="ap-rep ${r.status === 'open' ? '' : 'ap-rep-closed'}">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <strong style="font-size:14px">#${r.id}</strong>
@@ -8174,7 +8175,8 @@ function _apRenderReport(r) {
         </div>
         <div class="ap-rep-meta" data-fd-notranslate>
             ${kind}: ${safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:#3b82f6;word-break:break-all">${escapeHtml(r.target_url)}</a>` : escapeHtml(r.target_url)}
-            ${r.share_token && !r.share_active ? ` <em>(${t('admin_reports_link_gone')})</em>` : ''}<br>
+            ${r.share_disabled ? ` <em>(${t('admin_reports_link_disabled')})</em>`
+              : r.share_token && !r.share_active ? ` <em>(${t('admin_reports_link_gone')})</em>` : ''}<br>
             ${t('admin_reports_owner')}: ${r.owner_username ? escapeHtml(r.owner_username) : '—'}
             · ${t('admin_reports_reporter')}: ${reporter}
             ${r.resolution_note ? `<br>${t('admin_reports_note')}: ${escapeHtml(r.resolution_note)}` : ''}
@@ -8185,20 +8187,70 @@ function _apRenderReport(r) {
 }
 
 async function _apReportAction(id, action) {
-    if (action === 'disable_link' || action === 'delete_file') {
+    const payload = { action };
+    if (action === 'disable_link') {
+        // Optional message for the owner (email + their links manager).
+        // null = cancelled; '' = no message.
+        const msg = await _apOwnerNotePrompt(id);
+        if (msg === null) return;
+        payload.owner_note = msg;
+    } else if (action === 'restore_link') {
         const ok = await showConfirmModal({
-            title:   t(action === 'disable_link' ? 'admin_reports_confirm_disable' : 'admin_reports_confirm_delete', { id }),
+            title:   t('admin_reports_confirm_restore', { id }),
+            message: t('admin_reports_confirm_restore_body'),
+            danger:  false,
+        });
+        if (!ok) return;
+    } else if (action === 'delete_file') {
+        const ok = await showConfirmModal({
+            title:   t('admin_reports_confirm_delete', { id }),
             message: t('admin_reports_confirm_body'),
         });
         if (!ok) return;
     }
     try {
-        await apiCall(`/api/v1/admin/reports/${id}`, 'POST', { action });
+        await apiCall(`/api/v1/admin/reports/${id}`, 'POST', payload);
         showToast(t('admin_reports_done'));
         await _apLoadReports();
     } catch (err) {
         if (err.message !== 'SESSION_EXPIRED') showMessage(t('update_failed'), err.message);
     }
+}
+
+// "Disable link" dialog: confirmation + an optional multi-line note for the
+// owner. Resolves to the note ('' when empty) or null when cancelled.
+function _apOwnerNotePrompt(id) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.zIndex = '9100';   // above the admin panel
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width:440px">
+                <h3 id="ap-own-title" style="font-size:1.1rem;font-weight:700;margin-bottom:.5rem"></h3>
+                <p style="color:#64748b;font-size:13px;line-height:1.5;margin-bottom:.75rem"></p>
+                <label for="ap-own-note" style="display:block;font-size:13px;color:#475569;margin-bottom:6px"></label>
+                <textarea id="ap-own-note" maxlength="1000" rows="4"
+                    style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box;resize:vertical"></textarea>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+                    <button id="ap-own-cancel" class="btn" style="background:#6b7280"></button>
+                    <button id="ap-own-ok" class="btn" style="background:#dc2626"></button>
+                </div>
+            </div>`;
+        overlay.querySelector('h3').textContent = t('admin_reports_owner_note_title', { id });
+        overlay.querySelector('p').textContent = t('admin_reports_confirm_body');
+        overlay.querySelector('label').textContent = t('admin_reports_owner_note_label');
+        overlay.querySelector('#ap-own-cancel').textContent = t('cancel');
+        overlay.querySelector('#ap-own-ok').textContent = t('admin_reports_disable_link');
+        document.body.appendChild(overlay);
+        const note = overlay.querySelector('#ap-own-note');
+        let done = false;
+        const finish = v => { if (done) return; done = true; window.fdCloseOverlay(overlay); resolve(v); };
+        overlay.querySelector('#ap-own-ok').addEventListener('click', () => finish(note.value.trim()));
+        overlay.querySelector('#ap-own-cancel').addEventListener('click', () => finish(null));
+        overlay.addEventListener('click', e => { if (e.target === overlay) finish(null); });
+        overlay.addEventListener('keydown', e => { if (e.key === 'Escape') finish(null); });
+        note.focus();
+    });
 }
 
 function _apFmtBytes(b) {
@@ -8607,6 +8659,9 @@ function _smEnsureStyle() {
 .sm-actions button:hover,.sm-cdn-row button:hover{filter:brightness(1.12)}
 .sm-card .sm-copied{background:#15803d}
 .sm-short{display:none}
+.sm-takedown{margin-top:10px;padding:10px 12px;border-radius:8px;background:#fef2f2;color:#991b1b;font-size:12px;line-height:1.5}
+.sm-takedown b{display:block;font-size:13px;margin-bottom:2px}
+.sm-disabled .sm-opts,.sm-disabled .sm-exp{opacity:.55}
 @media (max-width:560px){
   .sm-head,.sm-filters,.sm-body{padding-left:14px;padding-right:14px}
   .sm-filters{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
@@ -8617,6 +8672,7 @@ function _smEnsureStyle() {
 }
 [data-theme="dark"] .sm-badge{background:#3a2e0b;color:#fcd34d}
 [data-theme="dark"] .sm-badge.expired{background:#3b1618;color:#fca5a5}
+[data-theme="dark"] .sm-takedown{background:#3b1618;color:#fca5a5}
 [data-theme="dark"] .sm-cdn{background:#2a220a;border-color:#854d0e}
 [data-theme="dark"] .sm-cdn-title{color:#fcd34d}
 [data-theme="dark"] .sm-cdn-row input{background:#0d1520;color:#e2e8f0;border-color:#854d0e}
@@ -8658,7 +8714,7 @@ let _smGen = 0;   // bumps on every list render, so stale background chunks stop
 const _smExpired = s => !!s.expires_at && new Date(s.expires_at) < new Date();
 const _SM_FILTERS = [
     ['all',      () => true],
-    ['active',   s => !_smExpired(s)],
+    ['active',   s => !_smExpired(s) && !s.disabled_at],
     ['expired',  _smExpired],
     ['files',    s => !s.is_dir],
     ['folders',  s => !!s.is_dir],
@@ -8666,6 +8722,7 @@ const _SM_FILTERS = [
     ['uploads',  s => !!s.is_dir && !!(s.allow_anon_upload || s.allow_auth_upload)],
     ['account',  s => !!s.require_account],
     ['stats',    s => !!s.track_stats],
+    ['disabled', s => !!s.disabled_at],   // disabled by the operator after a report
 ];
 const _smFilterFn = () => (_SM_FILTERS.find(f => f[0] === _smFilter) || _SM_FILTERS[0])[1];
 
@@ -8856,21 +8913,28 @@ function renderShareRow(s) {
     // Expiry: badge next to the name + value for the date-time input (local time)
     let badge = '';
     let expiryInputVal = '';
+    // Disabled by the operator after a report: read-only, can only be deleted
+    const off = !!s.disabled_at;
+    if (off) badge = `<span class="sm-badge expired">🚫 ${t('shares_disabled_badge')}</span>`;
     if (s.expires_at) {
         const expDate = new Date(s.expires_at);
-        badge = expDate < new Date()
+        if (!off) badge = expDate < new Date()
             ? `<span class="sm-badge expired">${t('shares_expired_label')} ${_fmtExpiry(expDate)}</span>`
             : `<span class="sm-badge">⏰ ${_fmtExpiry(expDate)}</span>`;
         expiryInputVal = _localDateTimeValue(expDate);
     }
 
     const toggle = (field, on, label, disabled = false) =>
-        `<label><input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="${field}" ${on ? 'checked' : (disabled ? 'disabled' : '')}><span>${label}</span></label>`;
+        `<label><input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="${field}" ${on ? 'checked' : ''} ${(disabled && !on) || off ? 'disabled' : ''}><span>${label}</span></label>`;
+    const takedown = off ? `<div class="sm-takedown" role="note"><b>🚫 ${t('shares_disabled_badge')}</b>
+            ${s.disabled_reason ? escapeHtml(t('shares_disabled_reason', { reason: t('report_reason_' + s.disabled_reason) })) + '<br>' : ''}
+            ${s.disabled_note ? escapeHtml(t('shares_disabled_note', { note: s.disabled_note })) + '<br>' : ''}
+            ${t('shares_disabled_hint')}</div>` : '';
     // Buttons: full label on wide screens, icon / short label on phones
     const statsL = escapeHtmlAttr(t('shares_stats_button'));
     const revokeL = escapeHtmlAttr(t('shares_revoke_button'));
 
-    return `<div class="sm-card" data-token="${s.token}">
+    return `<div class="sm-card${off ? ' sm-disabled' : ''}" data-token="${s.token}">
         <div class="sm-top">
             <span class="sm-icon" aria-hidden="true">${s.is_dir ? '📁' : '📄'}</span>
             <div class="sm-main">
@@ -8889,13 +8953,13 @@ function renderShareRow(s) {
         </div>
         <div class="sm-exp">
             <span>${t('shares_info_expiry')}</span>
-            <input type="datetime-local" class="sm-expiry-input" data-token="${s.token}" value="${expiryInputVal}"
+            <input type="datetime-local" class="sm-expiry-input" data-token="${s.token}" value="${expiryInputVal}" ${off ? 'disabled' : ''}
                 aria-label="${escapeHtmlAttr(t('shares_info_expiry'))}">
-            <button class="sm-expiry-clear" data-token="${s.token}" title="${escapeHtmlAttr(t('shares_expiry_remove_title'))}"
+            <button class="sm-expiry-clear" data-token="${s.token}" ${off ? 'disabled' : ''} title="${escapeHtmlAttr(t('shares_expiry_remove_title'))}"
                 aria-label="${escapeHtmlAttr(t('shares_expiry_remove_title'))}">✕</button>
             ${s.expires_at ? '' : `<span class="sm-never">${t('shares_info_never')}</span>`}
         </div>
-        ${s.allow_cdn_embed && !s.is_dir ? `
+        ${s.allow_cdn_embed && !s.is_dir && !off ? `
         <div class="sm-cdn">
             <div class="sm-cdn-title">${t('shares_cdn_embed_title')}
                 <span class="fd-tooltip-wrap">
@@ -8908,9 +8972,10 @@ function renderShareRow(s) {
                 <button class="sm-copy-btn" data-url="${urlEsc}">${t('shares_copy_button')}</button>
             </div>
         </div>` : ''}
+        ${takedown}
         <div class="sm-actions">
-            ${s.track_stats ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}" title="${statsL}" aria-label="${statsL}"><span class="sm-long">${statsL}</span><span class="sm-short">📊</span></button>` : ''}
-            <button class="sm-copy-btn" data-url="${urlEsc}"><span class="sm-long">${t('shares_copy_link_button')}</span><span class="sm-short">🔗 ${t('shares_copy_button')}</span></button>
+            ${s.track_stats && !off ? `<button class="sm-stats-btn" data-token="${s.token}" data-name="${nameEsc}" title="${statsL}" aria-label="${statsL}"><span class="sm-long">${statsL}</span><span class="sm-short">📊</span></button>` : ''}
+            ${off ? '' : `<button class="sm-copy-btn" data-url="${urlEsc}"><span class="sm-long">${t('shares_copy_link_button')}</span><span class="sm-short">🔗 ${t('shares_copy_button')}</span></button>`}
             <button class="sm-delete-btn" data-token="${s.token}" title="${revokeL}" aria-label="${revokeL}"><span class="sm-long">${revokeL}</span><span class="sm-short">🗑</span></button>
         </div>
     </div>`;

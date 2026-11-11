@@ -11,7 +11,7 @@ import threading
 from urllib.parse import urlparse, unquote
 
 from config import (SERVE_ROOT, CDN_UPLOAD_DIR, CATBOX_UPLOAD_DIR, PUBLIC_BASE_URL,
-                    REPORT_NOTIFY_EMAIL)
+                    REPORT_NOTIFY_EMAIL, CONTACT_EMAIL)
 from core.db import _db_connect
 from core.mailer import send_plain
 from core.rate_limit import _rate_limit
@@ -148,7 +148,10 @@ def list_reports(status: str | None = None, limit: int = 200) -> list[dict]:
                   r.owner_id, o.username AS owner_username, r.reason, r.message,
                   ru.username AS reporter_username, r.reporter_email,
                   r.status, r.resolution_note, r.closed_at,
-                  (SELECT 1 FROM shared_links s WHERE s.token = r.share_token) AS share_active
+                  (SELECT 1 FROM shared_links s WHERE s.token = r.share_token
+                      AND s.disabled_at IS NULL) AS share_active,
+                  (SELECT 1 FROM shared_links s WHERE s.token = r.share_token
+                      AND s.disabled_at IS NOT NULL) AS share_disabled
            FROM content_reports r
            LEFT JOIN users o  ON o.id  = r.owner_id
            LEFT JOIN users ru ON ru.id = r.reporter_user_id'''
@@ -163,6 +166,7 @@ def list_reports(status: str | None = None, limit: int = 200) -> list[dict]:
         rows = [dict(r) for r in conn.execute(q, args).fetchall()]
     for r in rows:
         r['share_active'] = bool(r['share_active'])
+        r['share_disabled'] = bool(r['share_disabled'])
         r['cdn_file_exists'] = bool(r['cdn_path'] and cdn_path_to_fs(r['cdn_path']))
     return rows
 
@@ -172,28 +176,50 @@ def count_open() -> int:
         return conn.execute("SELECT COUNT(*) FROM content_reports WHERE status = 'open'").fetchone()[0]
 
 
-def apply_action(report_id: int, action: str, note: str = '') -> dict:
+def apply_action(report_id: int, action: str, note: str = '', owner_note: str = '') -> dict:
     """Admin action on a report. Raises ValueError / LookupError.
 
-    disable_link  — delete the reported share link (files stay with the owner)
+    disable_link  — disable the reported share link (files stay with the owner;
+                    visitors see "disabled after a report", the owner is
+                    emailed with owner_note and sees it in the links manager)
+    restore_link  — undo disable_link (report → dismissed, owner emailed)
     delete_file   — delete a reported CDN / CatBox file from disk
     resolve       — mark handled (action taken outside this panel)
     dismiss       — no violation found
     reopen        — back to open
     """
     note = (note or '').strip()[:1000]
+    owner_note = (owner_note or '').strip()[:1000]
+    notify = None   # ('disabled' | 'restored', share_token) — mailed after commit
     with _db_connect() as conn:
-        row = conn.execute('SELECT share_token, cdn_path FROM content_reports WHERE id = ?',
+        row = conn.execute('SELECT share_token, cdn_path, reason FROM content_reports WHERE id = ?',
                            (report_id,)).fetchone()
         if not row:
             raise LookupError('not_found')
-        share_token, cdn_path = row
+        share_token, cdn_path, reason = row
         if action == 'disable_link':
             if not share_token:
                 raise ValueError('not_a_share')
-            conn.execute('DELETE FROM share_access_log WHERE token = ?', (share_token,))
-            conn.execute('DELETE FROM shared_links WHERE token = ?', (share_token,))
+            cur = conn.execute(
+                '''UPDATE shared_links SET disabled_at = CURRENT_TIMESTAMP, disabled_reason = ?,
+                          disabled_note = ?, disabled_report_id = ?
+                   WHERE token = ? AND disabled_at IS NULL''',
+                (reason, owner_note or None, report_id, share_token))
+            if not cur.rowcount:
+                raise ValueError('link_gone')
+            notify = ('disabled', share_token)
             status, auto_note = 'action_taken', 'Share link disabled'
+        elif action == 'restore_link':
+            if not share_token:
+                raise ValueError('not_a_share')
+            cur = conn.execute(
+                '''UPDATE shared_links SET disabled_at = NULL, disabled_reason = NULL,
+                          disabled_note = NULL, disabled_report_id = NULL
+                   WHERE token = ? AND disabled_at IS NOT NULL''', (share_token,))
+            if not cur.rowcount:
+                raise ValueError('not_disabled')
+            notify = ('restored', share_token)
+            status, auto_note = 'dismissed', 'Share link restored'
         elif action == 'delete_file':
             fs = cdn_path_to_fs(cdn_path) if cdn_path else None
             if not fs:
@@ -232,7 +258,36 @@ def apply_action(report_id: int, action: str, note: str = '') -> dict:
                 (f'Closed with report #{report_id}', val))
         conn.commit()
     logging.info('Content report #%s: %s', report_id, action)
+    if notify:
+        _notify_owner(*notify)
     return {'status': status}
+
+
+def _notify_owner(kind: str, share_token: str) -> None:
+    """Email the link's owner that it was disabled after a report / restored.
+    In the owner's language; never says who reported it."""
+    from core.snippets import tr
+    with _db_connect() as conn:
+        row = conn.execute(
+            '''SELECT s.path, s.is_dir, s.disabled_reason, s.disabled_note, u.email, u.lang
+               FROM shared_links s JOIN users u ON u.id = s.owner_id WHERE s.token = ?''',
+            (share_token,)).fetchone()
+    if not row or not row[4]:
+        return
+    path, is_dir, reason, owner_note, email, lang = row
+    lang = lang or 'en'
+    name = path.rstrip('/').split('/')[-1] or path
+    contact = CONTACT_EMAIL or 'https://github.com/ArsenijN'
+    if kind == 'disabled':
+        subject = tr(lang, 'email_share_disabled_subject', name=name)
+        body = tr(lang, 'email_share_disabled_body', name=name, path=path,
+                  reason=tr(lang, f'report_reason_{reason}') if reason else '—',
+                  note=owner_note or '—', contact=contact, app=_app_home_url())
+    else:
+        subject = tr(lang, 'email_share_restored_subject', name=name)
+        body = tr(lang, 'email_share_restored_body', name=name, path=path, app=_app_home_url())
+    threading.Thread(target=send_plain, args=(email, subject, body),
+                     name='ShareTakedownNotify', daemon=True).start()
 
 
 def prune_closed_reports(days: int = 365) -> None:

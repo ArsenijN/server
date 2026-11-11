@@ -4697,6 +4697,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         share = _get_share(token)
         if not share:
             raw = _get_share_raw(token)
+            if raw and raw.get('disabled_at'):
+                return self._send_response(410, self._render_share_disabled_page(), "text/html")
             if raw and _is_share_expired(raw):
                 return self._send_response(410, self._render_share_expired_page(), "text/html")
             return self._send_response(404, self._render_share_not_found_page(), "text/html")
@@ -5455,7 +5457,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except ValueError:
             data = {}
         try:
-            res = _report_apply_action(report_id, str(data.get('action', '')), str(data.get('note', '') or ''))
+            res = _report_apply_action(report_id, str(data.get('action', '')), str(data.get('note', '') or ''),
+                                       str(data.get('owner_note', '') or ''))
         except LookupError:
             return self._send_response(404, json.dumps({'error': 'Report not found.'}))
         except ValueError as e:
@@ -5463,6 +5466,9 @@ class AuthHandler(SimpleHTTPRequestHandler):
         except OSError as e:
             return self._send_response(500, json.dumps({'error': f'File operation failed: {e}'}))
         return self._send_response(200, json.dumps(res))
+
+    def _render_share_disabled_page(self):
+        return _render_snippet('share_disabled_page.html', lang=pick_lang(self))
 
     def _render_share_expired_page(self):
         return _render_snippet('share_expired_page.html', lang=pick_lang(self), PUBLIC_DOMAIN=PUBLIC_DOMAIN)

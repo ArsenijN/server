@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.48`
+# FluxDrop & server `v0.22.0.49`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -239,6 +239,15 @@ repo. Anyone can use it.
 
 **Changed (breaking)**
 - 
+
+**Changed**
+- Reports: "Disable link" no longer deletes the link silently. Visitors see
+  "Link disabled — after a report, it broke the Terms of Service" (it used
+  to say the *owner* revoked it); the owner gets an email in their language
+  (reason, an optional note from the admin, how to object — never who
+  reported) and sees the link marked in their links manager (read-only,
+  can delete it; "Disabled" category). Admins can **restore** the link,
+  which emails the owner again
 
 **Fixed**
 - `curl -I` / HEAD on a share link said 404 (only GET was routed); download

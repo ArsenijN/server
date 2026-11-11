@@ -33,7 +33,8 @@ def _get_shares_for_user(user_id: int) -> list:
         cur.execute(
             """SELECT token, path, is_dir, require_account, track_stats,
                       allow_anon_upload, allow_auth_upload, allow_preview, allow_cdn_embed,
-                      created_at, expires_at, access_count
+                      created_at, expires_at, access_count,
+                      disabled_at, disabled_reason, disabled_note
                FROM shared_links WHERE owner_id = ? ORDER BY created_at DESC""",
             (user_id,)
         )
@@ -78,9 +79,12 @@ def _is_share_expired(share: dict) -> bool:
 
 
 def _get_share(token: str) -> dict | None:
-    """Return share metadata if token exists and has not expired; else None."""
+    """Return share metadata if token exists, isn't disabled after a report
+    and has not expired; else None."""
     share = _get_share_raw(token)
     if not share:
+        return None
+    if share.get('disabled_at'):
         return None
     if _is_share_expired(share):
         return None
@@ -104,7 +108,8 @@ def _update_share(token: str, owner_id: int, fields: dict):
     vals += [token, owner_id]
     with _db_connect() as conn:
         cur = conn.execute(
-            f"UPDATE shared_links SET {', '.join(parts)} WHERE token = ? AND owner_id = ?", vals
+            # a link disabled after a report can't be changed (only deleted)
+            f"UPDATE shared_links SET {', '.join(parts)} WHERE token = ? AND owner_id = ? AND disabled_at IS NULL", vals
         )
         conn.commit()
         return cur.rowcount > 0

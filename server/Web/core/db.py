@@ -469,6 +469,12 @@ def init_db():
         # Tunable constants live in server_cdn.py (AVATAR_MAX_DIM, AVATAR_MAX_BYTES).
         _add_column_if_missing('users', 'avatar_data', 'BLOB DEFAULT NULL')
         _add_column_if_missing('users', 'avatar_mime', 'TEXT DEFAULT NULL')
+        # Link disabled by the operator after a content report (kept, not
+        # deleted, so visitors get an honest page and it can be restored)
+        _add_column_if_missing('shared_links', 'disabled_at', 'TIMESTAMP DEFAULT NULL')
+        _add_column_if_missing('shared_links', 'disabled_reason', 'TEXT DEFAULT NULL')
+        _add_column_if_missing('shared_links', 'disabled_note', 'TEXT DEFAULT NULL')
+        _add_column_if_missing('shared_links', 'disabled_report_id', 'INTEGER DEFAULT NULL')
         _add_column_if_missing('file_checksums', 'sha256', 'TEXT DEFAULT NULL')
         # IP Beacon devices belong to the account that registered them, so
         # registration can require a login and devices go away with the account.

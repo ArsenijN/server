@@ -447,3 +447,6 @@ Needs a backend restart and `./build.sh`.
   policy shown (logged in and logged out), the address bar loses `?policy=`
 - [ ] Paste a folder share link and https://fluxdrop.me in Telegram/Discord:
   title + FluxDrop icon in the preview
+
+## Added in V0.22.0.48
+- [ ] Report sent screen: ✅, title and text centred under the EN/УКР switch

@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.47`
+# FluxDrop & server `v0.22.0.48`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -22,6 +22,8 @@ repo. Anyone can use it.
 - Share, report and error pages link the Terms of Service and Privacy
   Policy (`/?policy=tos`, `/?policy=pp` open them in the app); their
   "FluxDrop" link no longer goes to the old `/fluxdrop_pp/` path
+- Report form: the ✅ on the "report sent" screen was pushed off-centre by
+  the language switch
 - Chat link previews (`og:` tags) for shared folders and the status page;
   the main page's preview has the logo now
 - Share manager: category chips with counts — All, Active, Expired, Files,

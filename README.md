@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.49`
+# FluxDrop & server `v0.22.0.50`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -45,6 +45,12 @@ repo. Anyone can use it.
   it, and a note when the list was cut short
 
 **Changed**
+- `fluxdrop.me/fluxdrop_pp/` (and its `/files/…` pages) now redirects to the
+  same page at `fluxdrop.me/`, and the app removes the old service worker
+  registered for `/fluxdrop_pp/`
+- Admin → Reports → Disable link: the dialog says which language the owner's
+  email goes out in, so the message can be written in that language
+- Published source maps no longer contain the build machine's folder path
 - Files under 25 MB skip the upload speed test: they reuse the speed of a
   recent upload, or use small 1 MB chunks that are safe on slow connections
 - Cancelling a ZIP download that is still being prepared tells the server to

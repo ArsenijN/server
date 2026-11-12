@@ -725,6 +725,7 @@
   "admin_reports_link_disabled": "link disabled",
   "admin_reports_owner_note_title": "Disable link #{id}",
   "admin_reports_owner_note_label": "Message to the owner (optional, sent by email and shown in their links manager — don't include anything about the reporter)",
+  "admin_reports_owner_note_lang": "The owner gets the email in {lang} — write your message in that language.",
   "admin_reports_confirm_restore": "Restore the link for report #{id}?",
   "admin_reports_confirm_restore_body": "The link works again, the report is marked as dismissed and the owner gets an email."
 }

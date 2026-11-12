@@ -432,7 +432,7 @@ Needs a backend restart (and `./build.sh` for the locale).
 
 ## Added in V0.22.0.47
 Needs a backend restart and `./build.sh`.
-- [ ] `curl -sI https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx`
+- [x] `curl -sI https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx`
   → 200, `application/octet-stream`, `Content-Length` (not 404); the link's
   access count doesn't grow from it
 - [ ] /report with JavaScript **off**: page in your language (EN/УКР links
@@ -465,3 +465,15 @@ Needs a backend restart (adds 4 columns to `shared_links` on start) and
   with reason + message; checkboxes / expiry locked; no Copy / Stats; Revoke
   still deletes it; "Вимкнені" category
 - [ ] Restore link → the link works again, report "dismissed", second email
+
+## Added in V0.22.0.50
+Needs `./build.sh`, sync and a restart of the HTTPS server and the backend.
+- [ ] https://fluxdrop.me/fluxdrop_pp/ → 308 to https://fluxdrop.me/;
+  `/fluxdrop_pp/files/<folder>` → `/files/<folder>`; `?policy=tos` is kept;
+  `/fluxdrop_pp/script.js` still loads (200)
+- [ ] Open https://fluxdrop.me/, then devtools → Application/Service Workers:
+  only the `fluxdrop.me` (scope `/`) worker remains, `/fluxdrop_pp` is gone
+- [ ] Devtools → Sources: the maps show `script.js`, `sw.js`… without
+  `media/arsen/...` folders (`curl -s https://fluxdrop.me/fluxdrop_pp/sw.js.map | head -c 80`)
+- [ ] Admin → Reports → Disable link: yellow line "The owner gets the email
+  in Українська/English" matching the owner account's language

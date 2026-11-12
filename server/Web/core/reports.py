@@ -146,6 +146,9 @@ def _notify_operator(report_id, target_url, reason, message, t):
 def list_reports(status: str | None = None, limit: int = 200) -> list[dict]:
     q = '''SELECT r.id, r.created_at, r.target_url, r.share_token, r.cdn_path,
                   r.owner_id, o.username AS owner_username, r.reason, r.message,
+                  -- language the owner email goes out in (same lookup as _notify_owner)
+                  COALESCE((SELECT u2.lang FROM shared_links s JOIN users u2 ON u2.id = s.owner_id
+                             WHERE s.token = r.share_token), o.lang, 'en') AS owner_lang,
                   ru.username AS reporter_username, r.reporter_email,
                   r.status, r.resolution_note, r.closed_at,
                   (SELECT 1 FROM shared_links s WHERE s.token = r.share_token

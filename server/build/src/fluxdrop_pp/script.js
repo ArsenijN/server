@@ -8131,6 +8131,7 @@ async function _apLoadReports() {
             body.innerHTML = `<p style="color:#64748b;font-size:14px;padding:20px 0">${t('admin_reports_none')}</p>`;
             return;
         }
+        _apReportLang = Object.fromEntries(reports.map(r => [r.id, r.owner_lang || 'en']));
         body.innerHTML = reports.map(_apRenderReport).join('');
         body.querySelectorAll('.ap-rep-act').forEach(btn => {
             btn.addEventListener('click', () => _apReportAction(+btn.dataset.id, btn.dataset.action));
@@ -8186,12 +8187,15 @@ function _apRenderReport(r) {
     </div>`;
 }
 
+// report id → language the owner's email will be written in (from the last load)
+let _apReportLang = {};
+
 async function _apReportAction(id, action) {
     const payload = { action };
     if (action === 'disable_link') {
         // Optional message for the owner (email + their links manager).
         // null = cancelled; '' = no message.
-        const msg = await _apOwnerNotePrompt(id);
+        const msg = await _apOwnerNotePrompt(id, _apReportLang[id] || 'en');
         if (msg === null) return;
         payload.owner_note = msg;
     } else if (action === 'restore_link') {
@@ -8219,7 +8223,7 @@ async function _apReportAction(id, action) {
 
 // "Disable link" dialog: confirmation + an optional multi-line note for the
 // owner. Resolves to the note ('' when empty) or null when cancelled.
-function _apOwnerNotePrompt(id) {
+function _apOwnerNotePrompt(id, ownerLang) {
     return new Promise(resolve => {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
@@ -8229,6 +8233,7 @@ function _apOwnerNotePrompt(id) {
                 <h3 id="ap-own-title" style="font-size:1.1rem;font-weight:700;margin-bottom:.5rem"></h3>
                 <p style="color:#64748b;font-size:13px;line-height:1.5;margin-bottom:.75rem"></p>
                 <label for="ap-own-note" style="display:block;font-size:13px;color:#475569;margin-bottom:6px"></label>
+                <div id="ap-own-lang" style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:5px 8px;margin-bottom:6px"></div>
                 <textarea id="ap-own-note" maxlength="1000" rows="4"
                     style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box;resize:vertical"></textarea>
                 <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
@@ -8239,10 +8244,13 @@ function _apOwnerNotePrompt(id) {
         overlay.querySelector('h3').textContent = t('admin_reports_owner_note_title', { id });
         overlay.querySelector('p').textContent = t('admin_reports_confirm_body');
         overlay.querySelector('label').textContent = t('admin_reports_owner_note_label');
+        const langName = window.FDi18n?.label ? window.FDi18n.label(ownerLang) : ownerLang;
+        overlay.querySelector('#ap-own-lang').textContent = t('admin_reports_owner_note_lang', { lang: langName });
         overlay.querySelector('#ap-own-cancel').textContent = t('cancel');
         overlay.querySelector('#ap-own-ok').textContent = t('admin_reports_disable_link');
         document.body.appendChild(overlay);
         const note = overlay.querySelector('#ap-own-note');
+        note.lang = ownerLang;   // spellcheck in the owner's language
         let done = false;
         const finish = v => { if (done) return; done = true; window.fdCloseOverlay(overlay); resolve(v); };
         overlay.querySelector('#ap-own-ok').addEventListener('click', () => finish(note.value.trim()));
@@ -9343,6 +9351,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (document.readyState === 'complete') _registerSW();
         else window.addEventListener('load', _registerSW, { once: true });
+        // The app used to live at /fluxdrop_pp/ on this origin too; that page
+        // now redirects to /. Drop its old worker so it can't keep serving a
+        // stale shell there. (Caches are per-origin and shared with the root
+        // worker, so nothing else needs clearing.)
+        if (_APP_BASE === '' && navigator.serviceWorker.getRegistrations) {
+            const legacyScope = location.origin + '/fluxdrop_pp/';
+            navigator.serviceWorker.getRegistrations().then(regs => {
+                regs.filter(r => r.scope === legacyScope).forEach(r => r.unregister());
+            }).catch(() => {});
+        }
     }
 
     // ── Offline / online banner ───────────────────────────────────────────

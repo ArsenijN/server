@@ -314,6 +314,29 @@ API usage" page
 
 ## Phase 4 -- Long-term
 
+- [ ] **Encryption of stored files** (today: none, HTTPS only — README and
+  PP draft say so). Three levels, can be combined:
+  1. *At rest, key on the server* (LUKS on the storage drive, or per-file
+     AES with a key in `secrets/`): protects a stolen disk / leaked backup,
+     **not** against the operator or a server order — the key is there.
+     Cheap, nothing in the app changes.
+  2. *Key derived from the password* at login: no key at rest, but the
+     server sees the password and holds the key in memory while you're
+     signed in; shares/CDN/previews need it too. Little real gain over 1.
+  3. **End-to-end "vault" folders (opt-in)**: the browser encrypts with a
+     key from a passphrase the server never sees (WebCrypto: PBKDF2/Argon2
+     → AES-GCM per upload chunk, fits the chunked upload), the server stores
+     ciphertext only, downloads decrypt in the browser (stream through
+     `sw.js`). Share links carry the key in the URL `#fragment` (never sent
+     to the server, like Mega). Costs: no server previews / thumbnails /
+     ZIP / CDN embed / checksum of the real content for vault files; lost
+     passphrase = lost files (no reset); reports on vault shares can only
+     be judged from what the reporter shows. TOS §(encrypted files) and PP
+     need updating; a server order could only produce ciphertext.
+  Decided (2026-11-12): 1 and 3. 1 waits for a spare drive (needs room to
+  move all files over without downtime); 3 as a FE V2 feature with its own
+  design doc — it needs no migration, only new vault folders are encrypted.
+
 - [ ] Photo contest (annual) with subscription tiers as prizes — after
 subscriptions exist; better as a separate service on the FluxDrop API
 - [ ] cRes ("Access cached resources for fast!") as a separate service on top

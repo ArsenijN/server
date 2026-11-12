@@ -598,6 +598,34 @@ _STATIC_ASSET_EXTS = frozenset({
     '.md',
 })
 
+
+def _root_legacy_page_redirect(handler, subpath: str, requested_path: str) -> bool:
+    """On a root domain (fluxdrop.me), 308 the old app pages under the subpath
+    (/fluxdrop_pp/, /fluxdrop_pp/index.html, /fluxdrop_pp/files/...) to the
+    same page at the root, so there is one address per page and one service
+    worker scope. Assets under the subpath are left alone: the root shell
+    loads them from there. Returns True when a redirect was sent."""
+    clean = requested_path.split('?')[0]
+    if not (clean == subpath or clean.startswith(subpath + '/')):
+        return False
+    rest = clean[len(subpath):]
+    is_page = rest in ('', '/', '/index.html') or (
+        (rest == '/files' or rest.startswith('/files/'))
+        and _psp.splitext(rest)[1].lower() not in _STATIC_ASSET_EXTS)
+    if not is_page:
+        return False
+    dest = requested_path[len(subpath):]
+    if dest.startswith('/index.html'):
+        dest = '/' + dest[len('/index.html'):]
+    if not dest.startswith('/'):
+        dest = '/' + dest
+    handler.send_response(308)
+    handler.send_header('Location', dest)
+    handler.send_header('Content-Length', '0')
+    handler.send_header('Cache-Control', 'no-store')
+    handler.end_headers()
+    return True
+
 def _proxy_to_cdn(handler, method: str = 'GET'):
     """Forward the current request to the CDN server and stream the response back.
 
@@ -1024,6 +1052,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # CDN paths (/api/, /share/, …) were already handled above this block.
         _host_bare = self.headers.get('Host', '').split(':')[0].lower()
         _subpath   = _ROOT_DOMAIN_SUBPATH.get(_host_bare)
+        if _subpath and _root_legacy_page_redirect(self, _subpath, requested_path):
+            return
         if _subpath:
             _clean = requested_path.split('?')[0]
             if not (_clean == _subpath or _clean.startswith(_subpath + '/')):
@@ -1242,6 +1272,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # fall through — the SW never HEADs navigation URLs in practice.
         _host_bare = self.headers.get('Host', '').split(':')[0].lower()
         _subpath   = _ROOT_DOMAIN_SUBPATH.get(_host_bare)
+        if _subpath and _root_legacy_page_redirect(self, _subpath, requested_path):
+            return
         if _subpath:
             _clean = requested_path.split('?')[0]
             if not (_clean == _subpath or _clean.startswith(_subpath + '/')):

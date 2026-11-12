@@ -145,6 +145,14 @@ minify_assets() {
                --outfile="$TMPD/$base"; then
             mv -f "$TMPD/$base" "$f"
             mv -f "$TMPD/$base.map" "$f.map"
+            # esbuild writes "sources" relative to the temp dir, which leaks this
+            # machine's absolute folder path ("../../media/arsen/...") into the
+            # published map. Keep only the file name.
+            node -e 'const fs=require("fs"),path=require("path"),p=process.argv[1];
+                const m=JSON.parse(fs.readFileSync(p,"utf8"));
+                m.sources=m.sources.map(s=>path.basename(decodeURIComponent(s)));
+                fs.writeFileSync(p,JSON.stringify(m));' "$f.map" \
+                || echo "   ⚠ could not clean source paths in $f.map"
         else
             echo "   ⚠ minify failed for $f — keeping it unminified"
         fi

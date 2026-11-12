@@ -435,21 +435,21 @@ Needs a backend restart and `./build.sh`.
 - [x] `curl -sI https://fluxdrop.me/share/BnxqD9hJ2ee7tb7u5yDgpn87XQQnWvzx`
   → 200, `application/octet-stream`, `Content-Length` (not 404); the link's
   access count doesn't grow from it
-- [ ] /report with JavaScript **off**: page in your language (EN/УКР links
+- [x] /report with JavaScript **off**: page in your language (EN/УКР links
   switch it), no "needs JavaScript" note; sending without a reason → the
   browser asks for it; a full report → "Thank you… #N"; "Other" with empty
   details → error shown, typed values kept
-- [ ] /report with JavaScript on: sends without reloading, same result; a
+- [x] /report with JavaScript on: sends without reloading, same result; a
   signed-in user's report shows them as reporter in Admin → Reports
 - [ ] Footer "FluxDrop" link on report / share / not-found pages goes to
   https://fluxdrop.me/ (also with JS off)
 - [ ] Footer "Terms of Service" / "Privacy Policy" → the app opens with that
   policy shown (logged in and logged out), the address bar loses `?policy=`
-- [ ] Paste a folder share link and https://fluxdrop.me in Telegram/Discord:
+- [x] Paste a folder share link and https://fluxdrop.me in Telegram/Discord:
   title + FluxDrop icon in the preview
 
 ## Added in V0.22.0.48
-- [ ] Report sent screen: ✅, title and text centred under the EN/УКР switch
+- [x] Report sent screen: ✅, title and text centred under the EN/УКР switch
 
 ## Added in V0.22.0.49
 Needs a backend restart (adds 4 columns to `shared_links` on start) and
@@ -461,10 +461,10 @@ Needs a backend restart (adds 4 columns to `shared_links` on start) and
   "revoked by its owner"); a folder link's sub-paths / ZIP / upload don't work
 - [x] The test account gets an email in its language: link path, reason,
   your message, how to object, no reporter info
-- [ ] Test account → Shared links: red "Вимкнено після скарги" badge and box
+- [x] Test account → Shared links: red "Вимкнено після скарги" badge and box
   with reason + message; checkboxes / expiry locked; no Copy / Stats; Revoke
   still deletes it; "Вимкнені" category
-- [ ] Restore link → the link works again, report "dismissed", second email
+- [x] Restore link → the link works again, report "dismissed", second email
 
 ## Added in V0.22.0.50
 Needs `./build.sh`, sync and a restart of the HTTPS server and the backend.
@@ -489,19 +489,27 @@ with an email you can read, and once more while signed in as another test accoun
 - [x] Restore link: dialog is on top (not dimmed) with a "why" message box;
   owner email shows "Коментар оператора: …"; reporter gets "no action"
 - [x] Report card: "Рішення: посилання вимкнено → посилання відновлено"
-- [ ] Untick the box → no reporter email; an anonymous report with no email
+- [x] Untick the box → no reporter email; 
+- [ ] an anonymous report with no email
   shows no box, and Resolve / Dismiss on it are one click as before
 - [x] Admin → Users → delete a test user: the confirm is on top of the panel
 
 ## Added in V0.22.0.52
 Needs `./build.sh`, sync and a backend restart. Use a test account.
-- [ ] Share a folder and a file inside it, then Delete the folder: the
+- [x] Share a folder and a file inside it, then Delete the folder: the
   confirm adds "Спільних посилань на це: 2…"; deleting an unshared item
   has no such line
-- [ ] Open both links: 404 page "Власник перемістив цей файл чи теку в
+- [x] Open both links: 404 page "Власник перемістив цей файл чи теку в
   кошик. Якщо їх відновлять, посилання знову запрацює."
-- [ ] Shared links manager: both show "🗑 У кошику" (hover: explanation);
+- [x] Shared links manager: both show "🗑 У кошику" (hover: explanation);
   "Не працюють" category counts them; they're not under "Активні"
-- [ ] Restore the folder from the trash → both links work again, badges gone
-- [ ] Trash it again, then delete it from the trash forever (or Empty
+- [x] Restore the folder from the trash → both links work again, badges gone
+- [x] Trash it again, then delete it from the trash forever (or Empty
   trash) → both links are gone from the links manager
+
+## Added in V0.22.0.53
+- [ ] Trash with several items, scroll down a bit, Restore one: its row
+  dims, then the list updates without flashing a spinner or jumping height;
+  the scroll position stays. Same for Delete forever
+- [ ] Restore onto a name that already exists: an error message (not a
+  browser alert), the row's buttons work again

@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.52`
+# FluxDrop & server `v0.22.0.53`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -100,6 +100,8 @@ repo. Anyone can use it.
 - See [TESTING.md](./TESTING.md) for what still needs checking
 
 **Fixed**
+- Restoring or deleting an item in the Trash no longer makes the dialog
+  collapse and re-grow; the list updates in place and keeps its scroll
 - Pausing and resuming an upload could skip chunks, so it failed with
   "Missing chunks". Resume now asks the server which chunks it is missing and
   sends only those, and checks again before finishing

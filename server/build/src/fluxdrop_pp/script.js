@@ -5022,13 +5022,17 @@ async function openTrashView() {
     });
 }
 
-async function _refreshTrashView() {
+// quiet: reload after restore / delete — keep the current rows on screen
+// until the new list arrives (no spinner swap, so the dialog doesn't
+// collapse and re-grow) and keep the scroll position.
+async function _refreshTrashView({ quiet = false } = {}) {
     const body     = document.getElementById('trash-body');
     const subtitle = document.getElementById('trash-subtitle');
     const notice   = document.getElementById('trash-notice');
     if (!body) return;
 
-    body.innerHTML = _loadingHtml();
+    const keepScroll = body.scrollTop;
+    if (!quiet) body.innerHTML = _loadingHtml();
 
     let data;
     try {
@@ -5134,17 +5138,23 @@ async function _refreshTrashView() {
                 </button>
             </div>
         </div>`).join('');
+    body.scrollTop = keepScroll;
 
     // Attach listeners
     body.querySelectorAll('.trash-restore-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const id = +btn.dataset.id;
+            const row = btn.closest('.trash-row');
+            row?.querySelectorAll('button').forEach(b => { b.disabled = true; });
+            if (row) row.style.opacity = '.5';
             try {
-                const res = await apiCall(`/api/v1/trash/${id}/restore`, 'POST');
+                await apiCall(`/api/v1/trash/${id}/restore`, 'POST');
                 loadDirectory(currentPath);
-                await _refreshTrashView();
+                await _refreshTrashView({ quiet: true });
             } catch (err) {
-                alert('Restore failed: ' + err.message);
+                row?.querySelectorAll('button').forEach(b => { b.disabled = false; });
+                if (row) row.style.opacity = '';
+                showMessage(t('trash_restore'), err.message);
             }
         });
     });
@@ -5160,7 +5170,7 @@ async function _refreshTrashView() {
             if (!ok) return;
             try {
                 await apiCall(`/api/v1/trash/${id}`, 'DELETE');
-                await _refreshTrashView();
+                await _refreshTrashView({ quiet: true });
             } catch (err) {
                 showToast(t('trash_delete_failed') + ': ' + err.message, { type: 'error' });
             }

@@ -475,6 +475,8 @@ def init_db():
         _add_column_if_missing('shared_links', 'disabled_reason', 'TEXT DEFAULT NULL')
         _add_column_if_missing('shared_links', 'disabled_note', 'TEXT DEFAULT NULL')
         _add_column_if_missing('shared_links', 'disabled_report_id', 'INTEGER DEFAULT NULL')
+        # Language the reporter used, for the optional "your report was reviewed" email
+        _add_column_if_missing('content_reports', 'reporter_lang', 'TEXT DEFAULT NULL')
         _add_column_if_missing('file_checksums', 'sha256', 'TEXT DEFAULT NULL')
         # IP Beacon devices belong to the account that registered them, so
         # registration can require a login and devices go away with the account.

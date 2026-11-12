@@ -336,12 +336,27 @@ function showSpinnerOverlay(message = 'Loading…', opts = {}) {
     };
 }
 
+// A dialog opened from inside another overlay (e.g. the admin panel at
+// z-index 9000) must stack above it, or it shows up dimmed behind it.
+function _fdRaiseOverlay(el) {
+    let top = 0;
+    document.querySelectorAll('.modal-overlay').forEach(o => {
+        if (o === el || o.classList.contains('hidden')) return;
+        const z = parseInt(getComputedStyle(o).zIndex, 10);
+        if (z > top) top = z;
+    });
+    el.style.zIndex = '';
+    const own = parseInt(getComputedStyle(el).zIndex, 10) || 0;
+    if (top >= own) el.style.zIndex = String(top + 1);
+}
+
 function showModal(id) {
     const modal = document.getElementById(id);
     // Defensive cleanup in case the modal is being re-shown while a previous
     // hideModal() animation hasn't finished yet.
     modal.classList.remove('hidden', 'fd-overlay-closing');
     delete modal.dataset.fdClosing;
+    _fdRaiseOverlay(modal);
     const content = modal.querySelector('.modal-content');
     if (content) content.classList.remove('fd-panel-closing');
 }
@@ -556,6 +571,7 @@ function showPromptModal({ title, label = '', placeholder = '', defaultValue = '
         overlay.querySelector('#fd-prompt-cancel').textContent = cancelLabel;
         overlay.querySelector('#fd-prompt-ok').textContent = confirmLabel;
         document.body.appendChild(overlay);
+        _fdRaiseOverlay(overlay);
 
         let settled = false;
         function finish(value) {
@@ -600,6 +616,7 @@ function showConfirmModal({ title, message = '', confirmLabel = t('yes'), cancel
         yesBtn.textContent = confirmLabel;
         if (danger) yesBtn.style.background = '#dc2626';
         document.body.appendChild(overlay);
+        _fdRaiseOverlay(overlay);
 
         let settled = false;
         function finish(value) {
@@ -8131,7 +8148,7 @@ async function _apLoadReports() {
             body.innerHTML = `<p style="color:#64748b;font-size:14px;padding:20px 0">${t('admin_reports_none')}</p>`;
             return;
         }
-        _apReportLang = Object.fromEntries(reports.map(r => [r.id, r.owner_lang || 'en']));
+        _apReportInfo = Object.fromEntries(reports.map(r => [r.id, r]));
         body.innerHTML = reports.map(_apRenderReport).join('');
         body.querySelectorAll('.ap-rep-act').forEach(btn => {
             btn.addEventListener('click', () => _apReportAction(+btn.dataset.id, btn.dataset.action));
@@ -8180,37 +8197,29 @@ function _apRenderReport(r) {
               : r.share_token && !r.share_active ? ` <em>(${t('admin_reports_link_gone')})</em>` : ''}<br>
             ${t('admin_reports_owner')}: ${r.owner_username ? escapeHtml(r.owner_username) : '—'}
             · ${t('admin_reports_reporter')}: ${reporter}
-            ${r.resolution_note ? `<br>${t('admin_reports_note')}: ${escapeHtml(r.resolution_note)}` : ''}
+            ${r.resolution_note ? `<br>${t('admin_reports_note')}: ${escapeHtml(_apNoteText(r.resolution_note))}` : ''}
         </div>
         ${r.message ? `<div class="ap-rep-msg" data-fd-notranslate>${escapeHtml(r.message)}</div>` : ''}
         <div class="ap-rep-actions">${actions}</div>
     </div>`;
 }
 
-// report id → language the owner's email will be written in (from the last load)
-let _apReportLang = {};
+// report id → report row from the last load (owner_lang, reporter_contact…)
+let _apReportInfo = {};
 
 async function _apReportAction(id, action) {
-    const payload = { action };
-    if (action === 'disable_link') {
-        // Optional message for the owner (email + their links manager).
-        // null = cancelled; '' = no message.
-        const msg = await _apOwnerNotePrompt(id, _apReportLang[id] || 'en');
-        if (msg === null) return;
-        payload.owner_note = msg;
-    } else if (action === 'restore_link') {
-        const ok = await showConfirmModal({
-            title:   t('admin_reports_confirm_restore', { id }),
-            message: t('admin_reports_confirm_restore_body'),
-            danger:  false,
-        });
-        if (!ok) return;
-    } else if (action === 'delete_file') {
-        const ok = await showConfirmModal({
-            title:   t('admin_reports_confirm_delete', { id }),
-            message: t('admin_reports_confirm_body'),
-        });
-        if (!ok) return;
+    const r = _apReportInfo[id] || {};
+    let payload = { action };
+    // Closing actions and link actions go through one dialog: a message for
+    // the owner (link actions) and/or "tell the reporter the outcome".
+    // Resolve / dismiss without a reachable reporter stay one click.
+    const closing = ['disable_link', 'restore_link', 'delete_file', 'resolve', 'dismiss'].includes(action);
+    const needsDialog = ['disable_link', 'restore_link', 'delete_file'].includes(action)
+        || (closing && r.reporter_contact);
+    if (needsDialog) {
+        const res = await _apActionDialog(id, action, r);
+        if (res === null) return;
+        payload = { ...payload, ...res };
     }
     try {
         await apiCall(`/api/v1/admin/reports/${id}`, 'POST', payload);
@@ -8221,43 +8230,97 @@ async function _apReportAction(id, action) {
     }
 }
 
-// "Disable link" dialog: confirmation + an optional multi-line note for the
-// owner. Resolves to the note ('' when empty) or null when cancelled.
-function _apOwnerNotePrompt(id, ownerLang) {
+// Confirm dialog for report actions. Link actions get an optional note for
+// the owner (sent by email in the owner's language); closing actions get a
+// "tell the reporter" checkbox when the reporter left a way to reach them.
+// Resolves to { owner_note?, notify_reporter? } or null when cancelled.
+// resolution_note is a server-written log ("Share link disabled; Share link
+// restored"); show its known entries in the UI language.
+function _apNoteText(note) {
+    const known = {
+        'Share link disabled': 'admin_reports_log_disabled',
+        'Share link restored': 'admin_reports_log_restored',
+        'File deleted':        'admin_reports_log_deleted',
+    };
+    return String(note).split('; ').map(part => {
+        if (known[part]) return t(known[part]);
+        const m = /^Closed with report #(\d+)$/.exec(part);
+        return m ? t('admin_reports_log_closed_with', { id: m[1] }) : part;
+    }).join(' → ');
+}
+
+function _apActionDialog(id, action, r) {
+    const linkAction = action === 'disable_link' || action === 'restore_link';
+    const cfg = {
+        disable_link: { title: t('admin_reports_owner_note_title', { id }),
+                        body: t('admin_reports_confirm_body'),
+                        label: t('admin_reports_owner_note_label'),
+                        ok: t('admin_reports_disable_link'), color: '#dc2626' },
+        restore_link: { title: t('admin_reports_confirm_restore', { id }),
+                        body: t('admin_reports_confirm_restore_body'),
+                        label: t('admin_reports_restore_note_label'),
+                        ok: t('admin_reports_restore_link'), color: '#0369a1' },
+        delete_file:  { title: t('admin_reports_confirm_delete', { id }),
+                        body: t('admin_reports_confirm_body'),
+                        ok: t('admin_reports_delete_file'), color: '#dc2626' },
+        resolve:      { title: t('admin_reports_confirm_resolve', { id }),
+                        ok: t('admin_reports_resolve'), color: '#16a34a' },
+        dismiss:      { title: t('admin_reports_confirm_dismiss', { id }),
+                        ok: t('admin_reports_dismiss'), color: '#64748b' },
+    }[action];
+    const ownerLang = r.owner_lang || 'en';
+    const canNotify = !!r.reporter_contact;
     return new Promise(resolve => {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.style.zIndex = '9100';   // above the admin panel
         overlay.innerHTML = `
             <div class="modal-content" style="max-width:440px">
-                <h3 id="ap-own-title" style="font-size:1.1rem;font-weight:700;margin-bottom:.5rem"></h3>
-                <p style="color:#64748b;font-size:13px;line-height:1.5;margin-bottom:.75rem"></p>
+                <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:.5rem"></h3>
+                <p class="ap-dlg-body" style="color:#64748b;font-size:13px;line-height:1.5;margin-bottom:.75rem"></p>
+                ${linkAction ? `
                 <label for="ap-own-note" style="display:block;font-size:13px;color:#475569;margin-bottom:6px"></label>
                 <div id="ap-own-lang" style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:5px 8px;margin-bottom:6px"></div>
                 <textarea id="ap-own-note" maxlength="1000" rows="4"
-                    style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box;resize:vertical"></textarea>
+                    style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box;resize:vertical"></textarea>` : ''}
+                ${canNotify ? `
+                <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;color:#475569;margin-top:10px;cursor:pointer">
+                    <input type="checkbox" id="ap-notify-rep" checked style="margin-top:2px">
+                    <span id="ap-notify-rep-lbl"></span>
+                </label>` : ''}
                 <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
                     <button id="ap-own-cancel" class="btn" style="background:#6b7280"></button>
-                    <button id="ap-own-ok" class="btn" style="background:#dc2626"></button>
+                    <button id="ap-own-ok" class="btn"></button>
                 </div>
             </div>`;
-        overlay.querySelector('h3').textContent = t('admin_reports_owner_note_title', { id });
-        overlay.querySelector('p').textContent = t('admin_reports_confirm_body');
-        overlay.querySelector('label').textContent = t('admin_reports_owner_note_label');
-        const langName = window.FDi18n?.label ? window.FDi18n.label(ownerLang) : ownerLang;
-        overlay.querySelector('#ap-own-lang').textContent = t('admin_reports_owner_note_lang', { lang: langName });
-        overlay.querySelector('#ap-own-cancel').textContent = t('cancel');
-        overlay.querySelector('#ap-own-ok').textContent = t('admin_reports_disable_link');
-        document.body.appendChild(overlay);
+        overlay.querySelector('h3').textContent = cfg.title;
+        const bodyEl = overlay.querySelector('.ap-dlg-body');
+        if (cfg.body) bodyEl.textContent = cfg.body; else bodyEl.remove();
         const note = overlay.querySelector('#ap-own-note');
-        note.lang = ownerLang;   // spellcheck in the owner's language
+        if (note) {
+            overlay.querySelector('label[for="ap-own-note"]').textContent = cfg.label;
+            const langName = window.FDi18n?.label ? window.FDi18n.label(ownerLang) : ownerLang;
+            overlay.querySelector('#ap-own-lang').textContent = t('admin_reports_owner_note_lang', { lang: langName });
+            note.lang = ownerLang;   // spellcheck in the owner's language
+        }
+        if (canNotify) overlay.querySelector('#ap-notify-rep-lbl').textContent = t('admin_reports_notify_reporter');
+        overlay.querySelector('#ap-own-cancel').textContent = t('cancel');
+        const ok = overlay.querySelector('#ap-own-ok');
+        ok.textContent = cfg.ok;
+        ok.style.background = cfg.color;
+        document.body.appendChild(overlay);
         let done = false;
         const finish = v => { if (done) return; done = true; window.fdCloseOverlay(overlay); resolve(v); };
-        overlay.querySelector('#ap-own-ok').addEventListener('click', () => finish(note.value.trim()));
+        ok.addEventListener('click', () => {
+            const res = {};
+            if (note) res.owner_note = note.value.trim();
+            if (canNotify) res.notify_reporter = overlay.querySelector('#ap-notify-rep').checked;
+            finish(res);
+        });
         overlay.querySelector('#ap-own-cancel').addEventListener('click', () => finish(null));
         overlay.addEventListener('click', e => { if (e.target === overlay) finish(null); });
         overlay.addEventListener('keydown', e => { if (e.key === 'Escape') finish(null); });
-        note.focus();
+        (note || ok).focus();
     });
 }
 

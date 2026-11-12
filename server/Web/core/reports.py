@@ -80,7 +80,8 @@ def cdn_path_to_fs(cdn_path: str) -> str | None:
 
 
 def create_report(target_url: str, reason: str, message: str,
-                  reporter_user_id=None, reporter_email: str | None = None) -> int:
+                  reporter_user_id=None, reporter_email: str | None = None,
+                  reporter_lang: str | None = None) -> int:
     """Validate and store a report; e-mail the operator. Raises ValueError."""
     target_url = (target_url or '').strip()
     if not target_url or len(target_url) > MAX_URL_LEN:
@@ -99,10 +100,11 @@ def create_report(target_url: str, reason: str, message: str,
         cur = conn.execute(
             '''INSERT INTO content_reports
                (target_url, share_token, cdn_path, owner_id, reason, message,
-                reporter_user_id, reporter_email)
-               VALUES (?,?,?,?,?,?,?,?)''',
+                reporter_user_id, reporter_email, reporter_lang)
+               VALUES (?,?,?,?,?,?,?,?,?)''',
             (target_url, t['share_token'], t['cdn_path'], t['owner_id'], reason, message,
-             reporter_user_id, reporter_email))
+             reporter_user_id, reporter_email,
+             reporter_lang if reporter_lang in ('en', 'uk') else None))
         conn.commit()
         report_id = cur.lastrowid
     _notify_operator(report_id, target_url, reason, message, t)
@@ -149,6 +151,8 @@ def list_reports(status: str | None = None, limit: int = 200) -> list[dict]:
                   -- language the owner email goes out in (same lookup as _notify_owner)
                   COALESCE((SELECT u2.lang FROM shared_links s JOIN users u2 ON u2.id = s.owner_id
                              WHERE s.token = r.share_token), o.lang, 'en') AS owner_lang,
+                  -- can the reporter be told the outcome? (account email or one they typed)
+                  (COALESCE(ru.email, r.reporter_email) IS NOT NULL) AS reporter_contact,
                   ru.username AS reporter_username, r.reporter_email,
                   r.status, r.resolution_note, r.closed_at,
                   (SELECT 1 FROM shared_links s WHERE s.token = r.share_token
@@ -170,6 +174,7 @@ def list_reports(status: str | None = None, limit: int = 200) -> list[dict]:
     for r in rows:
         r['share_active'] = bool(r['share_active'])
         r['share_disabled'] = bool(r['share_disabled'])
+        r['reporter_contact'] = bool(r['reporter_contact'])
         r['cdn_file_exists'] = bool(r['cdn_path'] and cdn_path_to_fs(r['cdn_path']))
     return rows
 
@@ -179,7 +184,8 @@ def count_open() -> int:
         return conn.execute("SELECT COUNT(*) FROM content_reports WHERE status = 'open'").fetchone()[0]
 
 
-def apply_action(report_id: int, action: str, note: str = '', owner_note: str = '') -> dict:
+def apply_action(report_id: int, action: str, note: str = '', owner_note: str = '',
+                 notify_reporter: bool = False) -> dict:
     """Admin action on a report. Raises ValueError / LookupError.
 
     disable_link  — disable the reported share link (files stay with the owner;
@@ -190,10 +196,14 @@ def apply_action(report_id: int, action: str, note: str = '', owner_note: str = 
     resolve       — mark handled (action taken outside this panel)
     dismiss       — no violation found
     reopen        — back to open
+
+    owner_note goes to the link owner (disable_link: why; restore_link: why it
+    works again). notify_reporter emails the reporter the outcome of a closing
+    action — never who the owner is or what was said to them.
     """
     note = (note or '').strip()[:1000]
     owner_note = (owner_note or '').strip()[:1000]
-    notify = None   # ('disabled' | 'restored', share_token) — mailed after commit
+    notify = None   # ('disabled' | 'restored', share_token, note) — mailed after commit
     with _db_connect() as conn:
         row = conn.execute('SELECT share_token, cdn_path, reason FROM content_reports WHERE id = ?',
                            (report_id,)).fetchone()
@@ -210,7 +220,7 @@ def apply_action(report_id: int, action: str, note: str = '', owner_note: str = 
                 (reason, owner_note or None, report_id, share_token))
             if not cur.rowcount:
                 raise ValueError('link_gone')
-            notify = ('disabled', share_token)
+            notify = ('disabled', share_token, owner_note)
             status, auto_note = 'action_taken', 'Share link disabled'
         elif action == 'restore_link':
             if not share_token:
@@ -221,7 +231,7 @@ def apply_action(report_id: int, action: str, note: str = '', owner_note: str = 
                    WHERE token = ? AND disabled_at IS NOT NULL''', (share_token,))
             if not cur.rowcount:
                 raise ValueError('not_disabled')
-            notify = ('restored', share_token)
+            notify = ('restored', share_token, owner_note)
             status, auto_note = 'dismissed', 'Share link restored'
         elif action == 'delete_file':
             fs = cdn_path_to_fs(cdn_path) if cdn_path else None
@@ -246,14 +256,23 @@ def apply_action(report_id: int, action: str, note: str = '', owner_note: str = 
             conn.execute("UPDATE content_reports SET status='open', closed_at=NULL WHERE id = ?",
                          (report_id,))
         else:
+            # Decision log: append, so "disabled" then "restored" both stay visible
             conn.execute(
                 '''UPDATE content_reports SET status = ?, closed_at = CURRENT_TIMESTAMP,
-                       resolution_note = COALESCE(?, resolution_note) WHERE id = ?''',
-                (status, full_note, report_id))
+                       resolution_note = CASE
+                           WHEN ? IS NULL THEN resolution_note
+                           WHEN resolution_note IS NULL OR resolution_note = '' THEN ?
+                           ELSE resolution_note || '; ' || ? END
+                   WHERE id = ?''',
+                (status, full_note, full_note, full_note, report_id))
         # Other open reports about the same target were handled by the same
         # takedown — close them too so the queue doesn't show stale duplicates.
+        also_closed = []
         if action in ('disable_link', 'delete_file'):
             col, val = ('share_token', share_token) if action == 'disable_link' else ('cdn_path', cdn_path)
+            also_closed = [r[0] for r in conn.execute(
+                f"SELECT id FROM content_reports WHERE {col} = ? AND status = 'open' AND id != ?",
+                (val, report_id))]
             conn.execute(
                 f'''UPDATE content_reports SET status='action_taken', closed_at=CURRENT_TIMESTAMP,
                         resolution_note = COALESCE(resolution_note, ?)
@@ -263,10 +282,13 @@ def apply_action(report_id: int, action: str, note: str = '', owner_note: str = 
     logging.info('Content report #%s: %s', report_id, action)
     if notify:
         _notify_owner(*notify)
+    if notify_reporter and status != 'open':
+        for rid in [report_id, *also_closed]:
+            _notify_reporter(rid, status)
     return {'status': status}
 
 
-def _notify_owner(kind: str, share_token: str) -> None:
+def _notify_owner(kind: str, share_token: str, note: str = '') -> None:
     """Email the link's owner that it was disabled after a report / restored.
     In the owner's language; never says who reported it."""
     from core.snippets import tr
@@ -288,9 +310,32 @@ def _notify_owner(kind: str, share_token: str) -> None:
                   note=owner_note or '—', contact=contact, app=_app_home_url())
     else:
         subject = tr(lang, 'email_share_restored_subject', name=name)
-        body = tr(lang, 'email_share_restored_body', name=name, path=path, app=_app_home_url())
+        body = tr(lang, 'email_share_restored_body', name=name, path=path,
+                  note=note or '—', app=_app_home_url())
     threading.Thread(target=send_plain, args=(email, subject, body),
                      name='ShareTakedownNotify', daemon=True).start()
+
+
+def _notify_reporter(report_id: int, status: str) -> None:
+    """Tell the reporter their report was reviewed and what came of it.
+    Only the outcome — nothing about the owner or what they were told."""
+    from core.snippets import tr
+    with _db_connect() as conn:
+        row = conn.execute(
+            '''SELECT r.target_url, COALESCE(ru.email, r.reporter_email),
+                      COALESCE(ru.lang, r.reporter_lang)
+               FROM content_reports r LEFT JOIN users ru ON ru.id = r.reporter_user_id
+               WHERE r.id = ?''', (report_id,)).fetchone()
+    if not row or not row[1]:
+        return
+    target_url, email, lang = row
+    lang = lang or 'en'
+    outcome = 'action' if status == 'action_taken' else 'no_action'
+    subject = tr(lang, 'email_report_reviewed_subject', id=report_id)
+    body = tr(lang, 'email_report_reviewed_body', id=report_id, url=target_url,
+              outcome=tr(lang, f'email_report_outcome_{outcome}'))
+    threading.Thread(target=send_plain, args=(email, subject, body),
+                     name='ReportOutcomeNotify', daemon=True).start()
 
 
 def prune_closed_reports(days: int = 365) -> None:

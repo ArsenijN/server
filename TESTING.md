@@ -454,12 +454,12 @@ Needs a backend restart and `./build.sh`.
 ## Added in V0.22.0.49
 Needs a backend restart (adds 4 columns to `shared_links` on start) and
 `./build.sh`. Use a test account and a throwaway share.
-- [ ] Report the test share, Admin → Reports → Disable link: dialog with an
+- [x] Report the test share, Admin → Reports → Disable link: dialog with an
   optional message for the owner; after it, the report shows "link disabled"
   and a "Restore link" button
 - [ ] Open the link (also `curl -I`): 410 page "Посилання вимкнено" (not
   "revoked by its owner"); a folder link's sub-paths / ZIP / upload don't work
-- [ ] The test account gets an email in its language: link path, reason,
+- [x] The test account gets an email in its language: link path, reason,
   your message, how to object, no reporter info
 - [ ] Test account → Shared links: red "Вимкнено після скарги" badge and box
   with reason + message; checkboxes / expiry locked; no Copy / Stats; Revoke
@@ -475,5 +475,20 @@ Needs `./build.sh`, sync and a restart of the HTTPS server and the backend.
   only the `fluxdrop.me` (scope `/`) worker remains, `/fluxdrop_pp` is gone
 - [ ] Devtools → Sources: the maps show `script.js`, `sw.js`… without
   `media/arsen/...` folders (`curl -s https://fluxdrop.me/fluxdrop_pp/sw.js.map | head -c 80`)
-- [ ] Admin → Reports → Disable link: yellow line "The owner gets the email
+- [x] Admin → Reports → Disable link: yellow line "The owner gets the email
   in Українська/English" matching the owner account's language
+
+## Added in V0.22.0.51
+Needs `./build.sh`, sync and a backend restart (adds `content_reports.reporter_lang`).
+Use a test account and a throwaway share; report it from /report?lang=uk
+with an email you can read, and once more while signed in as another test account.
+- [ ] Disable link: the dialog has the owner message, the language line and a
+  checked "Email the reporter the outcome" box; both reporters get "Вашу
+  скаргу #N розглянуто" / "Your report #N was reviewed" with "action taken"
+  (each in their own language), nothing about the owner
+- [ ] Restore link: dialog is on top (not dimmed) with a "why" message box;
+  owner email shows "Коментар оператора: …"; reporter gets "no action"
+- [ ] Report card: "Рішення: посилання вимкнено → посилання відновлено"
+- [ ] Untick the box → no reporter email; an anonymous report with no email
+  shows no box, and Resolve / Dismiss on it are one click as before
+- [ ] Admin → Users → delete a test user: the confirm is on top of the panel

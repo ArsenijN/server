@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.50`
+# FluxDrop & server `v0.22.0.51`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -45,6 +45,16 @@ repo. Anyone can use it.
   it, and a note when the list was cut short
 
 **Changed**
+- Admin → Reports: every closing action (disable / restore link, delete
+  file, resolve, dismiss) can email the reporter the outcome — only "action
+  taken" or "no action", in the language they reported in, never anything
+  about the owner. Reports closed together with it notify their reporters too
+- Restoring a disabled link can carry a message to the owner (why it works
+  again); it's in the "link restored" email
+- The report "Note" line is now "Decisions", translated, and keeps the
+  history (e.g. "link disabled → link restored")
+- Confirm / message dialogs opened from the admin panel no longer appear
+  dimmed behind it
 - `fluxdrop.me/fluxdrop_pp/` (and its `/files/…` pages) now redirects to the
   same page at `fluxdrop.me/`, and the app removes the old service worker
   registered for `/fluxdrop_pp/`

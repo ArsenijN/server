@@ -63,6 +63,7 @@ legend{font-size:13px;font-weight:600;color:var(--label);padding:0}
     const payload = {
       url: String(fd.get('url') || '').trim(), reason: String(fd.get('reason') || ''),
       message: String(fd.get('message') || ''), email: String(fd.get('email') || '').trim(),
+      lang: document.documentElement.lang,
     };
     if (!payload.url) return show(T.e.bad_url);
     if (!payload.reason) return show(T.e.bad_reason);

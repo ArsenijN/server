@@ -5418,7 +5418,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             return self._send_response(429, self._render_report_page(values, 'rate'), 'text/html')
         try:
             report_id = create_report(values['url'], values['reason'], values['message'],
-                                      reporter_user_id=None, reporter_email=values['email'])
+                                      reporter_user_id=None, reporter_email=values['email'],
+                                      reporter_lang=pick_lang(self))
         except ValueError as e:
             return self._send_response(400, self._render_report_page(values, str(e)), 'text/html')
         return self._send_response(200, self._render_report_page(done_id=report_id), 'text/html')
@@ -5442,7 +5443,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             report_id = create_report(
                 str(data.get('url', '')), str(data.get('reason', '')),
                 str(data.get('message', '')), reporter_user_id=reporter or None,
-                reporter_email=str(data.get('email', '') or ''))
+                reporter_email=str(data.get('email', '') or ''),
+                reporter_lang=str(data.get('lang', '') or '') or pick_lang(self))
         except ValueError as e:
             return self._send_response(400, json.dumps({'error': 'Invalid report.', 'code': str(e)}))
         return self._send_response(200, json.dumps({'id': report_id}))
@@ -5458,7 +5460,8 @@ class AuthHandler(SimpleHTTPRequestHandler):
             data = {}
         try:
             res = _report_apply_action(report_id, str(data.get('action', '')), str(data.get('note', '') or ''),
-                                       str(data.get('owner_note', '') or ''))
+                                       str(data.get('owner_note', '') or ''),
+                                       notify_reporter=data.get('notify_reporter') is True)
         except LookupError:
             return self._send_response(404, json.dumps({'error': 'Report not found.'}))
         except ValueError as e:

@@ -739,5 +739,12 @@
   "email_report_reviewed_subject": "[FluxDrop] Your report #{id} was reviewed",
   "email_report_reviewed_body": "Hello,\n\nThank you for your report #{id} about:\n{url}\n\nWe have reviewed it. Outcome: {outcome}\n\nFor privacy reasons we don't share details about the account or what was said to its owner.\n\n— FluxDrop",
   "email_report_outcome_action": "action was taken — the content is no longer available through this link.",
-  "email_report_outcome_no_action": "after review, no violation of the Terms of Service was found, so no action was taken."
+  "email_report_outcome_no_action": "after review, no violation of the Terms of Service was found, so no action was taken.",
+  "shares_trashed_badge": "In trash",
+  "shares_trashed_hint": "The shared item is in your trash. The link works again if you restore it; deleting it from the trash removes the link.",
+  "shares_missing_badge": "Item missing",
+  "shares_missing_hint": "The shared file or folder is no longer at this path, so the link leads nowhere.",
+  "shares_filter_broken": "Not working",
+  "trash_shares_warning": "{n} share link(s) to this will stop working until you restore it from the trash. Deleting it from the trash removes those links.",
+  "sp_trashed_body": "The owner has moved this file or folder to their trash. If they restore it, this link will work again."
 }

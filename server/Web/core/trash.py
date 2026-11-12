@@ -56,6 +56,46 @@ def _move_to_trash(user_id: int, fs_path: str, original_path: str) -> dict:
         'retention_days': retention,
     }
 
+def _under(path: str, root: str) -> bool:
+    path, root = path.rstrip('/') or '/', root.rstrip('/') or '/'
+    return path == root or path.startswith(root + '/') or root == '/'
+
+
+def trashed_roots(user_id: int) -> list:
+    """original_path of every item this user has in the trash."""
+    try:
+        with _db_connect() as conn:
+            return [r[0] for r in conn.execute(
+                'SELECT original_path FROM trash_items WHERE user_id = ?', (user_id,))]
+    except Exception:
+        return []
+
+
+def is_in_trash(user_id: int, rel_path: str, roots: list | None = None) -> bool:
+    """True when rel_path (user-relative, '/a/b') is a trashed item or inside one."""
+    if roots is None:
+        roots = trashed_roots(user_id)
+    return any(_under(rel_path, r) for r in roots)
+
+
+def _drop_shares_under(conn, user_id: int, original_path: str) -> int:
+    """A trashed item is gone for good: remove share links that pointed at it
+    or into it, unless something now exists at that path again (the link
+    then serves the new item, as it would have anyway)."""
+    user_root = os.path.join(SERVE_ROOT, 'FluxDrop', str(user_id))
+    dropped = 0
+    for token, path in conn.execute(
+            "SELECT token, path FROM shared_links WHERE owner_id = ? AND path NOT LIKE '/cdn%'",
+            (user_id,)).fetchall():
+        if not _under(path, original_path):
+            continue
+        if os.path.exists(os.path.join(user_root, path.lstrip('/'))):
+            continue
+        conn.execute('DELETE FROM shared_links WHERE token = ?', (token,))
+        dropped += 1
+    return dropped
+
+
 def _trash_list(user_id: int) -> list:
     with _db_connect() as conn:
         rows = conn.execute(
@@ -107,17 +147,18 @@ def _trash_restore(user_id: int, item_id: int) -> str:
 def _trash_delete_permanent(user_id: int, item_id: int) -> None:
     with _db_connect() as conn:
         row = conn.execute(
-            "SELECT trash_path FROM trash_items WHERE id = ? AND user_id = ?",
+            "SELECT trash_path, original_path FROM trash_items WHERE id = ? AND user_id = ?",
             (item_id, user_id)
         ).fetchone()
         if not row:
             raise RuntimeError('Trash item not found.')
-        tpath = row[0]
+        tpath, orig = row
         if os.path.isdir(tpath):
             shutil.rmtree(tpath, ignore_errors=True)
         elif os.path.exists(tpath):
             os.remove(tpath)
         conn.execute('DELETE FROM trash_items WHERE id = ?', (item_id,))
+        _drop_shares_under(conn, user_id, orig)
         conn.commit()
 
 def _trash_purge_expired() -> int:
@@ -126,11 +167,11 @@ def _trash_purge_expired() -> int:
     try:
         with _db_connect() as conn:
             rows = conn.execute(
-                "SELECT id, trash_path, is_dir FROM trash_items"
+                "SELECT id, trash_path, is_dir, user_id, original_path FROM trash_items"
                 " WHERE (deleted_at + retention_days * 86400) <= ?",
                 (now,)
             ).fetchall()
-            for tid, tpath, is_d in rows:
+            for tid, tpath, is_d, uid, orig in rows:
                 try:
                     if is_d:
                         shutil.rmtree(tpath, ignore_errors=True)
@@ -139,6 +180,7 @@ def _trash_purge_expired() -> int:
                 except Exception:
                     pass
                 conn.execute('DELETE FROM trash_items WHERE id = ?', (tid,))
+                _drop_shares_under(conn, uid, orig)
                 purged += 1
             if purged:
                 conn.commit()

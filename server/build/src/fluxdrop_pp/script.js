@@ -4097,12 +4097,26 @@ function _selBarGhost() {
 // and the Del-key hotkey — all three want the same confirm → clear selection
 // → move each path to Trash → show one batch notice → reload flow. Works
 // fine for a single path too (batch notice text handles singular/plural).
+// How many of the user's working share links point at (or into) these paths.
+// Trashing pauses them until the item is restored — worth a line in the
+// confirm. Best effort: on any error the confirm just goes without it.
+async function _trashShareWarning(paths) {
+    try {
+        const shares = (await apiCall('/api/v1/shares', 'GET')).shares || [];
+        const roots = paths.map(p => '/' + stripInternalPrefix(p).replace(/^\/+|\/+$/g, ''));
+        const n = shares.filter(s => !s.disabled_at && !s.target_state && s.path
+            && !s.path.startsWith('/cdn')
+            && roots.some(r => s.path === r || s.path.startsWith(r + '/'))).length;
+        return n ? '\n\n' + t('trash_shares_warning', { n }) : '';
+    } catch { return ''; }
+}
+
 async function _trashSelectedPaths(paths) {
     if (!paths.length) return;
     const n = paths.length;
     const ok = await showConfirmModal({
         title: t('sel_bar_delete_title', { n }),
-        message: t('sel_bar_delete_msg', { n, days: _lastKnownRetentionDays }),
+        message: t('sel_bar_delete_msg', { n, days: _lastKnownRetentionDays }) + await _trashShareWarning(paths),
     });
     if (!ok) return;
     _clearSelection(); _updateSelBar();
@@ -4889,7 +4903,7 @@ window.deleteItem = async function(path, optsOrLegacy = {}) {
     if (!skipConfirm) {
         const ok = await showConfirmModal({
             title: t('trash_single_title', { name: disp }),
-            message: t('sel_bar_delete_msg', { n: 1, days: _lastKnownRetentionDays }),
+            message: t('sel_bar_delete_msg', { n: 1, days: _lastKnownRetentionDays }) + await _trashShareWarning([path]),
         });
         if (!ok) return false;
     }
@@ -8785,7 +8799,7 @@ let _smGen = 0;   // bumps on every list render, so stale background chunks stop
 const _smExpired = s => !!s.expires_at && new Date(s.expires_at) < new Date();
 const _SM_FILTERS = [
     ['all',      () => true],
-    ['active',   s => !_smExpired(s) && !s.disabled_at],
+    ['active',   s => !_smExpired(s) && !s.disabled_at && !s.target_state],
     ['expired',  _smExpired],
     ['files',    s => !s.is_dir],
     ['folders',  s => !!s.is_dir],
@@ -8794,6 +8808,7 @@ const _SM_FILTERS = [
     ['account',  s => !!s.require_account],
     ['stats',    s => !!s.track_stats],
     ['disabled', s => !!s.disabled_at],   // disabled by the operator after a report
+    ['broken',   s => !!s.target_state],  // item in the trash / no longer there
 ];
 const _smFilterFn = () => (_SM_FILTERS.find(f => f[0] === _smFilter) || _SM_FILTERS[0])[1];
 
@@ -8994,6 +9009,11 @@ function renderShareRow(s) {
             : `<span class="sm-badge">⏰ ${_fmtExpiry(expDate)}</span>`;
         expiryInputVal = _localDateTimeValue(expDate);
     }
+    // The shared item is in the trash (link works again after a restore) or gone
+    if (!off && s.target_state === 'trashed')
+        badge = `<span class="sm-badge" title="${escapeHtml(t('shares_trashed_hint'))}">🗑 ${t('shares_trashed_badge')}</span>`;
+    else if (!off && s.target_state === 'missing')
+        badge = `<span class="sm-badge expired" title="${escapeHtml(t('shares_missing_hint'))}">⚠ ${t('shares_missing_badge')}</span>`;
 
     const toggle = (field, on, label, disabled = false) =>
         `<label><input type="checkbox" class="sm-toggle" data-token="${s.token}" data-field="${field}" ${on ? 'checked' : ''} ${(disabled && !on) || off ? 'disabled' : ''}><span>${label}</span></label>`;

@@ -165,7 +165,7 @@ from core.upload import MAX_JSON_BODY, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_TTL, _u
 from core.shares import _get_share, _get_shares_for_user, _create_share, _update_share, _delete_share, _get_share_stats, _get_share_raw, \
     _is_share_expired, _log_share_access, _parse_expiry
 from core.trash import _trash_size_used, _trash_list, _trash_retention_days, _move_to_trash, _trash_restore, _trash_delete_permanent, \
-    _trash_purge_expired, _user_trash_root
+    _trash_purge_expired, _user_trash_root, trashed_roots, is_in_trash
 from core.net_monitor import _get_net_history_by_day, _net_state_lock, _net_monitor_state, _get_net_outages, _net_monitor_worker, _reconcile_open_outages
 from core.status import _build_status_page, _get_status_history, _get_recent_incidents, _get_message_board, _record_status_snapshot, _dir_cache_get, _dir_cache_get_ex, _probe_tcp, _probe_tls, _fmt_bytes
 from core.quota import _compute_dynamic_quota, _quota_updater_thread, _check_server_space
@@ -4596,6 +4596,19 @@ class AuthHandler(SimpleHTTPRequestHandler):
         if not user_id:
             return self._send_response(401, json.dumps({"error": "Unauthorized"}))
         shares = _get_shares_for_user(user_id)
+        # target_state: why a link currently leads nowhere — 'trashed' (works
+        # again if the item is restored) or 'missing' (moved/deleted outside
+        # FluxDrop's rename/move, which would have updated the link)
+        user_root = os.path.join(SERVE_ROOT, "FluxDrop", str(user_id))
+        roots = None
+        for sh in shares:
+            sh['target_state'] = None
+            p = sh.get('path') or ''
+            if p.startswith('/cdn') or os.path.exists(os.path.join(user_root, p.lstrip('/'))):
+                continue
+            if roots is None:
+                roots = trashed_roots(user_id)
+            sh['target_state'] = 'trashed' if is_in_trash(user_id, p, roots) else 'missing'
         return self._send_response(200, json.dumps({"shares": shares}))
 
     def handle_shares_create(self):
@@ -4875,8 +4888,14 @@ class AuthHandler(SimpleHTTPRequestHandler):
 
             return self._send_response(200, self._render_share_page(share, token, target_fs, base_fs, sub_path or ""), "text/html")
 
-        # The shared file/folder (or a path inside a shared folder) is gone
-        return self._send_response(404, self._render_share_not_found_page(gone=True), "text/html")
+        # The shared file/folder (or a path inside a shared folder) is gone.
+        # In the owner's trash it may come back (restoring reactivates the link).
+        trashed = False
+        if not base_path_str.startswith("/cdn"):
+            rel = os.path.relpath(target_fs, owner_root)
+            rel = '/' if rel == '.' else '/' + rel.replace(os.sep, '/')
+            trashed = is_in_trash(owner_id, rel)
+        return self._send_response(404, self._render_share_not_found_page(gone=True, trashed=trashed), "text/html")
 
     def _owner_quota_error(self, owner_id, extra_bytes: int):
         """Error text when adding extra_bytes to owner_id's storage would
@@ -5476,10 +5495,11 @@ class AuthHandler(SimpleHTTPRequestHandler):
     def _render_share_expired_page(self):
         return _render_snippet('share_expired_page.html', lang=pick_lang(self), PUBLIC_DOMAIN=PUBLIC_DOMAIN)
 
-    def _render_share_not_found_page(self, gone: bool = False):
-        """gone=True: the link exists but its file/folder was moved or deleted."""
+    def _render_share_not_found_page(self, gone: bool = False, trashed: bool = False):
+        """gone=True: the link exists but its file/folder was moved or deleted.
+        trashed=True: it's in the owner's trash — the link may work again."""
         lang = pick_lang(self)
-        body = _tr(lang, 'sp_gone_body' if gone else 'sp_notfound_body')
+        body = _tr(lang, 'sp_trashed_body' if trashed else 'sp_gone_body' if gone else 'sp_notfound_body')
         return _render_snippet('share_not_found_page.html', lang=lang, PUBLIC_DOMAIN=PUBLIC_DOMAIN,
                                BODY=_html_mod.escape(body))
 

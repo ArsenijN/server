@@ -377,6 +377,9 @@ since I can just remember CSS and HTML, and do that by hands)
   from share, report and error pages)
 - [ ] Link previews in chats: `og:` tags on file and folder share pages,
   the status page and the app
+- [ ] Share links and the trash (V0.22.0.52): trashing pauses the item's
+  links, restoring brings them back, deleting from the trash (or expiry)
+  removes them; rename/move keep links working (they follow the item)
 
 ## Can't reproduce / gone / unclear
 *Kept for reference; reopen with exact steps if it shows up again.*

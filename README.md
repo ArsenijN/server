@@ -1,4 +1,4 @@
-# FluxDrop & server `v0.22.0.51`
+# FluxDrop & server `v0.22.0.52`
 Self-hosted file hosting (FluxDrop) plus the rest of my home server, in one
 repo. Anyone can use it.
 
@@ -45,6 +45,12 @@ repo. Anyone can use it.
   it, and a note when the list was cut short
 
 **Changed**
+- Share links and the trash: moving a shared item to the trash pauses its
+  links (as before) — but now the confirm says how many links will stop,
+  the links manager marks them "In trash" (or "Item missing") with a "Not
+  working" category, visitors read that the owner may restore it, and
+  restoring brings the links back. Deleting the item from the trash for
+  good (or the trash expiring) removes its links instead of leaving dead ones
 - Admin → Reports: every closing action (disable / restore link, delete
   file, resolve, dismiss) can email the reporter the outcome — only "action
   taken" or "no action", in the language they reported in, never anything

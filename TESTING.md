@@ -471,7 +471,7 @@ Needs `./build.sh`, sync and a restart of the HTTPS server and the backend.
 - [ ] https://fluxdrop.me/fluxdrop_pp/ → 308 to https://fluxdrop.me/;
   `/fluxdrop_pp/files/<folder>` → `/files/<folder>`; `?policy=tos` is kept;
   `/fluxdrop_pp/script.js` still loads (200)
-- [ ] Open https://fluxdrop.me/, then devtools → Application/Service Workers:
+- [x] Open https://fluxdrop.me/, then devtools → Application/Service Workers:
   only the `fluxdrop.me` (scope `/`) worker remains, `/fluxdrop_pp` is gone
 - [ ] Devtools → Sources: the maps show `script.js`, `sw.js`… without
   `media/arsen/...` folders (`curl -s https://fluxdrop.me/fluxdrop_pp/sw.js.map | head -c 80`)
@@ -482,13 +482,26 @@ Needs `./build.sh`, sync and a restart of the HTTPS server and the backend.
 Needs `./build.sh`, sync and a backend restart (adds `content_reports.reporter_lang`).
 Use a test account and a throwaway share; report it from /report?lang=uk
 with an email you can read, and once more while signed in as another test account.
-- [ ] Disable link: the dialog has the owner message, the language line and a
+- [x] Disable link: the dialog has the owner message, the language line and a
   checked "Email the reporter the outcome" box; both reporters get "Вашу
   скаргу #N розглянуто" / "Your report #N was reviewed" with "action taken"
   (each in their own language), nothing about the owner
-- [ ] Restore link: dialog is on top (not dimmed) with a "why" message box;
+- [x] Restore link: dialog is on top (not dimmed) with a "why" message box;
   owner email shows "Коментар оператора: …"; reporter gets "no action"
-- [ ] Report card: "Рішення: посилання вимкнено → посилання відновлено"
+- [x] Report card: "Рішення: посилання вимкнено → посилання відновлено"
 - [ ] Untick the box → no reporter email; an anonymous report with no email
   shows no box, and Resolve / Dismiss on it are one click as before
-- [ ] Admin → Users → delete a test user: the confirm is on top of the panel
+- [x] Admin → Users → delete a test user: the confirm is on top of the panel
+
+## Added in V0.22.0.52
+Needs `./build.sh`, sync and a backend restart. Use a test account.
+- [ ] Share a folder and a file inside it, then Delete the folder: the
+  confirm adds "Спільних посилань на це: 2…"; deleting an unshared item
+  has no such line
+- [ ] Open both links: 404 page "Власник перемістив цей файл чи теку в
+  кошик. Якщо їх відновлять, посилання знову запрацює."
+- [ ] Shared links manager: both show "🗑 У кошику" (hover: explanation);
+  "Не працюють" category counts them; they're not under "Активні"
+- [ ] Restore the folder from the trash → both links work again, badges gone
+- [ ] Trash it again, then delete it from the trash forever (or Empty
+  trash) → both links are gone from the links manager
